@@ -1,0 +1,294 @@
+/* RTL Support - Selective approach to avoid mirroring entire UI */
+
+/* Only apply RTL to text content, not layout elements */
+body[dir="rtl"] {
+  direction: rtl;
+}
+
+/* Reset specific elements that should remain LTR */
+body[dir="rtl"] .container,
+body[dir="rtl"] .row,
+body[dir="rtl"] .col,
+body[dir="rtl"] .card,
+body[dir="rtl"] .table,
+body[dir="rtl"] .btn,
+body[dir="rtl"] .form-control,
+body[dir="rtl"] .input-group,
+body[dir="rtl"] .navbar,
+body[dir="rtl"] .nav,
+body[dir="rtl"] .dropdown-menu,
+body[dir="rtl"] .modal,
+body[dir="rtl"] .modal-content,
+body[dir="rtl"] .modal-header,
+body[dir="rtl"] .modal-body,
+body[dir="rtl"] .modal-footer,
+body[dir="rtl"] header,
+body[dir="rtl"] .header,
+body[dir="rtl"] .navbar-header,
+body[dir="rtl"] .navbar-nav,
+body[dir="rtl"] .navbar-brand,
+body[dir="rtl"] .navbar-toggler,
+body[dir="rtl"] .navbar-collapse,
+body[dir="rtl"] .d-flex,
+body[dir="rtl"] .justify-content-between,
+body[dir="rtl"] .justify-content-start,
+body[dir="rtl"] .justify-content-end,
+body[dir="rtl"] .align-items-center,
+body[dir="rtl"] .me-auto,
+body[dir="rtl"] .ms-auto {
+  direction: ltr;
+}
+
+/* Text alignment for RTL */
+body[dir="rtl"] h1,
+body[dir="rtl"] h2,
+body[dir="rtl"] h3,
+body[dir="rtl"] h4,
+body[dir="rtl"] h5,
+body[dir="rtl"] h6,
+body[dir="rtl"] p,
+body[dir="rtl"] span,
+body[dir="rtl"] div,
+body[dir="rtl"] label,
+body[dir="rtl"] .text-left {
+  text-align: right;
+}
+
+/* Keep specific elements left-aligned */
+body[dir="rtl"] .text-center {
+  text-align: center !important;
+}
+
+body[dir="rtl"] .text-right {
+  text-align: left !important;
+}
+
+/* Form labels and inputs */
+body[dir="rtl"] .form-label {
+  text-align: right;
+}
+
+body[dir="rtl"] .form-control::placeholder {
+  text-align: right;
+}
+
+/* Navigation items */
+body[dir="rtl"] .nav-link {
+  text-align: right;
+}
+
+/* Table headers and cells */
+body[dir="rtl"] .table th,
+body[dir="rtl"] .table td {
+  text-align: right;
+}
+
+/* Buttons - keep them normal but text right-aligned */
+body[dir="rtl"] .btn {
+  text-align: right;
+}
+
+/* Dropdown items */
+body[dir="rtl"] .dropdown-item {
+  text-align: right;
+}
+
+/* Modal content */
+body[dir="rtl"] .modal-title {
+  text-align: right;
+}
+
+body[dir="rtl"] .modal-body {
+  text-align: right;
+}
+
+/* Card content */
+body[dir="rtl"] .card-title,
+body[dir="rtl"] .card-text {
+  text-align: right;
+}
+
+/* Alert messages */
+body[dir="rtl"] .alert {
+  text-align: right;
+}
+
+/* Badge and labels */
+body[dir="rtl"] .badge,
+body[dir="rtl"] .label {
+  text-align: right;
+}
+
+/* Pagination */
+body[dir="rtl"] .pagination {
+  direction: ltr; /* Keep pagination LTR */
+}
+
+body[dir="rtl"] .page-link {
+  text-align: center;
+}
+
+/* Breadcrumb */
+body[dir="rtl"] .breadcrumb {
+  direction: ltr; /* Keep breadcrumb LTR */
+}
+
+/* Progress bars */
+body[dir="rtl"] .progress {
+  direction: ltr; /* Keep progress bars LTR */
+}
+
+/* Icons and images - keep them normal */
+body[dir="rtl"] .icon,
+body[dir="rtl"] img,
+body[dir="rtl"] svg,
+body[dir="rtl"] .fa,
+body[dir="rtl"] .fas,
+body[dir="rtl"] .far,
+body[dir="rtl"] .fab {
+  direction: ltr;
+}
+
+/* Specific overrides for problematic elements */
+body[dir="rtl"] .d-flex {
+  direction: ltr; /* Keep flexbox layouts LTR */
+}
+
+/* Header specific overrides */
+body[dir="rtl"] header,
+body[dir="rtl"] .header,
+body[dir="rtl"] .navbar,
+body[dir="rtl"] .header-ltr {
+  direction: ltr !important;
+}
+
+/* Force header to stay LTR */
+.header-ltr {
+  direction: ltr !important;
+}
+
+body[dir="rtl"] .header-ltr {
+  direction: ltr !important;
+}
+
+body[dir="rtl"] .navbar .d-flex {
+  direction: ltr !important;
+}
+
+body[dir="rtl"] .navbar .justify-content-between {
+  justify-content: space-between !important;
+}
+
+body[dir="rtl"] .navbar .justify-content-start {
+  justify-content: flex-start !important;
+}
+
+body[dir="rtl"] .navbar .justify-content-end {
+  justify-content: flex-end !important;
+}
+
+/* Keep header elements in original positions */
+body[dir="rtl"] .navbar-brand {
+  order: 1;
+}
+
+body[dir="rtl"] .navbar-nav {
+  order: 2;
+}
+
+body[dir="rtl"] .navbar .ms-auto {
+  margin-left: auto !important;
+  margin-right: 0 !important;
+}
+
+body[dir="rtl"] .navbar .me-auto {
+  margin-right: auto !important;
+  margin-left: 0 !important;
+}
+
+/* Search bar in header */
+body[dir="rtl"] .navbar .form-control {
+  direction: ltr;
+  text-align: right;
+}
+
+body[dir="rtl"] .navbar .form-control::placeholder {
+  text-align: right;
+}
+
+/* Language switcher in header */
+body[dir="rtl"] .language-switcher-header {
+  direction: ltr;
+}
+
+body[dir="rtl"] .language-switcher-button {
+  direction: ltr;
+}
+
+/* Force all header children to stay LTR */
+.header-ltr *,
+.header-ltr *::before,
+.header-ltr *::after {
+  direction: ltr !important;
+}
+
+body[dir="rtl"] .header-ltr *,
+body[dir="rtl"] .header-ltr *::before,
+body[dir="rtl"] .header-ltr *::after {
+  direction: ltr !important;
+}
+
+/* Specific header elements */
+.header-ltr .header-topbar,
+.header-ltr .zoho-nav-sticky,
+.header-ltr .zoho-nav-scroll {
+  direction: ltr !important;
+}
+
+body[dir="rtl"] .header-ltr .header-topbar,
+body[dir="rtl"] .header-ltr .zoho-nav-sticky,
+body[dir="rtl"] .header-ltr .zoho-nav-scroll {
+  direction: ltr !important;
+}
+
+/* General layout overrides */
+body[dir="rtl"] .justify-content-start {
+  justify-content: flex-start !important;
+}
+
+body[dir="rtl"] .justify-content-end {
+  justify-content: flex-end !important;
+}
+
+body[dir="rtl"] .text-start {
+  text-align: right !important;
+}
+
+body[dir="rtl"] .text-end {
+  text-align: left !important;
+}
+
+/* Margin and padding adjustments for RTL */
+body[dir="rtl"] .me-1 { margin-left: 0.25rem !important; margin-right: 0 !important; }
+body[dir="rtl"] .me-2 { margin-left: 0.5rem !important; margin-right: 0 !important; }
+body[dir="rtl"] .me-3 { margin-left: 1rem !important; margin-right: 0 !important; }
+body[dir="rtl"] .me-4 { margin-left: 1.5rem !important; margin-right: 0 !important; }
+body[dir="rtl"] .me-5 { margin-left: 3rem !important; margin-right: 0 !important; }
+
+body[dir="rtl"] .ms-1 { margin-right: 0.25rem !important; margin-left: 0 !important; }
+body[dir="rtl"] .ms-2 { margin-right: 0.5rem !important; margin-left: 0 !important; }
+body[dir="rtl"] .ms-3 { margin-right: 1rem !important; margin-left: 0 !important; }
+body[dir="rtl"] .ms-4 { margin-right: 1.5rem !important; margin-left: 0 !important; }
+body[dir="rtl"] .ms-5 { margin-right: 3rem !important; margin-left: 0 !important; }
+
+body[dir="rtl"] .pe-1 { padding-left: 0.25rem !important; padding-right: 0 !important; }
+body[dir="rtl"] .pe-2 { padding-left: 0.5rem !important; padding-right: 0 !important; }
+body[dir="rtl"] .pe-3 { padding-left: 1rem !important; padding-right: 0 !important; }
+body[dir="rtl"] .pe-4 { padding-left: 1.5rem !important; padding-right: 0 !important; }
+body[dir="rtl"] .pe-5 { padding-left: 3rem !important; padding-right: 0 !important; }
+
+body[dir="rtl"] .ps-1 { padding-right: 0.25rem !important; padding-left: 0 !important; }
+body[dir="rtl"] .ps-2 { padding-right: 0.5rem !important; padding-left: 0 !important; }
+body[dir="rtl"] .ps-3 { padding-right: 1rem !important; padding-left: 0 !important; }
+body[dir="rtl"] .ps-4 { padding-right: 1.5rem !important; padding-left: 0 !important; }
+body[dir="rtl"] .ps-5 { padding-right: 3rem !important; padding-left: 0 !important; }

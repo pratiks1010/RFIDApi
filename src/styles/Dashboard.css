@@ -1,0 +1,238 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+/* Global Analytics Font Styling */
+.analytics-container,
+.analytics-container *,
+.chart-card,
+.chart-card *,
+.summary-cards,
+.summary-cards *,
+.analytics-header,
+.analytics-header *,
+.main-analytics-grid,
+.main-analytics-grid *,
+.bottom-analytics-grid,
+.bottom-analytics-grid *,
+.performance-card,
+.performance-card * {
+  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+@media (max-width: 600px) {
+  .card, .api-card, .form-container {
+    padding: 1rem !important;
+    margin: 0.5rem 0 !important;
+    border-radius: 16px !important;
+  }
+  .api-card h2, .api-card h3, .api-card h4 {
+    font-size: 1.1rem !important;
+  }
+  .api-card button, .form-container button {
+    font-size: 1rem !important;
+    padding: 0.7rem 1rem !important;
+    width: 100% !important;
+    margin-bottom: 0.5rem !important;
+  }
+  .api-card input, .form-container input, .form-container select, .form-container textarea {
+    font-size: 1rem !important;
+    padding: 0.7rem 1rem !important;
+    width: 100% !important;
+    margin-bottom: 0.5rem !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .row.h-100.g-4 {
+    flex-direction: column !important;
+  }
+  .col-md-4, .col-md-8 {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
+    margin-bottom: 1rem !important;
+  }
+  .card {
+    border-radius: 12px !important;
+    margin-bottom: 1rem !important;
+  }
+  .list-group-item {
+    width: 100% !important;
+    font-size: 1rem !important;
+    margin-bottom: 0.7rem !important;
+  }
+  .btn, .btn-outline-success, .btn-primary {
+    width: 100% !important;
+    margin-bottom: 0.5rem !important;
+    font-size: 1rem !important;
+    padding: 0.7rem 1rem !important;
+  }
+  .d-flex.align-items-center.mb-4.justify-content-between {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.7rem !important;
+  }
+  .response-container {
+    overflow-x: auto !important;
+    font-size: 0.95rem !important;
+  }
+}
+
+.admin-dashboard-input::placeholder {
+  color: #aaa;
+  font-size: 0.89rem;
+  font-weight: 400;
+  opacity: 1;
+  letter-spacing: 0.05em;
+  padding-left: 8px;
+}
+.admin-dashboard-input::-webkit-input-placeholder {
+  color: #aaa;
+  font-size: 0.89rem;
+  font-weight: 400;
+  opacity: 1;
+  letter-spacing: 0.05em;
+  padding-left: 8px;
+}
+.admin-dashboard-input:-ms-input-placeholder {
+  color: #aaa;
+  font-size: 0.89rem;
+  font-weight: 400;
+  opacity: 1;
+  letter-spacing: 0.05em;
+  padding-left: 8px;
+}
+.admin-dashboard-input::-ms-input-placeholder {
+  color: #aaa;
+  font-size: 0.89rem;
+  font-weight: 400;
+  opacity: 1;
+  letter-spacing: 0.05em;
+  padding-left: 8px;
+}
+
+/* Zoho-style Toastify notification overrides */
+.Toastify__toast {
+  border-radius: 14px !important;
+  box-shadow: 0 8px 32px rgba(44, 62, 80, 0.13) !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 1.08rem !important;
+  font-weight: 600 !important;
+  padding: 18px 28px 18px 18px !important;
+  min-height: 56px !important;
+  display: flex;
+  align-items: center;
+  animation: zoho-toast-slide-in 0.4s cubic-bezier(.4,1.4,.6,1) !important;
+}
+
+.Toastify__toast--success {
+  background: linear-gradient(90deg, #43e97b 0%, #38f9d7 100%) !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+.Toastify__toast-icon {
+  margin-right: 16px !important;
+  background: #fff;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px #38f9d733;
+}
+
+.Toastify__toast--success .Toastify__toast-icon svg {
+  color: #43e97b !important;
+  width: 22px;
+  height: 22px;
+}
+
+.Toastify__close-button {
+  color: #fff !important;
+  opacity: 0.85 !important;
+  font-size: 1.3rem !important;
+  right: 12px !important;
+  top: 10px !important;
+  transition: color 0.18s;
+}
+.Toastify__close-button:hover {
+  color: #22223b !important;
+  opacity: 1 !important;
+}
+
+@keyframes zoho-toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Enhanced Chart Cards with Gradient Animations */
+.chart-card.enhanced {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-card.enhanced:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+.chart-card.enhanced::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(
+    45deg,
+    #0077d4,
+    #22c55e,
+    #f59e0b,
+    #64748b,
+    #0077d4
+  );
+  background-size: 400% 400%;
+  animation: gradientShift 3s ease infinite;
+  z-index: 1;
+}
+
+.chart-card.enhanced::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(248, 250, 252, 0.9) 100%
+  );
+  z-index: -1;
+}
+
+/* Chart container enhancements */
+.chart-card.enhanced .chart-container {
+  position: relative;
+  z-index: 2;
+  padding: 5px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}

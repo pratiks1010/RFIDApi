@@ -1,20 +1,279 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
+import DashboardAnalytics from './components/DashboardAnalytics';
 import RFIDIntegration from './components/RFIDIntegration';
-import Inventory from './components/Inventory';
+import {
+  LabelStockList,
+  RFIDDeviceDetails,
+  RFIDTags,
+  TagUsage,
+  StockVerification,
+  InvoiceStock,
+  RFIDLabel
+} from './components/inventory/components';
 import Footer from './components/Footer';
 import UploadRFID from './components/UploadRFID';
 import RFIDTransactions from './components/RFIDTransactions';
+import RFIDAppDownload from './components/RFIDAppDownload';
 import NotFound from './components/NotFound';
+import { AdminLogin, AdminDashboard } from './components/admin';
+import AdminRfidTagsReport from './components/admin/AdminRfidTagsReport';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
+import './styles/rtl.css';
 import { ToastContainer } from 'react-toastify';
+import Layout from './components/Layout';
+import ZohoLoader from './components/common/Loader';
+import { NotificationProvider } from './context/NotificationContext';
+import { TranslationProvider } from './context/TranslationContext';
+import WelcomeModal from './components/common/WelcomeModal';
+import './i18n';
 
-// Protected route authentication check
-const isAuthenticated = () => !!localStorage.getItem('token');
+// Global loading context
+const LoadingContext = createContext({ loading: false, setLoading: () => {} });
+export const useLoading = () => useContext(LoadingContext);
+
+const LoadingProvider = ({ children }) => {
+  const [loading, setLoading] = useState(false);
+  return (
+    <LoadingContext.Provider value={{ loading, setLoading }}>
+      {loading && <ZohoLoader />}
+      {children}
+    </LoadingContext.Provider>
+  );
+};
+
+// Enhanced authentication check with navigation protection
+const useAuthProtection = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  React.useEffect(() => {
+    const token = localStorage.getItem('token');
+    const adminToken = localStorage.getItem('adminToken');
+    let isAuth = false;
+    let isAdminAuth = false;
+    
+    // Check user authentication
+    if (token) {
+      try {
+        // Validate token is not expired
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const tokenPayload = JSON.parse(window.atob(base64));
+        
+        // Check if token is expired (if exp field exists)
+        if (tokenPayload.exp) {
+          const currentTime = Math.floor(Date.now() / 1000);
+          isAuth = tokenPayload.exp > currentTime;
+          
+          // If token is expired, clear storage
+          if (!isAuth) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('userInfo');
+            localStorage.removeItem('lastLoginTime');
+          }
+        } else {
+          isAuth = true; // If no expiry, consider valid
+        }
+      } catch (error) {
+        // Invalid token format, clear storage
+        localStorage.removeItem('token');
+        localStorage.removeItem('userInfo');
+        localStorage.removeItem('lastLoginTime');
+        isAuth = false;
+      }
+    }
+    
+    // Check admin authentication
+    if (adminToken) {
+      try {
+        // Validate admin token is not expired
+        const base64Url = adminToken.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const tokenPayload = JSON.parse(window.atob(base64));
+        
+        // Check if token is expired (if exp field exists)
+        if (tokenPayload.exp) {
+          const currentTime = Math.floor(Date.now() / 1000);
+          isAdminAuth = tokenPayload.exp > currentTime;
+          
+          // If token is expired, clear storage
+          if (!isAdminAuth) {
+            localStorage.removeItem('adminToken');
+          }
+        } else {
+          isAdminAuth = true; // If no expiry, consider valid
+        }
+      } catch (error) {
+        // Invalid token format, clear storage
+        localStorage.removeItem('adminToken');
+        isAdminAuth = false;
+      }
+    }
+    
+    // Handle navigation based on authentication status
+    const currentPath = location.pathname;
+    
+    // If user is authenticated and tries to access login/register pages
+    if (isAuth && (currentPath === '/login' || currentPath === '/register')) {
+      navigate('/dashboard', { replace: true });
+    }
+    
+    // If admin is authenticated and tries to access admin-login
+    if (isAdminAuth && currentPath === '/admin-login') {
+      navigate('/admin-dashboard', { replace: true });
+    }
+    
+    // If no authentication and trying to access protected routes
+    if (!isAuth && !isAdminAuth) {
+      const protectedRoutes = [
+        '/dashboard',
+        '/analytics',
+        '/rfid-integration',
+        '/label-stock',
+        '/rfid-devices',
+        '/rfid-tags',
+        '/tag-usage',
+        '/stock-verification',
+
+        '/upload-rfid',
+        '/rfid-transactions',
+        '/rfid-app-download'
+      ];
+      const adminRoutes = ['/admin-dashboard'];
+      
+      if (protectedRoutes.includes(currentPath)) {
+        navigate('/login', { replace: true });
+      } else if (adminRoutes.includes(currentPath)) {
+        navigate('/admin-login', { replace: true });
+      } else if (currentPath === '/') {
+        navigate('/login', { replace: true });
+      }
+    }
+    
+    // If user is authenticated but tries to access admin routes
+    if (isAuth && !isAdminAuth && currentPath === '/admin-dashboard') {
+      navigate('/dashboard', { replace: true });
+    }
+    
+      // If admin is authenticated but tries to access user routes
+      if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'].includes(currentPath)) {
+        navigate('/admin-dashboard', { replace: true });
+      }
+  }, [location.pathname, navigate]);
+  
+  // Add popstate listener to handle browser back/forward buttons
+  React.useEffect(() => {
+    const handlePopState = () => {
+      const token = localStorage.getItem('token');
+      const adminToken = localStorage.getItem('adminToken');
+      const isAuth = !!token;
+      const isAdminAuth = !!adminToken;
+      const currentPath = window.location.pathname;
+      
+      // If not authenticated, always redirect to login/admin-login on protected routes
+              const protectedRoutes = [
+        '/dashboard',
+        '/analytics',
+        '/rfid-integration',
+        '/label-stock',
+        '/invoice-stock',
+        '/rfid-label',
+        '/rfid-devices',
+        '/rfid-tags',
+        '/tag-usage',
+        '/stock-verification',
+        '/upload-rfid',
+        '/rfid-transactions',
+        '/rfid-app-download'
+      ];
+      const adminRoutes = ['/admin-dashboard'];
+      
+      if (!isAuth && !isAdminAuth) {
+        if (protectedRoutes.includes(currentPath)) {
+          navigate('/login', { replace: true });
+        } else if (adminRoutes.includes(currentPath)) {
+          navigate('/admin-login', { replace: true });
+        }
+      }
+    };
+    
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [navigate]);
+};
+
+// Protected route authentication check with enhanced validation
+const isAuthenticated = () => {
+  const token = localStorage.getItem('token');
+  if (!token) return false;
+  
+  try {
+    // Validate token format and expiry
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const tokenPayload = JSON.parse(window.atob(base64));
+    
+    // Check if token is expired (if exp field exists)
+    if (tokenPayload.exp) {
+      const currentTime = Math.floor(Date.now() / 1000);
+      const isValid = tokenPayload.exp > currentTime;
+      
+      // If token is expired, clear storage
+      if (!isValid) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userInfo');
+        localStorage.removeItem('lastLoginTime');
+      }
+      
+      return isValid;
+    }
+    
+    return true; // If no expiry field, consider valid
+  } catch (error) {
+    // Invalid token format, clear storage
+    localStorage.removeItem('token');
+    localStorage.removeItem('userInfo');
+    localStorage.removeItem('lastLoginTime');
+    return false;
+  }
+};
+
+// Admin authentication check
+const isAdminAuthenticated = () => {
+  const adminToken = localStorage.getItem('adminToken');
+  if (!adminToken) return false;
+  
+  try {
+    // Validate admin token format and expiry
+    const base64Url = adminToken.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const tokenPayload = JSON.parse(window.atob(base64));
+    
+    // Check if token is expired (if exp field exists)
+    if (tokenPayload.exp) {
+      const currentTime = Math.floor(Date.now() / 1000);
+      const isValid = tokenPayload.exp > currentTime;
+      
+      // If token is expired, clear storage
+      if (!isValid) {
+        localStorage.removeItem('adminToken');
+      }
+      
+      return isValid;
+    }
+    
+    return true; // If no expiry field, consider valid
+  } catch (error) {
+    // Invalid token format, clear storage
+    localStorage.removeItem('adminToken');
+    return false;
+  }
+};
 
 // Common page wrapper component with smooth scroll
 const PageWrapper = ({ children }) => (
@@ -32,140 +291,394 @@ const PageWrapper = ({ children }) => (
   </div>
 );
 
-function App() {
-  return (
-    <Router>
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'
-      }}>
-        <style>{`
-          .page-wrapper {
-            height: 100vh;
-            overflow-y: auto;
-            scroll-behavior: smooth;
-            -ms-overflow-style: none;  /* IE and Edge */
-            scrollbar-width: none;  /* Firefox */
-          }
-          .page-wrapper::-webkit-scrollbar {
-            display: none; /* Chrome, Safari, Opera */
-          }
-          
-          .content-fade-in {
-            animation: fadeIn 0.5s ease-in-out;
-          }
-          
-          @keyframes fadeIn {
-            from {
-              opacity: 0;
-              transform: translateY(10px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          
-          .smooth-scroll {
-            scroll-behavior: smooth;
-            transition: all 0.3s ease;
-          }
-          
-          /* Add smooth transition for route changes */
-          .route-transition {
-            animation: routeChange 0.3s ease-out;
-          }
-          
-          @keyframes routeChange {
-            from {
-              opacity: 0;
-              transform: translateY(20px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-        `}</style>
+// Session timeout management
+const useSessionTimeout = () => {
+  const navigate = useNavigate();
+  const timeoutRef = React.useRef(null);
+  const warningRef = React.useRef(null);
+  
+  const TIMEOUT_DURATION = 30 * 60 * 1000; // 30 minutes
+  const WARNING_DURATION = 5 * 60 * 1000; // 5 minutes before timeout
+  
+  const logout = React.useCallback(() => {
+    // Clear all authentication data
+    localStorage.removeItem('token');
+    localStorage.removeItem('userInfo');
+    localStorage.removeItem('lastLoginTime');
+    localStorage.removeItem('showWelcomeToast');
+    localStorage.removeItem('adminToken');
+    sessionStorage.clear();
+    
+    // Navigate to login
+    navigate('/login?session_expired=true', { replace: true });
+  }, [navigate]);
+  
+  const resetTimeout = React.useCallback(() => {
+    // Clear existing timeouts
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (warningRef.current) clearTimeout(warningRef.current);
+    
+    // Only set timeout if user is authenticated
+    const token = localStorage.getItem('token');
+    const adminToken = localStorage.getItem('adminToken');
+    
+    if (token || adminToken) {
+      // Set warning timeout
+      warningRef.current = setTimeout(() => {
+        console.warn('Session will expire in 5 minutes');
+      }, TIMEOUT_DURATION - WARNING_DURATION);
+      
+      // Set logout timeout
+      timeoutRef.current = setTimeout(() => {
+        logout();
+      }, TIMEOUT_DURATION);
+    }
+  }, [logout, TIMEOUT_DURATION, WARNING_DURATION]);
+  
+  React.useEffect(() => {
+    // Events that reset the timeout
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+    
+    const resetTimeoutHandler = () => resetTimeout();
+    
+    // Add event listeners
+    events.forEach(event => {
+      document.addEventListener(event, resetTimeoutHandler, true);
+    });
+    
+    // Initial timeout setup
+    resetTimeout();
+    
+    // Cleanup
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, resetTimeoutHandler, true);
+      });
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (warningRef.current) clearTimeout(warningRef.current);
+    };
+  }, [resetTimeout]);
+};
 
-        <Routes>
-          <Route path="/login" element={
-            <div className="page-wrapper">
-              <Login />
-              <Footer />
-            </div>
-          } />
-          <Route path="/register" element={
-            <div className="page-wrapper">
-              <Register />
-              <Footer />
-            </div>
-          } />
-          <Route path="/dashboard" element={
-            isAuthenticated() ? (
-              <div className="page-wrapper">
-                <div className="route-transition content-fade-in">
-                  <Dashboard />
-                </div>
-              </div>
-            ) : <Navigate to="/login" />
-          } />
-          <Route path="/rfid-integration" element={
-            isAuthenticated() ? (
-              <div className="page-wrapper">
-                <div className="route-transition content-fade-in">
+// Global Authentication Guard Component
+const AuthGuard = ({ children }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Add session timeout management
+  useSessionTimeout();
+  
+  React.useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem('token');
+      const adminToken = localStorage.getItem('adminToken');
+      const currentPath = location.pathname;
+      
+      // Public routes that don't require authentication
+      const publicRoutes = ['/login', '/register', '/admin-login'];
+      
+      // If on a public route, allow access
+      if (publicRoutes.includes(currentPath)) {
+        return;
+      }
+      
+      // Protected user routes
+      const userRoutes = ['/analytics', '/dashboard', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'];
+      
+      // Admin routes
+      const adminRoutes = ['/admin-dashboard'];
+      
+      // Check if trying to access user routes
+      if (userRoutes.includes(currentPath)) {
+        if (!isAuthenticated()) {
+          navigate('/login', { replace: true });
+          return;
+        }
+      }
+      
+      // Check if trying to access admin routes
+      if (adminRoutes.includes(currentPath)) {
+        if (!isAdminAuthenticated()) {
+          navigate('/admin-login', { replace: true });
+          return;
+        }
+      }
+      
+      // Handle root path
+      if (currentPath === '/') {
+        if (isAuthenticated()) {
+          navigate('/analytics', { replace: true });
+        } else if (isAdminAuthenticated()) {
+          navigate('/admin-dashboard', { replace: true });
+        } else {
+          navigate('/login', { replace: true });
+        }
+      }
+    };
+    
+    // Check authentication on every route change
+    checkAuth();
+  }, [location.pathname, navigate]);
+  
+  return children;
+};
+
+// Routes wrapper component with authentication protection
+const RoutesWrapper = () => {
+  useAuthProtection();
+  
+  return (
+    <AuthGuard>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/admin-login" element={<AdminLogin />} />
+
+        {/* Admin dashboard (protected) */}
+        <Route
+          path="/admin-dashboard"
+          element={
+            <AuthGuard>
+              <AdminDashboard />
+            </AuthGuard>
+          }
+        />
+
+        {/* User protected routes (all require AuthGuard) */}
+        <Route element={<Layout />}>
+          <Route path="/analytics" element={<AuthGuard><PageWrapper><DashboardAnalytics /></PageWrapper></AuthGuard>} />
+          <Route path="/dashboard" element={<AuthGuard><PageWrapper><Dashboard /></PageWrapper></AuthGuard>} />
+          <Route
+            path="/rfid-integration"
+            element={
+              <AuthGuard>
+                <PageWrapper>
                   <RFIDIntegration />
-                </div>
-              </div>
-            ) : <Navigate to="/login" />
-          } />
-          <Route path="/inventory" element={
-            isAuthenticated() ? (
-              <div className="page-wrapper">
-                <div className="route-transition content-fade-in">
-                  <Inventory />
-                </div>
-              </div>
-            ) : <Navigate to="/login" />
-          } />
-          <Route path="/upload-rfid" element={
-            isAuthenticated() ? (
-              <div className="page-wrapper">
-                <div className="route-transition content-fade-in">
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/label-stock"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <LabelStockList />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/invoice-stock"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <InvoiceStock />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-label"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <RFIDLabel />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-devices"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <RFIDDeviceDetails />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-tags"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <RFIDTags />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/tag-usage"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <TagUsage />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/stock-verification"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <StockVerification />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+
+          <Route
+            path="/upload-rfid"
+            element={
+              <AuthGuard>
+                <PageWrapper>
                   <UploadRFID />
-                </div>
-              </div>
-            ) : <Navigate to="/login" />
-          } />
-          <Route path="/rfid-transactions" element={
-            isAuthenticated() ? (
-              <div className="page-wrapper">
-                <div className="route-transition content-fade-in">
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-transactions"
+            element={
+              <AuthGuard>
+                <PageWrapper>
                   <RFIDTransactions />
-                </div>
-              </div>
-            ) : <Navigate to="/login" />
-          } />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </div>
-      <ToastContainer 
-        position="bottom-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-        className="smooth-scroll"
-      />
-    </Router>
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-app-download"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <RFIDAppDownload />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+        </Route>
+        
+        {/* Admin routes */}
+        <Route
+          path="/admin-rfid-tags-report"
+          element={
+            <AuthGuard>
+              <PageWrapper>
+                <AdminRfidTagsReport />
+              </PageWrapper>
+            </AuthGuard>
+          }
+        />
+        
+        {/* Not found route */}
+        <Route path="*" element={<NotFound />} />
+        <Route path="/" element={<Navigate to="/analytics" replace />} />
+      </Routes>
+    </AuthGuard>
+  );
+};
+
+function App() {
+  const [showWelcome, setShowWelcome] = useState(false);
+
+  useEffect(() => {
+    // Listen for custom event from Login.js
+    const handler = () => setShowWelcome(true);
+    window.addEventListener('rfid-welcome', handler);
+    return () => window.removeEventListener('rfid-welcome', handler);
+  }, []);
+
+  return (
+    <TranslationProvider>
+      <NotificationProvider>
+        <LoadingProvider>
+          <Router>
+            {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
+            <div style={{
+              minHeight: '100vh',
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'
+            }}>
+              <style>{`
+                .page-wrapper {
+                  height: 100vh;
+                  overflow-y: auto;
+                  scroll-behavior: smooth;
+                  -ms-overflow-style: none;  /* IE and Edge */
+                  scrollbar-width: none;  /* Firefox */
+                }
+                .page-wrapper::-webkit-scrollbar {
+                  display: none; /* Chrome, Safari, Opera */
+                }
+                /* Hide vertical scrollbar globally */
+                html, body {
+                  scrollbar-width: none; /* Firefox */
+                  -ms-overflow-style: none; /* IE and Edge */
+                }
+                html::-webkit-scrollbar, body::-webkit-scrollbar {
+                  display: none;
+                }
+                .content-fade-in {
+                  animation: fadeIn 0.5s ease-in-out;
+                }
+                
+                @keyframes fadeIn {
+                  from {
+                    opacity: 0;
+                    transform: translateY(10px);
+                  }
+                  to {
+                    opacity: 1;
+                    transform: translateY(0);
+                  }
+                }
+                
+                .smooth-scroll {
+                  scroll-behavior: smooth;
+                  transition: all 0.3s ease;
+                }
+                
+                /* Add smooth transition for route changes */
+                .route-transition {
+                  animation: routeChange 0.3s ease-out;
+                }
+                
+                @keyframes routeChange {
+                  from {
+                    opacity: 0;
+                    transform: translateY(20px);
+                  }
+                  to {
+                    opacity: 1;
+                    transform: translateY(0);
+                  }
+                }
+              `}</style>
+
+              <RoutesWrapper />
+            </div>
+            <ToastContainer 
+              position="bottom-right"
+              autoClose={3000}
+              hideProgressBar={false}
+              newestOnTop
+              closeOnClick
+              rtl={false}
+              pauseOnFocusLoss
+              draggable
+              pauseOnHover
+              theme="light"
+              className="smooth-scroll"
+            />
+          </Router>
+        </LoadingProvider>
+      </NotificationProvider>
+    </TranslationProvider>
   );
 }
 

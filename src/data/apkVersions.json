@@ -1,0 +1,51 @@
+{
+  "apkVersions": [
+    {
+      "id": "v1.22",
+      "version": "1.22",
+      "buildNumber": "122",
+      "releaseDate": "2025-06-27",
+      "size": "37 MB",
+      "sizeBytes": 38797312,
+      "isLatest": true,
+      "minAndroidVersion": "6.0",
+      "downloadUrl": "https://drive.google.com/uc?export=download&id=1JnEOK_f3bd2rJ8VbJ8uIjwDXPcm5y_FW",
+      "driveFileId": "1JnEOK_f3bd2rJ8VbJ8uIjwDXPcm5y_FW",
+      "fileName": "rfid-app-v1.22.apk",
+      "features": [
+        "Enhanced RFID scanning performance",
+        "New inventory management dashboard",
+        "Improved data synchronization",
+        "Better stock tracking capabilities",
+        "Optimized UI/UX design",
+        "Real-time inventory updates",
+        "Enhanced security features"
+      ],
+      "bugFixes": [
+        "Fixed connectivity issues with new devices",
+        "Improved data sync stability",
+        "Enhanced app performance",
+        "Resolved login authentication issues",
+        "Fixed RFID scanning accuracy"
+      ]
+    }
+  ],
+  "appInfo": {
+    "name": "RFID Inventory Manager",
+    "packageName": "com.sparkle.rfid",
+    "developer": "Sparkle RFID Solutions",
+    "category": "Business",
+    "rating": 4.5,
+    "totalDownloads": "10K+",
+    "lastUpdated": "2025-06-27",
+    "description": "Professional RFID inventory management solution for businesses"
+  },
+  "systemRequirements": [
+    "Android 6.0 (API level 23) or higher",
+    "2GB RAM minimum",
+    "100MB free storage space",
+    "NFC capability (for RFID scanning)",
+    "Internet connection for cloud sync",
+    "Camera permission for barcode scanning"
+  ]
+} 

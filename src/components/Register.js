@@ -13,7 +13,7 @@ const Register = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showPasswordGuide, setShowPasswordGuide] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -23,32 +23,14 @@ const Register = () => {
     });
   };
 
-  const validatePassword = (password) => {
-    const errors = [];
-    if (!/[A-Z]/.test(password)) {
-      errors.push("Password must have at least one uppercase letter ('A'-'Z')");
-    }
-    if (!/[0-9]/.test(password)) {
-      errors.push("Password must have at least one digit ('0'-'9')");
-    }
-    if (!/[^A-Za-z0-9]/.test(password)) {
-      errors.push("Password must have at least one non-alphanumeric character");
-    }
-    return errors;
-  };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    const passwordErrors = validatePassword(formData.Password);
-    if (passwordErrors.length > 0) {
-      setError(passwordErrors.join('\n'));
-      setLoading(false);
-      return;
-    }
     try {
-      await axios.post('https://soni.loyalstring.co.in/apiProductMaster/AuthRegister', formData);
+      await axios.post('https://soni.loyalstring.co.in/api/ProductMaster/AuthRegister', formData);
       toast.success('Registration successful! Please login.', {
         position: "top-right",
         autoClose: 3000,
@@ -71,275 +53,252 @@ const Register = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #fff 0%, #f8f9fa 60%, #ececec 100%)',
+      background: '#f8f9fa',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      fontFamily: 'Poppins, Montserrat, Arial, sans-serif'
+      fontFamily: 'Poppins, Inter, sans-serif'
     }}>
       <ToastContainer />
       <div style={{
-        minWidth: 400,
-        maxWidth: 480,
         width: '100%',
-        background: 'rgba(255, 255, 255, 0.95)',
-        borderRadius: 24,
-        boxShadow: '0 10px 40px 0 rgba(31, 38, 135, 0.15)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255, 255, 255, 0.5)',
-        padding: '3rem 2.8rem',
-        margin: '2rem 0',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
+        maxWidth: '420px',
+        background: '#ffffff',
+        borderRadius: '12px',
+        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+        padding: '2rem',
+        margin: '1rem'
       }}>
-        <div className="text-center mb-4">
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{ 
-            width: 75,
-            height: 75,
-            background: 'linear-gradient(135deg, #0078d4 0%, #5470FF 100%)',
+            width: '64px',
+            height: '64px',
+            background: '#0078d4',
             borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            margin: '0 auto 1.2rem',
-            boxShadow: '0 8px 24px rgba(84, 112, 255, 0.3)'
+            margin: '0 auto 1rem'
           }}>
-            <i className="fas fa-user-plus fa-2x" style={{ color: 'white' }}></i>
+            <i className="fas fa-user-plus fa-lg" style={{ color: 'white' }}></i>
           </div>
-          <h3 className="mb-3 fw-bold" style={{ 
-            fontSize: '1.8rem', 
-            color: '#333',
-            textAlign: 'center', 
-            letterSpacing: 0.5
+          <img 
+            src="/Logo/Sparkle RFID svg.svg" 
+            alt="Sparkle RFID" 
+            style={{ height: '35px', marginBottom: '1rem' }}
+          />
+          <h3 style={{ 
+            color: '#181818',
+            fontSize: '1.5rem',
+            fontWeight: 700,
+            marginBottom: '0.5rem'
           }}>
-            <img 
-              src="/Logo/Sparkle RFID svg.svg" 
-              alt="Sparkle RFID" 
-              style={{ 
-                height: '35px',
-                marginRight: '8px',
-                verticalAlign: 'middle' 
-              }} 
-            />
-            
+            RFID Secure API
           </h3>
-          <h3 style={{ color: '#000000', fontSize: '2rem' }}>  RFID Secure API </h3>
-          <p style={{ color: '#666', fontSize: '1rem' }}>Register to access the dashboard</p>
+          <p style={{ 
+            color: '#666',
+            fontSize: '0.95rem',
+            fontWeight: 500
+          }}>
+            Register to access the dashboard
+          </p>
         </div>
 
         {error && (
-          <div className="alert alert-danger py-2" style={{ 
-            fontSize: '0.98rem',
-            borderRadius: '14px',
-            border: 'none',
-            background: 'rgba(220, 53, 69, 0.1)',
-            color: '#dc3545'
-          }}>{error}</div>
+          <div style={{ 
+            background: '#fee2e2',
+            color: '#dc2626',
+            padding: '0.75rem 1rem',
+            borderRadius: '8px',
+            marginBottom: '1rem',
+            fontSize: '0.9rem',
+            fontWeight: 600
+          }}>
+            {error}
+          </div>
         )}
-        
-        <form onSubmit={handleSubmit} autoComplete="off">
-          <div className="mb-4">
-            <label htmlFor="Username" className="form-label" style={{ 
-              fontWeight: 600, 
-              color: '#444',
-              fontSize: '0.95rem',
-              marginBottom: '0.5rem'
-            }}>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '1.25rem' }}>
+            <label 
+              htmlFor="Username" 
+              style={{ 
+                display: 'block',
+                marginBottom: '0.5rem',
+                color: '#181818',
+                fontSize: '0.9rem',
+                fontWeight: 600
+              }}
+            >
               Username
             </label>
-            <div className="input-group">
-              <span className="input-group-text" style={{ 
-                background: 'linear-gradient(90deg, #0078d4 0%, #5470FF 100%)',
-                border: 'none', 
-                borderTopLeftRadius: '14px', 
-                borderBottomLeftRadius: '14px' 
+            <div style={{ position: 'relative' }}>
+              <span style={{
+                position: 'absolute',
+                left: '1rem',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#0078d4'
               }}>
-                <i className="fas fa-user text-white"></i>
+                <i className="fas fa-user"></i>
               </span>
               <input
                 type="text"
-                className="form-control"
                 id="Username"
                 name="Username"
                 value={formData.Username}
                 onChange={handleChange}
                 required
-                placeholder="Enter your email or username"
-                style={{ 
-                  fontSize: '1.05rem', 
-                  background: 'rgba(255, 255, 255, 0.9)',
-                  border: '1px solid #e0e0e0', 
-                  borderTopRightRadius: '14px',
-                  borderBottomRightRadius: '14px',
-                  borderLeft: 'none',
-                  padding: '0.7rem 1rem',
-                  transition: 'all 0.3s',
-                  boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
+                placeholder="Enter your username"
+                style={{
+                  width: '100%',
+                  padding: '0.75rem 1rem 0.75rem 2.5rem',
+                  borderRadius: '8px',
+                  border: '1px solid #e5e7eb',
+                  fontSize: '0.95rem',
+                  fontWeight: 500,
+                  color: '#181818',
+                  backgroundColor: '#fff',
+                  transition: 'all 0.2s'
                 }}
               />
             </div>
           </div>
-          
-          <div className="mb-4">
-            <label htmlFor="ClientCode" className="form-label" style={{ 
-              fontWeight: 600, 
-              color: '#444',
-              fontSize: '0.95rem',
-              marginBottom: '0.5rem'
-            }}>
+
+          <div style={{ marginBottom: '1.25rem' }}>
+            <label 
+              htmlFor="ClientCode" 
+              style={{ 
+                display: 'block',
+                marginBottom: '0.5rem',
+                color: '#181818',
+                fontSize: '0.9rem',
+                fontWeight: 600
+              }}
+            >
               Client Code
             </label>
-            <div className="input-group">
-              <span className="input-group-text" style={{ 
-                background: 'linear-gradient(90deg, #0078d4 0%, #5470FF 100%)',
-                border: 'none', 
-                borderTopLeftRadius: '14px', 
-                borderBottomLeftRadius: '14px' 
+            <div style={{ position: 'relative' }}>
+              <span style={{
+                position: 'absolute',
+                left: '1rem',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#0078d4'
               }}>
-                <i className="fas fa-building text-white"></i>
+                <i className="fas fa-building"></i>
               </span>
               <input
                 type="text"
-                className="form-control"
                 id="ClientCode"
                 name="ClientCode"
                 value={formData.ClientCode}
                 onChange={handleChange}
                 required
                 placeholder="Enter your client code"
-                style={{ 
-                  fontSize: '1.05rem', 
-                  background: 'rgba(255, 255, 255, 0.9)',
-                  border: '1px solid #e0e0e0', 
-                  borderTopRightRadius: '14px',
-                  borderBottomRightRadius: '14px',
-                  borderLeft: 'none',
-                  padding: '0.7rem 1rem',
-                  transition: 'all 0.3s',
-                  boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
+                style={{
+                  width: '100%',
+                  padding: '0.75rem 1rem 0.75rem 2.5rem',
+                  borderRadius: '8px',
+                  border: '1px solid #e5e7eb',
+                  fontSize: '0.95rem',
+                  fontWeight: 500,
+                  color: '#181818',
+                  backgroundColor: '#fff',
+                  transition: 'all 0.2s'
                 }}
               />
             </div>
-          </div>
-          
-          <div className="mb-4">
-            <label htmlFor="Password" className="form-label" style={{ 
-              fontWeight: 600, 
-              color: '#444',
-              fontSize: '0.95rem',
-              marginBottom: '0.5rem'
+            <p style={{
+              fontSize: '0.75rem',
+              color: '#dc2626',
+              marginTop: '0.4rem',
+              marginBottom: '0',
+              fontWeight: 500
             }}>
+              Client code is generated from Sparkle Masterpiece
+            </p>
+          </div>
+
+          <div style={{ marginBottom: '1.25rem' }}>
+            <label 
+              htmlFor="Password" 
+              style={{ 
+                display: 'block',
+                marginBottom: '0.5rem',
+                color: '#181818',
+                fontSize: '0.9rem',
+                fontWeight: 600
+              }}
+            >
               Password
             </label>
-            <div className="input-group">
-              <span className="input-group-text" style={{ 
-                background: 'linear-gradient(90deg, #0078d4 0%, #5470FF 100%)',
-                border: 'none', 
-                borderTopLeftRadius: '14px', 
-                borderBottomLeftRadius: '14px' 
+            <div style={{ position: 'relative' }}>
+              <span style={{
+                position: 'absolute',
+                left: '1rem',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#0078d4'
               }}>
-                <i className="fas fa-lock text-white"></i>
+                <i className="fas fa-lock"></i>
               </span>
               <input
-                type="password"
-                className="form-control"
+                type={showPassword ? 'text' : 'password'}
                 id="Password"
                 name="Password"
                 value={formData.Password}
                 onChange={handleChange}
                 required
-                placeholder="Create a strong password"
-                style={{ 
-                  fontSize: '1.05rem', 
-                  background: 'rgba(255, 255, 255, 0.9)',
-                  border: '1px solid #e0e0e0', 
-                  borderTopRightRadius: '14px',
-                  borderBottomRightRadius: '14px',
-                  borderLeft: 'none',
-                  padding: '0.7rem 1rem',
-                  transition: 'all 0.3s',
-                  boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
+                placeholder="Enter your password"
+                style={{
+                  width: '100%',
+                  padding: '0.75rem 1rem 0.75rem 2.5rem',
+                  borderRadius: '8px',
+                  border: '1px solid #e5e7eb',
+                  fontSize: '0.95rem',
+                  fontWeight: 500,
+                  color: '#181818',
+                  backgroundColor: '#fff',
+                  transition: 'all 0.2s'
                 }}
-                onFocus={() => setShowPasswordGuide(true)}
-                onBlur={() => setShowPasswordGuide(false)}
               />
-            </div>
-            {/* Inline password requirements guide */}
-            <div style={{
-              marginTop: 8,
-              fontSize: '0.97rem',
-              fontWeight: 500,
-              minHeight: 24,
-              transition: 'color 0.3s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 18,
-              userSelect: 'none',
-              letterSpacing: 0.1
-            }}>
-              <span style={{
-                color: /[A-Z]/.test(formData.Password) ? '#22bb33' : '#bbb',
-                transition: 'color 0.3s',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}>
-                <i className={`fas fa-check-circle`} style={{ opacity: /[A-Z]/.test(formData.Password) ? 1 : 0.3, transition: 'opacity 0.3s', color: /[A-Z]/.test(formData.Password) ? '#22bb33' : '#bbb' }}></i>
-                Uppercase
-              </span>
-              <span style={{
-                color: /[0-9]/.test(formData.Password) ? '#22bb33' : '#bbb',
-                transition: 'color 0.3s',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}>
-                <i className={`fas fa-check-circle`} style={{ opacity: /[0-9]/.test(formData.Password) ? 1 : 0.3, transition: 'opacity 0.3s', color: /[0-9]/.test(formData.Password) ? '#22bb33' : '#bbb' }}></i>
-                Number
-              </span>
-              <span style={{
-                color: /[^A-Za-z0-9]/.test(formData.Password) ? '#22bb33' : '#bbb',
-                transition: 'color 0.3s',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}>
-                <i className={`fas fa-check-circle`} style={{ opacity: /[^A-Za-z0-9]/.test(formData.Password) ? 1 : 0.3, transition: 'opacity 0.3s', color: /[^A-Za-z0-9]/.test(formData.Password) ? '#22bb33' : '#bbb' }}></i>
-                Special
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '1rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: '#0078d4',
+                  cursor: 'pointer'
+                }}
+              >
+                <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+              </button>
             </div>
           </div>
-          
+
           <button
             type="submit"
-            className="btn w-100 fw-bold"
             style={{
-              fontSize: '1.1rem',
-              background: 'linear-gradient(90deg, #0078d4 0%, #5470FF 100%)',
-              color: '#fff',
+              width: '100%',
+              padding: '0.75rem',
+              background: '#0078d4',
+              color: '#ffffff',
               border: 'none',
-              borderRadius: 14,
-              padding: '0.8rem',
-              marginTop: 12,
-              marginBottom: 16,
-              boxShadow: '0 4px 14px rgba(84, 112, 255, 0.3)',
-              transition: 'all 0.3s'
+              borderRadius: '8px',
+              fontSize: '1rem',
+              fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1,
+              transition: 'all 0.2s',
+              marginBottom: '1rem'
             }}
             disabled={loading}
-            onMouseOver={(e) => {
-              e.currentTarget.style.background = 'linear-gradient(90deg, #5470FF 0%, #0078d4 100%)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 6px 20px rgba(84, 112, 255, 0.4)';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.background = 'linear-gradient(90deg, #0078d4 0%, #5470FF 100%)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 14px rgba(84, 112, 255, 0.3)';
-            }}
           >
             {loading ? (
               <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
@@ -350,26 +309,27 @@ const Register = () => {
               </>
             )}
           </button>
+
+          <div style={{ 
+            textAlign: 'center',
+            color: '#666',
+            fontSize: '0.9rem'
+          }}>
+            Already have an account?{' '}
+            <span
+              onClick={() => navigate('/login')}
+              style={{ 
+                color: '#0078d4',
+                fontWeight: 600,
+                cursor: 'pointer',
+                textDecoration: 'none'
+              }}
+            >
+              Login now
+            </span>
+          </div>
         </form>
-        
-        <div className="text-center mt-4" style={{ fontSize: '1rem', color: '#555' }}>
-          Already have an account?{' '}
-          <span
-            className="fw-bold"
-            style={{ 
-              color: '#5470FF', 
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              transition: 'all 0.3s'
-            }}
-            onClick={() => navigate('/login')}
-          >
-            Login now
-          </span>
-        </div>
       </div>
-      {/* Google Fonts for Poppins */}
-      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Montserrat:wght@500&display=swap" rel="stylesheet" />
     </div>
   );
 };

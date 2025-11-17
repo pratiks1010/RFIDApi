@@ -137,6 +137,7 @@ export const rfidService = {
           grosswt: data.grossWeight,
           stonewt: data.stoneWeight,
           diamondheight: data.diamondHeight,
+          diamondweight: data.diamondWeight || data.diamondHeight,
           netwt: data.netWeight,
           box_details: data.boxDetails,
           size: data.size || 0,

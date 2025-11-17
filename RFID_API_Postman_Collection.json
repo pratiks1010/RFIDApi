@@ -1,0 +1,1502 @@
+{
+	"info": {
+		"_postman_id": "rfid-api-collection-2025",
+		"name": "RFID API Dashboard - Complete Collection",
+		"description": "Complete Postman collection for RFID API Dashboard covering all authentication, product management, inventory, and device operations",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "rfid-dashboard-collection"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "User Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"LoginName\": \"your_username\",\n  \"Password\": \"your_password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/ProductMaster/AuthLogin",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"AuthLogin"
+							]
+						},
+						"description": "Authenticate user and get JWT token"
+					},
+					"response": []
+				},
+				{
+					"name": "User Registration",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"LoginName\": \"new_user\",\n  \"Password\": \"password123\",\n  \"Email\": \"user@example.com\",\n  \"ClientCode\": \"LS000123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/ProductMaster/AuthRegister",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"AuthRegister"
+							]
+						},
+						"description": "Register new user account"
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints for user login and registration"
+		},
+		{
+			"name": "Product Master APIs",
+			"item": [
+				{
+					"name": "Save RFID Transaction Details",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "[\n  {\n    \"client_code\": \"{{client_code}}\",\n    \"branch_id\": \"string\",\n    \"counter_id\": \"string\",\n    \"RFIDNumber\": \"CZ3506\",\n    \"Itemcode\": \"SAU124\",\n    \"category_id\": \"Gold\",\n    \"product_id\": \"Tops\",\n    \"design_id\": \"Fancy Top\",\n    \"purity_id\": \"22CT\",\n    \"grosswt\": \"20.800\",\n    \"stonewt\": \"0.500\",\n    \"diamondheight\": \"0.250\",\n    \"netwt\": \"19.250\",\n    \"box_details\": \"Box A\",\n    \"size\": 0,\n    \"stoneamount\": \"20\",\n    \"diamondAmount\": \"20\",\n    \"HallmarkAmount\": \"35\",\n    \"MakingPerGram\": \"10\",\n    \"MakingPercentage\": \"5\",\n    \"MakingFixedAmt\": \"37\",\n    \"MRP\": \"5000\",\n    \"imageurl\": \"\",\n    \"status\": \"ApiActive\"\n  }\n]"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/ProductMaster/SaveRFIDTransactionDetails",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"SaveRFIDTransactionDetails"
+							]
+						},
+						"description": "Save new RFID transaction details with complete product information"
+					},
+					"response": []
+				},
+				{
+					"name": "Update RFID Transaction Details",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "[\n  {\n    \"client_code\": \"{{client_code}}\",\n    \"RFIDNumber\": \"CZ3581\",\n    \"Itemcode\": \"SAU124\",\n    \"status\": \"Sold\"\n  }\n]"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/ProductMaster/UpdateRFIDTransactionDetails",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"UpdateRFIDTransactionDetails"
+							]
+						},
+						"description": "Update the status of RFID items (e.g., mark as Sold)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get RFID Transaction Details",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"client_code\": \"{{client_code}}\",\n  \"status\": \"ApiActive\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/ProductMaster/GetRFIDTransactionDetails",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetRFIDTransactionDetails"
+							]
+						},
+						"description": "Retrieve all active RFID transactions for a client"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Labeled Stock",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"Status\": \"ApiActive\",\n  \"PageNumber\": 1,\n  \"PageSize\": 100,\n  \"SearchQuery\": \"\",\n  \"SortBy\": \"CreatedDate\",\n  \"SortDirection\": \"desc\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/GetAllLabeledStock",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetAllLabeledStock"
+							]
+						},
+						"description": "Get all labeled stock items with pagination and filtering"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All RFID Data",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/GetAllRFID",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetAllRFID"
+							]
+						},
+						"description": "Get all RFID tags for a client"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Used and Unused Tags",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/GetAllUsedAndUnusedTag",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetAllUsedAndUnusedTag"
+							]
+						},
+						"description": "Get statistics for used and unused RFID tags"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Product Master",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/GetAllProductMaster",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetAllProductMaster"
+							]
+						},
+						"description": "Get all product master data"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Design",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/GetAllDesign",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetAllDesign"
+							]
+						},
+						"description": "Get all design data"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Category",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/GetAllCategory",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetAllCategory"
+							]
+						},
+						"description": "Get all category data"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Labelled Stock Items",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"ItemCodes\": [\"ITEM001\", \"ITEM002\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/DeleteLabelledStockItems",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"DeleteLabelledStockItems"
+							]
+						},
+						"description": "Delete specific labelled stock items"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete All Stock For Client",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/ProductMaster/DeleteAllStockForClient",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"DeleteAllStockForClient"
+							]
+						},
+						"description": "Delete all stock for a specific client"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete All Sold Stock For Client",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/ProductMaster/DeleteAllSoldStockForClient",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"DeleteAllSoldStockForClient"
+							]
+						},
+						"description": "Delete all sold stock for a specific client"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Stock Verification By Session",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"ScanBatchId\": \"optional_batch_id\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/GetAllStockVerificationBySession",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"GetAllStockVerificationBySession"
+							]
+						},
+						"description": "Get stock verification sessions and details"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Client TID Value",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"Id\": 123,\n  \"TidValue\": \"new_tid_value\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ProductMaster/UpdateClientTidValue",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ProductMaster",
+								"UpdateClientTidValue"
+							]
+						},
+						"description": "Update TID value for RFID tags"
+					},
+					"response": []
+				}
+			],
+			"description": "Product Master related APIs for inventory management"
+		},
+		{
+			"name": "RFID Device APIs",
+			"item": [
+				{
+					"name": "Get All RFID Device Details",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"DeviceId\": \"Sai\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/RFIDDevice/GetAllRFIDDetails",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"RFIDDevice",
+								"GetAllRFIDDetails"
+							]
+						},
+						"description": "Retrieve all RFID device details for the specified device"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete RFID By Client And Device",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"DeviceId\": \"Sai\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_soni}}/api/RFIDDevice/DeleteRFIDByClientAndDevice",
+							"host": [
+								"{{base_url_soni}}"
+							],
+							"path": [
+								"api",
+								"RFIDDevice",
+								"DeleteRFIDByClientAndDevice"
+							]
+						},
+						"description": "Delete RFID data for a specific client and device combination"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete RFID By Client And Device (RRGold)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"DeviceId\": \"Sai\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/RFIDDevice/DeleteRFIDByClientAndDevice",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"RFIDDevice",
+								"DeleteRFIDByClientAndDevice"
+							]
+						},
+						"description": "Delete RFID data for a specific client and device combination (RRGold endpoint)"
+					},
+					"response": []
+				}
+			],
+			"description": "RFID Device management APIs"
+		},
+		{
+			"name": "Client Onboarding APIs",
+			"item": [
+				{
+					"name": "Get All Counters",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ClientOnboarding/GetAllCounters",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ClientOnboarding",
+								"GetAllCounters"
+							]
+						},
+						"description": "Get all counters for a client"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Company Details",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ClientOnboarding/GetAllCompanyDetails",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ClientOnboarding",
+								"GetAllCompanyDetails"
+							]
+						},
+						"description": "Get all company details"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Branch Master",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ClientOnboarding/GetAllBranchMaster",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ClientOnboarding",
+								"GetAllBranchMaster"
+							]
+						},
+						"description": "Get all branch master data"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Employee",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ClientOnboarding/GetAllEmployee",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ClientOnboarding",
+								"GetAllEmployee"
+							]
+						},
+						"description": "Get all employee data"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Bank Master",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ClientOnboarding/GetAllBankMaster",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ClientOnboarding",
+								"GetAllBankMaster"
+							]
+						},
+						"description": "Get all bank master data"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Customer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ClientOnboarding/GetAllCustomer",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ClientOnboarding",
+								"GetAllCustomer"
+							]
+						},
+						"description": "Get all customer data"
+					},
+					"response": []
+				}
+			],
+			"description": "Client onboarding and setup related APIs"
+		},
+		{
+			"name": "Export & Email APIs",
+			"item": [
+				{
+					"name": "Send Label Stock Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"Email\": \"recipient@example.com\",\n  \"Subject\": \"Label Stock Export\",\n  \"Body\": \"Please find attached the label stock data.\",\n  \"Format\": \"Excel\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Export/SendLabelStockEmail",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Export",
+								"SendLabelStockEmail"
+							]
+						},
+						"description": "Send label stock data via email"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"Email\": \"recipient@example.com\",\n  \"Subject\": \"RFID Data Export\",\n  \"Body\": \"Please find attached the RFID data.\",\n  \"AttachmentType\": \"Excel\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Email/SendEmail",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Email",
+								"SendEmail"
+							]
+						},
+						"description": "Send general email with attachments"
+					},
+					"response": []
+				},
+				{
+					"name": "Download Server Backup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"BackupType\": \"Full\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/LabelledStockTransfer/DownloadServerBackup",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"LabelledStockTransfer",
+								"DownloadServerBackup"
+							]
+						},
+						"description": "Download server backup data"
+					},
+					"response": []
+				}
+			],
+			"description": "Export and email functionality APIs"
+		},
+		{
+			"name": "Device Import APIs",
+			"item": [
+				{
+					"name": "Import RFID Data",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": [],
+									"description": "Excel file containing RFID data"
+								},
+								{
+									"key": "ClientCode",
+									"value": "{{client_code}}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Device/ImportRFIDData",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Device",
+								"ImportRFIDData"
+							]
+						},
+						"description": "Import RFID data from Excel file"
+					},
+					"response": []
+				},
+				{
+					"name": "Import RFID Data (Testing)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": [],
+									"description": "Excel file containing RFID data"
+								},
+								{
+									"key": "ClientCode",
+									"value": "{{client_code}}",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url_testing}}/api/Device/ImportRFIDData",
+							"host": [
+								"{{base_url_testing}}"
+							],
+							"path": [
+								"api",
+								"Device",
+								"ImportRFIDData"
+							]
+						},
+						"description": "Import RFID data from Excel file (Testing environment)"
+					},
+					"response": []
+				}
+			],
+			"description": "Device data import APIs"
+		},
+		{
+			"name": "Admin APIs",
+			"item": [
+				{
+					"name": "Get All Users",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/GetAllUsers",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"GetAllUsers"
+							]
+						},
+						"description": "Get all users (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User By Client Code",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/GetUserByClientCode/{{client_code}}",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"GetUserByClientCode",
+								"{{client_code}}"
+							]
+						},
+						"description": "Get user details by client code (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Sparkle User By Client Code",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/GetSparkleUserByClientCode/{{client_code}}",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"GetSparkleUserByClientCode",
+								"{{client_code}}"
+							]
+						},
+						"description": "Get Sparkle user details by client code (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Sparkle Client Onboarding",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/GetAllSparkleClientOnboarding",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"GetAllSparkleClientOnboarding"
+							]
+						},
+						"description": "Get all Sparkle client onboarding data (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Client Details",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/GetAllClientDetails",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"GetAllClientDetails"
+							]
+						},
+						"description": "Get all client details (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Admin Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"Username\": \"admin_user\",\n  \"Password\": \"admin_password\",\n  \"Email\": \"admin@example.com\",\n  \"Role\": \"Admin\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/Register",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"Register"
+							]
+						},
+						"description": "Register new admin user"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Email To Client",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"Email\": \"client@example.com\",\n  \"Subject\": \"Important Update\",\n  \"Body\": \"This is an important update for your account.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/SendEmailToClient",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"SendEmailToClient"
+							]
+						},
+						"description": "Send email to client (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Update RFID Type",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"RFIDType\": \"new_type\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/UpdateRfidType",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"UpdateRfidType"
+							]
+						},
+						"description": "Update RFID type for client (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Change Status",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"Status\": \"Active\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/change-status",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"change-status"
+							]
+						},
+						"description": "Change client status (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Backup Client Database",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"BackupType\": \"Full\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Admin/BackupClientDatabase",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Admin",
+								"BackupClientDatabase"
+							]
+						},
+						"description": "Backup client database (Admin only)"
+					},
+					"response": []
+				}
+			],
+			"description": "Administrative APIs for user and system management"
+		},
+		{
+			"name": "Contact & Demo APIs",
+			"item": [
+				{
+					"name": "Get Contact Form Submissions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/ContactForm",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"ContactForm"
+							]
+						},
+						"description": "Get all contact form submissions (Admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Demo Requests",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/DemoRequest",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"DemoRequest"
+							]
+						},
+						"description": "Get all demo requests (Admin only)"
+					},
+					"response": []
+				}
+			],
+			"description": "Contact form and demo request APIs"
+		},
+		{
+			"name": "Reports APIs",
+			"item": [
+				{
+					"name": "Get Sale Reports",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ClientCode\": \"{{client_code}}\",\n  \"StartDate\": \"2024-01-01\",\n  \"EndDate\": \"2024-12-31\",\n  \"ReportType\": \"Sales\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url_rrgold}}/api/Reports/saleReports",
+							"host": [
+								"{{base_url_rrgold}}"
+							],
+							"path": [
+								"api",
+								"Reports",
+								"saleReports"
+							]
+						},
+						"description": "Get sales reports for a specific date range"
+					},
+					"response": []
+				}
+			],
+			"description": "Reporting and analytics APIs"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-generate client code if not set",
+					"if (!pm.collectionVariables.get('client_code')) {",
+					"    pm.collectionVariables.set('client_code', 'LS000123');",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-extract token from login response",
+					"if (pm.response.json() && pm.response.json().Token) {",
+					"    pm.collectionVariables.set('auth_token', pm.response.json().Token);",
+					"    console.log('Auth token saved to collection variables');",
+					"}",
+					"",
+					"// Auto-extract client code from token",
+					"if (pm.response.json() && pm.response.json().Token) {",
+					"    const token = pm.response.json().Token;",
+					"    const payload = JSON.parse(atob(token.split('.')[1]));",
+					"    if (payload.ClientCode || payload.clientcode || payload.sub) {",
+					"        const clientCode = payload.ClientCode || payload.clientcode || payload.sub;",
+					"        pm.collectionVariables.set('client_code', clientCode);",
+					"        console.log('Client code extracted from token:', clientCode);",
+					"    }",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url_soni",
+			"value": "https://soni.loyalstring.co.in",
+			"type": "string"
+		},
+		{
+			"key": "base_url_rrgold",
+			"value": "https://rrgold.loyalstring.co.in",
+			"type": "string"
+		},
+		{
+			"key": "base_url_testing",
+			"value": "https://testing.loyalstring.co.in",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "client_code",
+			"value": "LS000123",
+			"type": "string"
+		}
+	]
+}
+

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import Header from './Header';
 import { rfidService } from '../services/rfidService';
-import { FaEdit, FaTrash, FaPlus, FaSearch } from 'react-icons/fa';
+import { FaEdit, FaTrash, FaPlus, FaSearch, FaCloudUploadAlt, FaFileExcel } from 'react-icons/fa';
 
 const RFIDTransactions = () => {
   const [transactions, setTransactions] = useState([]);
@@ -128,7 +128,12 @@ const RFIDTransactions = () => {
     <div style={{ 
       minHeight: '100vh', 
       background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
-      fontFamily: 'Inter, sans-serif'
+      fontFamily: 'Inter, sans-serif',
+      minWidth: 420,
+      maxWidth: 500,
+      border: '3px solid',
+      borderImage: 'linear-gradient(90deg, #0078d4, #4A00E0, #06beb6) 1',
+      background: 'linear-gradient(135deg, #e3f0ff 0%, #b3d8ff 60%, #f4e2d8 100%)',
     }}>
       <Header userInfo={userInfo} />
       
@@ -409,6 +414,15 @@ const RFIDTransactions = () => {
                       style={{ borderRadius: '8px' }}
                     />
                   </div>
+                </div>
+                <div style={{
+                  color: '#d60000',
+                  fontWeight: 500,
+                  fontSize: 13,
+                  marginBottom: 18,
+                  textAlign: 'center'
+                }}>
+                  Please ensure all mandatory fields are present in your Excel sheet for a successful upload.
                 </div>
               </div>
               <div className="modal-footer border-top-0">

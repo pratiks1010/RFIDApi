@@ -1,0 +1,10 @@
+export { default as AdminDashboard } from './AdminDashboard';
+export { default as AdminHeader } from './AdminHeader';
+export { default as AdminHome } from './AdminHome';
+export { default as AdminRegister } from './AdminRegister';
+export { default as AdminUploadRFID } from './AdminUploadRFID';
+export { default as AdminUsers } from './AdminUsers';
+export { default as AdminLogin } from './AdminLogin';
+export { default as AdminViewUserStock } from './AdminViewUserStock';
+export { default as AdminOtpVerification } from './AdminOtpVerification';
+export { default as UserBackupPage } from './UserBackupPage'; 

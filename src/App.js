@@ -4,6 +4,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import DashboardAnalytics from './components/DashboardAnalytics';
+import APIDocumentation from './components/APIDocumentation';
 import RFIDIntegration from './components/RFIDIntegration';
 import {
   LabelStockList,
@@ -12,8 +13,11 @@ import {
   TagUsage,
   StockVerification,
   InvoiceStock,
-  RFIDLabel
+  RFIDLabel,
+  AddStock
 } from './components/inventory/components';
+import CreateInvoice from './components/inventory/CreateInvoice';
+import QuotationNew from './components/quotation/QuotationNew';
 import Footer from './components/Footer';
 import UploadRFID from './components/UploadRFID';
 import RFIDTransactions from './components/RFIDTransactions';
@@ -33,7 +37,7 @@ import WelcomeModal from './components/common/WelcomeModal';
 import './i18n';
 
 // Global loading context
-const LoadingContext = createContext({ loading: false, setLoading: () => {} });
+export const LoadingContext = createContext({ loading: false, setLoading: () => {} });
 export const useLoading = () => useContext(LoadingContext);
 
 const LoadingProvider = ({ children }) => {
@@ -161,7 +165,7 @@ const useAuthProtection = () => {
     }
     
       // If admin is authenticated but tries to access user routes
-      if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'].includes(currentPath)) {
+      if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'].includes(currentPath)) {
         navigate('/admin-dashboard', { replace: true });
       }
   }, [location.pathname, navigate]);
@@ -383,7 +387,7 @@ const AuthGuard = ({ children }) => {
       }
       
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'];
+      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'];
       
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -449,6 +453,7 @@ const RoutesWrapper = () => {
         <Route element={<Layout />}>
           <Route path="/analytics" element={<AuthGuard><PageWrapper><DashboardAnalytics /></PageWrapper></AuthGuard>} />
           <Route path="/dashboard" element={<AuthGuard><PageWrapper><Dashboard /></PageWrapper></AuthGuard>} />
+          <Route path="/api-documentation" element={<AuthGuard><PageWrapper><APIDocumentation /></PageWrapper></AuthGuard>} />
           <Route
             path="/rfid-integration"
             element={
@@ -465,6 +470,36 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <LabelStockList />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/stock"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <AddStock />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/quotation"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <QuotationNew />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/create-invoice"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <CreateInvoice />
                 </PageWrapper>
               </AuthGuard>
             }
@@ -605,6 +640,11 @@ function App() {
               background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'
             }}>
               <style>{`
+                /* Global Roboto Font Application */
+                * {
+                  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+                }
+                
                 .page-wrapper {
                   height: 100vh;
                   overflow-y: auto;

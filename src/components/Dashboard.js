@@ -3,10 +3,25 @@ import { useNavigate } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import axios from 'axios';
-import Header from './Header';
 import { rfidService } from '../services/rfidService';
 import * as XLSX from 'xlsx';
-import { FaFileExcel, FaCloudUploadAlt, FaCheckCircle } from 'react-icons/fa';
+import { 
+  FaFileExcel, 
+  FaCloudUploadAlt, 
+  FaCheckCircle, 
+  FaPaperPlane,
+  FaSave,
+  FaEdit,
+  FaSearch,
+  FaMobileAlt,
+  FaTrashAlt,
+  FaClipboardCheck,
+  FaTags,
+  FaInfoCircle,
+  FaCopy,
+  FaShieldAlt,
+  FaLock
+} from 'react-icons/fa';
 import RFIDUploadPrompt from './common/RFIDUploadPrompt';
 import rfidTagsService from '../services/rfidTagsService';
 
@@ -131,6 +146,37 @@ const API_ENDPOINTS = [
       ClientCode: "LS000186",
       DeviceId: "Sai"
     }
+  },
+  {
+    id: 'stock-verification',
+    name: 'Stock Verification',
+    endpoint: 'GetAllStockVerificationBySession',
+    method: 'POST',
+    description: 'Get all stock verification sessions and details for a client.',
+    baseUrl: 'https://rrgold.loyalstring.co.in/api/ProductMaster',
+    authRequired: true,
+    icon: 'fas fa-clipboard-check text-white',
+    highlight: 'success',
+    gradient: 'linear-gradient(135deg, #22c55e, #16a34a)',
+    sampleBody: {
+      ClientCode: "LS000186",
+      ScanBatchId: "optional_batch_id"
+    }
+  },
+  {
+    id: 'tag-usage',
+    name: 'Get Used/Unused RFID Tags',
+    endpoint: 'GetAllUsedAndUnusedTag',
+    method: 'POST',
+    description: 'Retrieve all used and unused RFID tags for a client with counts.',
+    baseUrl: 'https://rrgold.loyalstring.co.in/api/ProductMaster',
+    authRequired: true,
+    icon: 'fas fa-tags text-white',
+    highlight: 'info',
+    gradient: 'linear-gradient(135deg, #06b6d4, #0891b2)',
+    sampleBody: {
+      ClientCode: "LS000186"
+    }
   }
 ];
 
@@ -202,6 +248,7 @@ const Dashboard = () => {
     setSelectedEndpoint(endpoint);
     setResponse(null);
     const newRequestBody = { ...endpoint.sampleBody };
+    // Handle both client_code and ClientCode formats
     if (newRequestBody.client_code) {
       newRequestBody.client_code = userInfo.ClientCode;
     }
@@ -259,6 +306,8 @@ const Dashboard = () => {
 
         case 'GetAllRFIDDetails':
         case 'DeleteRFIDByClientAndDevice':
+        case 'GetAllStockVerificationBySession':
+        case 'GetAllUsedAndUnusedTag':
           response = await axios.post(
             `${selectedEndpoint.baseUrl}/${selectedEndpoint.endpoint}`,
             requestBody
@@ -904,286 +953,635 @@ const Dashboard = () => {
     );
   };
 
+  // Colorful icon components without solid backgrounds
+  const getEndpointIcon = (idx, isSelected) => {
+    const iconSize = 44;
+    const colors = ['#22c55e', '#2563eb', '#06beb6', '#0ea5e9', '#ef4444', '#64748b', '#22c55e', '#06b6d4'];
+    const iconColor = colors[idx] || '#2563eb';
+    const baseStyle = { 
+      width: iconSize, 
+      height: iconSize, 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center', 
+      borderRadius: '12px', 
+      flexShrink: 0,
+      background: 'transparent'
+    };
+    
+    const iconComponents = [
+      // Add Stock - Plus icon
+      <FaSave key="save" style={{ fontSize: '24px', color: iconColor }} />,
+      // Update Stock - Edit icon
+      <FaEdit key="edit" style={{ fontSize: '24px', color: iconColor }} />,
+      // View Stock - Search icon
+      <FaSearch key="search" style={{ fontSize: '24px', color: iconColor }} />,
+      // Device Details - Mobile icon
+      <FaMobileAlt key="mobile" style={{ fontSize: '24px', color: iconColor }} />,
+      // Delete Stock - Trash icon
+      <FaTrashAlt key="trash1" style={{ fontSize: '24px', color: iconColor }} />,
+      // Delete by Device - Trash icon
+      <FaTrashAlt key="trash2" style={{ fontSize: '24px', color: iconColor }} />,
+      // Stock Verification - Clipboard icon
+      <FaClipboardCheck key="clipboard" style={{ fontSize: '24px', color: iconColor }} />,
+      // Tag Usage - Tags icon
+      <FaTags key="tags" style={{ fontSize: '24px', color: iconColor }} />
+    ];
+    
+    return (
+      <div className="endpoint-icon" style={baseStyle}>
+        {iconComponents[idx] || iconComponents[0]}
+      </div>
+    );
+  };
+
   return (
     <>
+    <style>{`
+      @media (max-width: 768px) {
+        .dashboard-container {
+          flex-direction: column !important;
+          height: auto !important;
+          padding: 8px !important;
+          gap: 8px !important;
+          overflow-x: hidden !important;
+          overflow-y: visible !important;
+        }
+        .sidebar-endpoints {
+          width: 100% !important;
+          max-height: none !important;
+          padding: 12px !important;
+          overflow-y: visible !important;
+          overflow-x: hidden !important;
+          height: auto !important;
+        }
+        .sidebar-endpoints .endpoint-list {
+          max-height: none !important;
+          overflow: visible !important;
+        }
+        .sidebar-endpoints h5 {
+          font-size: 14px !important;
+          margin-bottom: 12px !important;
+        }
+        .endpoint-button {
+          padding: 10px !important;
+          gap: 10px !important;
+        }
+        .main-content {
+          width: 100% !important;
+          height: auto !important;
+          min-height: auto !important;
+          padding: 0 !important;
+          overflow: visible !important;
+        }
+        .main-content > div {
+          padding: 16px !important;
+          overflow: visible !important;
+        }
+        .endpoint-title {
+          font-size: 13px !important;
+        }
+        .endpoint-method {
+          font-size: 10px !important;
+        }
+        .welcome-title {
+          font-size: 18px !important;
+          margin-bottom: 8px !important;
+        }
+        .welcome-text {
+          font-size: 12px !important;
+          margin-bottom: 20px !important;
+        }
+        .card-title {
+          font-size: 12px !important;
+        }
+        .card-desc {
+          font-size: 11px !important;
+        }
+        .grid-cards {
+          grid-template-columns: 1fr !important;
+          gap: 8px !important;
+        }
+        .grid-cards > div {
+          padding: 12px !important;
+        }
+        .icon-size {
+          width: 32px !important;
+          height: 32px !important;
+        }
+        .icon-size svg {
+          font-size: 16px !important;
+        }
+        .icon-size-large {
+          width: 60px !important;
+          height: 60px !important;
+        }
+        .icon-size-large svg {
+          font-size: 1.5rem !important;
+        }
+        .endpoint-icon {
+          width: 32px !important;
+          height: 32px !important;
+        }
+        .endpoint-icon svg {
+          font-size: 16px !important;
+        }
+        .endpoint-list {
+          gap: 8px !important;
+        }
+      }
+      @media (max-width: 480px) {
+        .dashboard-container {
+          padding: 6px !important;
+          gap: 6px !important;
+          overflow-x: hidden !important;
+          overflow-y: visible !important;
+        }
+        .sidebar-endpoints {
+          padding: 10px !important;
+          overflow-y: visible !important;
+          height: auto !important;
+        }
+        .sidebar-endpoints .endpoint-list {
+          max-height: none !important;
+          overflow: visible !important;
+        }
+        .sidebar-endpoints h5 {
+          font-size: 13px !important;
+          margin-bottom: 10px !important;
+        }
+        .endpoint-button {
+          padding: 8px !important;
+          gap: 8px !important;
+        }
+        .main-content > div {
+          padding: 12px !important;
+        }
+        .endpoint-title {
+          font-size: 12px !important;
+        }
+        .endpoint-method {
+          font-size: 9px !important;
+        }
+        .welcome-title {
+          font-size: 16px !important;
+          margin-bottom: 6px !important;
+        }
+        .welcome-text {
+          font-size: 11px !important;
+          margin-bottom: 16px !important;
+        }
+        .card-title {
+          font-size: 11px !important;
+        }
+        .card-desc {
+          font-size: 10px !important;
+        }
+        .grid-cards {
+          gap: 6px !important;
+        }
+        .grid-cards > div {
+          padding: 10px !important;
+        }
+        .icon-size {
+          width: 28px !important;
+          height: 28px !important;
+        }
+        .icon-size svg {
+          font-size: 14px !important;
+        }
+        .icon-size-large {
+          width: 50px !important;
+          height: 50px !important;
+        }
+        .icon-size-large svg {
+          font-size: 1.2rem !important;
+        }
+        .endpoint-icon {
+          width: 28px !important;
+          height: 28px !important;
+        }
+        .endpoint-icon svg {
+          font-size: 14px !important;
+        }
+        .endpoint-list {
+          gap: 6px !important;
+        }
+      }
+      
+      /* Hide all scrollbars */
+      * {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      *::-webkit-scrollbar {
+        display: none;
+      }
+      
+      /* Ensure no horizontal scroll */
+      body, html {
+        overflow-x: hidden !important;
+        max-width: 100vw !important;
+      }
+    `}</style>
     <div style={{
       minHeight: '100vh',
-      background: '#f5f6fa',
+      background: '#f8fafc',
       fontFamily: 'Inter, system-ui, sans-serif',
+      width: '100%',
+      padding: 0,
+      margin: 0,
+      overflowX: 'hidden'
     }}>
-      <Header userInfo={userInfo} />
-      <div className="container" style={{ maxWidth: '1400px', marginTop: 12, marginBottom: 0 }}>
-        <div className="row">
-          {/* Removed RFID API Dashboard heading and icon as per request */}
-        </div>
-      </div>
-      <div className="container py-4 flex-grow-1" style={{ maxWidth: '1400px' }}>
-        <div className="row h-100 g-4">
-          <div className="col-md-4">
-            <div className="card border-0" style={{ 
-              borderRadius: '15px',
-              background: '#fff',
-              fontFamily: 'Inter, system-ui, sans-serif',
-              border: '1.5px solid #ececec',
-            }}>
-              <div className="card-body p-4">
-                <h5 className="mb-4 fw-bold" style={{ color: '#2563eb', fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 700, letterSpacing: 0.1 }}>API Endpoints</h5>
-                <div className="list-group">
-                  {API_ENDPOINTS.map((endpoint, idx) => (
-                    <button
-                      key={endpoint.id}
-                      className={`list-group-item list-group-item-action border-0 mb-3 ${selectedEndpoint?.id === endpoint.id ? 'active' : ''}`}
-                      onClick={() => handleEndpointClick(endpoint)}
-                      style={{
-                        borderRadius: '10px',
-                        background: selectedEndpoint?.id === endpoint.id ? endpoint.gradient : '#fff',
-                        transition: 'all 0.3s ease',
-                        transform: selectedEndpoint?.id === endpoint.id ? 'scale(1.02)' : 'scale(1)',
-                        boxShadow: selectedEndpoint?.id === endpoint.id ? '0 8px 16px rgba(0,0,0,0.1)' : '0 4px 6px rgba(0,0,0,0.05)',
-                        fontSize: '0.9rem',
+      <div className="dashboard-container" style={{ 
+        width: '100%', 
+        padding: '24px',
+        display: 'flex',
+        gap: '24px',
+        height: 'calc(100vh - 64px)',
+        overflow: 'hidden',
+        boxSizing: 'border-box'
+      }}>
+        {/* Left Sidebar - API Endpoints */}
+        <div className="sidebar-endpoints" style={{ 
+          width: '380px',
+          background: '#ffffff',
+          borderRadius: '16px',
+          padding: '24px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          overflowY: 'auto',
+          flexShrink: 0,
+          boxSizing: 'border-box',
+          maxWidth: '100%'
+        }}>
+          <h5 style={{ 
+            color: '#1e293b', 
+            fontFamily: 'Inter, system-ui, sans-serif', 
+            fontWeight: 700, 
+            fontSize: '18px',
+            marginBottom: '20px',
+            letterSpacing: '-0.02em'
+          }}>API Endpoints</h5>
+          <div className="endpoint-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {API_ENDPOINTS.map((endpoint, idx) => {
+              const isSelected = selectedEndpoint?.id === endpoint.id;
+              return (
+                <button
+                  key={endpoint.id}
+                  className="endpoint-button"
+                  onClick={() => handleEndpointClick(endpoint)}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    borderRadius: '12px',
+                    background: isSelected ? endpoint.gradient : '#ffffff',
+                    border: isSelected ? 'none' : '1px solid #e2e8f0',
+                    transition: 'all 0.2s ease',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 2px rgba(0,0,0,0.05)',
+                    transform: isSelected ? 'translateY(-2px)' : 'translateY(0)',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = '#f8fafc';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isSelected) {
+                      e.currentTarget.style.background = '#ffffff';
+                      e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+                    }
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    {getEndpointIcon(idx, isSelected)}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h6 className="endpoint-title" style={{ 
+                        fontSize: '15px', 
+                        fontWeight: 600, 
                         fontFamily: 'Inter, system-ui, sans-serif',
+                        color: isSelected ? '#ffffff' : '#1e293b',
+                        margin: 0,
+                        marginBottom: '4px',
+                        letterSpacing: '-0.01em'
+                      }}>
+                        {endpoint.name}
+                      </h6>
+                      <small className="endpoint-method" style={{ 
+                        fontSize: '12px', 
+                        fontFamily: 'Inter, system-ui, sans-serif', 
+                        color: isSelected ? 'rgba(255,255,255,0.85)' : '#64748b',
+                        display: 'block',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {endpoint.method} {endpoint.endpoint}
+                      </small>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right Content Area */}
+        <div className="main-content" style={{ 
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '24px',
+          minWidth: 0,
+          overflow: 'hidden',
+          boxSizing: 'border-box'
+        }}>
+          {selectedEndpoint ? (
+            <div style={{ 
+              background: '#ffffff',
+              borderRadius: '16px',
+              padding: '32px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '24px',
+                paddingBottom: '20px',
+                borderBottom: '1px solid #e2e8f0'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h5 style={{ 
+                    color: '#1e293b', 
+                    fontFamily: 'Inter, system-ui, sans-serif', 
+                    fontWeight: 700, 
+                    fontSize: '22px',
+                    margin: 0,
+                    letterSpacing: '-0.02em'
+                  }}>
+                    {selectedEndpoint.name}
+                  </h5>
+                  <span style={{ 
+                    fontSize: '12px', 
+                    background: '#2563eb', 
+                    color: '#fff', 
+                    fontFamily: 'Inter, system-ui, sans-serif', 
+                    fontWeight: 600,
+                    padding: '4px 12px',
+                    borderRadius: '6px',
+                    letterSpacing: '0.02em'
+                  }}>{selectedEndpoint.method}</span>
+                </div>
+                {selectedEndpoint.id === 'save-transaction' && (
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button
+                      onClick={() => {
+                        const sampleBody = API_ENDPOINTS.find(e => e.id === 'save-transaction').sampleBody;
+                        const sampleData = [
+                          Object.fromEntries(
+                            Object.entries(sampleBody)
+                              .filter(([key]) => key !== 'client_code')
+                              .map(([key]) => [
+                                key === 'RFIDNumber' ? 'RFID' :
+                                key === 'Itemcode' ? 'Item Code' :
+                                key === 'product_id' ? 'Product' :
+                                key === 'category_id' ? 'Category' :
+                                key === 'design_id' ? 'Design' :
+                                key,
+                                ''
+                              ])
+                          )
+                        ];
+                        const ws = XLSX.utils.json_to_sheet(sampleData);
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, 'Sample');
+                        XLSX.writeFile(wb, 'RFID_Bulk_Upload_Format.xlsx');
+                      }}
+                      style={{ 
+                        borderRadius: '8px', 
+                        fontWeight: 600, 
+                        fontSize: '14px', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        border: '2px solid #22c55e', 
+                        color: '#22c55e', 
+                        background: '#fff', 
+                        transition: 'all 0.2s', 
+                        fontFamily: 'Inter, system-ui, sans-serif',
+                        padding: '8px 16px',
+                        cursor: 'pointer'
+                      }}
+                      onMouseOver={e => {
+                        e.currentTarget.style.background = '#dcfce7';
+                        e.currentTarget.style.color = '#16a34a';
+                      }}
+                      onMouseOut={e => {
+                        e.currentTarget.style.background = '#fff';
+                        e.currentTarget.style.color = '#22c55e';
                       }}
                     >
-                      <div className="d-flex align-items-center">
-                        <span className="me-3" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          {/* Functionally relevant Zoho-style outlined SVG icons */}
-                          {idx === 0 && (
-                            // Add Stock: Plus (green)
-                            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-                              <circle cx="13" cy="13" r="10" stroke="#22c55e" strokeWidth="2.2" fill="none"/>
-                              <line x1="13" y1="8" x2="13" y2="18" stroke="#22c55e" strokeWidth="2.2" strokeLinecap="round"/>
-                              <line x1="8" y1="13" x2="18" y2="13" stroke="#22c55e" strokeWidth="2.2" strokeLinecap="round"/>
-                            </svg>
-                          )}
-                          {idx === 1 && (
-                            // Update Stock: Pencil/Edit (blue)
-                            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-                              <path d="M17.13 6.87l2 2a2 2 0 010 2.83l-7.5 7.5a2 2 0 01-1.41.59H6v-4.22a2 2 0 01.59-1.41l7.5-7.5a2 2 0 012.83 0z" stroke="#2563eb" strokeWidth="2.2" fill="none"/>
-                              <path d="M15 8l3 3" stroke="#2563eb" strokeWidth="2.2" strokeLinecap="round"/>
-                            </svg>
-                          )}
-                          {idx === 2 && (
-                            // View Stock: Magnifier/Search (teal)
-                            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-                              <circle cx="12" cy="12" r="7" stroke="#06beb6" strokeWidth="2.2" fill="none"/>
-                              <line x1="18.5" y1="18.5" x2="23" y2="23" stroke="#06beb6" strokeWidth="2.2" strokeLinecap="round"/>
-                            </svg>
-                          )}
-                          {idx === 3 && (
-                            // Get All RFID Device Details: Chip/Device (blue)
-                            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-                              <rect x="5" y="7" width="16" height="12" rx="3" stroke="#0ea5e9" strokeWidth="2.2" fill="none"/>
-                              <rect x="10" y="12" width="6" height="4" rx="1.5" stroke="#0ea5e9" strokeWidth="2" fill="none"/>
-                              <circle cx="8" cy="10" r="1" fill="#0ea5e9" />
-                              <circle cx="18" cy="10" r="1" fill="#0ea5e9" />
-                            </svg>
-                          )}
-                          {idx === 4 && (
-                            // Delete Specific Stock Items: Trash (red)
-                            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-                              <rect x="7" y="10" width="12" height="10" rx="2" stroke="#ef4444" strokeWidth="2.2" fill="none"/>
-                              <path d="M10 13v4M14 13v4" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round"/>
-                              <rect x="9" y="6" width="6" height="2" rx="1" stroke="#ef4444" strokeWidth="2.2" fill="none"/>
-                            </svg>
-                          )}
-                          {idx === 5 && (
-                            // Delete RFID By Client And Device: Trash (gray)
-                            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-                              <rect x="7" y="10" width="12" height="10" rx="2" stroke="#64748b" strokeWidth="2.2" fill="none"/>
-                              <path d="M10 13v4M14 13v4" stroke="#64748b" strokeWidth="2.2" strokeLinecap="round"/>
-                              <rect x="9" y="6" width="6" height="2" rx="1" stroke="#64748b" strokeWidth="2.2" fill="none"/>
-                            </svg>
-                          )}
-                        </span>
-                        <div>
-                          <h6 className={`mb-1 ${selectedEndpoint?.id === endpoint.id ? 'text-white' : 'text-dark'}`} style={{ fontSize: '0.95rem', fontWeight: 600, fontFamily: 'Inter, system-ui, sans-serif', letterSpacing: 0.05 }}>
-                            {endpoint.name}
-                          </h6>
-                          <small className={selectedEndpoint?.id === endpoint.id ? 'text-white-50' : 'text-muted'} style={{ fontSize: '0.8rem', fontFamily: 'Inter, system-ui, sans-serif', color: selectedEndpoint?.id === endpoint.id ? '#e0e7ff' : '#64748b' }}>
-                            {endpoint.method} {endpoint.endpoint}
-                          </small>
-                        </div>
-                      </div>
+                      <FaFileExcel style={{ marginRight: 8, fontSize: 16 }} /> Download Format
                     </button>
-                  ))}
-                </div>
+                    <button
+                      onClick={() => setShowImportModal(true)}
+                      style={{ 
+                        borderRadius: '8px', 
+                        fontWeight: 600, 
+                        fontSize: '14px', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        border: '2px solid #2563eb', 
+                        color: '#2563eb', 
+                        background: '#fff', 
+                        transition: 'all 0.2s', 
+                        fontFamily: 'Inter, system-ui, sans-serif',
+                        padding: '8px 16px',
+                        cursor: 'pointer'
+                      }}
+                      onMouseOver={e => {
+                        e.currentTarget.style.background = '#dbeafe';
+                        e.currentTarget.style.color = '#1d4ed8';
+                      }}
+                      onMouseOut={e => {
+                        e.currentTarget.style.background = '#fff';
+                        e.currentTarget.style.color = '#2563eb';
+                      }}
+                    >
+                      <FaCloudUploadAlt style={{ marginRight: 8, fontSize: 16 }} /> Add Bulk Stock
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
-          </div>
+              
+              <div style={{ flex: 1, overflowY: 'auto', paddingRight: '8px' }}>
+                <div style={{ marginBottom: '24px' }}>
+                  <h6 style={{ 
+                    fontSize: '14px', 
+                    fontWeight: 600, 
+                    color: '#1e293b',
+                    marginBottom: '8px'
+                  }}>Description</h6>
+                  <p style={{ 
+                    fontSize: '14px', 
+                    color: '#64748b',
+                    margin: 0,
+                    lineHeight: '1.6'
+                  }}>{selectedEndpoint.description}</p>
+                </div>
 
-          <div className="col-md-8">
-            {selectedEndpoint ? (
-              <div className="card border-0" style={{ 
-                borderRadius: '15px',
-                background: '#fff',
-                fontFamily: 'Inter, system-ui, sans-serif',
-                border: '1.5px solid #ececec',
-              }}>
-                <div className="card-body p-4">
-                  <div className="d-flex align-items-center mb-4 justify-content-between">
-                    <div className="d-flex align-items-center">
-                      <h5 className="fw-bold mb-0" style={{ color: '#22223b', fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 700, letterSpacing: 0.1 }}>
-                        {selectedEndpoint.name}
-                      </h5>
-                      <span className="badge ms-2" style={{ fontSize: '0.8rem', background: '#2563eb', color: '#fff', fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 500 }}>{selectedEndpoint.method}</span>
-                    </div>
-                    {selectedEndpoint.id === 'save-transaction' && (
-                      <div style={{ display: 'flex', gap: 12 }}>
-                        <button
-                          className="btn btn-outline-success"
-                          style={{ borderRadius: 8, fontWeight: 600, fontSize: '0.95rem', boxShadow: '0 2px 8px #b3d8ff33', display: 'flex', alignItems: 'center', border: '2px solid #1aaf5d', color: '#1aaf5d', background: '#fff', transition: 'background 0.2s, color 0.2s, border 0.2s', fontFamily: 'Inter, system-ui, sans-serif' }}
-                          onClick={() => {
-                            // Download all fields except client_code
-                            const sampleBody = API_ENDPOINTS.find(e => e.id === 'save-transaction').sampleBody;
-                            const sampleData = [
-                              Object.fromEntries(
-                                Object.entries(sampleBody)
-                                  .filter(([key]) => key !== 'client_code')
-                                  .map(([key]) => [
-                                    // Use human-friendly column names for a few fields
-                                    key === 'RFIDNumber' ? 'RFID' :
-                                    key === 'Itemcode' ? 'Item Code' :
-                                    key === 'product_id' ? 'Product' :
-                                    key === 'category_id' ? 'Category' :
-                                    key === 'design_id' ? 'Design' :
-                                    key,
-                                    ''
-                                  ])
-                              )
-                            ];
-                            const ws = XLSX.utils.json_to_sheet(sampleData);
-                            const wb = XLSX.utils.book_new();
-                            XLSX.utils.book_append_sheet(wb, ws, 'Sample');
-                            XLSX.writeFile(wb, 'RFID_Bulk_Upload_Format.xlsx');
-                          }}
-                          onMouseOver={e => {
-                            e.currentTarget.style.background = '#e6f9ed';
-                            e.currentTarget.style.color = '#178a46';
-                            e.currentTarget.style.border = '2px solid #178a46';
-                          }}
-                          onMouseOut={e => {
-                            e.currentTarget.style.background = '#fff';
-                            e.currentTarget.style.color = '#1aaf5d';
-                            e.currentTarget.style.border = '2px solid #1aaf5d';
-                          }}
-                        >
-                          <FaFileExcel style={{ marginRight: 6, fontSize: 18 }} /> Download Format
-                        </button>
-                        <button
-                          className="btn btn-outline-success"
-                          style={{ borderRadius: 8, fontWeight: 600, fontSize: '0.95rem', boxShadow: '0 2px 8px #b3d8ff33', display: 'flex', alignItems: 'center', border: '2px solid #0078d4', color: '#0078d4', background: '#fff', transition: 'background 0.2s, color 0.2s, border 0.2s', fontFamily: 'Inter, system-ui, sans-serif' }}
-                          onClick={() => setShowImportModal(true)}
-                          onMouseOver={e => {
-                            e.currentTarget.style.background = '#e3f0ff';
-                            e.currentTarget.style.color = '#4A00E0';
-                            e.currentTarget.style.border = '2px solid #4A00E0';
-                          }}
-                          onMouseOut={e => {
-                            e.currentTarget.style.background = '#fff';
-                            e.currentTarget.style.color = '#0078d4';
-                            e.currentTarget.style.border = '2px solid #0078d4';
-                          }}
-                        >
-                          <FaCloudUploadAlt style={{ marginRight: 6, fontSize: 18 }} /> Add Bulk Stock
-                        </button>
+                <div style={{ marginBottom: '24px' }}>
+                  <h6 style={{ 
+                    fontSize: '14px', 
+                    fontWeight: 600, 
+                    color: '#1e293b',
+                    marginBottom: '12px'
+                  }}>Request Body</h6>
+                  <div style={{ 
+                    maxHeight: '300px', 
+                    overflowY: 'auto',
+                    padding: '20px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    {renderRequestBodyFields()}
+                    {clientError && (
+                      <div style={{ 
+                        marginTop: '16px',
+                        padding: '12px',
+                        backgroundColor: '#fee2e2',
+                        color: '#dc2626',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        border: '1px solid #fecaca'
+                      }}>
+                        {clientError}
                       </div>
                     )}
-                  </div>
-                  
-                  <div className="mb-4">
-                    <h6 className="fw-bold mb-2" style={{ fontSize: '0.9rem' }}>Description</h6>
-                    <p className="text-muted mb-0" style={{ fontSize: '0.9rem' }}>{selectedEndpoint.description}</p>
-                  </div>
-
-                  <div className="mb-4">
-                    <h6 className="fw-bold mb-3" style={{ fontSize: '0.9rem' }}>Request Body</h6>
-                    <div className="position-relative" style={{ 
-                      maxHeight: '400px', 
-                      overflowY: 'auto',
-                      padding: '15px',
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: '10px',
-                      border: '1px solid #dee2e6'
+                    <div style={{ 
+                      marginTop: '16px',
+                      padding: '12px',
+                      backgroundColor: '#dbeafe',
+                      color: '#1e40af',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      border: '1px solid #bfdbfe',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
                     }}>
-                      {renderRequestBodyFields()}
-                      {clientError && (
-                        <div className="alert alert-danger mt-3" style={{ fontSize: '0.85rem' }}>
-                          {clientError}
-                        </div>
-                      )}
-                      <div className="alert alert-info mt-3" style={{ fontSize: '0.85rem' }}>
-                        <i className="fas fa-info-circle me-2"></i>
-                        Client code is locked to your account for security
-                      </div>
+                      <FaInfoCircle />
+                      Client code is locked to your account for security
                     </div>
                   </div>
+                </div>
 
-                  <button
-                    className="btn btn-primary px-4 py-2"
-                    onClick={handleTestEndpoint}
-                    disabled={loading}
-                    style={{
-                      background: selectedEndpoint.gradient,
-                      border: 'none',
-                      borderRadius: '10px',
-                      transition: 'all 0.3s ease',
-                      fontSize: '0.9rem',
-                      fontFamily: 'Inter, system-ui, sans-serif'
-                    }}
-                  >
-                    {loading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Sending...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-paper-plane me-2"></i>
-                        Send Request
-                      </>
-                    )}
-                  </button>
+                <button
+                  onClick={handleTestEndpoint}
+                  disabled={loading}
+                  style={{
+                    background: selectedEndpoint.gradient,
+                    border: 'none',
+                    borderRadius: '10px',
+                    padding: '12px 24px',
+                    color: '#ffffff',
+                    fontWeight: 600,
+                    fontSize: '14px',
+                    fontFamily: 'Inter, system-ui, sans-serif',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s',
+                    opacity: loading ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '24px'
+                  }}
+                  onMouseOver={e => {
+                    if (!loading) {
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                    }
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm" role="status" style={{ width: '14px', height: '14px', borderWidth: '2px' }}></span>
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <FaPaperPlane style={{ fontSize: '14px' }} />
+                      Send Request
+                    </>
+                  )}
+                </button>
 
-                  <div className={`mt-4`}>
-                    <h6 className="fw-bold mb-3" style={{ fontSize: '0.9rem' }}>Response</h6>
-                    <div className="response-container" style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: '10px',
-                      border: '1px solid #dee2e6',
-                      overflow: 'hidden'
-                    }}>
+                <div>
+                  <h6 style={{ 
+                    fontSize: '14px', 
+                    fontWeight: 600, 
+                    color: '#1e293b',
+                    marginBottom: '12px'
+                  }}>Response</h6>
+                  <div style={{
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0',
+                    overflow: 'hidden',
+                    minHeight: '200px'
+                  }}>
                       {loading ? (
                         <div style={{ 
-                          padding: '2rem', 
+                          padding: '3rem', 
                           display: 'flex', 
                           alignItems: 'center', 
                           justifyContent: 'center',
                           flexDirection: 'column',
-                          gap: '1rem'
+                          gap: '16px'
                         }}>
-                          <div className="spinner-border text-primary" role="status">
+                          <div className="spinner-border text-primary" role="status" style={{ width: '32px', height: '32px', borderWidth: '3px' }}>
                             <span className="visually-hidden">Loading...</span>
                           </div>
-                          <div className="text-muted" style={{ fontSize: '0.9rem' }}>Processing request...</div>
+                          <div style={{ fontSize: '14px', color: '#64748b' }}>Processing request...</div>
                         </div>
                       ) : response ? (
                         <>
-                          <div className="d-flex align-items-center justify-content-between p-3 border-bottom" style={{
-                            background: response.error ? 'rgba(220, 53, 69, 0.1)' : 'linear-gradient(90deg, #f8f9fa 0%, #ffffff 100%)'
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '16px 20px',
+                            borderBottom: '1px solid #e2e8f0',
+                            background: response.error ? '#fee2e2' : '#f0fdf4'
                           }}>
-                            <div className="d-flex align-items-center gap-2">
-                              <span className={`badge ${response.error ? 'bg-danger' : 'bg-success'}`} style={{ 
-                                padding: '0.5rem 1rem', 
-                                fontSize: '0.8rem' 
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <span style={{ 
+                                padding: '6px 14px', 
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                background: response.error ? '#dc2626' : '#22c55e',
+                                color: '#ffffff',
+                                letterSpacing: '0.05em'
                               }}>
                                 {response.error ? 'ERROR' : 'SUCCESS'}
                               </span>
-                              <span className="text-muted" style={{ fontSize: '0.85rem' }}>
+                              <span style={{ fontSize: '13px', color: '#64748b' }}>
                                 {response.error ? 'Request failed' : 'Response received'}
                               </span>
                             </div>
                             <button 
-                              className="btn btn-sm btn-light" 
                               onClick={() => {
                                 navigator.clipboard.writeText(JSON.stringify(response, null, 2));
                                 toast.success('Response copied to clipboard', {
@@ -1191,55 +1589,100 @@ const Dashboard = () => {
                                 });
                               }}
                               style={{
-                                fontSize: '0.8rem',
+                                fontSize: '13px',
                                 borderRadius: '6px',
-                                padding: '0.4rem 0.8rem'
+                                padding: '6px 12px',
+                                background: '#ffffff',
+                                border: '1px solid #e2e8f0',
+                                color: '#64748b',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                              }}
+                              onMouseOver={e => {
+                                e.currentTarget.style.background = '#f8fafc';
+                                e.currentTarget.style.borderColor = '#cbd5e1';
+                              }}
+                              onMouseOut={e => {
+                                e.currentTarget.style.background = '#ffffff';
+                                e.currentTarget.style.borderColor = '#e2e8f0';
                               }}
                             >
-                              <i className="fas fa-copy me-1"></i> Copy
+                              <FaCopy /> Copy
                             </button>
                           </div>
-                          <div className="p-3" style={{ 
+                          <div style={{ 
                             maxHeight: '400px',
                             overflowY: 'auto',
-                            background: '#ffffff' 
+                            background: '#ffffff',
+                            padding: '20px'
                           }}>
                             {response.error ? (
-                              <div className="alert alert-danger mb-0" style={{ fontSize: '0.85rem' }}>
-                                <h6 className="alert-heading fw-bold mb-2">Error Details</h6>
-                                <p className="mb-1">{response.error}</p>
+                              <div style={{ 
+                                padding: '16px',
+                                backgroundColor: '#fee2e2',
+                                borderRadius: '8px',
+                                border: '1px solid #fecaca'
+                              }}>
+                                <h6 style={{ fontSize: '14px', fontWeight: 600, color: '#991b1b', marginBottom: '8px', marginTop: 0 }}>Error Details</h6>
+                                <p style={{ fontSize: '13px', color: '#dc2626', marginBottom: '12px', marginTop: 0 }}>{response.error}</p>
                                 {response.details && (
-                                  <pre className="mt-2 mb-0" style={{ fontSize: '0.8rem' }}>
+                                  <pre style={{ 
+                                    margin: 0,
+                                    fontSize: '12px',
+                                    color: '#991b1b',
+                                    background: '#ffffff',
+                                    padding: '12px',
+                                    borderRadius: '6px',
+                                    overflow: 'auto'
+                                  }}>
                                     {JSON.stringify(response.details, null, 2)}
                                   </pre>
                                 )}
                               </div>
                             ) : Array.isArray(response) ? (
-                              <div className="table-responsive">
-                                <table className="table table-hover" style={{ fontSize: '0.85rem' }}>
+                              <div style={{ overflowX: 'auto' }}>
+                                <table style={{ 
+                                  width: '100%',
+                                  fontSize: '13px',
+                                  borderCollapse: 'collapse'
+                                }}>
                                   <thead>
                                     <tr>
                                       {Object.keys(response[0] || {}).map(key => (
                                         <th key={key} style={{ 
                                           position: 'sticky',
                                           top: 0,
-                                          background: '#f8f9fa',
+                                          background: '#f8fafc',
                                           whiteSpace: 'nowrap',
-                                          padding: '0.75rem'
+                                          padding: '12px',
+                                          textAlign: 'left',
+                                          fontWeight: 600,
+                                          color: '#1e293b',
+                                          borderBottom: '2px solid #e2e8f0'
                                         }}>{key}</th>
                                       ))}
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {response.map((item, i) => (
-                                      <tr key={i}>
+                                      <tr key={i} style={{ 
+                                        borderBottom: '1px solid #f1f5f9',
+                                        transition: 'background 0.2s'
+                                      }}
+                                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                      >
                                         {Object.values(item).map((value, j) => (
                                           <td key={j} style={{ 
-                                            padding: '0.75rem',
+                                            padding: '12px',
                                             whiteSpace: 'nowrap',
                                             maxWidth: '200px',
                                             overflow: 'hidden',
-                                            textOverflow: 'ellipsis'
+                                            textOverflow: 'ellipsis',
+                                            color: '#475569'
                                           }}>
                                             {value?.toString() || '-'}
                                           </td>
@@ -1248,16 +1691,24 @@ const Dashboard = () => {
                                     ))}
                                   </tbody>
                                 </table>
-                                <div className="p-3 bg-light border-top">
-                                  <small className="text-muted">Total items: {response.length}</small>
+                                <div style={{ 
+                                  padding: '12px 16px',
+                                  background: '#f8fafc',
+                                  borderTop: '1px solid #e2e8f0',
+                                  fontSize: '12px',
+                                  color: '#64748b'
+                                }}>
+                                  Total items: {response.length}
                                 </div>
                               </div>
                             ) : (
                               <pre style={{ 
                                 margin: 0,
-                                fontSize: '0.85rem',
+                                fontSize: '13px',
                                 whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-word'
+                                wordBreak: 'break-word',
+                                color: '#475569',
+                                lineHeight: '1.6'
                               }}>
                                 {JSON.stringify(response, null, 2)}
                               </pre>
@@ -1266,16 +1717,16 @@ const Dashboard = () => {
                         </>
                       ) : (
                         <div style={{ 
-                          padding: '2rem', 
+                          padding: '3rem', 
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexDirection: 'column',
-                          gap: '1rem',
-                          color: '#666'
+                          gap: '16px',
+                          color: '#94a3b8'
                         }}>
-                          <div style={{ fontSize: '2rem' }}>📡</div>
-                          <div style={{ fontSize: '0.9rem' }}>Send a request to see the response here</div>
+                          <div style={{ fontSize: '48px' }}>📡</div>
+                          <div style={{ fontSize: '14px', color: '#64748b' }}>Send a request to see the response here</div>
                         </div>
                       )}
                     </div>
@@ -1283,204 +1734,186 @@ const Dashboard = () => {
                 </div>
               </div>
             ) : (
-              <div className="card border-0" style={{ 
-                borderRadius: '15px', 
-                background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-                height: '100%'
+              <div style={{ 
+                background: '#ffffff',
+                borderRadius: '12px',
+                padding: '24px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                textAlign: 'center',
+                overflowY: 'auto',
+                maxHeight: 'calc(100vh - 88px)'
               }}>
-                <div className="card-body p-4">
-                  <div className="text-center mb-4">
+                <div className="icon-size-large" style={{
+                  width: '60px',
+                  height: '60px',
+                  background: 'transparent',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '16px'
+                }}>
+                  <FaShieldAlt style={{ fontSize: '28px', color: '#2563eb' }} />
+                </div>
+                <h4 className="welcome-title" style={{ 
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  marginBottom: '8px',
+                  letterSpacing: '-0.01em'
+                }}>Secure RFID Integration</h4>
+                <p className="welcome-text" style={{ 
+                  fontSize: '13px',
+                  color: '#64748b',
+                  marginBottom: '24px',
+                  maxWidth: '500px',
+                  lineHeight: '1.5'
+                }}>Select an endpoint from the left to start making secure API requests for your RFID operations.</p>
+
+                <div className="grid-cards" style={{ 
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: '12px',
+                  width: '100%',
+                  maxWidth: '700px',
+                  marginBottom: '20px'
+                }}>
+                  {[
+                    { icon: FaSave, color: '#2563eb', title: 'Save Transactions', desc: 'Securely save new RFID transaction details with complete product information.' },
+                    { icon: FaEdit, color: '#06b6d4', title: 'Update Status', desc: 'Update transaction status and manage your RFID inventory efficiently.' },
+                    { icon: FaSearch, color: '#22c55e', title: 'Get Details', desc: 'Retrieve and view all active RFID transactions with detailed information.' },
+                    { icon: FaMobileAlt, color: '#0ea5e9', title: 'Device Management', desc: 'Get and manage RFID device details for specific devices.' },
+                    { icon: FaTrashAlt, color: '#ef4444', title: 'Stock Management', desc: 'Delete specific or all items from your labelled stock inventory.' },
+                    { icon: FaTrashAlt, color: '#f59e0b', title: 'Device Cleanup', desc: 'Remove RFID data for specific client and device combinations.' }
+                  ].map((item, idx) => {
+                    const IconComponent = item.icon;
+                    return (
+                    <div key={idx} style={{ 
+                      padding: '14px',
+                      background: '#f8fafc',
+                      borderRadius: '10px',
+                      transition: 'all 0.2s ease',
+                      cursor: 'pointer',
+                      border: '1px solid #e2e8f0',
+                      textAlign: 'left'
+                    }} 
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)';
+                      e.currentTarget.style.borderColor = item.color;
+                      e.currentTarget.style.background = '#ffffff';
+                    }} 
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.background = '#f8fafc';
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                        <div className="icon-size" style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '8px',
+                          background: 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: '10px',
+                          flexShrink: 0
+                        }}>
+                          <IconComponent style={{ fontSize: '18px', color: item.color }} />
+                        </div>
+                        <h6 className="card-title" style={{ 
+                          margin: 0,
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          lineHeight: '1.3'
+                        }}>{item.title}</h6>
+                      </div>
+                      <p className="card-desc" style={{ 
+                        margin: 0,
+                        fontSize: '11px',
+                        color: '#64748b',
+                        lineHeight: '1.4',
+                        paddingLeft: '46px'
+                      }}>{item.desc}</p>
+                    </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ 
+                  marginTop: '20px',
+                  padding: '16px',
+                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                  borderRadius: '10px',
+                  color: 'white',
+                  transition: 'all 0.2s ease',
+                  width: '100%',
+                  maxWidth: '700px'
+                }} 
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'scale(1.01)';
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(37, 99, 235, 0.25)';
+                }} 
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{
-                      width: '80px',
-                      height: '80px',
-                      margin: '0 auto',
-                      background: 'linear-gradient(135deg, #0078d4 0%, #5470FF 100%)',
-                      borderRadius: '50%',
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '8px',
+                      background: 'rgba(255,255,255,0.2)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      marginBottom: '20px'
+                      flexShrink: 0
                     }}>
-                      <i className="fas fa-shield-alt text-white" style={{ fontSize: '2rem' }}></i>
+                      <FaLock style={{ fontSize: '18px' }} />
                     </div>
-                    <h4 className="fw-bold mb-3">Secure RFID Integration</h4>
-                    <p className="text-muted mb-4">Select an endpoint from the left to start making secure API requests for your RFID operations.</p>
-                  </div>
-
-                  <div className="row g-4">
-                    <div className="col-md-6">
-                      <div className="p-3 h-100" style={{ 
-                        background: '#f8f9fa', 
-                        borderRadius: '10px',
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer',
-                        border: '1px solid transparent',
-                        height: '100%'
-                      }} onMouseEnter={e => {
-                        e.currentTarget.style.transform = 'translateY(-5px)';
-                        e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
-                        e.currentTarget.style.borderColor = '#4A00E0';
-                      }} onMouseLeave={e => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                        e.currentTarget.style.borderColor = 'transparent';
-                      }}>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-save text-primary me-2"></i>
-                          <h6 className="mb-0">Save Transactions</h6>
-                        </div>
-                        <p className="text-muted small mb-0">Securely save new RFID transaction details with complete product information.</p>
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="p-3 h-100" style={{ 
-                        background: '#f8f9fa', 
-                        borderRadius: '10px',
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer',
-                        border: '1px solid transparent',
-                        height: '100%'
-                      }} onMouseEnter={e => {
-                        e.currentTarget.style.transform = 'translateY(-5px)';
-                        e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
-                        e.currentTarget.style.borderColor = '#4A00E0';
-                      }} onMouseLeave={e => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                        e.currentTarget.style.borderColor = 'transparent';
-                      }}>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-edit text-info me-2"></i>
-                          <h6 className="mb-0">Update Status</h6>
-                        </div>
-                        <p className="text-muted small mb-0">Update transaction status and manage your RFID inventory efficiently.</p>
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="p-3 h-100" style={{ 
-                        background: '#f8f9fa', 
-                        borderRadius: '10px',
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer',
-                        border: '1px solid transparent',
-                        height: '100%'
-                      }} onMouseEnter={e => {
-                        e.currentTarget.style.transform = 'translateY(-5px)';
-                        e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
-                        e.currentTarget.style.borderColor = '#4A00E0';
-                      }} onMouseLeave={e => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                        e.currentTarget.style.borderColor = 'transparent';
-                      }}>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-search text-success me-2"></i>
-                          <h6 className="mb-0">Get Details</h6>
-                        </div>
-                        <p className="text-muted small mb-0">Retrieve and view all active RFID transactions with detailed information.</p>
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="p-3 h-100" style={{ 
-                        background: '#f8f9fa', 
-                        borderRadius: '10px',
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer',
-                        border: '1px solid transparent',
-                        height: '100%'
-                      }} onMouseEnter={e => {
-                        e.currentTarget.style.transform = 'translateY(-5px)';
-                        e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
-                        e.currentTarget.style.borderColor = '#4A00E0';
-                      }} onMouseLeave={e => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                        e.currentTarget.style.borderColor = 'transparent';
-                      }}>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-mobile-alt text-info me-2"></i>
-                          <h6 className="mb-0">Device Management</h6>
-                        </div>
-                        <p className="text-muted small mb-0">Get and manage RFID device details for specific devices.</p>
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="p-3 h-100" style={{ 
-                        background: '#f8f9fa', 
-                        borderRadius: '10px',
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer',
-                        border: '1px solid transparent',
-                        height: '100%'
-                      }} onMouseEnter={e => {
-                        e.currentTarget.style.transform = 'translateY(-5px)';
-                        e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
-                        e.currentTarget.style.borderColor = '#4A00E0';
-                      }} onMouseLeave={e => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                        e.currentTarget.style.borderColor = 'transparent';
-                      }}>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-trash text-danger me-2"></i>
-                          <h6 className="mb-0">Stock Management</h6>
-                        </div>
-                        <p className="text-muted small mb-0">Delete specific or all items from your labelled stock inventory.</p>
-                      </div>
-                    </div>
-                    <div className="col-md-6">
-                      <div className="p-3 h-100" style={{ 
-                        background: '#f8f9fa', 
-                        borderRadius: '10px',
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer',
-                        border: '1px solid transparent',
-                        height: '100%'
-                      }} onMouseEnter={e => {
-                        e.currentTarget.style.transform = 'translateY(-5px)';
-                        e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.1)';
-                        e.currentTarget.style.borderColor = '#4A00E0';
-                      }} onMouseLeave={e => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                        e.currentTarget.style.borderColor = 'transparent';
-                      }}>
-                        <div className="d-flex align-items-center mb-2">
-                          <i className="fas fa-trash-alt text-warning me-2"></i>
-                          <h6 className="mb-0">Device Cleanup</h6>
-                        </div>
-                        <p className="text-muted small mb-0">Remove RFID data for specific client and device combinations.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 p-4" style={{ 
-                    background: 'linear-gradient(135deg, #0078d4 0%, #5470FF 100%)',
-                    borderRadius: '10px',
-                    color: 'white',
-                    transition: 'all 0.3s ease',
-                    cursor: 'pointer'
-                  }} onMouseEnter={e => {
-                    e.currentTarget.style.transform = 'scale(1.02)';
-                    e.currentTarget.style.boxShadow = '0 10px 20px rgba(74, 0, 224, 0.2)';
-                  }} onMouseLeave={e => {
-                    e.currentTarget.style.transform = 'scale(1)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}>
-                    <div className="d-flex align-items-center">
-                      <i className="fas fa-lock me-3" style={{ fontSize: '1.5rem' }}></i>
-                      <div>
-                        <h6 className="mb-1">Secure Client Code Integration</h6>
-                        <p className="mb-0 small">All endpoints are secured with your client code for maximum security and data protection.</p>
-                      </div>
+                    <div>
+                      <h6 style={{ margin: 0, marginBottom: '3px', fontSize: '14px', fontWeight: 600 }}>Secure Client Code Integration</h6>
+                      <p style={{ margin: 0, fontSize: '12px', opacity: 0.9, lineHeight: '1.4' }}>All endpoints are secured with your client code for maximum security and data protection.</p>
                     </div>
                   </div>
                 </div>
+                <style>{`
+                  @media (max-width: 768px) {
+                    .grid-cards {
+                      grid-template-columns: 1fr !important;
+                      gap: 10px !important;
+                    }
+                    .welcome-title {
+                      font-size: 18px !important;
+                    }
+                    .welcome-text {
+                      font-size: 12px !important;
+                      margin-bottom: 20px !important;
+                    }
+                    .icon-size-large {
+                      width: 50px !important;
+                      height: 50px !important;
+                      margin-bottom: 12px !important;
+                    }
+                    .icon-size-large svg {
+                      font-size: 24px !important;
+                    }
+                  }
+                `}</style>
               </div>
             )}
           </div>
         </div>
       </div>
+
       <ToastContainer 
         position="top-right"
         autoClose={2000}
@@ -2032,8 +2465,7 @@ const Dashboard = () => {
         onNavigateToUpload={handleRFIDUploadClick}
         userInfo={userInfo}
       />
-    </div>
-    <style>{`
+      <style>{`
     @keyframes rfidSuccessPop {
       0% { 
         opacity: 0; 

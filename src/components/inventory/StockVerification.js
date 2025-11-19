@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -24,21 +24,24 @@ import {
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from '../../hooks/useTranslation';
+import { useLoading } from '../../App';
 
 const StockVerification = () => {
+  // Global loader
+  const { setLoading } = useLoading();
+  
   // State Management
   const [sessions, setSessions] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'SessionNumber', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   const [totalSessions, setTotalSessions] = useState(0);
   const [userInfo, setUserInfo] = useState({});
   const [clientCode, setClientCode] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showDetailsSlider, setShowDetailsSlider] = useState(false);
   const [sessionDetails, setSessionDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [matchedPage, setMatchedPage] = useState(1);
@@ -47,6 +50,8 @@ const StockVerification = () => {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [pageInput, setPageInput] = useState('');
   const isInitialMount = useRef(true);
 
   const { addNotification } = useNotifications();
@@ -216,6 +221,13 @@ const StockVerification = () => {
     if (clientCode) {
       fetchSessions();
     }
+    
+    // Handle window resize for responsive design
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, [clientCode]);
 
   // Reload sessions when date filters change
@@ -256,7 +268,8 @@ const StockVerification = () => {
   };
 
   // Search and filter logic
-  const filteredSessions = sessions.filter(session => {
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(session => {
     // Search filter
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
@@ -289,9 +302,11 @@ const StockVerification = () => {
 
     return true;
   });
+  }, [sessions, searchQuery, dateFrom, dateTo]);
 
   // Sorting logic
-  const sortedSessions = [...filteredSessions].sort((a, b) => {
+  const sortedSessions = useMemo(() => {
+    return [...filteredSessions].sort((a, b) => {
     if (!sortConfig.key) return 0;
     
     let aValue = a[sortConfig.key];
@@ -311,11 +326,41 @@ const StockVerification = () => {
     }
     return 0;
   });
+  }, [filteredSessions, sortConfig]);
 
   // Pagination logic
   const totalPages = Math.ceil(sortedSessions.length / itemsPerPage);
+  const totalRecords = sortedSessions.length;
+  const currentSessions = useMemo(() => {
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentSessions = sortedSessions.slice(startIndex, startIndex + itemsPerPage);
+    return sortedSessions.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedSessions, currentPage, itemsPerPage]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  // Handle page input
+  const handlePageInputChange = (e) => {
+    const value = e.target.value;
+    if (value === '' || /^\d+$/.test(value)) {
+      setPageInput(value);
+    }
+  };
+
+  const handlePageInputSubmit = (e) => {
+    if (e.key === 'Enter' || e.type === 'click') {
+      const pageNum = parseInt(pageInput);
+      if (pageNum >= 1 && pageNum <= totalPages) {
+        setCurrentPage(pageNum);
+        setPageInput('');
+      } else {
+        toast.error(`Please enter a page number between 1 and ${totalPages}`);
+        setPageInput('');
+      }
+    }
+  };
 
   // Handle sorting
   const handleSort = (key) => {
@@ -357,7 +402,7 @@ const StockVerification = () => {
     console.log('View session:', session);
     setMatchedPage(1);
     setUnmatchedPage(1);
-    setShowDetailsModal(true);
+    setShowDetailsSlider(true);
     fetchSessionDetails(session.ScanBatchId);
   };
 
@@ -607,20 +652,6 @@ const StockVerification = () => {
     }
   };
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="container-fluid p-4">
-        <div className="d-flex justify-content-center align-items-center" style={{ height: '60vh' }}>
-          <div className="text-center">
-            <FaSpinner className="fa-spin mb-3 text-primary" style={{ fontSize: '48px' }} />
-            <h5 className="text-muted">{t('stockVerification.loading')}</h5>
-            <p className="text-muted">{t('common.loading')}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // Error state
   if (error) {
@@ -651,245 +682,628 @@ const StockVerification = () => {
   }
 
   return (
-    <div className="container-fluid p-3">
-      <style>
-        {`
-          .table-responsive {
-            position: relative;
-          }
-          .table-responsive table {
-            position: relative;
-            font-size: 12px;
-          }
-          .table-responsive th {
-            font-size: 12px;
-            font-weight: 500;
-          }
-          .table-responsive td {
-            font-size: 12px;
-          }
-        `}
-      </style>
-
-      {/* Compact Header */}
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body p-3">
-          <div className="row align-items-center">
-            <div className="col-md-6">
-              <div className="d-flex align-items-center">
-                <div className="bg-primary rounded-3 p-2 me-3">
-                  <FaClipboardCheck className="text-white" style={{ fontSize: '20px' }} />
-                </div>
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px', position: 'relative' }}>
+      {/* Unified Header & Action Section */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '16px'
+        }}>
                 <div>
-                  <h5 className="mb-1 fw-bold text-dark">{t('stockVerification.title')}</h5>
-                  <p className="mb-0 text-muted small">{t('stockVerification.description')}</p>
-                  <span className="badge bg-primary mt-1">{totalSessions} {t('stockVerification.sessions')}</span>
+            <h2 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 700,
+              color: '#1e293b',
+              lineHeight: '1.2'
+            }}>Stock Verification</h2>
                 </div>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              background: '#f0fdf4',
+              borderRadius: '8px',
+              border: '1px solid #dcfce7'
+            }}>
+              <FaCheckCircle style={{ color: '#10b981', fontSize: '14px' }} />
+              <span style={{ fontSize: '12px', color: '#166534', fontWeight: 600 }}>Active: {totalSessions}</span>
               </div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              background: '#eff6ff',
+              borderRadius: '8px',
+              border: '1px solid #dbeafe'
+            }}>
+              <FaLayerGroup style={{ color: '#3b82f6', fontSize: '14px' }} />
+              <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: 600 }}>Batches: {totalSessions}</span>
             </div>
-            <div className="col-md-6">
-              <div className="d-flex align-items-center justify-content-end gap-2">
-                <div className="d-flex gap-2 me-3">
-                  <div className="card border-0 bg-light" style={{ minWidth: '120px' }}>
-                    <div className="card-body p-2 text-center">
-                      <div className="d-flex align-items-center justify-content-center mb-1">
-                        <FaCheckCircle className="text-success me-1" style={{ fontSize: '14px' }} />
-                        <small className="text-muted fw-bold">{t('stockVerification.activeSessions')}</small>
+            <div style={{
+              fontSize: '12px',
+              color: '#64748b',
+              fontWeight: 600
+            }}>
+              Total: {totalRecords} records
                     </div>
-                      <div className="fw-bold text-success">{totalSessions}</div>
               </div>
             </div>
-                  <div className="card border-0 bg-light" style={{ minWidth: '120px' }}>
-                    <div className="card-body p-2 text-center">
-                      <div className="d-flex align-items-center justify-content-center mb-1">
-                        <FaLayerGroup className="text-primary me-1" style={{ fontSize: '14px' }} />
-                        <small className="text-muted fw-bold">{t('stockVerification.totalBatches')}</small>
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '10px',
+          alignItems: 'center',
+          paddingTop: '16px',
+          borderTop: '1px solid #e5e7eb'
+        }}>
+          {/* Search Input */}
+          <div style={{
+            position: 'relative',
+            flex: '1',
+            minWidth: windowWidth <= 768 ? '100%' : '250px',
+            maxWidth: windowWidth <= 768 ? '100%' : '350px'
+          }}>
+            <FaSearch style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8',
+              fontSize: '14px',
+              zIndex: 1
+            }} />
+            <input
+              type="text"
+              placeholder="Search by session ID or batch..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                fontSize: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                transition: 'all 0.2s',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            />
           </div>
-                      <div className="fw-bold text-primary">{totalSessions}</div>
-        </div>
-      </div>
-            </div>
+          {/* Action Buttons */}
                 <button 
-                  onClick={() => setShowFilterPanel(!showFilterPanel)}
-                  className={`btn btn-sm ${showFilterPanel ? 'btn-primary' : 'btn-outline-primary'}`}
-                >
-                  <FaFilter className="me-1" />
-                  Filter
+            onClick={() => setShowFilterPanel(true)}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #3b82f6',
+              background: showFilterPanel ? '#3b82f6' : '#ffffff',
+              color: showFilterPanel ? '#ffffff' : '#3b82f6',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              if (!showFilterPanel) {
+                e.target.style.background = '#3b82f6';
+                e.target.style.color = '#ffffff';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!showFilterPanel) {
+                e.target.style.background = '#ffffff';
+                e.target.style.color = '#3b82f6';
+              }
+            }}
+          >
+            <FaFilter /> Filter
                 </button>
                                     <button 
                   onClick={handleRefresh}
-                  className="btn btn-outline-primary btn-sm"
                   disabled={refreshing}
-                >
-                  <FaSpinner className={`me-1 ${refreshing ? 'fa-spin' : ''}`} />
-                  {refreshing ? t('common.refreshing') : t('common.refresh')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #3b82f6',
+              background: '#ffffff',
+              color: '#3b82f6',
+              cursor: refreshing ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s',
+              opacity: refreshing ? 0.6 : 1
+            }}
+            onMouseEnter={(e) => {
+              if (!refreshing) {
+                e.target.style.background = '#3b82f6';
+                e.target.style.color = '#ffffff';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!refreshing) {
+                e.target.style.background = '#ffffff';
+                e.target.style.color = '#3b82f6';
+              }
+            }}
+          >
+            <FaSpinner className={refreshing ? 'fa-spin' : ''} /> Refresh
                 </button>
           </div>
         </div>
-            </div>
-          </div>
-        </div>
 
-      {/* Date Filter Panel */}
+      {/* Filter Slider (Right-Side) */}
       {showFilterPanel && (
-        <div className="card shadow-sm border-0 mb-3">
-          <div className="card-header bg-light d-flex justify-content-between align-items-center">
-            <h6 className="mb-0 fw-bold">
-              <FaCalendarAlt className="me-2" />
-              Date Filter Options
-            </h6>
+        <>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 1000,
+              animation: 'fadeIn 0.2s ease-in-out'
+            }}
+            onClick={() => setShowFilterPanel(false)}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              right: 0,
+              width: windowWidth <= 768 ? '100%' : '400px',
+              maxWidth: '90vw',
+              height: '100vh',
+              background: '#ffffff',
+              boxShadow: '-4px 0 20px rgba(0, 0, 0, 0.15)',
+              zIndex: 1001,
+              display: 'flex',
+              flexDirection: 'column',
+              animation: 'slideInRight 0.3s ease-out',
+              overflowY: 'auto'
+            }}
+          >
+            {/* Filter Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              padding: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <FaFilter style={{ color: '#ffffff', fontSize: '18px' }} />
+                <h3 style={{
+                  margin: 0,
+                  fontSize: '16px',
+                  fontWeight: 700,
+                  color: '#ffffff'
+                }}>Filter Options</h3>
+              </div>
             <button 
-              type="button" 
-              className="btn-close" 
               onClick={() => setShowFilterPanel(false)}
-            ></button>
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+              >
+                <FaTimesCircle style={{ color: '#ffffff', fontSize: '16px' }} />
+              </button>
           </div>
-          <div className="card-body">
-            <div className="row g-3">
-              <div className="col-md-4">
-                <label className="form-label small fw-bold">From Date</label>
+
+            {/* Filter Content */}
+            <div style={{ padding: '20px', flex: 1 }}>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  marginBottom: '8px'
+                }}>From Date</label>
                 <input
                   type="date"
-                  className="form-control form-control-sm"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
                   max={dateTo || undefined}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
-              <div className="col-md-4">
-                <label className="form-label small fw-bold">To Date</label>
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  marginBottom: '8px'
+                }}>To Date</label>
                 <input
                   type="date"
-                  className="form-control form-control-sm"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
                   min={dateFrom || undefined}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
-              <div className="col-md-4 d-flex align-items-end">
-                <div className="d-flex gap-2 w-100">
+              {(dateFrom || dateTo) && (
+                <div style={{
+                  padding: '12px',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  marginBottom: '20px',
+                  fontSize: '12px',
+                  color: '#64748b'
+                }}>
+                  Filtering by: {dateFrom ? `From ${dateFrom}` : ''} {dateTo ? `To ${dateTo}` : ''}
+                </div>
+              )}
+            </div>
+
+            {/* Filter Footer */}
+            <div style={{
+              padding: '20px',
+              borderTop: '1px solid #e5e7eb',
+              display: 'flex',
+              gap: '12px'
+            }}>
                   <button 
-                    className="btn btn-outline-secondary btn-sm flex-fill" 
                     onClick={handleResetDateFilters}
+                style={{
+                  flex: 1,
+                  padding: '10px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  color: '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
                   >
                     Reset
                   </button>
                   <button 
-                    className="btn btn-primary btn-sm flex-fill" 
                     onClick={handleApplyDateFilters}
-                  >
-                    Apply
+                style={{
+                  flex: 1,
+                  padding: '10px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #3b82f6',
+                  background: '#3b82f6',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#2563eb';
+                  e.target.style.borderColor = '#2563eb';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#3b82f6';
+                  e.target.style.borderColor = '#3b82f6';
+                }}
+              >
+                Apply Filters
                   </button>
                 </div>
               </div>
-            </div>
-            {(dateFrom || dateTo) && (
-              <div className="mt-2">
-                <small className="text-muted">
-                  Filtering by: {dateFrom ? `From ${dateFrom}` : ''} {dateTo ? `To ${dateTo}` : ''}
-                </small>
-              </div>
-            )}
-          </div>
-        </div>
+        </>
       )}
 
-            {/* Sessions Table */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card shadow-sm border-0 mb-3">
-            <div className="card-header bg-light d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center">
-                <FaClipboardCheck className="text-primary me-2" />
-                <h6 className="mb-0 fw-bold">{t('stockVerification.verificationSessions')}</h6>
-                <span className="badge bg-primary ms-2">{filteredSessions.length} {t('common.items')}</span>
-            </div>
-              <div className="position-relative">
-                <FaSearch className="position-absolute top-50 start-0 translate-middle-y ms-2 text-muted" style={{ fontSize: '14px' }} />
-                <input
-                  type="text"
-                  className="form-control form-control-sm ps-4"
-                  placeholder={t('stockVerification.searchPlaceholder')}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ width: '240px' }}
-                />
-          </div>
-        </div>
-
-        <div className="card-body p-0">
-              <div className="table-responsive" style={{ overflowX: 'auto' }}>
-                <table className="table table-hover table-sm mb-0" style={{ minWidth: '800px' }}>
-                  <thead className="table-light">
-                <tr>
-                  <th>{t('stockVerification.sessionNumber')}</th>
-                  <th>{t('common.batchId')}</th>
-                  <th>{t('stockVerification.startedOn')}</th>
-                  <th>{t('stockVerification.endedOn')}</th>
-                  <th>{t('common.totalQty')}</th>
-                      <th>{t('stockVerification.matchedItems')}</th>
-                      <th>{t('stockVerification.unmatchedItems')}</th>
-                  <th>{t('common.actions')}</th>
+      {/* Table Container */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        marginTop: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb',
+        overflow: 'hidden'
+      }}>
+        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+          <table style={{ 
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '12px',
+            tableLayout: 'auto',
+            minWidth: '1200px'
+          }}>
+            <thead>
+              <tr style={{
+                background: '#f8fafc',
+                borderBottom: '2px solid #e5e7eb'
+              }}>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Session Number</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Batch ID</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Started On</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Ended On</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Total Qty</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Matched Items</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Unmatched Items</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap',
+                  position: 'sticky',
+                  right: 0,
+                  background: '#f8fafc',
+                  zIndex: 10,
+                  borderLeft: '2px solid #e5e7eb'
+                }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                    {loading ? (
+                    {currentSessions.length === 0 ? (
                       <tr>
-                        <td colSpan="8" className="text-center py-4">
-                          <div className="d-flex align-items-center justify-content-center gap-2">
-                            <div className="spinner-border spinner-border-sm text-primary" role="status">
-                              <span className="visually-hidden">Loading...</span>
-            </div>
-                            <span className="text-muted small">{t('stockVerification.sessionsLoaded')}</span>
-        </div>
-                    </td>
-                      </tr>
-                    ) : currentSessions.length === 0 ? (
-                      <tr>
-                        <td colSpan="8" className="text-center py-4">
-                          <span className="text-muted small">{t('stockVerification.noSessionsFound')}</span>
+                  <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                    No sessions found
                     </td>
                       </tr>
                     ) : (
-                      currentSessions.map((session, index) => (
-                        <tr key={session.ScanBatchId || index}>
-                          <td className="text-nowrap">{session.SessionNumber || index + 1}</td>
-                          <td className="text-nowrap">
-                            {session.ScanBatchId ? session.ScanBatchId.substring(0, 8) + '...' : 'N/A'}
+                currentSessions.map((session, index) => {
+                  const globalIndex = (currentPage - 1) * itemsPerPage + index;
+                  return (
+                    <tr
+                      key={session.ScanBatchId || index}
+                      style={{
+                        borderBottom: '1px solid #e5e7eb',
+                        background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f1f5f9';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                      }}
+                    >
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 600
+                      }}>{session.SessionNumber || globalIndex + 1}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'monospace'
+                      }}>{session.ScanBatchId ? session.ScanBatchId.substring(0, 12) + '...' : 'N/A'}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{session.StartedOn ? formatDate(session.StartedOn) : 'N/A'}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{session.EndedOn ? formatDate(session.EndedOn) : 'N/A'}</td>
+                      <td style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        fontSize: '12px'
+                      }}>
+                        <span style={{
+                          padding: '4px 10px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          border: '1px solid #3b82f6',
+                          background: '#eff6ff',
+                          color: '#3b82f6'
+                        }}>{session.TotalQty || 0}</span>
                     </td>
-                          <td className="text-nowrap">
-                            {session.StartedOn ? formatDate(session.StartedOn) : 'N/A'}
+                      <td style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        fontSize: '12px'
+                      }}>
+                        <span style={{
+                          padding: '4px 10px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          border: '1px solid #10b981',
+                          background: '#f0fdf4',
+                          color: '#10b981'
+                        }}>{session.MatchQty || 0}</span>
                     </td>
-                          <td className="text-nowrap">
-                            {session.EndedOn ? formatDate(session.EndedOn) : 'N/A'}
+                      <td style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        fontSize: '12px'
+                      }}>
+                        <span style={{
+                          padding: '4px 10px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          border: '1px solid #ef4444',
+                          background: '#fef2f2',
+                          color: '#ef4444'
+                        }}>{session.UnmatchQty || 0}</span>
                     </td>
-                          <td className="text-nowrap">
-                            <button className="btn btn-sm btn-outline-primary">
-                              {session.TotalQty || 0}
-                            </button>
-                    </td>
-                          <td className="text-nowrap">
-                            <button className="btn btn-sm btn-outline-success">
-                              {session.MatchQty || 0}
-                            </button>
-                    </td>
-                          <td className="text-nowrap">
-                            <button className="btn btn-sm btn-outline-danger">
-                              {session.UnmatchQty || 0}
-                            </button>
-                    </td>
-                    <td>
+                      <td style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        fontSize: '12px',
+                        position: 'sticky',
+                        right: 0,
+                        background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                        zIndex: 5,
+                        borderLeft: '2px solid #e5e7eb'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f1f5f9';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                      }}
+                      >
                         <button 
-                              className="btn btn-sm btn-outline-primary"
                           onClick={() => handleViewSession(session)}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            borderRadius: '6px',
+                            border: '1px solid #3b82f6',
+                            background: '#ffffff',
+                            color: '#3b82f6',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#3b82f6';
+                            e.target.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = '#ffffff';
+                            e.target.style.color = '#3b82f6';
+                          }}
                               title="View Session Details"
                         >
-                              <FaEye className="me-1" />
-                              {t('common.view')}
+                          <FaEye /> View
                         </button>
                         </td>
                       </tr>
-                      ))
+                  );
+                })
                     )}
                   </tbody>
                 </table>
@@ -897,354 +1311,909 @@ const StockVerification = () => {
 
             {/* Pagination */}
           {totalPages > 1 && (
-            <div className="d-flex justify-content-between align-items-center p-3 border-top">
-              <div className="small text-muted">
-                    {t('pagination.showing')} {((currentPage - 1) * itemsPerPage) + 1} {t('pagination.to')} {Math.min(currentPage * itemsPerPage, filteredSessions.length)} {t('pagination.of')} {filteredSessions.length} {t('pagination.entries')}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderTop: '1px solid #e5e7eb',
+            background: '#ffffff',
+            borderRadius: '0 0 12px 12px',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              flexWrap: 'wrap',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <span>
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>Show:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                </select>
+                <span>per page</span>
               </div>
-              <nav>
-                <ul className="pagination pagination-sm mb-0">
-                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+            </div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flexWrap: 'wrap'
+            }}>
                     <button 
-                      className="page-link"
                           onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                       disabled={currentPage === 1}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                  background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
+                  color: currentPage === 1 ? '#94a3b8' : '#475569',
+                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (currentPage !== 1) {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#cbd5e1';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (currentPage !== 1) {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.borderColor = '#e2e8f0';
+                  }
+                }}
                     >
                       Previous
                     </button>
-                  </li>
-                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let page;
+                if (totalPages <= 5) {
+                  page = i + 1;
+                } else if (currentPage <= 3) {
+                  page = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  page = totalPages - 4 + i;
+                } else {
+                  page = currentPage - 2 + i;
+                }
+                return (
                     <button 
-                      className="page-link"
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: currentPage === page ? '#3b82f6' : '#ffffff',
+                      color: currentPage === page ? '#ffffff' : '#475569',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (currentPage !== page) {
+                        e.target.style.background = '#f8fafc';
+                        e.target.style.borderColor = '#cbd5e1';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (currentPage !== page) {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.borderColor = '#e2e8f0';
+                      }
+                    }}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+              <button
                           onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                       disabled={currentPage === totalPages}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                  background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
+                  color: currentPage === totalPages ? '#94a3b8' : '#475569',
+                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (currentPage !== totalPages) {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#cbd5e1';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (currentPage !== totalPages) {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.borderColor = '#e2e8f0';
+                  }
+                }}
                     >
                       Next
                     </button>
-                  </li>
-                </ul>
-              </nav>
+              {/* Go to Page */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginLeft: '8px',
+                paddingLeft: '8px',
+                borderLeft: '1px solid #e2e8f0'
+              }}>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>Go to:</span>
+                <input
+                  type="text"
+                  value={pageInput}
+                  onChange={handlePageInputChange}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handlePageInputSubmit(e);
+                    }
+                  }}
+                  placeholder="Page"
+                  style={{
+                    width: '60px',
+                    padding: '6px 8px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    textAlign: 'center',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                />
+                <button
+                  onClick={handlePageInputSubmit}
+                  disabled={!pageInput || pageInput === ''}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #3b82f6',
+                    background: (!pageInput || pageInput === '') ? '#f1f5f9' : '#ffffff',
+                    color: (!pageInput || pageInput === '') ? '#94a3b8' : '#3b82f6',
+                    cursor: (!pageInput || pageInput === '') ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (pageInput && pageInput !== '') {
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.color = '#ffffff';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (pageInput && pageInput !== '') {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.color = '#3b82f6';
+                    }
+                  }}
+                >
+                  Go
+                </button>
             </div>
-          )}
           </div>
         </div>
-          </div>
+        )}
         </div>
 
-      {/* Session Details Modal */}
-      {showDetailsModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999 }}>
-          <div className="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable" style={{ maxWidth: '95vw', margin: '1rem auto' }}>
-            <div className="modal-content border-0 shadow-lg" style={{ maxHeight: '85vh' }}>
-                            <div className="modal-header bg-primary text-white border-0 flex-shrink-0">
-                <div className="d-flex align-items-center justify-content-between w-100">
-                  <div className="d-flex align-items-center flex-grow-1">
-                    <FaClipboardCheck className="me-2 d-none d-sm-inline" style={{ fontSize: '20px' }} />
-                    <h5 className="modal-title mb-0 fw-bold">
-                      {sessionDetails ? `${t('stockVerification.sessionDetails')} ${sessionDetails.SessionNumber}` : t('stockVerification.sessionDetails')}
-                    </h5>
+      {/* Session Details Slider (Right-Side) */}
+      {showDetailsSlider && (
+        <>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 1000,
+              animation: 'fadeIn 0.2s ease-in-out'
+            }}
+            onClick={() => {
+              setShowDetailsSlider(false);
+              setSessionDetails(null);
+            }}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              right: 0,
+              width: windowWidth <= 768 ? '100%' : '90%',
+              maxWidth: '1200px',
+              height: '100vh',
+              background: '#ffffff',
+              boxShadow: '-4px 0 20px rgba(0, 0, 0, 0.15)',
+              zIndex: 1001,
+              display: 'flex',
+              flexDirection: 'column',
+              animation: 'slideInRight 0.3s ease-out',
+              overflowY: 'auto'
+            }}
+          >
+            {/* Slider Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+              padding: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid #e5e7eb',
+              position: 'sticky',
+              top: 0,
+              zIndex: 10
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <FaClipboardCheck style={{ color: '#ffffff', fontSize: '18px' }} />
+                <h3 style={{
+                  margin: 0,
+                  fontSize: '16px',
+                  fontWeight: 700,
+                  color: '#ffffff'
+                }}>
+                  {sessionDetails ? `Session Details - Session ${sessionDetails.SessionNumber}` : 'Session Details'}
+                </h3>
               </div>
                 <button 
-                  type="button" 
-                    className="btn-close btn-close-white flex-shrink-0" 
                     onClick={() => {
-                      setShowDetailsModal(false);
+                  setShowDetailsSlider(false);
                       setSessionDetails(null);
                     }}
-                    style={{ marginLeft: '1rem' }}
-                ></button>
-            </div>
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+              >
+                <FaTimesCircle style={{ color: '#ffffff', fontSize: '16px' }} />
+              </button>
               </div>
               
-              <div className="modal-body p-0">
+            {/* Slider Content */}
+            <div style={{ padding: '20px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {detailsLoading ? (
-                  <div className="d-flex justify-content-center align-items-center py-5">
-                    <div className="text-center">
-                      <FaSpinner className="fa-spin mb-3 text-primary" style={{ fontSize: '32px' }} />
-                      <p className="text-muted">{t('stockVerification.loading')}</p>
-                    </div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: '60px 20px',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}>
+                  <FaSpinner className="fa-spin" style={{ color: '#3b82f6', fontSize: '32px' }} />
+                  <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Loading session details...</p>
                   </div>
-                ) : sessionDetails ? (
-                  <>
-                {/* Session Summary */}
-                    <div className="p-3 bg-light border-bottom">
-                      <div className="row g-2 align-items-center">
-                        <div className="col-12 col-md-4">
-                          <div className="d-flex align-items-center">
-                            <h6 className="text-muted small mb-0 me-2">Batch ID:</h6>
-                            <code className="bg-white px-2 py-1 rounded text-primary" style={{ fontSize: '0.75rem' }}>
-                              {sessionDetails.ScanBatchId?.substring(0, 12)}...
-                            </code>
-                    </div>
-                  </div>
-                        <div className="col-12 col-md-8">
-                          <div className="d-flex flex-wrap gap-3 justify-content-md-end">
-                            <div className="text-center">
-                              <h6 className="text-muted small mb-1">Total Items</h6>
-                              <span className="badge bg-primary px-2 py-1">
-                                {sessionDetails.Totals?.TotalQty || 0}
-                              </span>
-                    </div>
-                            <div className="text-center">
-                              <h6 className="text-muted small mb-1">Matched</h6>
-                              <span className="badge bg-success px-2 py-1">
-                                {sessionDetails.Totals?.TotalMatchQty || 0}
-                              </span>
-                  </div>
-                            <div className="text-center">
-                              <h6 className="text-muted small mb-1">Unmatched</h6>
-                              <span className="badge bg-danger px-2 py-1">
-                                {sessionDetails.Totals?.TotalUnmatchQty || 0}
-                              </span>
-                    </div>
-                            <div className="text-center">
-                              <h6 className="text-muted small mb-1">Total Weight</h6>
-                              <span className="fw-bold text-dark">
-                                {sessionDetails.Totals?.TotalGrossWeight || 0}g
-                              </span>
-                  </div>
-                      </div>
+              ) : sessionDetails ? (
+                <>
+                  {/* Combined Summary & Additional Details Section */}
+                  <div style={{
+                    padding: '12px 16px',
+                    background: '#f8fafc',
+                    borderRadius: '12px',
+                    marginBottom: '16px',
+                    border: '1px solid #e5e7eb'
+                  }}>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: windowWidth <= 768 ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+                      gap: '12px',
+                      marginBottom: '12px'
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Batch ID</div>
+                        <div style={{
+                          fontSize: '12px',
+                          fontFamily: 'monospace',
+                          color: '#8b5cf6',
+                          background: '#ffffff',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #e9d5ff'
+                        }}>
+                          {sessionDetails.ScanBatchId?.substring(0, 24)}...
                         </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Client Code</div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          background: '#ffffff',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #e5e7eb'
+                        }}>
+                          {sessionDetails.ClientCode || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Session Number</div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          background: '#ffffff',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #e5e7eb'
+                        }}>
+                          {sessionDetails.SessionNumber || 'N/A'}
+                        </div>
+                      </div>
                     </div>
-                </div>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: windowWidth <= 768 ? '1fr' : 'repeat(auto-fit, minmax(120px, 1fr))',
+                      gap: '12px',
+                      marginBottom: '12px'
+                    }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Total Items</div>
+                        <span style={{
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          borderRadius: '8px',
+                          border: '1px solid #3b82f6',
+                          background: '#eff6ff',
+                          color: '#3b82f6',
+                          display: 'inline-block'
+                        }}>{sessionDetails.Totals?.TotalQty || 0}</span>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Matched</div>
+                        <span style={{
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          borderRadius: '8px',
+                          border: '1px solid #10b981',
+                          background: '#f0fdf4',
+                          color: '#10b981',
+                          display: 'inline-block'
+                        }}>{sessionDetails.Totals?.TotalMatchQty || 0}</span>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Unmatched</div>
+                        <span style={{
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          borderRadius: '8px',
+                          border: '1px solid #ef4444',
+                          background: '#fef2f2',
+                          color: '#ef4444',
+                          display: 'inline-block'
+                        }}>{sessionDetails.Totals?.TotalUnmatchQty || 0}</span>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Total Gross Wt</div>
+                        <span style={{
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: '#1e293b'
+                        }}>{sessionDetails.Totals?.TotalGrossWeight || 0}g</span>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Total Net Wt</div>
+                        <span style={{
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: '#1e293b'
+                        }}>{sessionDetails.Totals?.TotalNetWeight || 0}g</span>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Match Weight</div>
+                        <span style={{
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: '#1e293b'
+                        }}>{sessionDetails.Totals?.TotalMatchGrossWeight || 0}g</span>
+                      </div>
+                    </div>
+                  </div>
 
                                         {/* Tables Container */}
-                    <div className="row g-0">
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: windowWidth <= 768 ? '1fr' : '1fr 1fr',
+                    gap: '16px',
+                    flex: 1,
+                    minHeight: 0
+                  }}>
                 {/* Matched Items Table */}
-                      <div className="col-12 col-lg-6">
-                        <div className="p-3 border-end border-lg-end-0 border-bottom border-lg-bottom-0">
-                          <div className="d-flex align-items-center mb-3">
-                            <FaCheckCircle className="text-success me-2" />
-                            <h6 className="mb-0 fw-bold">{t('stockVerification.matchedItems')}</h6>
-                            <span className="badge bg-success ms-2">
-                              {sessionDetails.MatchedList?.length || 0}
-                            </span>
+                    <div style={{
+                      background: '#ffffff',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        padding: '12px 16px',
+                        background: '#f0fdf4',
+                        borderBottom: '1px solid #e5e7eb',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}>
+                        <FaCheckCircle style={{ color: '#10b981', fontSize: '14px' }} />
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Matched Items</span>
+                        <span style={{
+                          fontSize: '10px',
+                          color: '#64748b',
+                          background: '#d1fae5',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          marginLeft: 'auto'
+                        }}>{sessionDetails.MatchedList?.length || 0} items</span>
                           </div>
-                          
-                          <div className="table-responsive" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                            <table className="table table-hover table-sm mb-0">
-                              <thead className="table-success sticky-top">
-                          <tr>
-                            <th>{t('invoiceStock.itemCode')}</th>
-                            <th>{t('invoiceStock.productName')}</th>
-                            <th>{t('invoiceStock.categoryName')}</th>
-                                  <th>{t('invoiceStock.grossWt')}</th>
-                                  <th>{t('invoiceStock.pieces')}</th>
+                      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 500px)', minHeight: '300px' }}>
+                        <table style={{
+                          width: '100%',
+                          borderCollapse: 'collapse',
+                          fontSize: '12px'
+                        }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Item Code</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Product Name</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Category</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Gross Wt</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Pieces</th>
                     </tr>
                   </thead>
                   <tbody>
                                 {sessionDetails.MatchedList?.length === 0 ? (
                                   <tr>
-                                    <td colSpan="5" className="text-center py-3">
-                                      <span className="text-muted small">{t('common.noData')}</span>
+                                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                                  No matched items
                                     </td>
                       </tr>
                                 ) : (
-                                  getPaginatedData(sessionDetails.MatchedList || [], matchedPage, tableItemsPerPage).map((item, index) => (
-                                    <tr key={item.Id || index}>
-                                      <td className="text-nowrap small">{item.ItemCode || 'N/A'}</td>
-                                      <td className="text-nowrap small">{item.ProductName || 'N/A'}</td>
-                                      <td className="text-nowrap small">{item.CategoryName || 'N/A'}</td>
-                                      <td className="text-nowrap small">{item.GrossWeight || 0}g</td>
-                                      <td className="text-nowrap small">{item.Quantity || 0}</td>
+                              getPaginatedData(sessionDetails.MatchedList || [], matchedPage, tableItemsPerPage).map((item, index) => {
+                                const globalIndex = (matchedPage - 1) * tableItemsPerPage + index;
+                                return (
+                                  <tr
+                                    key={item.Id || index}
+                                    style={{
+                                      borderBottom: '1px solid #e5e7eb',
+                                      background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'}
+                                  >
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ItemCode || 'N/A'}</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ProductName || 'N/A'}</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.CategoryName || 'N/A'}</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.GrossWeight || 0}g</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.Quantity || 0}</td>
                                     </tr>
-                                  ))
+                                );
+                              })
                                 )}
                         </tbody>
                       </table>
                           </div>
-                          
                           {/* Matched Items Pagination */}
                           {sessionDetails.MatchedList && sessionDetails.MatchedList.length > tableItemsPerPage && (
-                            <div className="d-flex justify-content-between align-items-center mt-2 px-2">
-                              <small className="text-muted">
-                                {t('pagination.showing')} {((matchedPage - 1) * tableItemsPerPage) + 1} {t('pagination.to')} {Math.min(matchedPage * tableItemsPerPage, sessionDetails.MatchedList.length)} {t('pagination.of')} {sessionDetails.MatchedList.length} {t('common.items')}
-                              </small>
-                              <div className="btn-group btn-group-sm">
+                        <div style={{
+                          padding: '12px 16px',
+                          borderTop: '1px solid #e5e7eb',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '12px',
+                          flexWrap: 'wrap'
+                        }}>
+                          <span style={{ fontSize: '10px', color: '#64748b' }}>
+                            Showing {((matchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(matchedPage * tableItemsPerPage, sessionDetails.MatchedList.length)} of {sessionDetails.MatchedList.length} items
+                          </span>
+                          <div style={{ display: 'flex', gap: '6px' }}>
                                 <button 
-                                  className="btn btn-outline-success"
                                   onClick={() => setMatchedPage(prev => Math.max(1, prev - 1))}
                                   disabled={matchedPage === 1}
-                                >
-                                  <FaChevronLeft />
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #10b981',
+                                background: matchedPage === 1 ? '#f1f5f9' : '#ffffff',
+                                color: matchedPage === 1 ? '#94a3b8' : '#10b981',
+                                cursor: matchedPage === 1 ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (matchedPage !== 1) {
+                                  e.target.style.background = '#10b981';
+                                  e.target.style.color = '#ffffff';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (matchedPage !== 1) {
+                                  e.target.style.background = '#ffffff';
+                                  e.target.style.color = '#10b981';
+                                }
+                              }}
+                            >
+                              Previous
                                 </button>
-                                <span className="btn btn-outline-success disabled">
+                            <span style={{
+                              padding: '4px 10px',
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              color: '#475569'
+                            }}>
                                   {matchedPage} / {getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)}
                                 </span>
                                 <button 
-                                  className="btn btn-outline-success"
                                   onClick={() => setMatchedPage(prev => Math.min(getTotalPages(sessionDetails.MatchedList, tableItemsPerPage), prev + 1))}
                                   disabled={matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)}
-                                >
-                                  <FaChevronRight />
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #10b981',
+                                background: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
+                                color: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? '#94a3b8' : '#10b981',
+                                cursor: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (matchedPage !== getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)) {
+                                  e.target.style.background = '#10b981';
+                                  e.target.style.color = '#ffffff';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (matchedPage !== getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)) {
+                                  e.target.style.background = '#ffffff';
+                                  e.target.style.color = '#10b981';
+                                }
+                              }}
+                            >
+                              Next
                                 </button>
                     </div>
                   </div>
                 )}
-                  </div>
                       </div>
 
                 {/* Unmatched Items Table */}
-                      <div className="col-12 col-lg-6">
-                        <div className="p-3">
-                          <div className="d-flex align-items-center mb-3">
-                            <FaTimesCircle className="text-danger me-2" />
-                            <h6 className="mb-0 fw-bold">{t('stockVerification.unmatchedItems')}</h6>
-                            <span className="badge bg-danger ms-2">
-                              {sessionDetails.UnmatchedList?.length || 0}
-                            </span>
+                    <div style={{
+                      background: '#ffffff',
+                      borderRadius: '12px',
+                      border: '1px solid #e5e7eb',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        padding: '12px 16px',
+                        background: '#fef2f2',
+                        borderBottom: '1px solid #e5e7eb',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}>
+                        <FaTimesCircle style={{ color: '#ef4444', fontSize: '14px' }} />
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Unmatched Items</span>
+                        <span style={{
+                          fontSize: '10px',
+                          color: '#64748b',
+                          background: '#fee2e2',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          marginLeft: 'auto'
+                        }}>{sessionDetails.UnmatchedList?.length || 0} items</span>
                           </div>
-                          
-                                                    <div className="table-responsive" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                            <table className="table table-hover table-sm mb-0">
-                              <thead className="table-danger sticky-top">
-                          <tr>
-                            <th>{t('invoiceStock.itemCode')}</th>
-                            <th>{t('invoiceStock.productName')}</th>
-                            <th>{t('invoiceStock.categoryName')}</th>
-                                  <th>{t('invoiceStock.grossWt')}</th>
-                                  <th>{t('invoiceStock.pieces')}</th>
+                      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 500px)', minHeight: '300px' }}>
+                        <table style={{
+                          width: '100%',
+                          borderCollapse: 'collapse',
+                          fontSize: '12px'
+                        }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Item Code</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Product Name</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Category</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Gross Wt</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Pieces</th>
                       </tr>
                         </thead>
                         <tbody>
                                 {sessionDetails.UnmatchedList?.length === 0 ? (
                                   <tr>
-                                    <td colSpan="5" className="text-center py-3">
-                                      <span className="text-muted small">{t('common.noData')}</span>
+                                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                                  No unmatched items
                                     </td>
                             </tr>
                                 ) : (
-                                  getPaginatedData(sessionDetails.UnmatchedList || [], unmatchedPage, tableItemsPerPage).map((item, index) => (
-                                    <tr key={item.Id || index}>
-                                      <td className="text-nowrap small">{item.ItemCode || 'N/A'}</td>
-                                      <td className="text-nowrap small">{item.ProductName || 'N/A'}</td>
-                                      <td className="text-nowrap small">{item.CategoryName || 'N/A'}</td>
-                                      <td className="text-nowrap small">{item.GrossWeight || 0}g</td>
-                                      <td className="text-nowrap small">{item.Quantity || 0}</td>
+                              getPaginatedData(sessionDetails.UnmatchedList || [], unmatchedPage, tableItemsPerPage).map((item, index) => {
+                                const globalIndex = (unmatchedPage - 1) * tableItemsPerPage + index;
+                                return (
+                                  <tr
+                                    key={item.Id || index}
+                                    style={{
+                                      borderBottom: '1px solid #e5e7eb',
+                                      background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'}
+                                  >
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ItemCode || 'N/A'}</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ProductName || 'N/A'}</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.CategoryName || 'N/A'}</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.GrossWeight || 0}g</td>
+                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.Quantity || 0}</td>
                                     </tr>
-                                  ))
+                                );
+                              })
                                 )}
                   </tbody>
                 </table>
               </div>
-                          
                           {/* Unmatched Items Pagination */}
                           {sessionDetails.UnmatchedList && sessionDetails.UnmatchedList.length > tableItemsPerPage && (
-                            <div className="d-flex justify-content-between align-items-center mt-2 px-2">
-                              <small className="text-muted">
-                                {t('pagination.showing')} {((unmatchedPage - 1) * tableItemsPerPage) + 1} {t('pagination.to')} {Math.min(unmatchedPage * tableItemsPerPage, sessionDetails.UnmatchedList.length)} {t('pagination.of')} {sessionDetails.UnmatchedList.length} {t('common.items')}
-                              </small>
-                              <div className="btn-group btn-group-sm">
+                        <div style={{
+                          padding: '12px 16px',
+                          borderTop: '1px solid #e5e7eb',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '12px',
+                          flexWrap: 'wrap'
+                        }}>
+                          <span style={{ fontSize: '10px', color: '#64748b' }}>
+                            Showing {((unmatchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(unmatchedPage * tableItemsPerPage, sessionDetails.UnmatchedList.length)} of {sessionDetails.UnmatchedList.length} items
+                          </span>
+                          <div style={{ display: 'flex', gap: '6px' }}>
                 <button 
-                                  className="btn btn-outline-danger"
                                   onClick={() => setUnmatchedPage(prev => Math.max(1, prev - 1))}
                                   disabled={unmatchedPage === 1}
-                                >
-                                  <FaChevronLeft />
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #ef4444',
+                                background: unmatchedPage === 1 ? '#f1f5f9' : '#ffffff',
+                                color: unmatchedPage === 1 ? '#94a3b8' : '#ef4444',
+                                cursor: unmatchedPage === 1 ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (unmatchedPage !== 1) {
+                                  e.target.style.background = '#ef4444';
+                                  e.target.style.color = '#ffffff';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (unmatchedPage !== 1) {
+                                  e.target.style.background = '#ffffff';
+                                  e.target.style.color = '#ef4444';
+                                }
+                              }}
+                            >
+                              Previous
                                 </button>
-                                <span className="btn btn-outline-danger disabled">
+                            <span style={{
+                              padding: '4px 10px',
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              color: '#475569'
+                            }}>
                                   {unmatchedPage} / {getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)}
                                 </span>
                         <button 
-                                  className="btn btn-outline-danger"
                                   onClick={() => setUnmatchedPage(prev => Math.min(getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage), prev + 1))}
                                   disabled={unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)}
-                        >
-                                  <FaChevronRight />
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #ef4444',
+                                background: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
+                                color: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? '#94a3b8' : '#ef4444',
+                                cursor: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (unmatchedPage !== getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)) {
+                                  e.target.style.background = '#ef4444';
+                                  e.target.style.color = '#ffffff';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (unmatchedPage !== getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)) {
+                                  e.target.style.background = '#ffffff';
+                                  e.target.style.color = '#ef4444';
+                                }
+                              }}
+                            >
+                              Next
                         </button>
           </div>
         </div>
                           )}
-                  </div>
                 </div>
           </div>
 
-                                        {/* Detailed Information */}
-                    {(sessionDetails.MatchedList?.length > 0 || sessionDetails.UnmatchedList?.length > 0) && (
-                      <div className="p-3 p-md-4 bg-light border-top">
-                        <h6 className="fw-bold mb-3">Additional Details</h6>
-                        <div className="row g-3">
-                          <div className="col-12 col-lg-6">
-                      <div className="table-responsive">
-                              <table className="table table-sm">
-                                <tbody>
-                                  <tr>
-                                    <td><strong>Client Code:</strong></td>
-                                    <td className="text-break">{sessionDetails.ClientCode}</td>
-                            </tr>
-                                  <tr>
-                                    <td><strong>Session Number:</strong></td>
-                                    <td>{sessionDetails.SessionNumber}</td>
-                                  </tr>
-                                  <tr>
-                                    <td><strong>Total Sessions:</strong></td>
-                                    <td>{sessionDetails.TotalSessions}</td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                          <div className="col-12 col-lg-6">
-                            <div className="table-responsive">
-                              <table className="table table-sm">
-                          <tbody>
-                                  <tr>
-                                    <td><strong>Total Gross Weight:</strong></td>
-                                    <td>{sessionDetails.Totals?.TotalGrossWeight || 0}g</td>
-                              </tr>
-                                  <tr>
-                                    <td><strong>Total Net Weight:</strong></td>
-                                    <td>{sessionDetails.Totals?.TotalNetWeight || 0}g</td>
-                                  </tr>
-                                  <tr>
-                                    <td><strong>Match Weight:</strong></td>
-                                    <td>{sessionDetails.Totals?.TotalMatchGrossWeight || 0}g</td>
-                                  </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                </div>
-              </div>
-                    )}
                     </>
                   ) : (
-                  <div className="text-center py-5">
-                    <FaExclamationTriangle className="text-warning mb-3" style={{ fontSize: '48px' }} />
-                    <h5 className="text-muted">No Data Available</h5>
-                    <p className="text-muted">Unable to load session details.</p>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '60px 20px',
+                  gap: '16px'
+                }}>
+                  <FaExclamationTriangle style={{ color: '#f59e0b', fontSize: '48px' }} />
+                  <h5 style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>No Data Available</h5>
+                  <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>Unable to load session details.</p>
                 </div>
               )}
               </div>
 
-                            <div className="modal-footer border-0 flex-shrink-0">
-                <div className="d-flex flex-column flex-sm-row gap-2 w-100 justify-content-end">
+            {/* Slider Footer */}
+            <div style={{
+              padding: '20px',
+              borderTop: '1px solid #e5e7eb',
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end',
+              background: '#ffffff',
+              position: 'sticky',
+              bottom: 0,
+              zIndex: 10
+            }}>
                     <button
-                    type="button" 
-                    className="btn btn-secondary"
                     onClick={() => {
-                      setShowDetailsModal(false);
+                  setShowDetailsSlider(false);
                       setSessionDetails(null);
                     }}
-                  >
-                    {t('common.close')}
+                style={{
+                  padding: '10px 20px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  color: '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              >
+                Close
                     </button>
                   {sessionDetails && (
                     <button 
-                      type="button" 
-                      className="btn btn-primary"
                       onClick={exportSessionDetails}
-                    >
-                      <FaFileExcel className="me-2 d-none d-sm-inline" />
-                      {t('common.export')} {t('stockVerification.sessionDetails')}
+                  style={{
+                    padding: '10px 20px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #3b82f6',
+                    background: '#3b82f6',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#2563eb';
+                    e.target.style.borderColor = '#2563eb';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#3b82f6';
+                    e.target.style.borderColor = '#3b82f6';
+                  }}
+                >
+                  <FaFileExcel /> Export
                     </button>
                   )}
                 </div>
             </div>
-            </div>
-          </div>
-        </div>
+        </>
       )}
 
+      <style>{`
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+          display: none;
+        }
+        body, html {
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        @media (max-width: 768px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+        }
+        @media (max-width: 480px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+          table {
+            font-size: 10px;
+          }
+          th, td {
+            padding: 8px;
+            font-size: 10px;
+          }
+        }
+      `}</style>
     </div>
   );
 };

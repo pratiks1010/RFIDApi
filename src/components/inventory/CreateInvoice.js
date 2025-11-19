@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { 
   FaSearch, 
   FaSpinner, 
@@ -20,7 +21,9 @@ import {
   FaInfoCircle,
   FaEdit,
   FaTimes,
-  FaSave
+  FaSave,
+  FaShoppingCart,
+  FaFileInvoice
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -56,9 +59,10 @@ const formatValue = (value) => {
   return value.toString();
 };
 
-const LabelStockList = () => {
+const CreateInvoice = () => {
   // Global loader
   const { loading, setLoading } = useLoading();
+  const navigate = useNavigate();
   
   // State variables
   const [labeledStock, setLabeledStock] = useState([]);
@@ -130,6 +134,8 @@ const LabelStockList = () => {
   const [showStatusPopup, setShowStatusPopup] = useState(false);
   const [selectedItemForStatus, setSelectedItemForStatus] = useState(null);
   const [statusChangeLoading, setStatusChangeLoading] = useState(false);
+  const [markSoldLoading, setMarkSoldLoading] = useState(false);
+  const [showMarkSoldConfirm, setShowMarkSoldConfirm] = useState(false);
   const [availableStatuses] = useState(['ApiActive', 'Sold']);
   const isFetchingRef = useRef(false);
   
@@ -1599,6 +1605,101 @@ const LabelStockList = () => {
     setShowStatusPopup(true);
   };
 
+  // Handle marking selected items as sold - show confirmation first
+  const handleMarkAsSold = () => {
+    if (selectedRows.length === 0) {
+      showSuccessNotification('No Selection', 'Please select at least one item to mark as sold.');
+      return;
+    }
+    setShowMarkSoldConfirm(true);
+  };
+
+  // Confirm and mark selected items as sold
+  const confirmMarkAsSold = async () => {
+    setMarkSoldLoading(true);
+    try {
+      // Get all selected items from current data
+      const itemsToUpdate = (showAllData && allFilteredData.length > 0 ? allFilteredData : labeledStock)
+        .filter(item => selectedRows.includes(item.Id));
+
+      if (itemsToUpdate.length === 0) {
+        throw new Error('No items found to update');
+      }
+
+      // Get client code
+      const clientCode = userInfo?.ClientCode || '';
+      if (!clientCode) {
+        throw new Error('Client code not found. Please login again.');
+      }
+
+      // Build payload array as shown in the API documentation
+      const payload = itemsToUpdate.map(item => ({
+        client_code: clientCode,
+        RFIDNumber: item.RFIDCode || '',
+        status: 'Sold'
+      }));
+
+      // Make API call with array payload
+      const response = await axios.post(
+        'https://soni.loyalstring.co.in/api/ProductMaster/UpdateRFIDTransactionDetails',
+        payload, // Send array directly
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      // Handle response
+      if (response.data && response.data.status === 'success') {
+        // Update local state for all items
+        itemsToUpdate.forEach(item => {
+          setLabeledStock(prev => prev.map(prevItem => 
+            prevItem.Id === item.Id 
+              ? { ...prevItem, Status: 'Sold' }
+              : prevItem
+          ));
+          
+          // Also update allFilteredData if it exists
+          if (showAllData && allFilteredData.length > 0) {
+            setAllFilteredData(prev => prev.map(prevItem => 
+              prevItem.Id === item.Id 
+                ? { ...prevItem, Status: 'Sold' }
+                : prevItem
+            ));
+          }
+        });
+
+        // Clear selection after update
+        setSelectedRows([]);
+        setShowMarkSoldConfirm(false);
+
+        // Show success notification
+        const message = response.data.message || `Successfully marked ${itemsToUpdate.length} item(s) as sold.`;
+        showSuccessNotification('Items Marked as Sold', message);
+        addNotification({
+          title: 'Items marked as sold',
+          description: message,
+          type: 'success'
+        });
+      } else {
+        throw new Error(response.data?.message || 'Failed to mark items as sold');
+      }
+    } catch (err) {
+      console.error('Error marking items as sold:', err);
+      setShowMarkSoldConfirm(false);
+      showSuccessNotification('Mark as Sold Failed', err.response?.data?.message || err.message || 'Failed to mark items as sold.');
+      addNotification({
+        title: 'Mark as sold failed',
+        description: err.response?.data?.message || err.message || 'Failed to mark items as sold.',
+        type: 'error'
+      });
+    } finally {
+      setMarkSoldLoading(false);
+    }
+  };
+
   useEffect(() => {
     setOriginalStock(labeledStock);
   }, [labeledStock]);
@@ -2214,7 +2315,7 @@ const LabelStockList = () => {
                 fontWeight: 700,
                 color: '#1e293b',
                 lineHeight: '1.2'
-              }}>Label Stock List</h2>
+              }}>Create Invoice</h2>
             </div>
 
             {/* Right: Total Count */}
@@ -2274,187 +2375,6 @@ const LabelStockList = () => {
                 onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
-            {/* Show All Data Button */}
-            <button 
-              onClick={toggleDataView}
-              disabled={loadingAllData}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid',
-                cursor: loadingAllData ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s',
-                background: showAllData ? '#10b981' : '#ffffff',
-                color: showAllData ? '#ffffff' : '#10b981',
-                borderColor: showAllData ? '#10b981' : '#10b981',
-                opacity: loadingAllData ? 0.6 : 1
-              }}
-              onMouseEnter={(e) => {
-                if (!loadingAllData && !showAllData) {
-                  e.target.style.background = '#f0fdf4';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!loadingAllData && !showAllData) {
-                  e.target.style.background = '#ffffff';
-                }
-              }}
-            >
-              {loadingAllData ? (
-                <>
-                  <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-                  <span>Loading...</span>
-                </>
-              ) : showAllData ? (
-                <>
-                  <FaThList />
-                  <span>Show Paginated</span>
-                </>
-              ) : (
-                <>
-                  <FaThLarge />
-                  <span>Show All Data</span>
-                </>
-              )}
-            </button>
-
-            {/* Delete Button */}
-            <button 
-              onClick={handleDelete} 
-              disabled={selectedRows.length === 0}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #ef4444',
-                background: '#ffffff',
-                color: '#ef4444',
-                cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: selectedRows.length === 0 ? 0.5 : 1,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (selectedRows.length > 0) {
-                  e.target.style.background = '#ef4444';
-                  e.target.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedRows.length > 0) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#ef4444';
-                }
-              }}
-            >
-              <FaTrash />
-              <span>Delete</span>
-            </button>
-
-            {/* Print Label Button */}
-            <button 
-              onClick={handlePrintLabel} 
-              disabled={selectedRows.length === 0}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #06b6d4',
-                background: '#ffffff',
-                color: '#06b6d4',
-                cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: selectedRows.length === 0 ? 0.5 : 1,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (selectedRows.length > 0) {
-                  e.target.style.background = '#06b6d4';
-                  e.target.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedRows.length > 0) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#06b6d4';
-                }
-              }}
-            >
-              <FaFilePdf />
-              <span>Print Label</span>
-            </button>
-
-            {/* Export Button */}
-            <button 
-              onClick={() => setShowExportModal(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #3b82f6',
-                background: '#ffffff',
-                color: '#3b82f6',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#3b82f6';
-                e.target.style.color = '#ffffff';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#3b82f6';
-              }}
-            >
-              <FaFileExport />
-              <span>Export</span>
-            </button>
-
-            {/* Report Button */}
-            <button 
-              onClick={generateAndShowReport}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #f59e0b',
-                background: '#ffffff',
-                color: '#f59e0b',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#f59e0b';
-                e.target.style.color = '#ffffff';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#f59e0b';
-              }}
-            >
-              <FaFilePdf />
-              <span>Report</span>
-            </button>
-
             {/* Filter Button */}
             <button 
               onClick={() => setShowFilterPanel(!showFilterPanel)}
@@ -2486,10 +2406,10 @@ const LabelStockList = () => {
               <FaFilter />
               <span>Filter</span>
             </button>
-
-            {/* Delete All Button */}
+            {/* Sold Items Button */}
             <button 
-              onClick={handleDeleteAllStock}
+              onClick={handleMarkAsSold}
+              disabled={selectedRows.length === 0 || markSoldLoading}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -2498,23 +2418,64 @@ const LabelStockList = () => {
                 fontSize: '12px',
                 fontWeight: 600,
                 borderRadius: '8px',
-                border: '1px solid #ef4444',
-                background: '#ffffff',
-                color: '#ef4444',
+                border: '1px solid #dc2626',
+                background: selectedRows.length === 0 || markSoldLoading ? '#f3f4f6' : '#dc2626',
+                color: selectedRows.length === 0 || markSoldLoading ? '#9ca3af' : '#ffffff',
+                cursor: selectedRows.length === 0 || markSoldLoading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s',
+                opacity: selectedRows.length === 0 ? 0.6 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (selectedRows.length > 0 && !markSoldLoading) {
+                  e.target.style.background = '#b91c1c';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (selectedRows.length > 0 && !markSoldLoading) {
+                  e.target.style.background = '#dc2626';
+                }
+              }}
+            >
+              {markSoldLoading ? (
+                <>
+                  <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <FaShoppingCart />
+                  <span>Sold Items</span>
+                </>
+              )}
+            </button>
+            {/* Invoice Product List Button */}
+            <button 
+              onClick={() => navigate('/invoice-stock')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '8px',
+                border: '1px solid #3b82f6',
+                background: '#3b82f6',
+                color: '#ffffff',
                 cursor: 'pointer',
                 transition: 'all 0.2s'
               }}
               onMouseEnter={(e) => {
-                e.target.style.background = '#ef4444';
-                e.target.style.color = '#ffffff';
+                e.target.style.background = '#2563eb';
+                e.target.style.borderColor = '#2563eb';
               }}
               onMouseLeave={(e) => {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#ef4444';
+                e.target.style.background = '#3b82f6';
+                e.target.style.borderColor = '#3b82f6';
               }}
             >
-              <FaTrash />
-              <span>Delete All</span>
+              <FaFileInvoice />
+              <span>Invoice Product List</span>
             </button>
           </div>
         </div>
@@ -3627,6 +3588,83 @@ const LabelStockList = () => {
                   boxShadow: '0 2px 8px #dc354522',
                   opacity: deleteAllStockLoading ? 0.7 : 1,
                 }}>{deleteAllStockLoading ? 'Deleting All...' : 'Delete ALL Stock for Client'}</button>
+             </div>
+           </div>
+         </div>
+       )}
+
+       {/* Mark as Sold Confirmation Modal */}
+       {showMarkSoldConfirm && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(44,62,80,0.18)',
+            zIndex: 10001,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <div style={{
+              background: '#fff',
+              borderRadius: 18,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              width: 480,
+              maxWidth: '98vw',
+              padding: '0 0 18px 0',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              animation: 'fadeIn 0.2s',
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px' }}>
+                <FaShoppingCart style={{ color: '#dc2626', fontSize: 48, marginBottom: 12 }} />
+                <div style={{ fontWeight: 700, fontSize: 22, color: '#dc2626', marginBottom: 8, textAlign: 'center' }}>Mark Items as Sold?</div>
+                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', maxWidth: 400 }}>
+                  Are you sure you want to mark <strong>{selectedRows.length}</strong> selected item(s) as sold? This action will update the status of the selected items.
+               </div>
+                 </div>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginTop: 8 }}>
+                <button onClick={() => setShowMarkSoldConfirm(false)} disabled={markSoldLoading} style={{
+                  background: '#f3f4f6',
+                  color: '#232a36',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '10px 32px',
+                  fontWeight: 600,
+                  fontSize: 16,
+                  cursor: 'pointer',
+                  minWidth: 110,
+                  opacity: markSoldLoading ? 0.6 : 1,
+                }}>Cancel</button>
+                <button onClick={confirmMarkAsSold} disabled={markSoldLoading} style={{
+                  background: markSoldLoading ? '#fca5a5' : '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '10px 32px',
+                  fontWeight: 600,
+                  fontSize: 16,
+                  cursor: markSoldLoading ? 'not-allowed' : 'pointer',
+                  minWidth: 110,
+                  boxShadow: '0 2px 8px #dc262622',
+                  opacity: markSoldLoading ? 0.7 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  justifyContent: 'center'
+                }}>
+                  {markSoldLoading ? (
+                    <>
+                      <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    'Mark as Sold'
+                  )}
+                </button>
              </div>
            </div>
          </div>
@@ -4931,4 +4969,4 @@ const LabelStockList = () => {
   );
 };
 
-export default LabelStockList; 
+export default CreateInvoice; 

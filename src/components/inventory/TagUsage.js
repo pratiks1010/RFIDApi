@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { FaSearch, FaTag, FaTags, FaFileExcel, FaFilePdf, FaEnvelope, FaTimes } from 'react-icons/fa';
 import { BiExport } from 'react-icons/bi';
@@ -9,8 +9,9 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
+import { useLoading } from '../../App';
 
-const ITEMS_PER_PAGE = 15;
+const ITEMS_PER_PAGE = 25;
 
 const Pagination = ({ currentPage, totalPages, onPageChange }) => {
   return (
@@ -37,18 +38,23 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
 };
 
 const TagUsage = () => {
+  const { setLoading } = useLoading();
   const [usedTags, setUsedTags] = useState([]);
   const [unusedTags, setUnusedTags] = useState([]);
   const [usedCount, setUsedCount] = useState(0);
   const [unusedCount, setUnusedCount] = useState(0);
   const [usedSearch, setUsedSearch] = useState('');
   const [unusedSearch, setUnusedSearch] = useState('');
-  const [loading, setLoading] = useState(false);
   const [usedCurrentPage, setUsedCurrentPage] = useState(1);
   const [unusedCurrentPage, setUnusedCurrentPage] = useState(1);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [usedItemsPerPage, setUsedItemsPerPage] = useState(25);
+  const [unusedItemsPerPage, setUnusedItemsPerPage] = useState(25);
+  const [usedPageInput, setUsedPageInput] = useState('');
+  const [unusedPageInput, setUnusedPageInput] = useState('');
   const { addNotification } = useNotifications();
 
   const fetchTags = async () => {
@@ -90,35 +96,108 @@ const TagUsage = () => {
 
   useEffect(() => {
     fetchTags();
+    
+    // Handle window resize for responsive design
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // Filter tags based on search
-  const filteredUsedTags = usedTags.filter(tag => {
+  const filteredUsedTags = useMemo(() => {
+    if (!usedSearch.trim()) {
+      return usedTags;
+    }
     const searchLower = usedSearch.toLowerCase();
-    return (
-      (tag.BarcodeNumber || '').toLowerCase().includes(searchLower) ||
-      (tag.TIDValue || '').toLowerCase().includes(searchLower)
-    );
-  });
-  const filteredUnusedTags = unusedTags.filter(tag => {
+    return usedTags.filter(tag => {
+      return (
+        (tag.BarcodeNumber || '').toLowerCase().includes(searchLower) ||
+        (tag.TIDValue || '').toLowerCase().includes(searchLower)
+      );
+    });
+  }, [usedTags, usedSearch]);
+
+  const filteredUnusedTags = useMemo(() => {
+    if (!unusedSearch.trim()) {
+      return unusedTags;
+    }
     const searchLower = unusedSearch.toLowerCase();
-    return (
-      (tag.BarcodeNumber || '').toLowerCase().includes(searchLower) ||
-      (tag.TIDValue || '').toLowerCase().includes(searchLower)
-    );
-  });
+    return unusedTags.filter(tag => {
+      return (
+        (tag.BarcodeNumber || '').toLowerCase().includes(searchLower) ||
+        (tag.TIDValue || '').toLowerCase().includes(searchLower)
+      );
+    });
+  }, [unusedTags, unusedSearch]);
 
   // Pagination
-  const usedTotalPages = Math.ceil(filteredUsedTags.length / ITEMS_PER_PAGE);
-  const unusedTotalPages = Math.ceil(filteredUnusedTags.length / ITEMS_PER_PAGE);
-  const paginatedUsedTags = filteredUsedTags.slice(
-    (usedCurrentPage - 1) * ITEMS_PER_PAGE,
-    usedCurrentPage * ITEMS_PER_PAGE
-  );
-  const paginatedUnusedTags = filteredUnusedTags.slice(
-    (unusedCurrentPage - 1) * ITEMS_PER_PAGE,
-    unusedCurrentPage * ITEMS_PER_PAGE
-  );
+  const usedTotalPages = Math.ceil(filteredUsedTags.length / usedItemsPerPage);
+  const unusedTotalPages = Math.ceil(filteredUnusedTags.length / unusedItemsPerPage);
+  const usedTotalRecords = filteredUsedTags.length;
+  const unusedTotalRecords = filteredUnusedTags.length;
+
+  const paginatedUsedTags = useMemo(() => {
+    const startIndex = (usedCurrentPage - 1) * usedItemsPerPage;
+    return filteredUsedTags.slice(startIndex, startIndex + usedItemsPerPage);
+  }, [filteredUsedTags, usedCurrentPage, usedItemsPerPage]);
+
+  const paginatedUnusedTags = useMemo(() => {
+    const startIndex = (unusedCurrentPage - 1) * unusedItemsPerPage;
+    return filteredUnusedTags.slice(startIndex, startIndex + unusedItemsPerPage);
+  }, [filteredUnusedTags, unusedCurrentPage, unusedItemsPerPage]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setUsedCurrentPage(1);
+  }, [usedSearch]);
+
+  useEffect(() => {
+    setUnusedCurrentPage(1);
+  }, [unusedSearch]);
+
+  // Handle page input for used tags
+  const handleUsedPageInputChange = (e) => {
+    const value = e.target.value;
+    if (value === '' || /^\d+$/.test(value)) {
+      setUsedPageInput(value);
+    }
+  };
+
+  const handleUsedPageInputSubmit = (e) => {
+    if (e.key === 'Enter' || e.type === 'click') {
+      const pageNum = parseInt(usedPageInput);
+      if (pageNum >= 1 && pageNum <= usedTotalPages) {
+        setUsedCurrentPage(pageNum);
+        setUsedPageInput('');
+      } else {
+        toast.error(`Please enter a page number between 1 and ${usedTotalPages}`);
+        setUsedPageInput('');
+      }
+    }
+  };
+
+  // Handle page input for unused tags
+  const handleUnusedPageInputChange = (e) => {
+    const value = e.target.value;
+    if (value === '' || /^\d+$/.test(value)) {
+      setUnusedPageInput(value);
+    }
+  };
+
+  const handleUnusedPageInputSubmit = (e) => {
+    if (e.key === 'Enter' || e.type === 'click') {
+      const pageNum = parseInt(unusedPageInput);
+      if (pageNum >= 1 && pageNum <= unusedTotalPages) {
+        setUnusedCurrentPage(pageNum);
+        setUnusedPageInput('');
+      } else {
+        toast.error(`Please enter a page number between 1 and ${unusedTotalPages}`);
+        setUnusedPageInput('');
+      }
+    }
+  };
 
   // Placeholder handlers
   const handleExportExcel = () => {
@@ -219,7 +298,7 @@ const TagUsage = () => {
   };
 
   return (
-    <div className="container-fluid p-3">
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
       <style>
         {`
           .table-responsive {
@@ -263,59 +342,209 @@ const TagUsage = () => {
         `}
       </style>
 
-      {/* Compact Header */}
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body p-3">
-          <div className="row align-items-center">
-            <div className="col-md-6">
-              <div className="d-flex align-items-center">
-                <div className="bg-primary rounded-3 p-2 me-3">
-                  <FaTags className="text-white" style={{ fontSize: '20px' }} />
-                </div>
-                <div>
-                  <h5 className="mb-1 fw-bold text-dark">Report of Used and Unused Tags</h5>
-                  <p className="mb-0 text-muted small">Easily track your RFID tag usage and inventory</p>
-                  <span className="badge bg-primary mt-1">{usedCount + unusedCount} tags in total</span>
-                </div>
-              </div>
+      {/* Unified Header & Action Section */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '16px'
+        }}>
+          <div>
+            <h2 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 700,
+              color: '#1e293b',
+              lineHeight: '1.2'
+            }}>Report of Used and Unused Tags</h2>
+          </div>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              background: '#eff6ff',
+              borderRadius: '8px',
+              border: '1px solid #dbeafe'
+            }}>
+              <FaTag style={{ color: '#3b82f6', fontSize: '14px' }} />
+              <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: 600 }}>Used: {usedCount}</span>
             </div>
-            <div className="col-md-6">
-              <div className="d-flex align-items-center justify-content-end gap-2">
-                <div className="d-flex gap-2 me-3">
-                  <div className="card border-0 bg-light" style={{ minWidth: '120px' }}>
-                    <div className="card-body p-2 text-center">
-                      <div className="d-flex align-items-center justify-content-center mb-1">
-                        <FaTag className="text-primary me-1" style={{ fontSize: '14px' }} />
-                        <small className="text-muted fw-bold">Used Tags</small>
-                      </div>
-                      <div className="fw-bold text-dark">{usedCount}</div>
-                    </div>
-                  </div>
-                  <div className="card border-0 bg-light" style={{ minWidth: '120px' }}>
-                    <div className="card-body p-2 text-center">
-                      <div className="d-flex align-items-center justify-content-center mb-1">
-                        <FaTags className="text-success me-1" style={{ fontSize: '14px' }} />
-                        <small className="text-muted fw-bold">Unused Tags</small>
-                      </div>
-                      <div className="fw-bold text-success">{unusedCount}</div>
-                    </div>
-                  </div>
-                </div>
-                <button 
-                  onClick={fetchTags}
-                  className="btn btn-outline-primary btn-sm"
-                >
-                  <IoRefreshOutline className="me-1" /> Refresh
-                </button>
-                <button 
-                  onClick={() => setExportModalOpen(true)}
-                  className="btn btn-outline-primary btn-sm"
-                >
-                  <FaFileExcel className="me-1" /> Export
-                </button>
-              </div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              background: '#f0fdf4',
+              borderRadius: '8px',
+              border: '1px solid #dcfce7'
+            }}>
+              <FaTags style={{ color: '#10b981', fontSize: '14px' }} />
+              <span style={{ fontSize: '12px', color: '#166534', fontWeight: 600 }}>Unused: {unusedCount}</span>
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: '#64748b',
+              fontWeight: 600
+            }}>
+              Total: {usedCount + unusedCount} records
             </div>
           </div>
+        </div>
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '10px',
+          alignItems: 'center',
+          paddingTop: '16px',
+          borderTop: '1px solid #e5e7eb'
+        }}>
+          {/* Search Inputs */}
+          <div style={{
+            position: 'relative',
+            flex: '1',
+            minWidth: windowWidth <= 768 ? '100%' : '200px',
+            maxWidth: windowWidth <= 768 ? '100%' : '300px'
+          }}>
+            <FaSearch style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8',
+              fontSize: '14px',
+              zIndex: 1
+            }} />
+            <input
+              type="text"
+              placeholder="Search Used Tags..."
+              value={usedSearch}
+              onChange={(e) => {
+                setUsedSearch(e.target.value);
+                setUsedCurrentPage(1);
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                fontSize: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                transition: 'all 0.2s',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            />
+          </div>
+          <div style={{
+            position: 'relative',
+            flex: '1',
+            minWidth: windowWidth <= 768 ? '100%' : '200px',
+            maxWidth: windowWidth <= 768 ? '100%' : '300px'
+          }}>
+            <FaSearch style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8',
+              fontSize: '14px',
+              zIndex: 1
+            }} />
+            <input
+              type="text"
+              placeholder="Search Unused Tags..."
+              value={unusedSearch}
+              onChange={(e) => {
+                setUnusedSearch(e.target.value);
+                setUnusedCurrentPage(1);
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                fontSize: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                transition: 'all 0.2s',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#10b981'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            />
+          </div>
+          {/* Action Buttons */}
+          <button
+            onClick={fetchTags}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #3b82f6',
+              background: '#ffffff',
+              color: '#3b82f6',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#3b82f6';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#3b82f6';
+            }}
+          >
+            <IoRefreshOutline /> Refresh
+          </button>
+          <button
+            onClick={() => setExportModalOpen(true)}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #3b82f6',
+              background: '#ffffff',
+              color: '#3b82f6',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#3b82f6';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#3b82f6';
+            }}
+          >
+            <FaFileExcel /> Export
+          </button>
         </div>
       </div>
 
@@ -375,218 +604,797 @@ const TagUsage = () => {
         </div>
       )}
 
-      <div className="row">
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: windowWidth <= 768 ? '1fr' : '1fr 1fr',
+        gap: '16px'
+      }}>
         {/* Used Tags Table */}
-        <div className="col-md-6">
-          <div className="card shadow-sm border-0 mb-3">
-            <div className="card-header bg-light d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center">
-                <FaTag className="text-primary me-2" />
-                <h6 className="mb-0 fw-bold">Used Tags</h6>
-                <span className="badge bg-primary ms-2">{filteredUsedTags.length} items</span>
-              </div>
-              <div className="position-relative">
-                <FaSearch className="position-absolute top-50 start-0 translate-middle-y ms-2 text-muted" style={{ fontSize: '14px' }} />
-                <input
-                  type="text"
-                  className="form-control form-control-sm ps-4"
-                  placeholder="Search by RFID Code or TID..."
-                  value={usedSearch}
-                  onChange={(e) => {
-                    setUsedSearch(e.target.value);
-                    setUsedCurrentPage(1);
-                  }}
-                  style={{ width: '200px' }}
-                />
-              </div>
-            </div>
-            <div className="card-body p-0">
-              <div className="table-responsive" style={{ overflowX: 'auto' }}>
-                <table className="table table-hover table-sm mb-0" style={{ minWidth: '400px' }}>
-                  <thead className="table-light">
-                    <tr>
-                      <th>Sr</th>
-                      <th>RFID Code</th>
-                      <th>TID Value</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan="4" className="text-center py-4">
-                          <div className="d-flex align-items-center justify-content-center gap-2">
-                            <div className="spinner-border spinner-border-sm text-primary" role="status">
-                              <span className="visually-hidden">Loading...</span>
-                            </div>
-                            <span className="text-muted small">Loading used tags...</span>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : paginatedUsedTags.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="text-center py-4">
-                          <span className="text-muted small">No used tags found</span>
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedUsedTags.map((tag, index) => (
-                        <tr key={tag.BarcodeNumber + tag.TIDValue}>
-                          <td className="text-nowrap">{((usedCurrentPage - 1) * ITEMS_PER_PAGE) + index + 1}</td>
-                          <td className="text-nowrap">{tag.BarcodeNumber || '-'}</td>
-                          <td className="text-nowrap">{tag.TIDValue || '-'}</td>
-                          <td>
-                            <button className="btn btn-sm btn-outline-primary">
-                              {tag.Status || 'Used'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              
-              {/* Pagination */}
-              {usedTotalPages > 1 && (
-                <div className="d-flex justify-content-between align-items-center p-3 border-top">
-                  <div className="small text-muted">
-                    Showing {((usedCurrentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(usedCurrentPage * ITEMS_PER_PAGE, filteredUsedTags.length)} of {filteredUsedTags.length} entries
-                  </div>
-                  <nav>
-                    <ul className="pagination pagination-sm mb-0">
-                      <li className={`page-item ${usedCurrentPage === 1 ? 'disabled' : ''}`}>
-                        <button
-                          className="page-link"
-                          onClick={() => setUsedCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={usedCurrentPage === 1}
-                        >
-                          Previous
-                        </button>
-                      </li>
-                      <li className={`page-item ${usedCurrentPage === usedTotalPages ? 'disabled' : ''}`}>
-                        <button
-                          className="page-link"
-                          onClick={() => setUsedCurrentPage(prev => Math.min(usedTotalPages, prev + 1))}
-                          disabled={usedCurrentPage === usedTotalPages}
-                        >
-                          Next
-                        </button>
-                      </li>
-                    </ul>
-                  </nav>
-                </div>
-              )}
-            </div>
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          border: '1px solid #e5e7eb',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid #e5e7eb',
+            background: '#f8fafc',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <FaTag style={{ color: '#3b82f6', fontSize: '14px' }} />
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Used Tags</span>
+            <span style={{
+              fontSize: '10px',
+              color: '#64748b',
+              background: '#e0e7ff',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              marginLeft: 'auto'
+            }}>{usedTotalRecords} items</span>
           </div>
+          <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+            <table style={{ 
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '12px',
+              tableLayout: 'auto'
+            }}>
+              <thead>
+                <tr style={{
+                  background: '#f8fafc',
+                  borderBottom: '2px solid #e5e7eb'
+                }}>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap'
+                  }}>Sr No.</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap'
+                  }}>RFID Code</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap'
+                  }}>TID Value</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'center',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap',
+                    position: 'sticky',
+                    right: 0,
+                    background: '#f8fafc',
+                    zIndex: 10,
+                    borderLeft: '2px solid #e5e7eb'
+                  }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedUsedTags.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                      No used tags found
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedUsedTags.map((tag, index) => {
+                    const globalIndex = (usedCurrentPage - 1) * usedItemsPerPage + index;
+                    return (
+                      <tr
+                        key={tag.BarcodeNumber + tag.TIDValue}
+                        style={{
+                          borderBottom: '1px solid #e5e7eb',
+                          background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                          transition: 'background 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f1f5f9';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        }}
+                      >
+                        <td style={{
+                          padding: '12px',
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          whiteSpace: 'nowrap'
+                        }}>{globalIndex + 1}</td>
+                        <td style={{
+                          padding: '12px',
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          whiteSpace: 'nowrap',
+                          fontWeight: 600
+                        }}>{tag.BarcodeNumber || '-'}</td>
+                        <td style={{
+                          padding: '12px',
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          whiteSpace: 'nowrap',
+                          fontFamily: 'monospace'
+                        }}>{tag.TIDValue || '-'}</td>
+                        <td style={{
+                          padding: '12px',
+                          textAlign: 'center',
+                          fontSize: '12px',
+                          position: 'sticky',
+                          right: 0,
+                          background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                          zIndex: 5,
+                          borderLeft: '2px solid #e5e7eb'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f1f5f9';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        }}
+                        >
+                          <span style={{
+                            padding: '4px 10px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            borderRadius: '6px',
+                            border: '1px solid #3b82f6',
+                            background: '#eff6ff',
+                            color: '#3b82f6'
+                          }}>{tag.Status || 'Used'}</span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {usedTotalPages > 1 && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 20px',
+              borderTop: '1px solid #e5e7eb',
+              background: '#ffffff',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <span>
+                  Showing {((usedCurrentPage - 1) * usedItemsPerPage) + 1} to {Math.min(usedCurrentPage * usedItemsPerPage, usedTotalRecords)} of {usedTotalRecords} entries
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Show:</span>
+                  <select
+                    value={usedItemsPerPage}
+                    onChange={(e) => {
+                      setUsedItemsPerPage(Number(e.target.value));
+                      setUsedCurrentPage(1);
+                    }}
+                    style={{
+                      padding: '6px 10px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                  <span>per page</span>
+                </div>
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                flexWrap: 'wrap'
+              }}>
+                <button
+                  onClick={() => setUsedCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={usedCurrentPage === 1}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: usedCurrentPage === 1 ? '#f1f5f9' : '#ffffff',
+                    color: usedCurrentPage === 1 ? '#94a3b8' : '#475569',
+                    cursor: usedCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (usedCurrentPage !== 1) {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (usedCurrentPage !== 1) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#e2e8f0';
+                    }
+                  }}
+                >
+                  Previous
+                </button>
+                {Array.from({ length: Math.min(5, usedTotalPages) }, (_, i) => {
+                  let page;
+                  if (usedTotalPages <= 5) {
+                    page = i + 1;
+                  } else if (usedCurrentPage <= 3) {
+                    page = i + 1;
+                  } else if (usedCurrentPage >= usedTotalPages - 2) {
+                    page = usedTotalPages - 4 + i;
+                  } else {
+                    page = usedCurrentPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setUsedCurrentPage(page)}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: '1px solid #e2e8f0',
+                        background: usedCurrentPage === page ? '#3b82f6' : '#ffffff',
+                        color: usedCurrentPage === page ? '#ffffff' : '#475569',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (usedCurrentPage !== page) {
+                          e.target.style.background = '#f8fafc';
+                          e.target.style.borderColor = '#cbd5e1';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (usedCurrentPage !== page) {
+                          e.target.style.background = '#ffffff';
+                          e.target.style.borderColor = '#e2e8f0';
+                        }
+                      }}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setUsedCurrentPage(prev => Math.min(usedTotalPages, prev + 1))}
+                  disabled={usedCurrentPage === usedTotalPages}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: usedCurrentPage === usedTotalPages ? '#f1f5f9' : '#ffffff',
+                    color: usedCurrentPage === usedTotalPages ? '#94a3b8' : '#475569',
+                    cursor: usedCurrentPage === usedTotalPages ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (usedCurrentPage !== usedTotalPages) {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (usedCurrentPage !== usedTotalPages) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#e2e8f0';
+                    }
+                  }}
+                >
+                  Next
+                </button>
+                {/* Go to Page */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  marginLeft: '8px',
+                  paddingLeft: '8px',
+                  borderLeft: '1px solid #e2e8f0'
+                }}>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>Go to:</span>
+                  <input
+                    type="text"
+                    value={usedPageInput}
+                    onChange={handleUsedPageInputChange}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleUsedPageInputSubmit(e);
+                      }
+                    }}
+                    placeholder="Page"
+                    style={{
+                      width: '60px',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      textAlign: 'center',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  />
+                  <button
+                    onClick={handleUsedPageInputSubmit}
+                    disabled={!usedPageInput || usedPageInput === ''}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: '1px solid #3b82f6',
+                      background: (!usedPageInput || usedPageInput === '') ? '#f1f5f9' : '#ffffff',
+                      color: (!usedPageInput || usedPageInput === '') ? '#94a3b8' : '#3b82f6',
+                      cursor: (!usedPageInput || usedPageInput === '') ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (usedPageInput && usedPageInput !== '') {
+                        e.target.style.background = '#3b82f6';
+                        e.target.style.color = '#ffffff';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (usedPageInput && usedPageInput !== '') {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.color = '#3b82f6';
+                      }
+                    }}
+                  >
+                    Go
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Unused Tags Table */}
-        <div className="col-md-6">
-          <div className="card shadow-sm border-0 mb-3">
-            <div className="card-header bg-light d-flex justify-content-between align-items-center">
-              <div className="d-flex align-items-center">
-                <FaTags className="text-success me-2" />
-                <h6 className="mb-0 fw-bold">Unused Tags</h6>
-                <span className="badge bg-success ms-2">{filteredUnusedTags.length} items</span>
-              </div>
-              <div className="position-relative">
-                <FaSearch className="position-absolute top-50 start-0 translate-middle-y ms-2 text-muted" style={{ fontSize: '14px' }} />
-                <input
-                  type="text"
-                  className="form-control form-control-sm ps-4"
-                  placeholder="Search by RFID Code or TID..."
-                  value={unusedSearch}
-                  onChange={(e) => {
-                    setUnusedSearch(e.target.value);
-                    setUnusedCurrentPage(1);
-                  }}
-                  style={{ width: '200px' }}
-                />
-              </div>
-            </div>
-            <div className="card-body p-0">
-              <div className="table-responsive" style={{ overflowX: 'auto' }}>
-                <table className="table table-hover table-sm mb-0" style={{ minWidth: '400px' }}>
-                  <thead className="table-light">
-                    <tr>
-                      <th>Sr</th>
-                      <th>RFID Code</th>
-                      <th>TID Value</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan="4" className="text-center py-4">
-                          <div className="d-flex align-items-center justify-content-center gap-2">
-                            <div className="spinner-border spinner-border-sm text-primary" role="status">
-                              <span className="visually-hidden">Loading...</span>
-                            </div>
-                            <span className="text-muted small">Loading unused tags...</span>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : paginatedUnusedTags.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="text-center py-4">
-                          <span className="text-muted small">No unused tags found</span>
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedUnusedTags.map((tag, index) => (
-                        <tr key={tag.BarcodeNumber + tag.TIDValue}>
-                          <td className="text-nowrap">{((unusedCurrentPage - 1) * ITEMS_PER_PAGE) + index + 1}</td>
-                          <td className="text-nowrap">{tag.BarcodeNumber || '-'}</td>
-                          <td className="text-nowrap">{tag.TIDValue || '-'}</td>
-                          <td>
-                            <button className="btn btn-sm btn-outline-success">
-                              {tag.Status || 'Unused'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              
-              {/* Pagination */}
-              {unusedTotalPages > 1 && (
-                <div className="d-flex justify-content-between align-items-center p-3 border-top">
-                  <div className="small text-muted">
-                    Showing {((unusedCurrentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(unusedCurrentPage * ITEMS_PER_PAGE, filteredUnusedTags.length)} of {filteredUnusedTags.length} entries
-                  </div>
-                  <nav>
-                    <ul className="pagination pagination-sm mb-0">
-                      <li className={`page-item ${unusedCurrentPage === 1 ? 'disabled' : ''}`}>
-                        <button
-                          className="page-link"
-                          onClick={() => setUnusedCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={unusedCurrentPage === 1}
-                        >
-                          Previous
-                        </button>
-                      </li>
-                      <li className={`page-item ${unusedCurrentPage === unusedTotalPages ? 'disabled' : ''}`}>
-                        <button
-                          className="page-link"
-                          onClick={() => setUnusedCurrentPage(prev => Math.min(unusedTotalPages, prev + 1))}
-                          disabled={unusedCurrentPage === unusedTotalPages}
-                        >
-                          Next
-                        </button>
-                      </li>
-                    </ul>
-                  </nav>
-                </div>
-              )}
-            </div>
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          border: '1px solid #e5e7eb',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid #e5e7eb',
+            background: '#f8fafc',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <FaTags style={{ color: '#10b981', fontSize: '14px' }} />
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Unused Tags</span>
+            <span style={{
+              fontSize: '10px',
+              color: '#64748b',
+              background: '#d1fae5',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              marginLeft: 'auto'
+            }}>{unusedTotalRecords} items</span>
           </div>
+          <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+            <table style={{ 
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '12px',
+              tableLayout: 'auto'
+            }}>
+              <thead>
+                <tr style={{
+                  background: '#f8fafc',
+                  borderBottom: '2px solid #e5e7eb'
+                }}>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap'
+                  }}>Sr No.</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap'
+                  }}>RFID Code</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap'
+                  }}>TID Value</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'center',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap',
+                    position: 'sticky',
+                    right: 0,
+                    background: '#f8fafc',
+                    zIndex: 10,
+                    borderLeft: '2px solid #e5e7eb'
+                  }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedUnusedTags.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                      No unused tags found
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedUnusedTags.map((tag, index) => {
+                    const globalIndex = (unusedCurrentPage - 1) * unusedItemsPerPage + index;
+                    return (
+                      <tr
+                        key={tag.BarcodeNumber + tag.TIDValue}
+                        style={{
+                          borderBottom: '1px solid #e5e7eb',
+                          background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                          transition: 'background 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f1f5f9';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        }}
+                      >
+                        <td style={{
+                          padding: '12px',
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          whiteSpace: 'nowrap'
+                        }}>{globalIndex + 1}</td>
+                        <td style={{
+                          padding: '12px',
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          whiteSpace: 'nowrap',
+                          fontWeight: 600
+                        }}>{tag.BarcodeNumber || '-'}</td>
+                        <td style={{
+                          padding: '12px',
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          whiteSpace: 'nowrap',
+                          fontFamily: 'monospace'
+                        }}>{tag.TIDValue || '-'}</td>
+                        <td style={{
+                          padding: '12px',
+                          textAlign: 'center',
+                          fontSize: '12px',
+                          position: 'sticky',
+                          right: 0,
+                          background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                          zIndex: 5,
+                          borderLeft: '2px solid #e5e7eb'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f1f5f9';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        }}
+                        >
+                          <span style={{
+                            padding: '4px 10px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            borderRadius: '6px',
+                            border: '1px solid #10b981',
+                            background: '#f0fdf4',
+                            color: '#10b981'
+                          }}>{tag.Status || 'Unused'}</span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {unusedTotalPages > 1 && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 20px',
+              borderTop: '1px solid #e5e7eb',
+              background: '#ffffff',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <span>
+                  Showing {((unusedCurrentPage - 1) * unusedItemsPerPage) + 1} to {Math.min(unusedCurrentPage * unusedItemsPerPage, unusedTotalRecords)} of {unusedTotalRecords} entries
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Show:</span>
+                  <select
+                    value={unusedItemsPerPage}
+                    onChange={(e) => {
+                      setUnusedItemsPerPage(Number(e.target.value));
+                      setUnusedCurrentPage(1);
+                    }}
+                    style={{
+                      padding: '6px 10px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                  <span>per page</span>
+                </div>
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                flexWrap: 'wrap'
+              }}>
+                <button
+                  onClick={() => setUnusedCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={unusedCurrentPage === 1}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: unusedCurrentPage === 1 ? '#f1f5f9' : '#ffffff',
+                    color: unusedCurrentPage === 1 ? '#94a3b8' : '#475569',
+                    cursor: unusedCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (unusedCurrentPage !== 1) {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (unusedCurrentPage !== 1) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#e2e8f0';
+                    }
+                  }}
+                >
+                  Previous
+                </button>
+                {Array.from({ length: Math.min(5, unusedTotalPages) }, (_, i) => {
+                  let page;
+                  if (unusedTotalPages <= 5) {
+                    page = i + 1;
+                  } else if (unusedCurrentPage <= 3) {
+                    page = i + 1;
+                  } else if (unusedCurrentPage >= unusedTotalPages - 2) {
+                    page = unusedTotalPages - 4 + i;
+                  } else {
+                    page = unusedCurrentPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setUnusedCurrentPage(page)}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: '1px solid #e2e8f0',
+                        background: unusedCurrentPage === page ? '#10b981' : '#ffffff',
+                        color: unusedCurrentPage === page ? '#ffffff' : '#475569',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (unusedCurrentPage !== page) {
+                          e.target.style.background = '#f8fafc';
+                          e.target.style.borderColor = '#cbd5e1';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (unusedCurrentPage !== page) {
+                          e.target.style.background = '#ffffff';
+                          e.target.style.borderColor = '#e2e8f0';
+                        }
+                      }}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setUnusedCurrentPage(prev => Math.min(unusedTotalPages, prev + 1))}
+                  disabled={unusedCurrentPage === unusedTotalPages}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: unusedCurrentPage === unusedTotalPages ? '#f1f5f9' : '#ffffff',
+                    color: unusedCurrentPage === unusedTotalPages ? '#94a3b8' : '#475569',
+                    cursor: unusedCurrentPage === unusedTotalPages ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (unusedCurrentPage !== unusedTotalPages) {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (unusedCurrentPage !== unusedTotalPages) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#e2e8f0';
+                    }
+                  }}
+                >
+                  Next
+                </button>
+                {/* Go to Page */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  marginLeft: '8px',
+                  paddingLeft: '8px',
+                  borderLeft: '1px solid #e2e8f0'
+                }}>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>Go to:</span>
+                  <input
+                    type="text"
+                    value={unusedPageInput}
+                    onChange={handleUnusedPageInputChange}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleUnusedPageInputSubmit(e);
+                      }
+                    }}
+                    placeholder="Page"
+                    style={{
+                      width: '60px',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      textAlign: 'center',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  />
+                  <button
+                    onClick={handleUnusedPageInputSubmit}
+                    disabled={!unusedPageInput || unusedPageInput === ''}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: '1px solid #10b981',
+                      background: (!unusedPageInput || unusedPageInput === '') ? '#f1f5f9' : '#ffffff',
+                      color: (!unusedPageInput || unusedPageInput === '') ? '#94a3b8' : '#10b981',
+                      cursor: (!unusedPageInput || unusedPageInput === '') ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (unusedPageInput && unusedPageInput !== '') {
+                        e.target.style.background = '#10b981';
+                        e.target.style.color = '#ffffff';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (unusedPageInput && unusedPageInput !== '') {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.color = '#10b981';
+                      }
+                    }}
+                  >
+                    Go
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
+      <style>{`
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+          display: none;
+        }
+        body, html {
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @media (max-width: 768px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+        }
+        @media (max-width: 480px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+        }
+      `}</style>
       <style jsx>{`
         .tag-usage-container {
           padding: 20px;

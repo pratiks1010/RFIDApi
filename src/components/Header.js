@@ -7,7 +7,7 @@ import {
   FaMicrochip, 
   FaTags, 
   FaTag, 
-  FaClipboardCheck, 
+  FaClipboard, 
   FaUpload,
   FaUserCircle,
   FaBell,
@@ -23,7 +23,8 @@ import {
   FaChevronDown,
   FaPrint,
   FaExpand,
-  FaCompress
+  FaCompress,
+  FaBook
 } from 'react-icons/fa';
 import { useNotifications } from '../context/NotificationContext';
 import { useTranslation } from '../hooks/useTranslation';
@@ -225,6 +226,7 @@ const Header = () => {
   const navigationItems = [
     { path: '/analytics', icon: FaTachometerAlt, label: t('navigation.analytics'), color: '#10b981' },
     { path: '/dashboard', icon: FaHome, label: t('navigation.rfidApi'), color: '#3b82f6' },
+    { path: '/api-documentation', icon: FaBook, label: 'RFID API Third Party Integration', color: '#9333ea' },
     { path: '/rfid-integration', icon: FaPlug, label: t('navigation.rfidIntegration'), color: '#8b5cf6' },
     { path: '/label-stock', icon: FaList, label: t('navigation.labelStock'), color: '#f59e0b' },
     { path: '/invoice-stock', icon: FaFileInvoice, label: t('navigation.invoiceStock'), color: '#dc2626' },
@@ -232,7 +234,7 @@ const Header = () => {
     { path: '/rfid-devices', icon: FaMicrochip, label: t('navigation.rfidDevices'), color: '#ec4899' },
     { path: '/rfid-tags', icon: FaTags, label: t('navigation.rfidTags'), color: '#ef4444' },
     { path: '/tag-usage', icon: FaTag, label: t('navigation.tagUsage'), color: '#06b6d4' },
-    { path: '/stock-verification', icon: FaClipboardCheck, label: t('navigation.stockVerification'), color: '#84cc16' },
+    { path: '/stock-verification', icon: FaClipboard, label: t('navigation.stockVerification'), color: '#84cc16' },
     { path: '/upload-rfid', icon: FaUpload, label: t('navigation.uploadEpcData'), color: '#6366f1' },
   ];
 
@@ -825,7 +827,7 @@ const Header = () => {
           </div>
         </div>
       </div>
-      <nav className="zoho-nav-sticky">
+      <nav className="zoho-nav-sticky" style={{ display: 'none' }}>
         {/* Mobile menu button */}
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

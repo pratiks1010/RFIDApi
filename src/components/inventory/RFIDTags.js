@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { FaSearch, FaFileExcel, FaTrash, FaChevronLeft, FaChevronRight, FaFilePdf, FaEnvelope, FaTimes, FaEdit, FaCheck } from 'react-icons/fa';
@@ -7,12 +7,13 @@ import { HiOutlineArrowUpTray } from 'react-icons/hi2';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
+import { useLoading } from '../../App';
 
 const ITEMS_PER_PAGE = 100;
 
 const RFIDTags = () => {
+  const { setLoading } = useLoading();
   const [rfidData, setRfidData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState([]);
@@ -22,6 +23,8 @@ const RFIDTags = () => {
   const [editingRows, setEditingRows] = useState(new Set());
   const [editedValues, setEditedValues] = useState({});
   const [pageInput, setPageInput] = useState('');
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   const { addNotification } = useNotifications();
 
   // Get client code from localStorage
@@ -69,28 +72,44 @@ const RFIDTags = () => {
 
   useEffect(() => {
     fetchRFIDData();
+    
+    // Handle window resize for responsive design
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // Filter data based on search query
-  const filteredData = rfidData.filter(item => {
+  const filteredData = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return rfidData;
+    }
     const searchLower = searchQuery.toLowerCase();
-    return (
-      item.BarcodeNumber?.toLowerCase().includes(searchLower) ||
-      item.TidValue?.toLowerCase().includes(searchLower)
-    );
-  });
+    return rfidData.filter(item => {
+      return (
+        item.BarcodeNumber?.toLowerCase().includes(searchLower) ||
+        item.TidValue?.toLowerCase().includes(searchLower) ||
+        item.EPCValue?.toLowerCase().includes(searchLower)
+      );
+    });
+  }, [rfidData, searchQuery]);
 
-  // Calculate total pages
-  const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
-
-  // Calculate pagination
-  const getPaginatedData = (data, page) => {
-    const startIndex = (page - 1) * ITEMS_PER_PAGE;
-    return data.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  };
+  // Calculate total pages and records
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const totalRecords = filteredData.length;
 
   // Get paginated data
-  const currentTableData = getPaginatedData(filteredData, currentPage);
+  const currentTableData = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredData.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredData, currentPage, itemsPerPage]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   // Handle direct page navigation
   const handlePageInputChange = (e) => {
@@ -315,15 +334,6 @@ const RFIDTags = () => {
     setEditedValues(prev => ({ ...prev, [id]: value }));
   };
 
-  if (loading) {
-  return (
-      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-          </div>
-            </div>
-    );
-  }
 
   if (error) {
     return (
@@ -335,213 +345,636 @@ const RFIDTags = () => {
   }
 
   return (
-    <div className="container-fluid p-0">
-      {/* Header Section */}
-      <div className="card border-0 mb-3" style={{ borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-        <div className="card-body p-3">
-          <div className="row align-items-center">
-            <div className="col-md-6">
-              <div className="d-flex align-items-center gap-3">
-                <div className="bg-primary rounded p-2" style={{ width: '40px', height: '40px' }}>
-                  <BiTag className="text-white" style={{ fontSize: '20px' }} />
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
+      {/* Unified Header & Action Section */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '16px'
+        }}>
+          <div>
+            <h2 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 700,
+              color: '#1e293b',
+              lineHeight: '1.2'
+            }}>RFID Tags</h2>
           </div>
-                <div>
-                  <h5 className="mb-1 fw-bold" style={{ fontSize: '18px', color: '#1e293b' }}>RFID Tags</h5>
-                  <p className="mb-1 text-muted" style={{ fontSize: '13px' }}>Manage and track all your RFID tags efficiently.</p>
-                  <span className="text-primary fw-bold" style={{ fontSize: '14px' }}>
-                    {rfidData.length.toLocaleString()} tags in total
-                  </span>
+          <div style={{
+            fontSize: '12px',
+            color: '#64748b',
+            fontWeight: 600
+          }}>
+            Total: {totalRecords} records
+          </div>
         </div>
-      </div>
-            </div>
-            <div className="col-md-6">
-              <div className="d-flex justify-content-end gap-2">
-              <button 
-                  className="btn btn-outline-danger btn-sm"
-                  onClick={handleDelete}
-                  disabled={selectedTags.length === 0}
-                  style={{ fontSize: '12px', padding: '6px 12px' }}
-                >
-                  <FaTrash className="me-1" style={{ fontSize: '11px' }} />
-                  Delete Selected
-                </button>
-                <button 
-                  className="btn btn-primary btn-sm"
-                  onClick={() => setShowExportModal(true)}
-                  style={{ fontSize: '12px', padding: '6px 12px' }}
-                >
-                  <HiOutlineArrowUpTray className="me-1" style={{ fontSize: '11px' }} />
-                  Export
-              </button>
-            </div>
-                  </div>
-                  </div>
-                  </div>
-                  </div>
-
-      {/* Search Section */}
-      <div className="card border-0 mb-3" style={{ borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-        <div className="card-body p-3">
-          <div className="input-group" style={{ maxWidth: '400px' }}>
-            <span className="input-group-text bg-light border-end-0">
-              <FaSearch className="text-muted" style={{ fontSize: '12px' }} />
-            </span>
-                      <input
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '10px',
+          alignItems: 'center',
+          paddingTop: '16px',
+          borderTop: '1px solid #e5e7eb'
+        }}>
+          {/* Search Input */}
+          <div style={{
+            position: 'relative',
+            flex: '1',
+            minWidth: windowWidth <= 768 ? '100%' : '250px',
+            maxWidth: windowWidth <= 768 ? '100%' : '350px'
+          }}>
+            <FaSearch style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8',
+              fontSize: '14px',
+              zIndex: 1
+            }} />
+            <input
               type="text"
-              className="form-control border-start-0"
               placeholder="Search by RFID Code, EPC Value, TID Value..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ fontSize: '13px' }}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                fontSize: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                transition: 'all 0.2s',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
             />
-                    </div>
-                  </div>
-                </div>
-
-      {/* Table Section */}
-      <div className="card border-0" style={{ borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginTop: '24px' }}>
-        <div className="card-header bg-light border-0 py-2">
-          <div className="d-flex justify-content-between align-items-center">
-            <h6 className="mb-0 fw-bold" style={{ fontSize: '14px', color: '#1e293b' }}>RFID Tags</h6>
-            <span className="badge bg-secondary" style={{ fontSize: '11px' }}>
-              {currentTableData.length} items (Page {currentPage} of {totalPages})
-            </span>
           </div>
+          {/* Action Buttons */}
+          <button
+            onClick={handleDelete}
+            disabled={selectedTags.length === 0}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #ef4444',
+              background: selectedTags.length === 0 ? '#f1f5f9' : '#ffffff',
+              color: selectedTags.length === 0 ? '#94a3b8' : '#ef4444',
+              cursor: selectedTags.length === 0 ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              if (selectedTags.length > 0) {
+                e.target.style.background = '#ef4444';
+                e.target.style.color = '#ffffff';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (selectedTags.length > 0) {
+                e.target.style.background = '#ffffff';
+                e.target.style.color = '#ef4444';
+              }
+            }}
+          >
+            <FaTrash /> Delete
+          </button>
+          <button
+            onClick={() => setShowExportModal(true)}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #3b82f6',
+              background: '#ffffff',
+              color: '#3b82f6',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#3b82f6';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#3b82f6';
+            }}
+          >
+            <HiOutlineArrowUpTray /> Export
+          </button>
         </div>
-        <div className="table-responsive">
-          <table className="table table-hover table-sm mb-0" style={{ fontSize: '12px' }}>
-              <thead>
+      </div>
+
+      {/* Table Container */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        marginTop: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb',
+        overflow: 'hidden'
+      }}>
+        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+          <table style={{ 
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '12px',
+            tableLayout: 'auto'
+          }}>
+            <thead>
+              <tr style={{
+                background: '#f8fafc',
+                borderBottom: '2px solid #e5e7eb'
+              }}>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  width: '40px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569'
+                }}>
+                  <input
+                    type="checkbox"
+                    onChange={handleSelectAll}
+                    checked={currentTableData.length > 0 && currentTableData.every(item => selectedTags.includes(item.Id))}
+                    style={{
+                      cursor: 'pointer',
+                      width: '16px',
+                      height: '16px'
+                    }}
+                  />
+                </th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Sr No.</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>RFID Code</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>EPC Value</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentTableData.length === 0 ? (
                 <tr>
-                <th className="text-center" style={{ width: '50px' }}>
-                    <input
-                      type="checkbox"
-                      onChange={handleSelectAll}
-                      checked={currentTableData.length > 0 && currentTableData.every(item => selectedTags.includes(item.Id))}
-                    className="form-check-input"
-                    />
-                  </th>
-                <th style={{ fontSize: '12px' }}>Sr No.</th>
-                <th style={{ fontSize: '12px' }}>RFID Code</th>
-                <th style={{ fontSize: '12px' }}>EPC Value</th>
-                <th className="text-center" style={{ width: '80px', fontSize: '12px' }}>Actions</th>
+                  <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                    No tags found
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {currentTableData.map((item, index) => (
-                <tr key={item.Id} className={selectedTags.includes(item.Id) ? 'table-primary' : ''}>
-                  <td className="text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedTags.includes(item.Id)}
-                        onChange={() => handleSelectTag(item.Id)}
-                      className="form-check-input"
-                      />
-                    </td>
-                  <td style={{ fontSize: '12px' }}>{((currentPage - 1) * ITEMS_PER_PAGE) + index + 1}</td>
-                  <td style={{ fontSize: '12px' }}>{item.BarcodeNumber}</td>
-                  <td style={{ fontSize: '12px' }}>
-                      {editingRows.has(item.Id) ? (
+              ) : (
+                currentTableData.map((item, index) => {
+                  const globalIndex = (currentPage - 1) * itemsPerPage + index;
+                  const isSelected = selectedTags.includes(item.Id);
+                  return (
+                    <tr
+                      key={item.Id}
+                      onClick={() => handleSelectTag(item.Id)}
+                      style={{
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #e5e7eb',
+                        background: isSelected 
+                          ? '#eff6ff' 
+                          : globalIndex % 2 === 0 
+                          ? '#ffffff' 
+                          : '#f8fafc',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.background = '#f1f5f9';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        }
+                      }}
+                    >
+                      <td style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        fontSize: '12px'
+                      }}>
                         <input
-                          type="text"
-                          value={editedValues[item.Id] || ''}
-                          onChange={(e) => handleEPCChange(item.Id, e.target.value)}
-                        className="form-control form-control-sm"
-                        style={{ fontSize: '11px', padding: '4px 8px' }}
-                          autoFocus
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleSelectTag(item.Id)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            cursor: 'pointer',
+                            width: '16px',
+                            height: '16px'
+                          }}
                         />
-                      ) : (
-                        item.TidValue
-                      )}
-                    </td>
-                  <td className="text-center">
-                      {editingRows.has(item.Id) ? (
-                      <div className="d-flex gap-1 justify-content-center">
+                      </td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{globalIndex + 1}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 600
+                      }}>{item.BarcodeNumber}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'monospace'
+                      }}>
+                        {editingRows.has(item.Id) ? (
+                          <input
+                            type="text"
+                            value={editedValues[item.Id] || ''}
+                            onChange={(e) => handleEPCChange(item.Id, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              fontSize: '12px',
+                              padding: '6px 10px',
+                              border: '1px solid #3b82f6',
+                              borderRadius: '6px',
+                              outline: 'none',
+                              width: '100%',
+                              maxWidth: '300px',
+                              fontFamily: 'monospace'
+                            }}
+                            autoFocus
+                          />
+                        ) : (
+                          item.TidValue || item.EPCValue || 'N/A'
+                        )}
+                      </td>
+                      <td style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        fontSize: '12px'
+                      }} onClick={(e) => e.stopPropagation()}>
+                        {editingRows.has(item.Id) ? (
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            <button
+                              onClick={() => handleSaveEPC(item.Id)}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #10b981',
+                                background: '#ffffff',
+                                color: '#10b981',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = '#10b981';
+                                e.target.style.color = '#ffffff';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = '#ffffff';
+                                e.target.style.color = '#10b981';
+                              }}
+                              title="Save"
+                            >
+                              <FaCheck />
+                            </button>
+                            <button
+                              onClick={() => handleCancelEdit(item.Id)}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #64748b',
+                                background: '#ffffff',
+                                color: '#64748b',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = '#64748b';
+                                e.target.style.color = '#ffffff';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = '#ffffff';
+                                e.target.style.color = '#64748b';
+                              }}
+                              title="Cancel"
+                            >
+                              <FaTimes />
+                            </button>
+                          </div>
+                        ) : (
                           <button
-                          className="btn btn-success btn-sm"
-                            onClick={() => handleSaveEPC(item.Id)}
-                          style={{ fontSize: '11px', padding: '4px 8px' }}
-                            title="Save"
+                            onClick={() => handleEditEPC(item.Id, item.TidValue || item.EPCValue)}
+                            style={{
+                              padding: '4px 12px',
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              borderRadius: '6px',
+                              border: '1px solid #3b82f6',
+                              background: '#ffffff',
+                              color: '#3b82f6',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.background = '#3b82f6';
+                              e.target.style.color = '#ffffff';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.background = '#ffffff';
+                              e.target.style.color = '#3b82f6';
+                            }}
+                            title="Edit EPC Value"
                           >
-                          <FaCheck style={{ fontSize: '10px' }} />
+                            <FaEdit />
                           </button>
-                          <button
-                          className="btn btn-secondary btn-sm"
-                            onClick={() => handleCancelEdit(item.Id)}
-                          style={{ fontSize: '11px', padding: '4px 8px' }}
-                            title="Cancel"
-                          >
-                          <FaTimes style={{ fontSize: '10px' }} />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                        className="btn btn-outline-primary btn-sm"
-                          onClick={() => handleEditEPC(item.Id, item.TidValue)}
-                        style={{ fontSize: '11px', padding: '4px 8px' }}
-                          title="Edit EPC Value"
-                        >
-                        <FaEdit style={{ fontSize: '10px' }} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
         {/* Pagination */}
-          {totalPages > 1 && (
-          <div className="card-footer bg-light border-0 py-2">
-            <div className="d-flex justify-content-center align-items-center gap-2">
+        {totalPages > 1 && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderTop: '1px solid #e5e7eb',
+            background: '#ffffff',
+            borderRadius: '0 0 12px 12px',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              flexWrap: 'wrap',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <span>
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>Show:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                </select>
+                <span>per page</span>
+              </div>
+            </div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flexWrap: 'wrap'
+            }}>
               <button
-                className="btn btn-outline-secondary btn-sm"
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 disabled={currentPage === 1}
-                style={{ fontSize: '11px', padding: '4px 8px' }}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                  background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
+                  color: currentPage === 1 ? '#94a3b8' : '#475569',
+                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (currentPage !== 1) {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#cbd5e1';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (currentPage !== 1) {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.borderColor = '#e2e8f0';
+                  }
+                }}
               >
-                <FaChevronLeft style={{ fontSize: '10px' }} />
+                Previous
               </button>
-              <span className="text-muted" style={{ fontSize: '12px' }}>
-                Page {currentPage} of {totalPages}
-              </span>
-              <div className="d-flex align-items-center gap-1" style={{ marginLeft: '8px', marginRight: '8px' }}>
-                <span className="text-muted" style={{ fontSize: '11px' }}>Go to:</span>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let page;
+                if (totalPages <= 5) {
+                  page = i + 1;
+                } else if (currentPage <= 3) {
+                  page = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  page = totalPages - 4 + i;
+                } else {
+                  page = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: currentPage === page ? '#3b82f6' : '#ffffff',
+                      color: currentPage === page ? '#ffffff' : '#475569',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (currentPage !== page) {
+                        e.target.style.background = '#f8fafc';
+                        e.target.style.borderColor = '#cbd5e1';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (currentPage !== page) {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.borderColor = '#e2e8f0';
+                      }
+                    }}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                  background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
+                  color: currentPage === totalPages ? '#94a3b8' : '#475569',
+                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (currentPage !== totalPages) {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#cbd5e1';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (currentPage !== totalPages) {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.borderColor = '#e2e8f0';
+                  }
+                }}
+              >
+                Next
+              </button>
+              {/* Go to Page */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginLeft: '8px',
+                paddingLeft: '8px',
+                borderLeft: '1px solid #e2e8f0'
+              }}>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>Go to:</span>
                 <input
                   type="text"
                   value={pageInput}
                   onChange={handlePageInputChange}
-                  onKeyDown={handlePageInputSubmit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handlePageInputSubmit(e);
+                    }
+                  }}
                   placeholder="Page"
-                  className="form-control form-control-sm"
                   style={{
                     width: '60px',
-                    fontSize: '11px',
+                    padding: '6px 8px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    outline: 'none',
                     textAlign: 'center',
-                    padding: '2px 4px'
+                    boxSizing: 'border-box'
                   }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
                 <button
-                  className="btn btn-primary btn-sm"
                   onClick={handlePageInputSubmit}
                   disabled={!pageInput || pageInput === ''}
-                  style={{ fontSize: '10px', padding: '2px 6px' }}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #3b82f6',
+                    background: (!pageInput || pageInput === '') ? '#f1f5f9' : '#ffffff',
+                    color: (!pageInput || pageInput === '') ? '#94a3b8' : '#3b82f6',
+                    cursor: (!pageInput || pageInput === '') ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (pageInput && pageInput !== '') {
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.color = '#ffffff';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (pageInput && pageInput !== '') {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.color = '#3b82f6';
+                    }
+                  }}
                 >
                   Go
                 </button>
               </div>
-              <button
-                className="btn btn-outline-secondary btn-sm"
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-                style={{ fontSize: '11px', padding: '4px 8px' }}
-              >
-                <FaChevronRight style={{ fontSize: '10px' }} />
-              </button>
             </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
 
       {/* Export Modal */}
       {showExportModal && (
@@ -627,6 +1060,29 @@ const RFIDTags = () => {
           </div>
         </div>
       )}
+      <style>{`
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+          display: none;
+        }
+        body, html {
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @media (max-width: 768px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+        }
+        @media (max-width: 480px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+        }
+      `}</style>
     </div>
   );
 };

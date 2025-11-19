@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { 
   FaSearch, 
@@ -15,20 +15,22 @@ import {
   FaSync,
   FaEye,
   FaEdit,
-  FaDownload
+  FaDownload,
+  FaTimes
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { useTranslation } from '../../hooks/useTranslation';
+import { useLoading } from '../../App';
 
 const InvoiceStock = () => {
   const { t } = useTranslation();
+  const { loading, setLoading } = useLoading();
   
   // State Management
   const [invoiceData, setInvoiceData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -44,6 +46,9 @@ const InvoiceStock = () => {
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
   const [clientCode, setClientCode] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const searchTimeoutRef = useRef(null);
 
   // Filter States
   const [filters, setFilters] = useState({
@@ -97,6 +102,13 @@ const InvoiceStock = () => {
     { key: 'actions', label: t('common.actions'), width: '120px', sortable: false }
   ];
 
+  // Handle window resize for responsive design
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Get Client Code from localStorage
   useEffect(() => {
     const getUserInfo = () => {
@@ -135,11 +147,11 @@ const InvoiceStock = () => {
   // Fetch Invoice Data
   useEffect(() => {
     if (clientCode) {
-      fetchInvoiceData();
+      fetchInvoiceData(currentPage, itemsPerPage, searchQuery);
     }
-  }, [clientCode]);
+  }, [clientCode, currentPage, itemsPerPage]);
 
-  const fetchInvoiceData = async () => {
+  const fetchInvoiceData = async (page = currentPage, pageSize = itemsPerPage, search = searchQuery) => {
     try {
       setLoading(true);
       setError(null);
@@ -150,7 +162,10 @@ const InvoiceStock = () => {
 
       const requestBody = {
         ClientCode: clientCode,
-        Status: "Sold"
+        Status: "Sold",
+        PageNumber: page,
+        PageSize: pageSize,
+        SearchQuery: search && search.trim() !== '' ? search.trim() : ""
       };
 
       const response = await axios.post(
@@ -227,7 +242,8 @@ const InvoiceStock = () => {
       setInvoiceData(transformedData);
       setFilteredData(transformedData);
       setTotalRecords(total);
-      setTotalPages(Math.ceil(total / itemsPerPage));
+      setTotalPages(Math.ceil(total / pageSize));
+      setCurrentPage(page);
 
       // Update filter options
       updateFilterOptions(transformedData);
@@ -281,15 +297,16 @@ const InvoiceStock = () => {
   }, [sortedData, currentPage, itemsPerPage]);
 
   // Event Handlers
-  const handleSearch = (value) => {
+  const handleSearchChange = (value) => {
     setSearchQuery(value);
-    const filtered = invoiceData.filter(item =>
-      Object.values(item).some(val =>
-        val && val.toString().toLowerCase().includes(value.toLowerCase())
-      )
-    );
-    setFilteredData(filtered);
-    setCurrentPage(1);
+    // Clear existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    // Debounce search - fetch after user stops typing
+    searchTimeoutRef.current = setTimeout(() => {
+      fetchInvoiceData(1, itemsPerPage, value);
+    }, 500);
   };
 
   const handleSort = (key) => {
@@ -429,7 +446,7 @@ const InvoiceStock = () => {
 
   const confirmDelete = async () => {
     try {
-      setLoading(true);
+      setDeleteLoading(true);
       setShowDeleteModal(false);
       
       const response = await axios.delete(
@@ -458,23 +475,10 @@ const InvoiceStock = () => {
       console.error('Error deleting items:', error);
       alert('Failed to delete items. Please try again.');
     } finally {
-      setLoading(false);
+      setDeleteLoading(false);
     }
   };
 
-  // Loading State
-  if (loading) {
-    return (
-      <div className="container-fluid p-3">
-        <div className="d-flex justify-content-center align-items-center" style={{ height: '400px' }}>
-          <div className="text-center">
-            <FaSpinner className="fa-spin mb-3" style={{ fontSize: '32px', color: '#3b82f6' }} />
-            <p className="text-muted">{t('invoiceStock.loadingData')}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // Error State
   if (error) {
@@ -488,439 +492,1015 @@ const InvoiceStock = () => {
     );
   }
 
+  // Pagination helper
+  const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+  
+  const generatePagination = () => {
+    const pages = [];
+    const maxPages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxPages / 2));
+    let endPage = Math.min(totalPages, startPage + maxPages - 1);
+    
+    if (endPage - startPage < maxPages - 1) {
+      startPage = Math.max(1, endPage - maxPages + 1);
+    }
+    
+    if (startPage > 1) pages.push(1, "...");
+    for (let i = startPage; i <= endPage; i++) pages.push(i);
+    if (endPage < totalPages) pages.push("...", totalPages);
+    
+    return pages;
+  };
+
+  const handleItemsPerPageChange = (newSize) => {
+    setItemsPerPage(newSize);
+    setCurrentPage(1);
+    fetchInvoiceData(1, newSize, searchQuery);
+  };
+
   return (
-    <div className="container-fluid p-3">
-      <style>
-        {`
-          /* Search bar styling */
-          .search-input-container {
-            width: 100%;
-            min-width: 200px;
-            max-width: 400px;
-          }
-          
-          @media (max-width: 768px) {
-            .search-input-container {
-              width: 100% !important;
-              min-width: 100% !important;
-              max-width: 100% !important;
-            }
-            
-            /* Make action buttons wrap properly on mobile */
-            .action-buttons-container {
-              justify-content: flex-start !important;
-            }
-          }
-          
-          @media (max-width: 576px) {
-            .search-input-container {
-              width: 100% !important;
-              min-width: 100% !important;
-              max-width: 100% !important;
-            }
-          }
-          
-          /* Action buttons container */
-          .action-buttons-container {
-            gap: 0.5rem !important;
-            flex-wrap: wrap !important;
-            overflow-x: visible;
-            overflow-y: visible;
-            padding-bottom: 0;
-          }
-          
-          @media (max-width: 768px) {
-            .action-buttons-container {
-              flex-wrap: wrap !important;
-              overflow-x: visible;
-              overflow-y: visible;
-              justify-content: flex-start;
-            }
-          }
-          
-          @media (max-width: 480px) {
-            .action-buttons-container {
-              flex-wrap: wrap !important;
-              overflow-x: visible;
-              overflow-y: visible;
-              justify-content: flex-start;
-            }
-            
-            .action-buttons-container .btn {
-              flex-shrink: 0;
-              min-width: fit-content;
-              font-size: 11px;
-              padding: 4px 6px;
-            }
-          }
-          
-          .table-responsive {
-            position: relative;
-          }
-          .table-responsive table {
-            position: relative;
-            font-size: 12px;
-          }
-          .table-responsive th {
-            font-size: 12px;
-            font-weight: 500;
-          }
-          .table-responsive td {
-            font-size: 12px;
-          }
-          .table-responsive th:last-child,
-          .table-responsive td:last-child {
-            position: sticky;
-            right: 0;
-            background: white;
-            z-index: 10;
-            border-left: 2px solid #dee2e6;
-          }
-          .table-responsive th:last-child {
-            background: #f8f9fa;
-          }
-          .table-responsive td:last-child {
-            background: white;
-          }
-          .table-responsive tr:hover td:last-child {
-            background: #f8f9fa;
-          }
-          .table-responsive tr.table-primary td:last-child {
-            background: #cfe2ff;
-          }
-          .table-responsive tr.table-danger td:last-child {
-            background: #f8d7da;
-          }
-          .table-responsive .btn-sm {
-            font-size: 11px;
-            padding: 0.25rem 0.5rem;
-          }
-        `}
-      </style>
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
       {/* Global Loading Overlay */}
       {(loading || isRefreshing) && (
-        <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center" 
-             style={{ backgroundColor: 'rgba(255, 255, 255, 0.8)', zIndex: 9999 }}>
-          <FaSpinner className="fa-spin" style={{ fontSize: '32px', color: '#3b82f6' }} />
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(255, 255, 255, 0.9)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center'
+        }}>
+          <FaSpinner style={{ fontSize: '32px', color: '#3b82f6', animation: 'spin 1s linear infinite' }} />
         </div>
       )}
 
-      {/* Header Section - Title on left, Search on right */}
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body p-3">
-          <div className="row align-items-start align-items-md-center">
-            <div className="col-12 col-md-6 mb-3 mb-md-0">
-              <div className="d-flex align-items-center">
-                <div className="bg-warning rounded-3 p-2 me-3">
-                  <FaFileInvoice className="text-white" style={{ fontSize: '20px' }} />
+      {/* Unified Header & Action Section */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div>
+            <h2 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 700,
+              color: '#1e293b',
+              lineHeight: '1.2'
+            }}>Invoice Stock</h2>
+          </div>
+          <div style={{
+            fontSize: '12px',
+            color: '#64748b',
+            fontWeight: 600
+          }}>
+            Total: {totalRecords} records
+          </div>
+        </div>
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '10px',
+          alignItems: 'center',
+          marginTop: '16px',
+          paddingTop: '16px',
+          borderTop: '1px solid #e5e7eb'
+        }}>
+          {/* Search Input */}
+          <div style={{
+            position: 'relative',
+            flex: '1',
+            minWidth: windowWidth <= 768 ? '100%' : '250px',
+            maxWidth: windowWidth <= 768 ? '100%' : '350px'
+          }}>
+            <FaSearch style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8',
+              fontSize: '14px',
+              zIndex: 1
+            }} />
+            <input
+              type="text"
+              placeholder="Search by Product Name, Item Code, SKU..."
+              value={searchQuery}
+              onChange={e => handleSearchChange(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                fontSize: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                transition: 'all 0.2s',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            />
+          </div>
+          {/* Action Buttons */}
+          <button
+            onClick={handleDelete}
+            disabled={selectedItems.length === 0}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #ef4444',
+              background: selectedItems.length === 0 ? '#f1f5f9' : '#ffffff',
+              color: selectedItems.length === 0 ? '#94a3b8' : '#ef4444',
+              cursor: selectedItems.length === 0 ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              if (selectedItems.length > 0) {
+                e.target.style.background = '#ef4444';
+                e.target.style.color = '#ffffff';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (selectedItems.length > 0) {
+                e.target.style.background = '#ffffff';
+                e.target.style.color = '#ef4444';
+              }
+            }}
+          >
+            <FaTrash /> Delete
+          </button>
+          <button
+            onClick={() => setShowExportModal(true)}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #3b82f6',
+              background: '#ffffff',
+              color: '#3b82f6',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#3b82f6';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#3b82f6';
+            }}
+          >
+            <FaFileExport /> Export
+          </button>
+          <button
+            onClick={() => setShowFilterPanel(true)}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #10b981',
+              background: '#ffffff',
+              color: '#10b981',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#10b981';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#10b981';
+            }}
+          >
+            <FaFilter /> Filter
+          </button>
+          <button
+            onClick={handleRefresh}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #64748b',
+              background: '#ffffff',
+              color: '#64748b',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#64748b';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#64748b';
+            }}
+          >
+            <FaSync /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Slider - Right Side */}
+      {showFilterPanel && (
+        <>
+          <div 
+            onClick={() => setShowFilterPanel(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              animation: 'fadeIn 0.3s ease'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            right: 0,
+            width: windowWidth <= 768 ? '100%' : '400px',
+            maxWidth: '90vw',
+            height: '100vh',
+            background: '#ffffff',
+            boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.1)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            animation: 'slideInRight 0.3s ease',
+            overflowY: 'auto'
+          }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              padding: '20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              position: 'sticky',
+              top: 0,
+              zIndex: 10
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <FaFilter style={{ color: '#ffffff', fontSize: '16px' }} />
+                <h6 style={{
+                  margin: 0,
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#ffffff'
+                }}>Filter Options</h6>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowFilterPanel(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  border: 'none',
+                  borderRadius: '6px',
+                  width: '28px',
+                  height: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+              >
+                <FaTimes />
+              </button>
+            </div>
+            <div style={{ padding: '20px', flex: 1 }}>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px'
+              }}>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Branch Name</label>
+                  <select 
+                    value={filters.branch} 
+                    onChange={e => handleFilterChange('branch', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    {filterOptions.branches.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <h5 className="mb-1 fw-bold text-dark">{t('invoiceStock.title') || 'Invoice Stock'}</h5>
-                  <p className="mb-0 text-muted small">{t('invoiceStock.description') || 'View and manage your invoice stock records'}</p>
-                  <span className="badge bg-warning mt-1">{filteredData.length} {t('common.records') || 'records'}</span>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Counter Name</label>
+                  <select 
+                    value={filters.counter} 
+                    onChange={e => handleFilterChange('counter', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    {filterOptions.counters.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
                 </div>
-              </div>
-            </div>
-            <div className="col-12 col-md-6">
-              <div className="d-flex justify-content-end">
-                <div className="position-relative search-input-container" style={{ width: '100%', maxWidth: '400px' }}>
-                  <FaSearch className="position-absolute top-50 start-0 translate-middle-y ms-2 text-muted" style={{ fontSize: '14px', zIndex: 1 }} />
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Box Name</label>
+                  <select 
+                    value={filters.box} 
+                    onChange={e => handleFilterChange('box', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    {filterOptions.boxes.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Category Name</label>
+                  <select 
+                    value={filters.category} 
+                    onChange={e => handleFilterChange('category', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    {filterOptions.categories.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Product Name</label>
+                  <select 
+                    value={filters.product} 
+                    onChange={e => handleFilterChange('product', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    {filterOptions.products.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Status</label>
+                  <select 
+                    value={filters.status} 
+                    onChange={e => handleFilterChange('status', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    {filterOptions.statuses.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Date From</label>
                   <input
-                    type="text"
-                    className="form-control form-control-sm ps-4"
-                    placeholder={t('invoiceStock.searchPlaceholder') || 'Search by Product Name, Item Code, SKU...'}
-                    value={searchQuery}
-                    onChange={e => handleSearch(e.target.value)}
-                    style={{ width: '100%', minWidth: '0', maxWidth: '100%', boxSizing: 'border-box' }}
+                    type="date"
+                    value={filters.dateFrom}
+                    onChange={e => handleFilterChange('dateFrom', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  />
+                </div>
+                <div>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    marginBottom: '6px'
+                  }}>Date To</label>
+                  <input
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={e => handleFilterChange('dateTo', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                   />
                 </div>
               </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                marginTop: '20px',
+                paddingTop: '20px',
+                borderTop: '1px solid #e5e7eb'
+              }}>
+                <button 
+                  onClick={handleResetFilters}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#64748b',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f1f5f9';
+                    e.target.style.borderColor = '#94a3b8';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.borderColor = '#cbd5e1';
+                  }}
+                >
+                  Reset
+                </button>
+                <button 
+                  onClick={handleApplyFilters}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#10b981',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = '#059669'}
+                  onMouseLeave={(e) => e.target.style.background = '#10b981'}
+                >
+                  Apply Filters
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Action Buttons Section - All buttons on left */}
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body p-3">
-          <div className="d-flex flex-wrap gap-2 align-items-center action-buttons-container">
-            <button 
-              onClick={handleDelete} 
-              disabled={selectedItems.length === 0}
-              className="btn btn-outline-danger btn-sm"
-              title="Delete Selected"
-            >
-              <FaTrash className="me-1" /> Delete
-            </button>
-            <button 
-              onClick={() => setShowExportModal(true)}
-              className="btn btn-outline-primary btn-sm"
-              title="Export Data"
-            >
-              <FaFileExport className="me-1" /> {t('common.export') || 'Export'}
-            </button>
-            <button 
-              onClick={() => setShowFilterPanel(true)}
-              className="btn btn-outline-success btn-sm"
-              title="Filter Data"
-            >
-              <FaFilter className="me-1" /> {t('common.filter') || 'Filter'}
-            </button>
-            <button 
-              onClick={handleRefresh}
-              className="btn btn-outline-secondary btn-sm"
-              title="Refresh Data"
-            >
-              <FaSync className="me-1" /> {t('common.refresh') || 'Refresh'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter Panel */}
-      {showFilterPanel && (
-        <div className="card shadow-sm border-0 mb-3">
-          <div className="card-header bg-light d-flex justify-content-between align-items-center">
-            <h6 className="mb-0 fw-bold">{t('invoiceStock.filterOptions')}</h6>
-            <button type="button" className="btn-close" onClick={() => setShowFilterPanel(false)}></button>
-          </div>
-          <div className="card-body">
-            <div className="row g-3">
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('invoiceStock.branchName')}</label>
-                <select 
-                  className="form-select form-select-sm"
-                  value={filters.branch} 
-                  onChange={e => handleFilterChange('branch', e.target.value)}
-                >
-                  {filterOptions.branches.map(option => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('invoiceStock.counterName')}</label>
-                <select 
-                  className="form-select form-select-sm"
-                  value={filters.counter} 
-                  onChange={e => handleFilterChange('counter', e.target.value)}
-                >
-                  {filterOptions.counters.map(option => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('invoiceStock.boxName')}</label>
-                <select 
-                  className="form-select form-select-sm"
-                  value={filters.box} 
-                  onChange={e => handleFilterChange('box', e.target.value)}
-                >
-                  {filterOptions.boxes.map(option => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('invoiceStock.categoryName')}</label>
-                <select 
-                  className="form-select form-select-sm"
-                  value={filters.category} 
-                  onChange={e => handleFilterChange('category', e.target.value)}
-                >
-                  {filterOptions.categories.map(option => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('invoiceStock.productName')}</label>
-                <select 
-                  className="form-select form-select-sm"
-                  value={filters.product} 
-                  onChange={e => handleFilterChange('product', e.target.value)}
-                >
-                  {filterOptions.products.map(option => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('common.status')}</label>
-                <select 
-                  className="form-select form-select-sm"
-                  value={filters.status} 
-                  onChange={e => handleFilterChange('status', e.target.value)}
-                >
-                  {filterOptions.statuses.map(option => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('filters.from')}</label>
-                <input
-                  type="date"
-                  className="form-control form-control-sm"
-                  value={filters.dateFrom}
-                  onChange={e => handleFilterChange('dateFrom', e.target.value)}
-                />
-              </div>
-              <div className="col-md-3">
-                <label className="form-label small fw-bold">{t('filters.to')}</label>
-                <input
-                  type="date"
-                  className="form-control form-control-sm"
-                  value={filters.dateTo}
-                  onChange={e => handleFilterChange('dateTo', e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="d-flex justify-content-end gap-2 mt-3">
-              <button className="btn btn-outline-secondary btn-sm" onClick={handleResetFilters}>
-                {t('filters.reset')}
-              </button>
-              <button className="btn btn-primary btn-sm" onClick={handleApplyFilters}>
-                {t('filters.apply')}
-              </button>
-            </div>
-          </div>
-        </div>
+        </>
       )}
 
-      {/* Data Table */}
-      <div className="card shadow-sm border-0" style={{ marginTop: '24px' }}>
-        <div className="card-body p-0">
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table className="table table-hover table-sm mb-0" style={{ minWidth: '2800px' }}>
-              <thead className="table-light">
-                <tr>
-                  <th className="text-center" style={{ width: '40px' }}>
+      {/* Table Container */}
+      <div className="table-container" style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        marginTop: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb',
+        overflow: 'hidden'
+      }}>
+        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+          <table style={{ 
+            width: '100%',
+            minWidth: '2800px',
+            borderCollapse: 'collapse',
+            fontSize: '12px',
+            tableLayout: 'auto'
+          }}>
+            <thead>
+              <tr style={{
+                background: '#f8fafc',
+                borderBottom: '2px solid #e5e7eb'
+              }}>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  width: '40px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569'
+                }}>
+                  <input
+                    type="checkbox"
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedItems(currentItems.map(item => item.Id));
+                      } else {
+                        setSelectedItems([]);
+                      }
+                    }}
+                    checked={currentItems.length > 0 && selectedItems.length === currentItems.length}
+                    style={{
+                      cursor: 'pointer',
+                      width: '16px',
+                      height: '16px'
+                    }}
+                  />
+                </th>
+                {columns.filter(col => col.key !== 'Status' && col.key !== 'actions').map((column) => (
+                  <th
+                    key={column.key}
+                    style={{
+                      padding: '12px',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#475569',
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                      width: column.width,
+                      transition: 'background 0.2s'
+                    }}
+                    onClick={() => {
+                      if (column.sortable !== false) {
+                        const direction = sortConfig.key === column.key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
+                        setSortConfig({ key: column.key, direction });
+                      }
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                    onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {column.label}
+                      {sortConfig.key === column.key && (
+                        <span>
+                          {sortConfig.direction === 'asc' ? <FaSortAmountUp size={12} /> : <FaSortAmountDown size={12} />}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                ))}
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap',
+                  position: 'sticky',
+                  right: 0,
+                  background: '#f8fafc',
+                  zIndex: 10,
+                  borderLeft: '2px solid #e5e7eb'
+                }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentItems.map((item, index) => (
+                <tr
+                  key={item.Id || index}
+                  onClick={() => handleRowSelection(item.Id)}
+                  style={{
+                    cursor: 'pointer',
+                    borderBottom: '1px solid #e5e7eb',
+                    background: selectedItems.includes(item.Id) 
+                      ? '#eff6ff' 
+                      : item.Status === 'Sold' 
+                      ? '#fef2f2' 
+                      : index % 2 === 0 
+                      ? '#ffffff' 
+                      : '#f8fafc',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!selectedItems.includes(item.Id)) {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      // Update sticky Status column background on hover
+                      const statusCell = e.currentTarget.querySelector('td:last-child');
+                      if (statusCell) {
+                        statusCell.style.background = '#f1f5f9';
+                      }
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!selectedItems.includes(item.Id)) {
+                      const bgColor = item.Status === 'Sold' 
+                        ? '#fef2f2' 
+                        : index % 2 === 0 
+                        ? '#ffffff' 
+                        : '#f8fafc';
+                      e.currentTarget.style.background = bgColor;
+                      // Update sticky Status column background on hover leave
+                      const statusCell = e.currentTarget.querySelector('td:last-child');
+                      if (statusCell) {
+                        statusCell.style.background = bgColor;
+                      }
+                    }
+                  }}
+                >
+                  <td style={{
+                    padding: '12px',
+                    textAlign: 'center',
+                    fontSize: '12px'
+                  }}>
                     <input
                       type="checkbox"
-                      className="form-check-input"
-                      onChange={(e) => handleSelectAll(e.target.checked)}
-                      checked={currentItems.length > 0 && selectedItems.length === currentItems.length}
+                      checked={selectedItems.includes(item.Id)}
+                      onChange={() => handleRowSelection(item.Id)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        cursor: 'pointer',
+                        width: '16px',
+                        height: '16px'
+                      }}
                     />
-                  </th>
-                  {columns.filter(col => col.key !== 'Status').map((column, colIdx) => (
-                    <th
-                      key={column.key}
-                      className="text-nowrap"
-                      style={{ width: column.width }}
-                      onClick={() => {
-                        if (column.key !== 'checkbox') {
-                          const direction = sortConfig.key === column.key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
-                          setSortConfig({ key: column.key, direction });
+                  </td>
+                  {columns.filter(col => col.key !== 'Status' && col.key !== 'actions').map(column => (
+                    <td key={column.key} style={{
+                      padding: '12px',
+                      fontSize: '12px',
+                      color: '#1e293b',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {column.key === 'srNo' ? ((currentPage - 1) * itemsPerPage) + index + 1 : (() => {
+                        const value = item[column.key];
+                        if (value === undefined || value === null || value === '') return '';
+                        if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt', 'PackingWeight', 'TotalWeight'].includes(column.key)) {
+                          const numValue = parseFloat(value);
+                          return isNaN(numValue) ? value : numValue.toFixed(3);
                         }
+                        if (['StoneAmt', 'FixedAmt'].includes(column.key)) {
+                          const numValue = parseFloat(value);
+                          return isNaN(numValue) ? value : numValue.toString();
+                        }
+                        if (column.key === 'CreatedDate' && value) {
+                          try {
+                            const date = new Date(value);
+                            if (!isNaN(date.getTime())) {
+                              return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                            }
+                          } catch (e) {
+                          }
+                        }
+                        return value;
+                      })()}
+                    </td>
+                  ))}
+                  <td style={{
+                    padding: '12px',
+                    fontSize: '12px',
+                    position: 'sticky',
+                    right: 0,
+                    background: selectedItems.includes(item.Id) 
+                      ? '#eff6ff' 
+                      : item.Status === 'Sold' 
+                      ? '#fef2f2' 
+                      : index % 2 === 0 
+                      ? '#ffffff' 
+                      : '#f8fafc',
+                    zIndex: 5,
+                    borderLeft: '2px solid #e5e7eb'
+                  }}>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewDetails(item);
+                      }}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: '1px solid',
+                        background: '#ffffff',
+                        color: item.Status === 'Sold' ? '#ef4444' : (item.Status === 'ApiActive' ? '#3b82f6' : '#64748b'),
+                        borderColor: item.Status === 'Sold' ? '#ef4444' : (item.Status === 'ApiActive' ? '#3b82f6' : '#64748b'),
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = item.Status === 'Sold' ? '#ef4444' : (item.Status === 'ApiActive' ? '#3b82f6' : '#64748b');
+                        e.target.style.color = '#ffffff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.color = item.Status === 'Sold' ? '#ef4444' : (item.Status === 'ApiActive' ? '#3b82f6' : '#64748b');
                       }}
                     >
-                      <div className="d-flex align-items-center">
-                        {column.label}
-                        {sortConfig.key === column.key && (
-                          <span className="ms-1">
-                            {sortConfig.direction === 'asc' ? <FaSortAmountUp size={12} /> : <FaSortAmountDown size={12} />}
-                          </span>
-                        )}
-                      </div>
-                    </th>
-                  ))}
-                  <th className="text-nowrap">Status</th>
+                      {item.Status || 'N/A'}
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-                              <tbody>
-                  {currentItems.map((item, index) => (
-                    <tr
-                      key={item.Id || index}
-                      className={
-                        selectedItems.includes(item.Id)
-                          ? 'table-primary'
-                          : (item.Status === 'Sold' ? 'table-danger' : '')
-                      }
-                      onClick={() => handleRowSelection(item.Id)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <td className="text-center">
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          checked={selectedItems.includes(item.Id)}
-                          onChange={() => handleRowSelection(item.Id)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </td>
-                      {columns.filter(col => col.key !== 'Status').map(column => (
-                        <td key={column.key} className="text-nowrap">
-                          {column.key === 'srNo' ? ((currentPage - 1) * itemsPerPage) + index + 1 : (item[column.key] !== undefined ? item[column.key] : '')}
-                        </td>
-                      ))}
-                      <td>
-                        <button 
-                          className={`btn btn-sm ${
-                            item.Status === 'ApiActive' ? 'btn-outline-primary' : 
-                            item.Status === 'Sold' ? 'btn-outline-danger' : 
-                            'btn-outline-secondary'
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewDetails(item);
-                          }}
-                        >
-                          {item.Status || 'N/A'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          <div className="d-flex justify-content-between align-items-center p-3 border-top" style={{ backgroundColor: '#f8f9fa' }}>
-            <div className="small text-muted">
-              Showing <strong>{((currentPage - 1) * itemsPerPage) + 1}</strong> to <strong>{Math.min(currentPage * itemsPerPage, totalRecords)}</strong> of <strong>{totalRecords}</strong> entries
+              ))}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Pagination */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '16px 20px',
+          borderTop: '1px solid #e5e7eb',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
+            fontSize: '12px',
+            color: '#64748b'
+          }}>
+            <span>
+              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Show:</span>
+              <select 
+                value={itemsPerPage}
+                onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map(size => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+              <span>per page</span>
             </div>
-            <nav>
-              <ul className="pagination pagination-sm mb-0">
-                <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                  <button
-                    className="page-link"
-                    onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
-                    disabled={currentPage === 1}
-                    style={{ 
-                      backgroundColor: currentPage === 1 ? '#e9ecef' : 'white',
-                      color: currentPage === 1 ? '#6c757d' : '#0d6efd',
-                      border: '1px solid #dee2e6',
-                      padding: '0.375rem 0.75rem',
-                      fontSize: '0.875rem',
-                      borderRadius: '0.375rem',
-                      cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    Previous
-                  </button>
-                </li>
-                <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
-                  <button
-                    className="page-link"
-                    onClick={() => setCurrentPage(Math.min(currentPage + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    style={{ 
-                      backgroundColor: currentPage === totalPages ? '#e9ecef' : 'white',
-                      color: currentPage === totalPages ? '#6c757d' : '#0d6efd',
-                      border: '1px solid #dee2e6',
-                      padding: '0.375rem 0.75rem',
-                      fontSize: '0.875rem',
-                      borderRadius: '0.375rem',
-                      cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    Next
-                  </button>
-                </li>
-              </ul>
-            </nav>
+          </div>
+          
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            flexWrap: 'wrap'
+          }}>
+            <button 
+              onClick={() => {
+                const newPage = Math.max(currentPage - 1, 1);
+                setCurrentPage(newPage);
+                fetchInvoiceData(newPage, itemsPerPage, searchQuery);
+              }}
+              disabled={currentPage === 1}
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
+                color: currentPage === 1 ? '#94a3b8' : '#475569',
+                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (currentPage !== 1) {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (currentPage !== 1) {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.borderColor = '#e2e8f0';
+                }
+              }}
+            >
+              Previous
+            </button>
+            {generatePagination().map((page, index) =>
+              page === "..." ? (
+                <span key={`ellipsis-${index}`} style={{
+                  padding: '6px 8px',
+                  fontSize: '12px',
+                  color: '#94a3b8'
+                }}>...</span>
+              ) : (
+                <button
+                  key={page}
+                  onClick={() => {
+                    setCurrentPage(page);
+                    fetchInvoiceData(page, itemsPerPage, searchQuery);
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid',
+                    background: currentPage === page ? '#3b82f6' : '#ffffff',
+                    color: currentPage === page ? '#ffffff' : '#475569',
+                    borderColor: currentPage === page ? '#3b82f6' : '#e2e8f0',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    minWidth: '36px'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (currentPage !== page) {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (currentPage !== page) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#e2e8f0';
+                    }
+                  }}
+                >
+                  {page}
+                </button>
+              )
+            )}
+            <button
+              onClick={() => {
+                const newPage = Math.min(currentPage + 1, totalPages);
+                setCurrentPage(newPage);
+                fetchInvoiceData(newPage, itemsPerPage, searchQuery);
+              }}
+              disabled={currentPage === totalPages}
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
+                color: currentPage === totalPages ? '#94a3b8' : '#475569',
+                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (currentPage !== totalPages) {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (currentPage !== totalPages) {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.borderColor = '#e2e8f0';
+                }
+              }}
+            >
+              Next
+            </button>
           </div>
         </div>
       </div>
@@ -957,6 +1537,107 @@ const InvoiceStock = () => {
           </div>
         </div>
       )}
+
+      {/* Responsive Styles */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        
+        @media (max-width: 768px) {
+          /* Header responsive */
+          .invoice-stock-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+          }
+          
+          /* Buttons responsive */
+          .action-buttons-container {
+            flex-direction: column !important;
+            width: 100% !important;
+          }
+          
+          .action-buttons-container button {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+          
+          /* Table responsive - allow horizontal scroll */
+          .table-container {
+            overflow-x: auto !important;
+          }
+          
+          table {
+            font-size: 10px !important;
+            min-width: 2400px !important;
+          }
+          
+          th, td {
+            padding: 8px 6px !important;
+            font-size: 10px !important;
+          }
+          
+          /* Pagination responsive */
+          .pagination-container {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          /* Smaller fonts for mobile */
+          h2 {
+            font-size: 14px !important;
+          }
+          
+          button {
+            font-size: 10px !important;
+            padding: 6px 10px !important;
+          }
+          
+          input, select {
+            font-size: 10px !important;
+            padding: 6px 10px !important;
+          }
+          
+          table {
+            font-size: 10px !important;
+            min-width: 2000px !important;
+          }
+          
+          th, td {
+            padding: 6px 4px !important;
+            font-size: 10px !important;
+          }
+        }
+        
+        /* Hide all scrollbars */
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+          display: none;
+        }
+        
+        /* Ensure no horizontal scroll */
+        body, html {
+          overflow-x: hidden !important;
+          max-width: 100vw !important;
+        }
+      `}</style>
 
       {/* Details Modal */}
       {showDetailsModal && selectedInvoice && (
@@ -1069,7 +1750,7 @@ const InvoiceStock = () => {
                   type="button" 
                   className="btn btn-outline-secondary px-4" 
                   onClick={() => setShowDeleteModal(false)}
-                  disabled={loading}
+                  disabled={deleteLoading}
                 >
                   Cancel
                 </button>
@@ -1077,9 +1758,9 @@ const InvoiceStock = () => {
                   type="button" 
                   className="btn btn-danger px-4" 
                   onClick={confirmDelete}
-                  disabled={loading}
+                  disabled={deleteLoading}
                 >
-                  {loading ? (
+                  {deleteLoading ? (
                     <>
                       <FaSpinner className="fa-spin me-2" />
                       Deleting...

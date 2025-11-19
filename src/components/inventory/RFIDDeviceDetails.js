@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { FaMicrochip, FaSearch, FaFilter, FaFileExport, FaTrash, FaSync, FaFilePdf, FaFileExcel, FaEnvelope, FaTimes } from 'react-icons/fa';
@@ -8,13 +8,16 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
+import { useLoading } from '../../App';
 
 const ITEMS_PER_PAGE = 10;
 
 const RFIDDeviceDetails = () => {
+  // Global loader
+  const { setLoading } = useLoading();
+  
   // State variables
   const [deviceData, setDeviceData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deviceId, setDeviceId] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('');
@@ -31,6 +34,9 @@ const RFIDDeviceDetails = () => {
   const [searchRfid, setSearchRfid] = useState('');
   const [showExportModal, setShowExportModal] = useState(false);
   const [emailAddress, setEmailAddress] = useState('');
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
 
   const { addNotification } = useNotifications();
 
@@ -70,6 +76,13 @@ const RFIDDeviceDetails = () => {
     } else {
       setError('No authentication found. Please login again.');
     }
+
+    // Handle window resize for responsive design
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []); // Run only once on component mount
 
   // Fetch RFID device details with validation
@@ -268,10 +281,11 @@ const RFIDDeviceDetails = () => {
   });
 
   // Pagination
-  const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const totalRecords = filteredData.length;
   const paginatedDeviceData = filteredData.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
   );
 
   // Handle page change
@@ -417,7 +431,40 @@ const RFIDDeviceDetails = () => {
   };
 
   return (
-    <div className="container-fluid p-3">
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
+      <style>
+        {`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+          display: none;
+        }
+        body, html {
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @media (max-width: 768px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+        }
+        @media (max-width: 480px) {
+          .table-responsive {
+            font-size: 10px;
+          }
+        }
+        `}
+      </style>
       <style>
         {`
           .table-responsive {
@@ -460,115 +507,200 @@ const RFIDDeviceDetails = () => {
           }
         `}
       </style>
-      {/* Compact Header */}
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body p-3">
-          <div className="row align-items-center">
-            <div className="col-md-4">
-              <div className="d-flex align-items-center">
-                <div className="bg-primary rounded-3 p-2 me-3">
-                  <FaMicrochip className="text-white" style={{ fontSize: '20px' }} />
-                </div>
-                <div>
-                  <h5 className="mb-1 fw-bold text-dark">RFID Device Details</h5>
-                  <p className="mb-0 text-muted small">Manage and view your RFID device information</p>
-                  <span className="badge bg-primary mt-1">{deviceData.length} devices</span>
-                </div>
-              </div>
-            </div>
-            <div className="col-md-8">
-              <div className="d-flex align-items-center justify-content-end gap-3">
-                <div className="position-relative">
-                  <FaSearch className="position-absolute top-50 start-0 translate-middle-y ms-2 text-muted" style={{ fontSize: '14px' }} />
-                  <input
-                    type="text"
-                    className="form-control form-control-sm ps-4"
-                    placeholder="Search by RFID Code..."
-                    value={searchRfid}
-                    onChange={(e) => setSearchRfid(e.target.value)}
-                    style={{ width: '280px' }}
-                  />
-                </div>
-                <div className="d-flex gap-2">
-                  <button 
-                    onClick={handleDelete} 
-                    disabled={selectedRows.length === 0}
-                    className="btn btn-outline-danger btn-sm"
-                  >
-                    <FaTrash className="me-1" /> Delete
-                  </button>
-                  <button 
-                    onClick={() => setShowExportModal(true)}
-                    className="btn btn-outline-primary btn-sm"
-                  >
-                    <FaFileExport className="me-1" /> Export
-                  </button>
-                  <button 
-                    onClick={handleRefresh}
-                    className="btn btn-outline-secondary btn-sm"
-                  >
-                    <FaSync className="me-1" /> Refresh
-                  </button>
-                </div>
-              </div>
-            </div>
+      {/* Unified Header & Action Section */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '16px'
+        }}>
+          <div>
+            <h2 style={{
+              margin: 0,
+              fontSize: '16px',
+              fontWeight: 700,
+              color: '#1e293b',
+              lineHeight: '1.2'
+            }}>RFID Device Details</h2>
+          </div>
+          <div style={{
+            fontSize: '12px',
+            color: '#64748b',
+            fontWeight: 600
+          }}>
+            Total: {totalRecords} records
           </div>
         </div>
-      </div>
-
-      {/* Search Form */}
-      <div className="card shadow-sm border-0 mb-3">
-        <div className="card-body p-3">
-          <div className="row g-3 align-items-end">
-            <div className="col-md-3">
-              <label className="form-label small fw-medium text-muted mb-1">Device ID</label>
-              <input
-                type="text"
-                className="form-control form-control-sm"
-                placeholder="Enter Device ID"
-                value={deviceId}
-                onChange={e => setDeviceId(e.target.value)}
-              />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label small fw-medium text-muted mb-1">Select Device</label>
-              <select
-                className="form-select form-select-sm"
-                value={selectedDevice}
-                onChange={e => setSelectedDevice(e.target.value)}
-              >
-                <option value="">Select Device</option>
-                {Array.from(new Set(deviceData.map(d => d.DeviceId))).map(deviceId => (
-                  <option key={deviceId} value={deviceId}>{deviceId}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-3">
-              <label className="form-label small fw-medium text-muted mb-1">Client Code</label>
-              <input
-                type="text"
-                className="form-control form-control-sm bg-light"
-                value={clientCode}
-                readOnly
-              />
-            </div>
-            <div className="col-md-3">
-              <div className="d-flex gap-2">
-                <button 
-                  onClick={handleGetDetails}
-                  className="btn btn-primary btn-sm"
-                >
-                  <FaSearch className="me-1" /> Get Details
-                </button>
-                <button 
-                  onClick={handleClear}
-                  className="btn btn-outline-danger btn-sm"
-                >
-                  <MdClear className="me-1" /> Clear
-                </button>
-              </div>
-            </div>
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '10px',
+          alignItems: 'center',
+          paddingTop: '16px',
+          borderTop: '1px solid #e5e7eb'
+        }}>
+          {/* Search Input */}
+          <div style={{
+            position: 'relative',
+            flex: '1',
+            minWidth: windowWidth <= 768 ? '100%' : '250px',
+            maxWidth: windowWidth <= 768 ? '100%' : '350px'
+          }}>
+            <FaSearch style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8',
+              fontSize: '14px',
+              zIndex: 1
+            }} />
+            <input
+              type="text"
+              placeholder="Search by RFID Code..."
+              value={searchRfid}
+              onChange={(e) => {
+                setSearchRfid(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                fontSize: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                transition: 'all 0.2s',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            />
           </div>
+          {/* Action Buttons */}
+          <button
+            onClick={handleDelete}
+            disabled={selectedRows.length === 0}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #ef4444',
+              background: selectedRows.length === 0 ? '#f1f5f9' : '#ffffff',
+              color: selectedRows.length === 0 ? '#94a3b8' : '#ef4444',
+              cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              if (selectedRows.length > 0) {
+                e.target.style.background = '#ef4444';
+                e.target.style.color = '#ffffff';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (selectedRows.length > 0) {
+                e.target.style.background = '#ffffff';
+                e.target.style.color = '#ef4444';
+              }
+            }}
+          >
+            <FaTrash /> Delete
+          </button>
+          <button
+            onClick={() => setShowExportModal(true)}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #3b82f6',
+              background: '#ffffff',
+              color: '#3b82f6',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#3b82f6';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#3b82f6';
+            }}
+          >
+            <FaFileExport /> Export
+          </button>
+          <button
+            onClick={() => setShowFilterPanel(true)}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #10b981',
+              background: '#ffffff',
+              color: '#10b981',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#10b981';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#10b981';
+            }}
+          >
+            <FaFilter /> Filter
+          </button>
+          <button
+            onClick={handleRefresh}
+            style={{
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              border: '1px solid #64748b',
+              background: '#ffffff',
+              color: '#64748b',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#64748b';
+              e.target.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#ffffff';
+              e.target.style.color = '#64748b';
+            }}
+          >
+            <FaSync /> Refresh
+          </button>
         </div>
       </div>
 
@@ -579,149 +711,689 @@ const RFIDDeviceDetails = () => {
       )}
 
       {/* Table Container */}
-      <div className="card shadow-sm border-0" style={{ marginTop: '24px' }}>
-        <div className="card-body p-0">
-          <div className="table-responsive" style={{ overflowX: 'auto' }}>
-            <table className="table table-hover table-sm mb-0" style={{ minWidth: '1200px' }}>
-              <thead className="table-light">
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        marginTop: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        border: '1px solid #e5e7eb',
+        overflow: 'hidden'
+      }}>
+        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+          <table style={{ 
+            width: '100%',
+            minWidth: '1400px',
+            borderCollapse: 'collapse',
+            fontSize: '12px',
+            tableLayout: 'auto'
+          }}>
+            <thead>
+              <tr style={{
+                background: '#f8fafc',
+                borderBottom: '2px solid #e5e7eb'
+              }}>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  width: '40px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569'
+                }}>
+                  <input
+                    type="checkbox"
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedRows(paginatedDeviceData.map(item => item.Id));
+                      } else {
+                        setSelectedRows([]);
+                      }
+                    }}
+                    checked={paginatedDeviceData.length > 0 && selectedRows.length === paginatedDeviceData.length}
+                    style={{
+                      cursor: 'pointer',
+                      width: '16px',
+                      height: '16px'
+                    }}
+                  />
+                </th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Sr No.</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Device ID</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>RFID Code</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>EPC Value</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>TID Value</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Created On</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap'
+                }}>Last Updated</th>
+                <th style={{
+                  padding: '12px',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  whiteSpace: 'nowrap',
+                  position: 'sticky',
+                  right: 0,
+                  background: '#f8fafc',
+                  zIndex: 10,
+                  borderLeft: '2px solid #e5e7eb'
+                }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedDeviceData.length === 0 ? (
                 <tr>
-                  <th className="text-center" style={{ width: '40px' }}>
-                    <input
-                      type="checkbox"
-                      className="form-check-input"
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedRows(deviceData.map(item => item.Id));
-                        } else {
-                          setSelectedRows([]);
+                  <td colSpan="9" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                    No devices found
+                  </td>
+                </tr>
+              ) : (
+                paginatedDeviceData.map((item, index) => {
+                  const globalIndex = (currentPage - 1) * itemsPerPage + index;
+                  const isSelected = selectedRows.includes(item.Id);
+                  return (
+                    <tr
+                      key={item.Id}
+                      onClick={() => handleRowSelection(item.Id)}
+                      style={{
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #e5e7eb',
+                        background: isSelected 
+                          ? '#eff6ff' 
+                          : globalIndex % 2 === 0 
+                          ? '#ffffff' 
+                          : '#f8fafc',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.background = '#f1f5f9';
+                          const statusCell = e.currentTarget.querySelector('td:last-child');
+                          if (statusCell) {
+                            statusCell.style.background = '#f1f5f9';
+                          }
                         }
                       }}
-                      checked={deviceData.length > 0 && selectedRows.length === deviceData.length}
-                    />
-                  </th>
-                  <th className="text-nowrap">Sr No.</th>
-                  <th className="text-nowrap">Device ID</th>
-                  <th className="text-nowrap">RFID Code</th>
-                  <th className="text-nowrap">EPC Value</th>
-                  <th className="text-nowrap">TID Value</th>
-                  <th className="text-nowrap">Created On</th>
-                  <th className="text-nowrap">Last Updated</th>
-                  <th className="text-nowrap">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan="9" className="text-center py-4">
-                      <div className="d-flex align-items-center justify-content-center gap-2">
-                        <div className="spinner-border spinner-border-sm text-primary" role="status">
-                          <span className="visually-hidden">Loading...</span>
-                        </div>
-                        <span className="text-muted small">Loading RFID device data...</span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : paginatedDeviceData.length === 0 ? (
-                  <tr>
-                    <td colSpan="9" className="text-center py-4">
-                      <span className="text-muted small">No devices found</span>
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedDeviceData.map((item, index) => (
-                    <tr 
-                      key={item.Id}
-                      className={selectedRows.includes(item.Id) ? 'table-primary' : ''}
-                      onClick={() => handleRowSelection(item.Id)}
-                      style={{ cursor: 'pointer' }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          const bgColor = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                          e.currentTarget.style.background = bgColor;
+                          const statusCell = e.currentTarget.querySelector('td:last-child');
+                          if (statusCell) {
+                            statusCell.style.background = bgColor;
+                          }
+                        }
+                      }}
                     >
-                      <td className="text-center">
+                      <td style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        fontSize: '12px'
+                      }}>
                         <input
                           type="checkbox"
-                          className="form-check-input"
-                          checked={selectedRows.includes(item.Id)}
+                          checked={isSelected}
                           onChange={() => handleRowSelection(item.Id)}
                           onClick={(e) => e.stopPropagation()}
+                          style={{
+                            cursor: 'pointer',
+                            width: '16px',
+                            height: '16px'
+                          }}
                         />
                       </td>
-                      <td className="text-nowrap">{index + 1}</td>
-                      <td className="text-nowrap">{item.DeviceId}</td>
-                      <td className="text-nowrap">{item.RFIDCode}</td>
-                      <td className="text-nowrap">{item.EPCValue || 'N/A'}</td>
-                      <td className="text-nowrap">{item.TIDValue}</td>
-                      <td className="text-nowrap">{new Date(item.CreatedOn).toLocaleString()}</td>
-                      <td className="text-nowrap">{new Date(item.LastUpdated).toLocaleString()}</td>
-                      <td className="text-nowrap">
-                        <button 
-                          className={`btn btn-sm ${
-                            item.StatusType ? 'btn-outline-success' : 'btn-outline-secondary'
-                          }`}
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{globalIndex + 1}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{item.DeviceId}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{item.RFIDCode}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{item.EPCValue || 'N/A'}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'monospace'
+                      }}>{item.TIDValue}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{item.CreatedOn ? new Date(item.CreatedOn).toLocaleString() : 'N/A'}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        color: '#1e293b',
+                        whiteSpace: 'nowrap'
+                      }}>{item.LastUpdated ? new Date(item.LastUpdated).toLocaleString() : 'N/A'}</td>
+                      <td style={{
+                        padding: '12px',
+                        fontSize: '12px',
+                        position: 'sticky',
+                        right: 0,
+                        background: isSelected 
+                          ? '#eff6ff' 
+                          : globalIndex % 2 === 0 
+                          ? '#ffffff' 
+                          : '#f8fafc',
+                        zIndex: 5,
+                        borderLeft: '2px solid #e5e7eb'
+                      }}>
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            // Handle status click if needed
+                          }}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            borderRadius: '6px',
+                            border: '1px solid',
+                            background: '#ffffff',
+                            color: item.StatusType ? '#10b981' : '#64748b',
+                            borderColor: item.StatusType ? '#10b981' : '#cbd5e1',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = item.StatusType ? '#10b981' : '#64748b';
+                            e.target.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = '#ffffff';
+                            e.target.style.color = item.StatusType ? '#10b981' : '#64748b';
                           }}
                         >
                           {item.StatusType ? 'Active' : 'Inactive'}
                         </button>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="card-footer border-top-0" style={{ backgroundColor: '#f8f9fa' }}>
-          <div className="d-flex justify-content-between align-items-center">
-            <div className="small text-muted">
-              Showing <strong>{((currentPage - 1) * ITEMS_PER_PAGE) + 1}</strong> to <strong>{Math.min(currentPage * ITEMS_PER_PAGE, filteredData.length)}</strong> of <strong>{filteredData.length}</strong> entries
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '16px 20px',
+          borderTop: '1px solid #e5e7eb',
+          background: '#ffffff',
+          borderRadius: '0 0 12px 12px',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
+            fontSize: '12px',
+            color: '#64748b'
+          }}>
+            <span>
+              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Show:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+              <span>per page</span>
             </div>
-            <nav>
-              <ul className="pagination pagination-sm mb-0">
-                <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                  <button
-                    className="page-link"
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    style={{ 
-                      backgroundColor: currentPage === 1 ? '#e9ecef' : 'white',
-                      color: currentPage === 1 ? '#6c757d' : '#0d6efd',
-                      border: '1px solid #dee2e6',
-                      padding: '0.375rem 0.75rem',
-                      fontSize: '0.875rem',
-                      borderRadius: '0.375rem',
-                      cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    Previous
-                  </button>
-                </li>
-                <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
-                  <button
-                    className="page-link"
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    style={{ 
-                      backgroundColor: currentPage === totalPages ? '#e9ecef' : 'white',
-                      color: currentPage === totalPages ? '#6c757d' : '#0d6efd',
-                      border: '1px solid #dee2e6',
-                      padding: '0.375rem 0.75rem',
-                      fontSize: '0.875rem',
-                      borderRadius: '0.375rem',
-                      cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    Next
-                  </button>
-                </li>
-              </ul>
-            </nav>
+          </div>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            flexWrap: 'wrap'
+          }}>
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
+                color: currentPage === 1 ? '#94a3b8' : '#475569',
+                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (currentPage !== 1) {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (currentPage !== 1) {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.borderColor = '#e2e8f0';
+                }
+              }}
+            >
+              Previous
+            </button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              let page;
+              if (totalPages <= 5) {
+                page = i + 1;
+              } else if (currentPage <= 3) {
+                page = i + 1;
+              } else if (currentPage >= totalPages - 2) {
+                page = totalPages - 4 + i;
+              } else {
+                page = currentPage - 2 + i;
+              }
+              return (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: currentPage === page ? '#3b82f6' : '#ffffff',
+                    color: currentPage === page ? '#ffffff' : '#475569',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (currentPage !== page) {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (currentPage !== page) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#e2e8f0';
+                    }
+                  }}
+                >
+                  {page}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
+                color: currentPage === totalPages ? '#94a3b8' : '#475569',
+                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (currentPage !== totalPages) {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (currentPage !== totalPages) {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.borderColor = '#e2e8f0';
+                }
+              }}
+            >
+              Next
+            </button>
           </div>
         </div>
+      )}
+
+      {/* Filter Slider - Right Side */}
+      {showFilterPanel && (
+        <>
+          <div 
+            onClick={() => setShowFilterPanel(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              animation: 'fadeIn 0.3s ease'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            right: 0,
+            width: windowWidth <= 768 ? '100%' : '400px',
+            maxWidth: '90vw',
+            height: '100vh',
+            background: '#ffffff',
+            boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.1)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            animation: 'slideInRight 0.3s ease',
+            overflowY: 'auto'
+          }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              padding: '20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              position: 'sticky',
+              top: 0,
+              zIndex: 10
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <FaFilter style={{ color: '#ffffff', fontSize: '16px' }} />
+                <h6 style={{
+                  margin: 0,
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#ffffff'
+                }}>
+                  Filter Devices
+                </h6>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowFilterPanel(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  border: 'none',
+                  borderRadius: '6px',
+                  width: '28px',
+                  height: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+              >
+                <FaTimes />
+              </button>
+            </div>
+            <div style={{ padding: '20px', flex: 1 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Device ID */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Device ID
+                  </label>
+                  <input
+                    type="text"
+                    value={deviceId}
+                    onChange={(e) => setDeviceId(e.target.value)}
+                    placeholder="Enter Device ID"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  />
+                </div>
+
+                {/* Select Device */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Select Device
+                  </label>
+                  <select
+                    value={selectedDevice}
+                    onChange={(e) => setSelectedDevice(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box',
+                      background: '#ffffff',
+                      cursor: 'pointer'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    <option value="">Select Device</option>
+                    {Array.from(new Set(deviceData.map(d => d.DeviceId))).map(deviceId => (
+                      <option key={deviceId} value={deviceId}>{deviceId}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Client Code */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Client Code
+                  </label>
+                  <input
+                    type="text"
+                    value={clientCode}
+                    readOnly
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      outline: 'none',
+                      background: '#f8fafc',
+                      color: '#64748b',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '10px', 
+                  marginTop: '20px',
+                  paddingTop: '20px',
+                  borderTop: '1px solid #e5e7eb'
+                }}>
+                  <button
+                    onClick={() => {
+                      handleGetDetails();
+                      setShowFilterPanel(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      background: '#ffffff',
+                      color: '#10b981',
+                      border: '1px solid #10b981',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#10b981';
+                      e.target.style.color = '#ffffff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.color = '#10b981';
+                    }}
+                  >
+                    <FaSearch /> Get Details
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDeviceId('');
+                      setSelectedDevice('');
+                      setShowFilterPanel(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      background: '#ffffff',
+                      color: '#ef4444',
+                      border: '1px solid #ef4444',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#ef4444';
+                      e.target.style.color = '#ffffff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.color = '#ef4444';
+                    }}
+                  >
+                    <MdClear /> Clear
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Export Modal */}

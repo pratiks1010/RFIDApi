@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
-import Header from './Header';
 import { rfidService } from '../services/rfidService';
 import { FaEdit, FaTrash, FaPlus, FaSearch, FaCloudUploadAlt, FaFileExcel } from 'react-icons/fa';
 
@@ -135,8 +134,6 @@ const RFIDTransactions = () => {
       borderImage: 'linear-gradient(90deg, #0078d4, #4A00E0, #06beb6) 1',
       background: 'linear-gradient(135deg, #e3f0ff 0%, #b3d8ff 60%, #f4e2d8 100%)',
     }}>
-      <Header userInfo={userInfo} />
-      
       <div className="container-fluid py-4">
         <div className="card shadow-lg border-0" style={{ 
           borderRadius: '15px', 

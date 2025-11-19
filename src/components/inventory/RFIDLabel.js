@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import {
   FaSave,
@@ -31,6 +31,8 @@ const RFIDLabel = () => {
 
   // Responsive state
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const searchTimeoutRef = useRef(null);
 
   // Tab Management
   const [activeTab, setActiveTab] = useState('templates'); // 'templates' or 'generate'
@@ -105,6 +107,7 @@ const RFIDLabel = () => {
     // Handle window resize for responsive design
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
+      setWindowWidth(window.innerWidth);
     };
 
     window.addEventListener('resize', handleResize);
@@ -139,11 +142,11 @@ const RFIDLabel = () => {
   };
 
   // Fetch Labelled Stock
-  const fetchLabelledStock = async () => {
+  const fetchLabelledStock = async (search = '') => {
     if (!clientCode) return;
     
     try {
-      const data = await rfidLabelService.getLabelledStock(clientCode, 'ApiActive');
+      const data = await rfidLabelService.getLabelledStock(clientCode, 'ApiActive', search);
       setLabelledStock(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching labelled stock:', error);
@@ -441,11 +444,13 @@ const RFIDLabel = () => {
     template.TemplateName?.toLowerCase().includes(searchTemplate.toLowerCase())
   );
 
-  // Filter Products
-  const filteredProducts = labelledStock.filter(item =>
-    item.ItemCode?.toLowerCase().includes(searchProduct.toLowerCase()) ||
-    item.ProductName?.toLowerCase().includes(searchProduct.toLowerCase())
-  );
+  // Filter Products (client-side filtering for now, can be enhanced with API)
+  const filteredProducts = useMemo(() => {
+    return labelledStock.filter(item =>
+      item.ItemCode?.toLowerCase().includes(searchProduct.toLowerCase()) ||
+      item.ProductName?.toLowerCase().includes(searchProduct.toLowerCase())
+    );
+  }, [labelledStock, searchProduct]);
 
   // Pagination for products
   const totalProductPages = Math.ceil(filteredProducts.length / productsPerPage);
@@ -457,6 +462,19 @@ const RFIDLabel = () => {
   useEffect(() => {
     setCurrentProductPage(1);
   }, [searchProduct]);
+
+  // Handle search with API debouncing
+  const handleSearchProductChange = (value) => {
+    setSearchProduct(value);
+    // Clear existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    // Debounce search - fetch after user stops typing
+    searchTimeoutRef.current = setTimeout(() => {
+      fetchLabelledStock(value);
+    }, 500);
+  };
 
   return (
     <div style={{ 
@@ -517,81 +535,140 @@ const RFIDLabel = () => {
       {/* Templates Tab */}
       {activeTab === 'templates' && (
         <div>
-          {/* Actions Bar */}
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            marginBottom: '20px',
-            gap: '12px',
-            flexWrap: 'wrap'
+          {/* Unified Header & Action Section */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            marginBottom: '16px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            border: '1px solid #e5e7eb'
           }}>
-            <div style={{ flex: '1 1 300px', minWidth: '200px', position: 'relative' }}>
-              <FaSearch style={{ 
-                position: 'absolute', 
-                left: '12px', 
-                top: '50%', 
-                transform: 'translateY(-50%)',
-                color: '#9ca3af',
-                fontSize: '14px'
-              }} />
-              <input
-                type="text"
-                placeholder={t('rfidLabel.searchTemplates', 'Search templates...')}
-                value={searchTemplate}
-                onChange={(e) => setSearchTemplate(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 40px',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '14px'
-                }}
-              />
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+              marginBottom: '16px'
+            }}>
+              <div>
+                <h2 style={{
+                  margin: 0,
+                  fontSize: '16px',
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  lineHeight: '1.2'
+                }}>Templates</h2>
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                fontWeight: 600
+              }}>
+                Total: {templates.length} templates
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '10px',
+              alignItems: 'center',
+              paddingTop: '16px',
+              borderTop: '1px solid #e5e7eb'
+            }}>
+              {/* Search Input */}
+              <div style={{
+                position: 'relative',
+                flex: '1',
+                minWidth: windowWidth <= 768 ? '100%' : '250px',
+                maxWidth: windowWidth <= 768 ? '100%' : '350px'
+              }}>
+                <FaSearch style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#94a3b8',
+                  fontSize: '14px',
+                  zIndex: 1
+                }} />
+                <input
+                  type="text"
+                  placeholder="Search templates..."
+                  value={searchTemplate}
+                  onChange={(e) => setSearchTemplate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px 8px 36px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                />
+              </div>
+              {/* Action Buttons */}
               <button
                 onClick={() => {
                   resetTemplateForm();
                   setShowTemplateModal(true);
                 }}
                 style={{
-                  padding: '10px 16px',
-                  background: '#10b981',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
+                  padding: '8px 16px',
+                  fontSize: '12px',
                   fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #10b981',
+                  background: '#ffffff',
+                  color: '#10b981',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  fontSize: '13px',
-                  whiteSpace: 'nowrap'
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#10b981';
+                  e.target.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.color = '#10b981';
                 }}
               >
-                <FaPlus />
-                {t('rfidLabel.newTemplate', 'New Template')}
+                <FaPlus /> New Template
               </button>
               <button
                 onClick={fetchTemplates}
                 style={{
-                  padding: '10px 16px',
-                  background: '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
+                  padding: '8px 16px',
+                  fontSize: '12px',
                   fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #64748b',
+                  background: '#ffffff',
+                  color: '#64748b',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  fontSize: '13px',
-                  whiteSpace: 'nowrap'
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#64748b';
+                  e.target.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.color = '#64748b';
                 }}
               >
-                <FaSync />
-                {t('common.refresh', 'Refresh')}
+                <FaSync /> Refresh
               </button>
             </div>
           </div>
@@ -629,45 +706,43 @@ const RFIDLabel = () => {
                   style={{
                     background: 'white',
                     borderRadius: '12px',
-                    padding: '20px',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                    padding: '16px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                     border: '1px solid #e5e7eb',
-                    transition: 'transform 0.2s, box-shadow 0.2s'
+                    transition: 'all 0.2s'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.12)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
-                    <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#1f2937' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
+                    <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
                       {template.TemplateName}
                     </h3>
                     <span style={{
-                      padding: '4px 8px',
+                      padding: '3px 8px',
                       background: template.IsActive ? '#d1fae5' : '#fee2e2',
                       color: template.IsActive ? '#065f46' : '#991b1b',
                       borderRadius: '4px',
-                      fontSize: '12px',
+                      fontSize: '10px',
                       fontWeight: 600
                     }}>
                       {template.IsActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
                   
-                  <div style={{ marginBottom: '12px', fontSize: '14px', color: '#6b7280' }}>
-                    <div><strong>Type:</strong> {template.TemplateType}</div>
-                    <div><strong>Version:</strong> {template.Version || '1.0'}</div>
-                    <div><strong>Fields:</strong> {template.FieldReplacements?.length || 0}</div>
+                  <div style={{ marginBottom: '10px', fontSize: '12px', color: '#64748b' }}>
+                    <div style={{ marginBottom: '4px' }}><strong style={{ fontSize: '10px' }}>Type:</strong> {template.TemplateType}</div>
+                    <div style={{ marginBottom: '4px' }}><strong style={{ fontSize: '10px' }}>Version:</strong> {template.Version || '1.0'}</div>
+                    <div><strong style={{ fontSize: '10px' }}>Fields:</strong> {template.FieldReplacements?.length || 0}</div>
                   </div>
 
                   {template.FieldReplacements && template.FieldReplacements.length > 0 && (
-                    <div style={{ marginBottom: '12px' }}>
-                      <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '4px' }}>
+                    <div style={{ marginBottom: '10px' }}>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>
                         Dynamic Fields:
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
@@ -675,11 +750,11 @@ const RFIDLabel = () => {
                           <span
                             key={idx}
                             style={{
-                              padding: '2px 8px',
+                              padding: '2px 6px',
                               background: '#e0e7ff',
                               color: '#3730a3',
                               borderRadius: '4px',
-                              fontSize: '11px'
+                              fontSize: '10px'
                             }}
                           >
                             {field}
@@ -689,48 +764,64 @@ const RFIDLabel = () => {
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                     <button
                       onClick={() => handleEditTemplate(template)}
                       style={{
                         flex: 1,
-                        padding: '8px',
-                        background: '#3b82f6',
-                        color: 'white',
-                        border: 'none',
+                        padding: '6px 12px',
+                        background: '#ffffff',
+                        color: '#3b82f6',
+                        border: '1px solid #3b82f6',
                         borderRadius: '6px',
                         cursor: 'pointer',
-                        fontSize: '13px',
+                        fontSize: '12px',
                         fontWeight: 600,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '6px'
+                        gap: '6px',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#3b82f6';
+                        e.target.style.color = '#ffffff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.color = '#3b82f6';
                       }}
                     >
-                      <FaEdit />
-                      {t('common.edit', 'Edit')}
+                      <FaEdit /> Edit
                     </button>
                     <button
                       onClick={() => handleDeleteTemplate(template)}
                       style={{
                         flex: 1,
-                        padding: '8px',
-                        background: '#ef4444',
-                        color: 'white',
-                        border: 'none',
+                        padding: '6px 12px',
+                        background: '#ffffff',
+                        color: '#ef4444',
+                        border: '1px solid #ef4444',
                         borderRadius: '6px',
                         cursor: 'pointer',
-                        fontSize: '13px',
+                        fontSize: '12px',
                         fontWeight: 600,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '6px'
+                        gap: '6px',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#ef4444';
+                        e.target.style.color = '#ffffff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.color = '#ef4444';
                       }}
                     >
-                      <FaTrash />
-                      {t('common.delete', 'Delete')}
+                      <FaTrash /> Delete
                     </button>
                   </div>
                 </div>
@@ -743,312 +834,440 @@ const RFIDLabel = () => {
       {/* Generate Labels Tab */}
       {activeTab === 'generate' && (
         <div>
-          {/* Template Selection - Compact */}
-          <div style={{ 
-            background: 'white', 
-            padding: isMobile ? '12px' : '14px', 
-            borderRadius: '8px',
+          {/* Unified Header & Action Section */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '12px',
+            padding: '16px 20px',
             marginBottom: '16px',
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            flexWrap: 'wrap'
+            border: '1px solid #e5e7eb'
           }}>
-            <label style={{ 
-              fontWeight: 600, 
-              fontSize: '13px',
-              color: '#374151',
-              whiteSpace: 'nowrap',
-              minWidth: '100px'
-            }}>
-              {t('rfidLabel.selectTemplate', 'Select Template')}:
-            </label>
-            <select
-              value={selectedTemplateId}
-              onChange={(e) => setSelectedTemplateId(e.target.value)}
-              style={{
-                flex: 1,
-                minWidth: '200px',
-                maxWidth: isMobile ? '100%' : '300px',
-                padding: '8px 12px',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                fontSize: '13px',
-                background: 'white'
-              }}
-            >
-              <option value="">{t('rfidLabel.chooseTemplate', 'Choose a template...')}</option>
-              {templates.filter(t => t.IsActive).map((template) => (
-                <option key={template.Id} value={template.Id}>
-                  {template.TemplateName} (v{template.Version || '1.0'})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Product Selection */}
-          <div style={{ 
-            background: 'white', 
-            padding: isMobile ? '16px' : '20px', 
-            borderRadius: '12px',
-            marginBottom: '20px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-          }}>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              marginBottom: '12px',
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               flexWrap: 'wrap',
-              gap: '8px'
+              gap: '12px',
+              marginBottom: '16px'
             }}>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
-                {t('rfidLabel.selectProducts', 'Select Products')}
-                <span style={{ 
-                  fontSize: '13px', 
-                  fontWeight: 400, 
-                  color: '#6b7280',
-                  marginLeft: '8px'
-                }}>
-                  ({filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'})
-                </span>
-              </h3>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ 
-                  fontSize: '13px', 
-                  color: '#6b7280', 
-                  whiteSpace: 'nowrap',
-                  fontWeight: 500
-                }}>
-                  {selectedItems.length} selected
-                </span>
-                <button
-                  onClick={handleSelectAll}
-                  style={{
-                    padding: '6px 12px',
-                    background: '#667eea',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                    minWidth: 'auto'
-                  }}
-                >
-                  {selectedItems.length === filteredProducts.length && filteredProducts.length > 0 ? 'Deselect All' : 'Select All'}
-                </button>
+              <div>
+                <h2 style={{
+                  margin: 0,
+                  fontSize: '16px',
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  lineHeight: '1.2'
+                }}>Generate Labels</h2>
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                fontWeight: 600
+              }}>
+                Total: {labelledStock.length} products
               </div>
             </div>
-
-            <div style={{ marginBottom: '16px', position: 'relative' }}>
-              <FaSearch style={{ 
-                position: 'absolute', 
-                left: '12px', 
-                top: '50%', 
-                transform: 'translateY(-50%)',
-                color: '#9ca3af',
-                fontSize: '14px',
-                zIndex: 1
-              }} />
-              <input
-                type="text"
-                placeholder={t('rfidLabel.searchProducts', 'Search by ItemCode or Product Name...')}
-                value={searchProduct}
-                onChange={(e) => setSearchProduct(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 40px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '10px',
+              alignItems: 'center',
+              paddingTop: '16px',
+              borderTop: '1px solid #e5e7eb'
+            }}>
+              {/* Template Selection */}
+              <div style={{
+                minWidth: windowWidth <= 768 ? '100%' : '250px',
+                maxWidth: windowWidth <= 768 ? '100%' : '300px'
+              }}>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    background: '#ffffff',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    cursor: 'pointer'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                >
+                  <option value="">Choose a template...</option>
+                  {templates.filter(t => t.IsActive).map((template) => (
+                    <option key={template.Id} value={template.Id}>
+                      {template.TemplateName} (v{template.Version || '1.0'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {/* Search Input */}
+              <div style={{
+                position: 'relative',
+                flex: '1',
+                minWidth: windowWidth <= 768 ? '100%' : '250px',
+                maxWidth: windowWidth <= 768 ? '100%' : '350px'
+              }}>
+                <FaSearch style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#94a3b8',
                   fontSize: '14px',
-                  boxSizing: 'border-box',
-                  transition: 'border-color 0.2s ease'
+                  zIndex: 1
+                }} />
+                <input
+                  type="text"
+                  placeholder="Search by ItemCode or Product Name..."
+                  value={searchProduct}
+                  onChange={(e) => handleSearchProductChange(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px 8px 36px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                />
+              </div>
+              {/* Generate Button - Moved Above */}
+              <button
+                onClick={handleGenerateLabels}
+                disabled={!selectedTemplateId || selectedItems.length === 0 || generating}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #10b981',
+                  background: (!selectedTemplateId || selectedItems.length === 0 || generating) ? '#f1f5f9' : '#ffffff',
+                  color: (!selectedTemplateId || selectedItems.length === 0 || generating) ? '#94a3b8' : '#10b981',
+                  cursor: (!selectedTemplateId || selectedItems.length === 0 || generating) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s'
                 }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#3b82f6';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                onMouseEnter={(e) => {
+                  if (!(!selectedTemplateId || selectedItems.length === 0 || generating)) {
+                    e.target.style.background = '#10b981';
+                    e.target.style.color = '#ffffff';
+                  }
                 }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#d1d5db';
-                  e.target.style.boxShadow = 'none';
+                onMouseLeave={(e) => {
+                  if (!(!selectedTemplateId || selectedItems.length === 0 || generating)) {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.color = '#10b981';
+                  }
                 }}
-              />
+              >
+                {generating ? (
+                  <>
+                    <FaSpinner className="fa-spin" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    <FaPrint /> Generate Labels ({selectedItems.length})
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Product Selection Table */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '12px',
+            marginTop: '16px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            border: '1px solid #e5e7eb',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                fontWeight: 600
+              }}>
+                {selectedItems.length} selected of {filteredProducts.length} products
+              </div>
+              <button
+                onClick={handleSelectAll}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #3b82f6',
+                  background: '#ffffff',
+                  color: '#3b82f6',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#3b82f6';
+                  e.target.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.color = '#3b82f6';
+                }}
+              >
+                {selectedItems.length === filteredProducts.length && filteredProducts.length > 0 ? 'Deselect All' : 'Select All'}
+              </button>
             </div>
 
-            <div style={{ 
-              maxHeight: isMobile ? '400px' : '500px', 
-              overflowY: 'auto',
-              border: '1px solid #e5e7eb',
-              borderRadius: '8px',
-              overflowX: 'auto',
-              background: '#fafafa'
-            }}>
+            <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
               {filteredProducts.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
-                  {t('rfidLabel.noProducts', 'No products found')}
+                <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                  No products found
                 </div>
               ) : (
-                <>
-                  {/* Desktop Table View */}
-                  <div style={{ display: !isMobile ? 'block' : 'none' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px', background: 'white' }}>
-                      <thead style={{ background: '#f9fafb', position: 'sticky', top: 0, zIndex: 10 }}>
-                        <tr>
-                          <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600, width: '40px' }}>
-                            <input
-                              type="checkbox"
-                              checked={selectedItems.length === filteredProducts.length && filteredProducts.length > 0}
-                              onChange={handleSelectAll}
-                              style={{ cursor: 'pointer', width: '16px', height: '16px' }}
-                            />
-                          </th>
-                          <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600 }}>ItemCode</th>
-                          <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600 }}>Product Name</th>
-                          <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600 }}>Gross Wt</th>
-                          <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px', fontWeight: 600 }}>Net Wt</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paginatedProducts.map((item) => {
-                          const isSelected = selectedItems.some(p => p.ItemCode === item.ItemCode);
-                          return (
-                            <tr
-                              key={item.ItemCode}
-                              style={{
-                                background: isSelected ? '#eff6ff' : 'white',
-                                borderBottom: '1px solid #e5e7eb',
-                                cursor: 'pointer',
-                                transition: 'background 0.15s ease'
-                              }}
-                              onClick={() => handleToggleProduct(item)}
-                              onMouseEnter={(e) => {
-                                if (!isSelected) e.currentTarget.style.background = '#f9fafb';
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!isSelected) e.currentTarget.style.background = 'white';
-                              }}
-                            >
-                              <td style={{ padding: '10px' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => handleToggleProduct(item)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{ cursor: 'pointer', width: '16px', height: '16px' }}
-                                />
-                              </td>
-                              <td style={{ padding: '10px', fontSize: '13px', fontWeight: 600 }}>{item.ItemCode}</td>
-                              <td style={{ padding: '10px', fontSize: '13px' }}>{item.ProductName || '-'}</td>
-                              <td style={{ padding: '10px', fontSize: '13px' }}>{item.GrossWt || '-'}</td>
-                              <td style={{ padding: '10px', fontSize: '13px' }}>{item.NetWt || '-'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  
-                  {/* Mobile Card View */}
-                  <div style={{ display: isMobile ? 'block' : 'none', padding: '8px' }}>
-                    {paginatedProducts.map((item) => {
+                <table style={{ 
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '12px',
+                  tableLayout: 'auto'
+                }}>
+                  <thead>
+                    <tr style={{
+                      background: '#f8fafc',
+                      borderBottom: '2px solid #e5e7eb'
+                    }}>
+                      <th style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        width: '40px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#475569'
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedItems.length === filteredProducts.length && filteredProducts.length > 0}
+                          onChange={handleSelectAll}
+                          style={{
+                            cursor: 'pointer',
+                            width: '16px',
+                            height: '16px'
+                          }}
+                        />
+                      </th>
+                      <th style={{
+                        padding: '12px',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        whiteSpace: 'nowrap'
+                      }}>ItemCode</th>
+                      <th style={{
+                        padding: '12px',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        whiteSpace: 'nowrap'
+                      }}>Product Name</th>
+                      <th style={{
+                        padding: '12px',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        whiteSpace: 'nowrap'
+                      }}>Gross Wt</th>
+                      <th style={{
+                        padding: '12px',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        whiteSpace: 'nowrap'
+                      }}>Net Wt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedProducts.map((item, index) => {
                       const isSelected = selectedItems.some(p => p.ItemCode === item.ItemCode);
                       return (
-                        <div
+                        <tr
                           key={item.ItemCode}
                           onClick={() => handleToggleProduct(item)}
                           style={{
-                            background: isSelected ? '#eff6ff' : 'white',
-                            border: isSelected ? '2px solid #3b82f6' : '1px solid #e5e7eb',
-                            borderRadius: '8px',
-                            padding: '12px',
-                            marginBottom: '8px',
                             cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '12px'
+                            borderBottom: '1px solid #e5e7eb',
+                            background: isSelected 
+                              ? '#eff6ff' 
+                              : index % 2 === 0 
+                              ? '#ffffff' 
+                              : '#f8fafc',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              e.currentTarget.style.background = '#f1f5f9';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) {
+                              e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+                            }
                           }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleToggleProduct(item)}
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ cursor: 'pointer', width: '18px', height: '18px' }}
-                          />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>{item.ItemCode}</div>
-                            <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>{item.ProductName || '-'}</div>
-                            <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: '#9ca3af' }}>
-                              <span>GW: {item.GrossWt || '-'}</span>
-                              <span>NW: {item.NetWt || '-'}</span>
-                            </div>
-                          </div>
-                        </div>
+                          <td style={{
+                            padding: '12px',
+                            textAlign: 'center',
+                            fontSize: '12px'
+                          }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleProduct(item)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                cursor: 'pointer',
+                                width: '16px',
+                                height: '16px'
+                              }}
+                            />
+                          </td>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '12px',
+                            color: '#1e293b',
+                            whiteSpace: 'nowrap',
+                            fontWeight: 600
+                          }}>{item.ItemCode}</td>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '12px',
+                            color: '#1e293b',
+                            whiteSpace: 'nowrap'
+                          }}>{item.ProductName || '-'}</td>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '12px',
+                            color: '#1e293b',
+                            whiteSpace: 'nowrap'
+                          }}>{item.GrossWt || '-'}</td>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '12px',
+                            color: '#1e293b',
+                            whiteSpace: 'nowrap'
+                          }}>{item.NetWt || '-'}</td>
+                        </tr>
                       );
                     })}
-                  </div>
-                </>
+                  </tbody>
+                </table>
               )}
             </div>
 
-            {/* Pagination Controls */}
+            {/* Pagination */}
             {filteredProducts.length > productsPerPage && (
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginTop: '12px',
-                padding: '12px',
-                background: '#f9fafb',
-                borderRadius: '8px',
+                padding: '16px 20px',
+                borderTop: '1px solid #e5e7eb',
                 flexWrap: 'wrap',
                 gap: '12px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  fontSize: '12px',
+                  color: '#64748b'
+                }}>
+                  <span>
                     Showing {startIndex + 1} to {Math.min(endIndex, filteredProducts.length)} of {filteredProducts.length} products
                   </span>
-                  <select
-                    value={productsPerPage}
-                    onChange={(e) => {
-                      setProductsPerPage(Number(e.target.value));
-                      setCurrentProductPage(1);
-                    }}
-                    style={{
-                      padding: '4px 8px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      background: 'white'
-                    }}
-                  >
-                    <option value={25}>25 per page</option>
-                    <option value={50}>50 per page</option>
-                    <option value={100}>100 per page</option>
-                    <option value={200}>200 per page</option>
-                  </select>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>Show:</span>
+                    <select
+                      value={productsPerPage}
+                      onChange={(e) => {
+                        setProductsPerPage(Number(e.target.value));
+                        setCurrentProductPage(1);
+                      }}
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: '12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '6px',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={200}>200</option>
+                    </select>
+                    <span>per page</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flexWrap: 'wrap'
+                }}>
                   <button
                     onClick={() => setCurrentProductPage(prev => Math.max(1, prev - 1))}
                     disabled={currentProductPage === 1}
                     style={{
                       padding: '6px 12px',
-                      background: currentProductPage === 1 ? '#e5e7eb' : '#3b82f6',
-                      color: currentProductPage === 1 ? '#9ca3af' : 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: currentProductPage === 1 ? 'not-allowed' : 'pointer',
                       fontSize: '12px',
-                      fontWeight: 500
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: currentProductPage === 1 ? '#f1f5f9' : '#ffffff',
+                      color: currentProductPage === 1 ? '#94a3b8' : '#475569',
+                      cursor: currentProductPage === 1 ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (currentProductPage !== 1) {
+                        e.target.style.background = '#f8fafc';
+                        e.target.style.borderColor = '#cbd5e1';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (currentProductPage !== 1) {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.borderColor = '#e2e8f0';
+                      }
                     }}
                   >
                     Previous
                   </button>
-                  <span style={{ fontSize: '13px', color: '#6b7280', padding: '0 8px' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', padding: '0 8px' }}>
                     Page {currentProductPage} of {totalProductPages}
                   </span>
                   <button
@@ -1056,13 +1275,26 @@ const RFIDLabel = () => {
                     disabled={currentProductPage === totalProductPages}
                     style={{
                       padding: '6px 12px',
-                      background: currentProductPage === totalProductPages ? '#e5e7eb' : '#3b82f6',
-                      color: currentProductPage === totalProductPages ? '#9ca3af' : 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: currentProductPage === totalProductPages ? 'not-allowed' : 'pointer',
                       fontSize: '12px',
-                      fontWeight: 500
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: currentProductPage === totalProductPages ? '#f1f5f9' : '#ffffff',
+                      color: currentProductPage === totalProductPages ? '#94a3b8' : '#475569',
+                      cursor: currentProductPage === totalProductPages ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (currentProductPage !== totalProductPages) {
+                        e.target.style.background = '#f8fafc';
+                        e.target.style.borderColor = '#cbd5e1';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (currentProductPage !== totalProductPages) {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.borderColor = '#e2e8f0';
+                      }
                     }}
                   >
                     Next
@@ -1070,62 +1302,6 @@ const RFIDLabel = () => {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Generate Button - Compact */}
-          <div style={{ 
-            marginBottom: '20px',
-            display: 'flex',
-            justifyContent: 'center',
-            gap: '12px',
-            flexWrap: 'wrap'
-          }}>
-            <button
-              onClick={handleGenerateLabels}
-              disabled={!selectedTemplateId || selectedItems.length === 0 || generating}
-              style={{
-                padding: isMobile ? '10px 20px' : '12px 32px',
-                background: (!selectedTemplateId || selectedItems.length === 0 || generating) ? '#9ca3af' : '#10b981',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: (!selectedTemplateId || selectedItems.length === 0 || generating) ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: isMobile ? '14px' : '15px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                minWidth: 'auto',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s ease',
-                boxShadow: (!selectedTemplateId || selectedItems.length === 0 || generating) ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.3)'
-              }}
-              onMouseEnter={(e) => {
-                if (!(!selectedTemplateId || selectedItems.length === 0 || generating)) {
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.4)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!(!selectedTemplateId || selectedItems.length === 0 || generating)) {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
-                }
-              }}
-            >
-              {generating ? (
-                <>
-                  <FaSpinner className="fa-spin" />
-                  {t('rfidLabel.generating', 'Generating...')}
-                </>
-              ) : (
-                <>
-                  <FaPrint />
-                  {t('rfidLabel.generateLabels', 'Generate Labels')} ({selectedItems.length})
-                </>
-              )}
-            </button>
           </div>
 
           {/* Generated Labels Results */}
@@ -1246,328 +1422,480 @@ const RFIDLabel = () => {
         </div>
       )}
 
-      {/* Template Modal */}
+      {/* Template Slider - Right Side */}
       {showTemplateModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '16px',
-          overflowY: 'auto'
-        }}>
+        <>
+          <div 
+            onClick={() => {
+              setShowTemplateModal(false);
+              resetTemplateForm();
+            }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              animation: 'fadeIn 0.3s ease'
+            }}
+          />
           <div style={{
-            background: 'white',
-            borderRadius: '12px',
-            padding: isMobile ? '16px' : '24px',
-            maxWidth: '800px',
-            width: '100%',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-            margin: 'auto'
+            position: 'fixed',
+            top: 0,
+            right: 0,
+            width: windowWidth <= 768 ? '100%' : '500px',
+            maxWidth: '90vw',
+            height: '100vh',
+            background: '#ffffff',
+            boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.1)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            animation: 'slideInRight 0.3s ease',
+            overflowY: 'auto'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 600 }}>
-                {isEditing ? t('rfidLabel.editTemplate', 'Edit Template') : t('rfidLabel.newTemplate', 'New Template')}
-              </h2>
-              <button
+            <div style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              padding: '20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              position: 'sticky',
+              top: 0,
+              zIndex: 10
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <FaFileAlt style={{ color: '#ffffff', fontSize: '16px' }} />
+                <h6 style={{
+                  margin: 0,
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#ffffff'
+                }}>
+                  {isEditing ? 'Edit Template' : 'New Template'}
+                </h6>
+              </div>
+              <button 
+                type="button" 
                 onClick={() => {
                   setShowTemplateModal(false);
                   resetTemplateForm();
                 }}
                 style={{
-                  background: 'none',
+                  background: 'rgba(255,255,255,0.2)',
                   border: 'none',
-                  fontSize: '24px',
+                  borderRadius: '6px',
+                  width: '28px',
+                  height: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   cursor: 'pointer',
-                  color: '#6b7280'
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  transition: 'all 0.2s'
                 }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
               >
                 <FaTimes />
               </button>
             </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Template Name */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
-                  {t('rfidLabel.templateName', 'Template Name')} *
-                </label>
-                <input
-                  type="text"
-                  value={templateForm.TemplateName}
-                  onChange={(e) => handleTemplateFormChange('TemplateName', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '2px solid #e5e7eb',
-                    borderRadius: '8px',
-                    fontSize: '14px'
-                  }}
-                  placeholder="e.g., Standard RFID Label Template"
-                />
-              </div>
-
-              {/* Template Type */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
-                  {t('rfidLabel.templateType', 'Template Type')}
-                </label>
-                <input
-                  type="text"
-                  value={templateForm.TemplateType}
-                  onChange={(e) => handleTemplateFormChange('TemplateType', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '2px solid #e5e7eb',
-                    borderRadius: '8px',
-                    fontSize: '14px'
-                  }}
-                  placeholder="RFID"
-                />
-              </div>
-
-              {/* PRN Code */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label style={{ fontWeight: 600, fontSize: '14px' }}>
-                    {t('rfidLabel.prnCode', 'PRN Code')} *
+            <div style={{ padding: '20px', flex: 1 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Template Name */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Template Name *
                   </label>
-                  <button
-                    onClick={handlePRNCodeSelect}
+                  <input
+                    type="text"
+                    value={templateForm.TemplateName}
+                    onChange={(e) => handleTemplateFormChange('TemplateName', e.target.value)}
                     style={{
-                      padding: '6px 12px',
-                      background: '#667eea',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
                       fontSize: '12px',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
                     }}
-                    title="Select quoted text and click to make it dynamic"
-                  >
-                    <FaCode />
-                    Configure Fields
-                  </button>
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    placeholder="e.g., Standard RFID Label Template"
+                  />
                 </div>
-                <textarea
-                  ref={prnCodeRef}
-                  value={templateForm.PrnCode}
-                  onChange={(e) => handleTemplateFormChange('PrnCode', e.target.value)}
-                  onSelect={handlePRNCodeSelect}
-                  style={{
-                    width: '100%',
-                    minHeight: '200px',
-                    padding: '10px',
-                    border: '2px solid #e5e7eb',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    fontFamily: 'monospace',
-                    resize: 'vertical'
-                  }}
-                  placeholder="Paste PRN code from Bartender application here..."
-                />
-                <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-                  Select quoted text and click "Configure Fields" to make it dynamic
-                </p>
-              </div>
 
-              {/* Dynamic Fields */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
-                  {t('rfidLabel.dynamicFields', 'Dynamic Fields')}
-                </label>
-                <div style={{ 
-                  display: 'flex', 
-                  flexWrap: 'wrap', 
-                  gap: '8px',
-                  padding: '12px',
-                  background: '#f9fafb',
-                  borderRadius: '8px',
-                  minHeight: '60px'
-                }}>
-                  {templateForm.FieldReplacements.map((field, idx) => (
-                    <span
-                      key={idx}
+                {/* Template Type */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Template Type
+                  </label>
+                  <input
+                    type="text"
+                    value={templateForm.TemplateType}
+                    onChange={(e) => handleTemplateFormChange('TemplateType', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    placeholder="RFID"
+                  />
+                </div>
+
+                {/* PRN Code */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ 
+                      fontWeight: 600, 
+                      fontSize: '10px',
+                      color: '#475569'
+                    }}>
+                      PRN Code *
+                    </label>
+                    <button
+                      onClick={handlePRNCodeSelect}
                       style={{
                         padding: '6px 12px',
-                        background: '#e0e7ff',
-                        color: '#3730a3',
+                        background: '#ffffff',
+                        color: '#667eea',
+                        border: '1px solid #667eea',
                         borderRadius: '6px',
-                        fontSize: '13px',
+                        cursor: 'pointer',
+                        fontSize: '10px',
                         fontWeight: 600,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '8px'
+                        gap: '6px',
+                        transition: 'all 0.2s'
                       }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#667eea';
+                        e.target.style.color = '#ffffff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.color = '#667eea';
+                      }}
+                      title="Select quoted text and click to make it dynamic"
                     >
-                      {`${'{'}${field}${'}'}`}
-                      <button
-                        onClick={() => handleRemoveField(field)}
+                      <FaCode /> Configure Fields
+                    </button>
+                  </div>
+                  <textarea
+                    ref={prnCodeRef}
+                    value={templateForm.PrnCode}
+                    onChange={(e) => handleTemplateFormChange('PrnCode', e.target.value)}
+                    onSelect={handlePRNCodeSelect}
+                    style={{
+                      width: '100%',
+                      minHeight: '150px',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontFamily: 'monospace',
+                      resize: 'vertical',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    placeholder="Paste PRN code from Bartender application here..."
+                  />
+                  <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>
+                    Select quoted text and click "Configure Fields" to make it dynamic
+                  </p>
+                </div>
+
+                {/* Dynamic Fields */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Dynamic Fields
+                  </label>
+                  <div style={{ 
+                    display: 'flex', 
+                    flexWrap: 'wrap', 
+                    gap: '6px',
+                    padding: '10px',
+                    background: '#f9fafb',
+                    borderRadius: '8px',
+                    minHeight: '50px'
+                  }}>
+                    {templateForm.FieldReplacements.map((field, idx) => (
+                      <span
+                        key={idx}
                         style={{
-                          background: 'none',
-                          border: 'none',
+                          padding: '4px 8px',
+                          background: '#e0e7ff',
                           color: '#3730a3',
-                          cursor: 'pointer',
-                          fontSize: '14px',
-                          padding: 0,
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 600,
                           display: 'flex',
-                          alignItems: 'center'
+                          alignItems: 'center',
+                          gap: '6px'
                         }}
                       >
-                        <FaTimes />
-                      </button>
-                    </span>
-                  ))}
-                  {templateForm.FieldReplacements.length === 0 && (
-                    <span style={{ color: '#9ca3af', fontSize: '13px' }}>
-                      No dynamic fields configured. Select text in PRN code to add fields.
-                    </span>
-                  )}
+                        {`${'{'}${field}${'}'}`}
+                        <button
+                          onClick={() => handleRemoveField(field)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#3730a3',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <FaTimes />
+                        </button>
+                      </span>
+                    ))}
+                    {templateForm.FieldReplacements.length === 0 && (
+                      <span style={{ color: '#94a3b8', fontSize: '10px' }}>
+                        No dynamic fields configured. Select text in PRN code to add fields.
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* Available Fields */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
-                  {t('rfidLabel.availableFields', 'Available Fields')}
-                </label>
+                {/* Available Fields */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Available Fields
+                  </label>
+                  <div style={{ 
+                    display: 'flex', 
+                    flexWrap: 'wrap', 
+                    gap: '6px',
+                    padding: '10px',
+                    background: '#f9fafb',
+                    borderRadius: '8px',
+                    maxHeight: '200px',
+                    overflowY: 'auto'
+                  }}>
+                    {availableFields.map((field) => (
+                      <button
+                        key={field}
+                        onClick={() => handleAddField(field)}
+                        disabled={templateForm.FieldReplacements.includes(field)}
+                        style={{
+                          padding: '4px 8px',
+                          background: templateForm.FieldReplacements.includes(field) ? '#d1d5db' : '#ffffff',
+                          color: templateForm.FieldReplacements.includes(field) ? '#9ca3af' : '#667eea',
+                          border: `1px solid ${templateForm.FieldReplacements.includes(field) ? '#d1d5db' : '#667eea'}`,
+                          borderRadius: '4px',
+                          cursor: templateForm.FieldReplacements.includes(field) ? 'not-allowed' : 'pointer',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!templateForm.FieldReplacements.includes(field)) {
+                            e.target.style.background = '#667eea';
+                            e.target.style.color = '#ffffff';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!templateForm.FieldReplacements.includes(field)) {
+                            e.target.style.background = '#ffffff';
+                            e.target.style.color = '#667eea';
+                          }
+                        }}
+                      >
+                        {field}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Save Option */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    marginBottom: '6px', 
+                    fontWeight: 600, 
+                    fontSize: '10px',
+                    color: '#475569'
+                  }}>
+                    Save Option
+                  </label>
+                  <select
+                    value={templateForm.SaveOption}
+                    onChange={(e) => handleTemplateFormChange('SaveOption', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box',
+                      background: '#ffffff',
+                      cursor: 'pointer'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  >
+                    <option value="single">Single (All Products)</option>
+                    <option value="category">Category Specific</option>
+                    <option value="categoryProduct">Category & Product Specific</option>
+                  </select>
+                </div>
+
+                {/* Active Status */}
+                <div>
+                  <label style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    cursor: 'pointer' 
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={templateForm.IsActive}
+                      onChange={(e) => handleTemplateFormChange('IsActive', e.target.checked)}
+                      style={{ 
+                        cursor: 'pointer',
+                        width: '16px',
+                        height: '16px'
+                      }}
+                    />
+                    <span style={{ 
+                      fontWeight: 600, 
+                      fontSize: '12px',
+                      color: '#475569'
+                    }}>
+                      Active Template
+                    </span>
+                  </label>
+                </div>
+
+                {/* Actions */}
                 <div style={{ 
                   display: 'flex', 
-                  flexWrap: 'wrap', 
-                  gap: '8px',
-                  padding: '12px',
-                  background: '#f9fafb',
-                  borderRadius: '8px'
+                  gap: '10px', 
+                  marginTop: '20px',
+                  paddingTop: '20px',
+                  borderTop: '1px solid #e5e7eb'
                 }}>
-                  {availableFields.map((field) => (
-                    <button
-                      key={field}
-                      onClick={() => handleAddField(field)}
-                      disabled={templateForm.FieldReplacements.includes(field)}
-                      style={{
-                        padding: '6px 12px',
-                        background: templateForm.FieldReplacements.includes(field) ? '#d1d5db' : '#667eea',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: templateForm.FieldReplacements.includes(field) ? 'not-allowed' : 'pointer',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        opacity: templateForm.FieldReplacements.includes(field) ? 0.5 : 1
-                      }}
-                    >
-                      {field}
-                    </button>
-                  ))}
+                  <button
+                    onClick={handleSaveTemplate}
+                    disabled={loading}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      background: loading ? '#f1f5f9' : '#ffffff',
+                      color: loading ? '#94a3b8' : '#10b981',
+                      border: `1px solid ${loading ? '#cbd5e1' : '#10b981'}`,
+                      borderRadius: '8px',
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!loading) {
+                        e.target.style.background = '#10b981';
+                        e.target.style.color = '#ffffff';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!loading) {
+                        e.target.style.background = '#ffffff';
+                        e.target.style.color = '#10b981';
+                      }
+                    }}
+                  >
+                    {loading ? (
+                      <>
+                        <FaSpinner className="fa-spin" /> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave /> Save
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowTemplateModal(false);
+                      resetTemplateForm();
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      background: '#ffffff',
+                      color: '#64748b',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#f1f5f9';
+                      e.target.style.borderColor = '#94a3b8';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#cbd5e1';
+                    }}
+                  >
+                    Cancel
+                  </button>
                 </div>
-              </div>
-
-              {/* Save Option */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '14px' }}>
-                  {t('rfidLabel.saveOption', 'Save Option')}
-                </label>
-                <select
-                  value={templateForm.SaveOption}
-                  onChange={(e) => handleTemplateFormChange('SaveOption', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '2px solid #e5e7eb',
-                    borderRadius: '8px',
-                    fontSize: '14px'
-                  }}
-                >
-                  <option value="single">Single (All Products)</option>
-                  <option value="category">Category Specific</option>
-                  <option value="categoryProduct">Category & Product Specific</option>
-                </select>
-              </div>
-
-              {/* Active Status */}
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={templateForm.IsActive}
-                    onChange={(e) => handleTemplateFormChange('IsActive', e.target.checked)}
-                    style={{ cursor: 'pointer' }}
-                  />
-                  <span style={{ fontWeight: 600, fontSize: '14px' }}>
-                    {t('rfidLabel.isActive', 'Active Template')}
-                  </span>
-                </label>
-              </div>
-
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                <button
-                  onClick={handleSaveTemplate}
-                  disabled={loading}
-                  style={{
-                    flex: 1,
-                    padding: '12px',
-                    background: loading ? '#9ca3af' : '#10b981',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    fontWeight: 600,
-                    fontSize: '15px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  {loading ? (
-                    <>
-                      <FaSpinner className="fa-spin" />
-                      {t('common.saving', 'Saving...')}
-                    </>
-                  ) : (
-                    <>
-                      <FaSave />
-                      {t('common.save', 'Save')}
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowTemplateModal(false);
-                    resetTemplateForm();
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '12px',
-                    background: '#6b7280',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    fontSize: '15px'
-                  }}
-                >
-                  {t('common.cancel', 'Cancel')}
-                </button>
               </div>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Field Selection Modal */}
@@ -1658,6 +1986,37 @@ const RFIDLabel = () => {
           </div>
         </div>
       )}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        *::-webkit-scrollbar {
+          display: none;
+        }
+        body, html {
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @media (max-width: 768px) {
+          .template-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .template-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };

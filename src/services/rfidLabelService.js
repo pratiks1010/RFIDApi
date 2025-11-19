@@ -106,7 +106,7 @@ export const rfidLabelService = {
   },
 
   // Get Labelled Stock (for product selection)
-  getLabelledStock: async (clientCode, status = "ApiActive") => {
+  getLabelledStock: async (clientCode, status = "ApiActive", searchQuery = '') => {
     try {
       const response = await axios.post(
         'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
@@ -114,7 +114,8 @@ export const rfidLabelService = {
           ClientCode: clientCode,
           Status: status,
           PageNumber: 1,
-          PageSize: 10000 // Get all items for selection
+          PageSize: 10000, // Get all items for selection
+          SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : ""
         }
       );
       // Handle different response structures

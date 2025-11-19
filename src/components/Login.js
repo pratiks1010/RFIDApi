@@ -253,16 +253,108 @@ const Login = () => {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #f8fafc 0%, #e9eef6 60%, #e3eaf7 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'Inter, Poppins, sans-serif',
-      padding: '2vw',
-    }}>
-      <ToastContainer
+    <>
+      <style>{`
+        @keyframes fadeInSlide {
+          from {
+            opacity: 0;
+            transform: translateX(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        body {
+          overflow: hidden !important;
+          height: 100vh !important;
+        }
+        html {
+          overflow: hidden !important;
+          height: 100vh !important;
+        }
+        .login-page-wrapper {
+          animation: fadeInSlide 0.4s ease-out;
+        }
+        .fas, .far, .fal, .fab {
+          font-family: "Font Awesome 5 Free" !important;
+          font-weight: 900 !important;
+          display: inline-block !important;
+          font-style: normal !important;
+          font-variant: normal !important;
+          text-rendering: auto !important;
+          line-height: 1 !important;
+        }
+        @media (max-width: 968px) {
+          .login-container {
+            flex-direction: column !important;
+            gap: 20px !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+          }
+          .login-form-card {
+            max-width: 100% !important;
+            height: 48vh !important;
+            padding: 28px 24px !important;
+          }
+          .login-info-card {
+            max-width: 100% !important;
+            height: 48vh !important;
+            padding: 24px 20px !important;
+          }
+        }
+        @media (max-width: 768px) {
+          .login-main-content {
+            padding: 16px !important;
+          }
+          .login-form-card {
+            padding: 24px 20px !important;
+            height: 52vh !important;
+          }
+          .login-info-card {
+            height: 52vh !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .login-form-card {
+            padding: 32px 24px !important;
+          }
+          .login-welcome-title {
+            font-size: 24px !important;
+          }
+          .login-welcome-subtitle {
+            font-size: 12px !important;
+          }
+          .login-info-image {
+            width: 120px !important;
+            height: 120px !important;
+          }
+          .login-info-title {
+            font-size: 18px !important;
+          }
+          .login-info-text {
+            font-size: 11px !important;
+          }
+          .login-info-button {
+            padding: 10px 24px !important;
+            font-size: 11px !important;
+          }
+        }
+      `}</style>
+      <div className="login-page-wrapper" style={{
+        height: '100vh',
+        width: '100vw',
+        background: 'linear-gradient(135deg, #f0f4f8 0%, #e8edf3 50%, #e0e8f0 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: 'Inter, Poppins, sans-serif',
+        padding: 0,
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        overflow: 'hidden',
+      }}>
+        <ToastContainer
         position="bottom-center"
         hideProgressBar
         closeOnClick
@@ -272,400 +364,597 @@ const Login = () => {
         toastStyle={{ background: 'transparent', boxShadow: 'none', padding: 0, maxWidth: 420, margin: '0 auto', pointerEvents: 'auto' }}
         bodyStyle={{ padding: 0 }}
         newestOnTop
-      />
-      <div style={{
-        display: 'flex',
-        flexDirection: 'row',
-        background: 'white',
-        borderRadius: '20px',
-        border: '1.5px solid #e0e7ef',
-        width: '100%',
-        maxWidth: 900,
-        minHeight: 480,
-        boxSizing: 'border-box',
-        boxShadow: 'none',
-        overflow: 'hidden',
-      }}>
-        {/* Left: Login Form Card */}
-        <div style={{
-          flex: 1.1,
-          padding: '2.5rem 2.5rem 2.5rem 2.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          borderRight: '1.5px solid #f1f5fa',
-          minWidth: 340,
-      }}>
-        {/* Logo and Title Section */}
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{
-            width: '64px',
-            height: '64px',
-              background: '#2563eb',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 1.2rem'
-          }}>
-            <i className="fas fa-rss" style={{ color: 'white', fontSize: '24px' }}></i>
-          </div>
-          <img 
-            src="/Logo/Sparkle RFID svg.svg" 
-            alt="Sparkle RFID" 
-            style={{ 
-              height: '36px',
-              marginBottom: '1rem'
-            }}
-          />
-          <h1 style={{
-            fontSize: '1.5rem',
-            fontWeight: 700,
-            color: '#181818',
-              marginBottom: '0.5rem',
-              fontFamily: 'Inter, Poppins, sans-serif',
-          }}>
-            RFID Secure API
-          </h1>
-          <p style={{
-              color: '#7b8591',
-              fontSize: '0.98rem',
-              fontWeight: 500,
-              marginTop: 2,
-              marginBottom: 0
-          }}>
-            Login to your account
-          </p>
-        </div>
-        {error && (
-          <div style={{
-            background: '#fff2f2',
-            color: '#d32f2f',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            marginBottom: '1.5rem',
-            fontSize: '0.9rem',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <i className="fas fa-exclamation-circle"></i>
-            {error}
-          </div>
-        )}
-        <form onSubmit={handleSubmit}>
-          {/* Username Field */}
-            <div style={{ marginBottom: '1.2rem' }}>
-            <label style={{
-              display: 'block',
-                marginBottom: '0.35rem',
-                color: '#6b7280',
-                fontSize: '0.97rem',
-                fontWeight: 500,
-                letterSpacing: 0.01,
-            }}>
-              Username
-            </label>
-            <div style={{ position: 'relative' }}>
-              <span style={{
-                position: 'absolute',
-                  left: '14px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                  color: '#8b98a9',
-                display: 'flex',
-                  alignItems: 'center',
-                  fontSize: '1.08rem',
-              }}>
-                <i className="fas fa-user"></i>
-              </span>
-              <input
-                type="text"
-                name="LoginName"
-                value={formData.LoginName}
-                onChange={handleChange}
-                required
-                placeholder="Enter your username"
-                style={{
-                  width: '100%',
-                    padding: '12px 16px 12px 42px',
-                    fontSize: '1.01rem',
-                  color: '#181818',
-                    background: '#f6f8fa',
-                    border: '1px solid #e3e7ed',
-                  borderRadius: '8px',
-                  fontWeight: 500,
-                    transition: 'all 0.2s',
-                    fontFamily: 'Inter, Poppins, sans-serif',
-                    boxShadow: 'none',
-                }}
-              />
-            </div>
-          </div>
-          {/* Password Field */}
-            <div style={{ marginBottom: '1.7rem' }}>
-            <label style={{
-              display: 'block',
-                marginBottom: '0.35rem',
-                color: '#6b7280',
-                fontSize: '0.97rem',
-                fontWeight: 500,
-                letterSpacing: 0.01,
-            }}>
-              Password
-            </label>
-            <div style={{ position: 'relative' }}>
-              <span style={{
-                position: 'absolute',
-                  left: '14px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                  color: '#8b98a9',
-                display: 'flex',
-                  alignItems: 'center',
-                  fontSize: '1.08rem',
-              }}>
-                <i className="fas fa-lock"></i>
-              </span>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                name="Password"
-                value={formData.Password}
-                onChange={handleChange}
-                required
-                placeholder="Enter your password"
-                style={{
-                  width: '100%',
-                    padding: '12px 16px 12px 42px',
-                    fontSize: '1.01rem',
-                  color: '#181818',
-                    background: '#f6f8fa',
-                    border: '1px solid #e3e7ed',
-                  borderRadius: '8px',
-                  fontWeight: 500,
-                    transition: 'all 0.2s',
-                    fontFamily: 'Inter, Poppins, sans-serif',
-                    boxShadow: 'none',
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: 'absolute',
-                    right: '14px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                    color: '#8b98a9',
-                  cursor: 'pointer',
-                    padding: '4px',
-                    fontSize: '1.08rem',
-                }}
-              >
-                <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-              </button>
-            </div>
-          </div>
-          {/* Login Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: '100%',
-                padding: '13px',
-                background: 'linear-gradient(90deg, #2563eb 60%, #3b82f6 100%)',
-                color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-                fontSize: '1.08rem',
-                fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1,
-                transition: 'all 0.2s',
-                fontFamily: 'Inter, Poppins, sans-serif',
-                boxShadow: 'none',
-                marginTop: 8,
-                letterSpacing: 0.01,
-            }}
-          >
-            {loading ? (
-              <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            ) : (
-              <>
-                <i className="fas fa-sign-in-alt"></i>
-                Login
-              </>
-            )}
-          </button>
-          {/* Register Link */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginTop: 18,
-            fontSize: '0.97rem',
-            fontFamily: 'Inter, Poppins, sans-serif',
-            gap: 6,
-          }}>
-            <span style={{ color: '#64748b', fontWeight: 500, marginRight: 4 }}>
-              Don’t have an account?
-            </span>
-            <button
-              type="button"
-              onClick={() => navigate('/register')}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#2563eb',
-                fontWeight: 700,
-                fontSize: '1.01rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: 0,
-                position: 'relative',
-                outline: 'none',
-                transition: 'color 0.2s',
-              }}
-              onMouseOver={e => {
-                e.currentTarget.style.color = '#1d4ed8';
-              }}
-              onMouseOut={e => {
-                e.currentTarget.style.color = '#2563eb';
-              }}
-            >
-              <i className="fas fa-user-plus" style={{ fontSize: '1.08em', marginRight: 3 }}></i>
-              <span style={{
-                borderBottom: '2px solid #2563eb',
-                paddingBottom: 1,
-                transition: 'border-color 0.2s',
-                fontWeight: 700,
-              }}>Register</span>
-            </button>
-          </div>
-        </form>
-        </div>
-        {/* Right: Info Cards Section */}
-        <div style={{
+        />
+      
+        {/* Main Content Area */}
+        <div className="login-main-content" style={{
           flex: 1,
           display: 'flex',
-          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, #f8fafc 0%, #f3f4f6 100%)',
-          padding: '32px 18px',
+          padding: '20px',
+          height: '100%',
+          overflow: 'hidden',
         }}>
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 370,
-              height: 520,
+          <div className="login-container" style={{
+            display: 'flex',
+            flexDirection: 'row',
+            width: '100%',
+            maxWidth: '850px',
+            gap: '24px',
+            alignItems: 'center',
+            maxHeight: '600px',
+          }}>
+            {/* Left: Login Form Card */}
+            <div className="login-form-card" style={{
+              flex: '1',
+              background: 'rgba(255, 255, 255, 0.75)',
+              backdropFilter: 'blur(25px) saturate(180%)',
+              WebkitBackdropFilter: 'blur(25px) saturate(180%)',
+              borderRadius: '20px',
+              padding: '32px 28px',
+              border: '1px solid rgba(255, 255, 255, 0.4)',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              transition: 'all 0.4s',
-              paddingTop: 18,
-              paddingBottom: 18,
-            }}
-          >
+              justifyContent: 'flex-start',
+              minWidth: 0,
+              maxWidth: '420px',
+              height: '520px',
+              overflow: 'hidden',
+            }}>
+            {/* Welcome Section */}
+            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+              {/* Logo Icon */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginBottom: '16px',
+              }}>
+                <img 
+                  src="/Logo/Sparkle RFID svg.svg" 
+                  alt="Sparkle RFID" 
+                  style={{ 
+                    height: '38px',
+                    width: 'auto',
+                  }}
+                />
+              </div>
+              <h1 className="login-welcome-title" style={{
+                fontSize: '26px',
+                fontWeight: 700,
+                color: '#1e293b',
+                marginBottom: '10px',
+                marginTop: '0',
+                fontFamily: 'Inter, Poppins, sans-serif',
+                letterSpacing: '-0.01em',
+              }}>
+                Login to RFID Dashboard
+              </h1>
+              <p className="login-welcome-subtitle" style={{
+                color: '#64748b',
+                fontSize: '13px',
+                fontWeight: 400,
+                marginTop: '0',
+                marginBottom: '8px',
+                lineHeight: '1.5',
+              }}>
+                Enter your credentials to access your account.
+              </p>
+              <p style={{
+                color: '#94a3b8',
+                fontSize: '11px',
+                fontWeight: 400,
+                marginTop: '0',
+                marginBottom: '0',
+                lineHeight: '1.4',
+              }}>
+                Smart Tracking • Secure Access
+              </p>
+            </div>
+
+            {error && (
+              <div style={{
+                background: '#fef2f2',
+                color: '#dc2626',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                marginBottom: '24px',
+                fontSize: '11px',
+                fontWeight: 500,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                border: '1px solid #fecaca',
+              }}>
+                <i className="fas fa-exclamation-circle" style={{ fontSize: '14px' }}></i>
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+              {/* Username Field */}
+              <div style={{ marginBottom: '22px' }}>
+                <div style={{ position: 'relative' }}>
+                    <span style={{
+                      position: 'absolute',
+                      left: '14px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#2974e9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 1,
+                      pointerEvents: 'none',
+                    }}>
+                      <i className="fas fa-user" style={{ fontSize: '16px' }}></i>
+                    </span>
+                  <input
+                    type="text"
+                    name="LoginName"
+                    value={formData.LoginName}
+                    onChange={handleChange}
+                    required
+                    placeholder="Enter your email"
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px 12px 44px',
+                      fontSize: '12px',
+                      color: '#1e293b',
+                      background: 'white',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      fontWeight: 400,
+                      transition: 'all 0.2s',
+                      fontFamily: 'Inter, Poppins, sans-serif',
+                      boxSizing: 'border-box',
+                      outline: 'none',
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Password Field */}
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ position: 'relative' }}>
+                  <span style={{
+                    position: 'absolute',
+                    left: '14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#2974e9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1,
+                    pointerEvents: 'none',
+                  }}>
+                    <i className="fas fa-lock" style={{ fontSize: '16px' }}></i>
+                  </span>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    name="Password"
+                    value={formData.Password}
+                    onChange={handleChange}
+                    required
+                    placeholder="Enter your password"
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px 12px 44px',
+                      fontSize: '12px',
+                      color: '#1e293b',
+                      background: 'white',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      fontWeight: 400,
+                      transition: 'all 0.2s',
+                      fontFamily: 'Inter, Poppins, sans-serif',
+                      boxSizing: 'border-box',
+                      outline: 'none',
+                    }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#2974e9';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(41, 116, 233, 0.1)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      style={{
+                        position: 'absolute',
+                        right: '14px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: '#64748b',
+                        cursor: 'pointer',
+                        padding: '4px 6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1,
+                        minWidth: '24px',
+                        minHeight: '24px',
+                      }}
+                    >
+                      <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`} style={{ fontSize: '16px' }}></i>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sign In Button */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    background: 'linear-gradient(90deg, #2974e9 0%, #60a5fa 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.7 : 1,
+                    transition: 'all 0.2s',
+                    fontFamily: 'Inter, Poppins, sans-serif',
+                    marginBottom: '22px',
+                  }}
+                  onMouseOver={(e) => {
+                    if (!loading) {
+                      e.target.style.background = 'linear-gradient(90deg, #1e5fc7 0%, #2974e9 100%)';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (!loading) {
+                      e.target.style.background = 'linear-gradient(90deg, #2974e9 0%, #60a5fa 100%)';
+                    }
+                  }}
+                >
+                {loading ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: '16px', height: '16px', borderWidth: '2px' }}></span>
+                    <span>Signing in...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-sign-in-alt" style={{ fontSize: '14px' }}></i>
+                    <span>Login</span>
+                  </>
+                )}
+              </button>
+
+              {/* Forgot Password Link */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '11px',
+                fontFamily: 'Inter, Poppins, sans-serif',
+                gap: '4px',
+                marginBottom: '20px',
+              }}>
+                <span style={{ color: '#64748b', fontWeight: 400 }}>
+                  Forgot your password?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigate('/forgot-password')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2974e9',
+                    fontWeight: 600,
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    outline: 'none',
+                    transition: 'color 0.2s',
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.color = '#1e5fc7';
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.color = '#2974e9';
+                  }}
+                >
+                  Reset Password
+                </button>
+              </div>
+
+              {/* Register Link */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: '20px',
+                fontSize: '11px',
+                fontFamily: 'Inter, Poppins, sans-serif',
+                gap: '4px',
+                paddingTop: '20px',
+                borderTop: '1px solid rgba(226, 232, 240, 0.6)',
+              }}>
+                <span style={{ color: '#64748b', fontWeight: 400 }}>
+                  Don't have an account?
+                </span>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/register')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2974e9',
+                      fontWeight: 600,
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: 0,
+                      outline: 'none',
+                      transition: 'color 0.2s',
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.color = '#1e5fc7';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.color = '#2974e9';
+                    }}
+                  >
+                    <i className="fas fa-user-plus" style={{ fontSize: '14px' }}></i>
+                    <span>Register</span>
+                  </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Right: Info Cards Section */}
+          <div className="login-info-card" style={{
+            flex: '1',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(248, 250, 252, 0.65)',
+            backdropFilter: 'blur(20px) saturate(150%)',
+            WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+            borderRadius: '20px',
+            padding: '32px 24px',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            maxWidth: '400px',
+            height: '520px',
+            overflow: 'hidden',
+          }}>
             <div
               style={{
                 width: '100%',
+                maxWidth: 400,
                 display: 'flex',
                 flexDirection: 'column',
+                justifyContent: 'space-between',
                 alignItems: 'center',
                 transition: 'all 0.4s',
-                opacity: animating ? 0 : 1,
-                transform: animating ? 'translateY(30px)' : 'translateY(0)',
-                pointerEvents: animating ? 'none' : 'auto',
+                minHeight: 'auto',
+                height: '100%',
               }}
             >
-              <img
-                src={infoSlides[slide].img}
-                alt={infoSlides[slide].title}
-                style={{ width: 150, height: 150, objectFit: 'contain', borderRadius: 22, marginBottom: 32 }}
-              />
-              <h2 style={{
-                fontFamily: 'Inter, Poppins, sans-serif',
-                fontWeight: 700,
-                fontSize: 22,
-                color: '#232a36',
-                letterSpacing: '-0.01em',
-                marginBottom: 16,
-                textAlign: 'left',
-                width: '100%',
-                maxWidth: 320,
-              }}>{infoSlides[slide].title}</h2>
-              <p style={{
-                fontFamily: 'Inter, Poppins, sans-serif',
-                fontWeight: 400,
-                fontSize: 15,
-                color: '#64748b',
-                marginBottom: 0,
-                lineHeight: 1.7,
-                letterSpacing: '-0.01em',
-                textAlign: 'left',
-                width: '100%',
-                maxWidth: 320,
-                overflow: 'hidden',
-                display: '-webkit-box',
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: 'vertical',
-              }}>{infoSlides[slide].desc}</p>
+              <div
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  transition: 'all 0.4s',
+                  opacity: animating ? 0 : 1,
+                  transform: animating ? 'translateY(30px)' : 'translateY(0)',
+                  pointerEvents: animating ? 'none' : 'auto',
+                  flex: 1,
+                }}
+              >
+                <img
+                  src={infoSlides[slide].img}
+                  alt={infoSlides[slide].title}
+                  className="login-info-image"
+                  style={{ 
+                    width: '150px', 
+                    height: '150px', 
+                    objectFit: 'contain', 
+                    borderRadius: '16px', 
+                    marginBottom: '28px',
+                  }}
+                />
+                <h2 className="login-info-title" style={{
+                  fontFamily: 'Inter, Poppins, sans-serif',
+                  fontWeight: 700,
+                  fontSize: '22px',
+                  color: '#1e293b',
+                  letterSpacing: '-0.01em',
+                  marginBottom: '16px',
+                  textAlign: 'center',
+                  width: '100%',
+                }}>{infoSlides[slide].title}</h2>
+                <p className="login-info-text" style={{
+                  fontFamily: 'Inter, Poppins, sans-serif',
+                  fontWeight: 400,
+                  fontSize: '13px',
+                  color: '#64748b',
+                  marginBottom: '20px',
+                  lineHeight: 1.7,
+                  letterSpacing: '-0.01em',
+                  textAlign: 'center',
+                  width: '100%',
+                }}>{infoSlides[slide].desc}</p>
+                
+                {/* Additional Features List */}
+                <div style={{
+                  width: '100%',
+                  marginTop: '8px',
+                  marginBottom: '24px',
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'nowrap',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '16px',
+                    width: '100%',
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      background: 'rgba(41, 116, 233, 0.1)',
+                      borderRadius: '8px',
+                      fontSize: '10px',
+                      color: '#2974e9',
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}>
+                      <i className="fas fa-sync-alt" style={{ fontSize: '9px' }}></i>
+                      <span>Real-time Sync</span>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      background: 'rgba(41, 116, 233, 0.1)',
+                      borderRadius: '8px',
+                      fontSize: '10px',
+                      color: '#2974e9',
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}>
+                      <i className="fas fa-chart-line" style={{ fontSize: '9px' }}></i>
+                      <span>Analytics</span>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      background: 'rgba(41, 116, 233, 0.1)',
+                      borderRadius: '8px',
+                      fontSize: '10px',
+                      color: '#2974e9',
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}>
+                      <i className="fas fa-shield-alt" style={{ fontSize: '9px' }}></i>
+                      <span>Secure</span>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '5px 10px',
+                      background: 'rgba(41, 116, 233, 0.1)',
+                      borderRadius: '8px',
+                      fontSize: '10px',
+                      color: '#2974e9',
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}>
+                      <i className="fas fa-bolt" style={{ fontSize: '9px' }}></i>
+                      <span>Fast</span>
+                    </div>
+                  </div>
+                  
+                  <p style={{
+                    fontFamily: 'Inter, Poppins, sans-serif',
+                    fontWeight: 400,
+                    fontSize: '11px',
+                    color: '#94a3b8',
+                    marginTop: '12px',
+                    marginBottom: 0,
+                    lineHeight: 1.6,
+                    textAlign: 'center',
+                    width: '100%',
+                  }}>
+                    Streamline your operations with advanced RFID technology and seamless integration capabilities.
+                  </p>
+                </div>
+              </div>
+                <a
+                  href={infoSlides[slide].link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="login-info-button"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: 'linear-gradient(90deg, #2974e9 0%, #60a5fa 100%)',
+                    color: '#fff',
+                    borderRadius: '10px',
+                    padding: '12px 32px',
+                    fontWeight: 600,
+                    fontSize: '12px',
+                    textDecoration: 'none',
+                    fontFamily: 'Inter, Poppins, sans-serif',
+                    marginTop: 'auto',
+                    letterSpacing: '-0.01em',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseOver={(e) => {
+                    e.target.style.transform = 'translateY(-1px)';
+                    e.target.style.opacity = '0.9';
+                  }}
+                  onMouseOut={(e) => {
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.opacity = '1';
+                  }}
+                >
+                  <i className="fas fa-arrow-right" style={{ fontSize: '14px' }}></i>
+                  Learn more
+                </a>
             </div>
-            <a
-              href={infoSlides[slide].link}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-block',
-                background: 'linear-gradient(90deg, #2563eb 60%, #38bdf8 100%)',
-                color: '#fff',
-                borderRadius: '24px',
-                padding: '11px 44px',
-                fontWeight: 600,
-                fontSize: 17,
-                textDecoration: 'none',
-                boxShadow: 'none',
-                fontFamily: 'Inter, Poppins, sans-serif',
-                marginTop: 32,
-                letterSpacing: '-0.01em',
-                transition: 'background 0.2s',
-                alignSelf: 'center',
-              }}
-            >
-              Learn more
-            </a>
           </div>
         </div>
       </div>
-      {/* Copyright bar below the card, centered, with background */}
-      <div style={{
-        width: '100vw',
-        background: '#f5f6fa',
-        padding: '18px 0 14px 0',
-        textAlign: 'center',
-        fontSize: '0.97rem',
-        color: '#a0aec0',
-        fontFamily: 'Inter, Poppins, sans-serif',
-        position: 'fixed',
-        left: 0,
-        bottom: 0,
-        zIndex: 100,
-        letterSpacing: 0.1,
-      }}>
-        © 2025, LoyalString Internation Pvt Ltd. All Rights Reserved.
+
+        {/* Copyright Footer */}
+        <footer style={{
+          width: '100%',
+          background: '#f8fafc',
+          padding: '16px 0',
+          textAlign: 'center',
+          fontSize: '10px',
+          color: '#94a3b8',
+          fontFamily: 'Inter, Poppins, sans-serif',
+          letterSpacing: '0.02em',
+          borderTop: '1px solid #e2e8f0',
+        }}>
+          © 2025, LoyalString Internation Pvt Ltd. All Rights Reserved.
+        </footer>
       </div>
-    </div>
+    </>
   );
 };
 

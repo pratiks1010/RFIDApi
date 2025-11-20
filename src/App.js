@@ -8,6 +8,7 @@ import APIDocumentation from './components/APIDocumentation';
 import RFIDIntegration from './components/RFIDIntegration';
 import {
   LabelStockList,
+  Labeling,
   RFIDDeviceDetails,
   RFIDTags,
   TagUsage,
@@ -16,6 +17,7 @@ import {
   RFIDLabel,
   AddStock
 } from './components/inventory/components';
+import CreateLabel from './components/inventory/CreateLabel';
 import CreateInvoice from './components/inventory/CreateInvoice';
 import QuotationNew from './components/quotation/QuotationNew';
 import Footer from './components/Footer';
@@ -475,6 +477,16 @@ const RoutesWrapper = () => {
             }
           />
           <Route
+            path="/labeling"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <Labeling />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/stock"
             element={
               <AuthGuard>
@@ -520,6 +532,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <RFIDLabel />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/create-label"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <CreateLabel />
                 </PageWrapper>
               </AuthGuard>
             }

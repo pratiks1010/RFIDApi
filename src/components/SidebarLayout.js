@@ -97,6 +97,7 @@ const SidebarLayout = ({ children }) => {
   const navigationSection2 = [
     { path: '/stock', icon: HiCube, label: 'Add Stock', color: '#f59e0b' },
     { path: '/label-stock', icon: HiClipboardList, label: 'Label Stock List', color: '#f59e0b' },
+    { path: '/labeling', icon: HiPrinter, label: 'Labeling', color: '#667eea' },
     { path: '/create-invoice', icon: HiReceiptTax, label: 'Create Invoice', color: '#22c55e' },
     { path: '/quotation', icon: HiDocument, label: 'Create Quotation', color: '#ec4899' },
     { path: '/rfid-label', icon: HiPrinter, label: 'Create PRN Label', color: '#667eea' },

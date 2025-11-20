@@ -1,4 +1,5 @@
 export { default as LabelStockList } from './LabelStockList';
+export { default as Labeling } from './Labeling';
 export { default as RFIDDeviceDetails } from './RFIDDeviceDetails';
 export { default as RFIDTags } from './RFIDTags';
 export { default as TagUsage } from './TagUsage';

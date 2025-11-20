@@ -17,7 +17,6 @@ import {
   FaBoxes,
   FaSearch,
   FaTachometerAlt,
-  FaDollarSign,
   FaShoppingCart,
   FaBuilding,
   FaUsers,
@@ -253,9 +252,10 @@ const DashboardAnalytics = () => {
     }, {});
     const statusColors = {
       'Active': '#22c55e', // green
+      'ApiActive': '#3b82f6', // blue
       'Sold': '#ef4444',   // red
       'Inactive': '#64748b',
-      'Pending': '#0077d4',
+      'Pending': '#f59e0b', // orange
     };
     const labels = Object.keys(statusCounts);
     return {
@@ -263,9 +263,13 @@ const DashboardAnalytics = () => {
       datasets: [{
         label: t('analytics.itemsCount'),
         data: Object.values(statusCounts),
-        backgroundColor: labels.map(label => statusColors[label] || '#0077d4'),
-        borderColor: labels.map(label => statusColors[label] || '#0077d4'),
-        borderWidth: 1,
+        backgroundColor: labels.map(label => {
+          const color = statusColors[label] || '#3b82f6';
+          // Create gradient effect
+          return color;
+        }),
+        borderColor: labels.map(label => statusColors[label] || '#3b82f6'),
+        borderWidth: 2,
         borderRadius: {
           topLeft: 8,
           topRight: 8,
@@ -1598,13 +1602,17 @@ const DashboardAnalytics = () => {
         </div>
       )}
 
-      {/* Compact Summary Cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '12px',
-        marginBottom: '20px'
-      }}>
+      {/* Compact Summary Cards - Responsive Grid */}
+      <div 
+        className="metrics-cards-grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(6, 1fr)',
+          gap: '16px',
+          marginBottom: '20px',
+          width: '100%'
+        }}
+      >
         {[
           { 
             icon: FaGem, 
@@ -1623,13 +1631,14 @@ const DashboardAnalytics = () => {
             color: '#10b981'
           },
           { 
-            icon: FaDollarSign, 
+            icon: null, // Custom rupee icon
             label: t('analytics.modal.totalValue'), 
             value: totalValue,
             suffix: '',
             decimals: 0,
             prefix: '₹',
-            color: '#f59e0b'
+            color: '#f59e0b',
+            isRupee: true
           },
           { 
             icon: FaShoppingCart, 
@@ -1657,16 +1666,34 @@ const DashboardAnalytics = () => {
           }
         ].map((card, index) => (
           <div key={index} style={{
-            background: 'white',
-            borderRadius: '6px',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            borderRadius: '12px',
             padding: '16px',
-            border: '1px solid #e5e7eb',
+            border: `2px solid ${card.color}25`,
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: '14px',
             position: 'relative',
-            overflow: 'hidden'
-          }}>
+            overflow: 'hidden',
+            minWidth: 0,
+            width: '100%',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = `0 8px 20px ${card.color}40`;
+            e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)';
+            e.currentTarget.style.borderColor = `${card.color}60`;
+            e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #ffffff 100%)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.08)';
+            e.currentTarget.style.transform = 'translateY(0) scale(1)';
+            e.currentTarget.style.borderColor = `${card.color}25`;
+            e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)';
+          }}
+          >
             {loading && (
               <div style={{
                 position: 'absolute',
@@ -1680,24 +1707,48 @@ const DashboardAnalytics = () => {
               }} />
             )}
             <div style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '6px',
-              background: card.color,
+              width: '48px',
+              height: '48px',
+              borderRadius: '10px',
+              background: `linear-gradient(135deg, ${card.color} 0%, ${card.color}dd 100%)`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              flexShrink: 0
+              flexShrink: 0,
+              boxShadow: `0 4px 12px ${card.color}50`,
+              position: 'relative',
+              overflow: 'hidden'
             }}>
-              <card.icon style={{ color: 'white', fontSize: '18px' }} />
+              {card.isRupee ? (
+                <span style={{
+                  color: 'white',
+                  fontSize: '20px',
+                  fontWeight: '700',
+                  fontFamily: 'Arial, sans-serif',
+                  lineHeight: '1'
+                }}>₹</span>
+              ) : card.icon ? (
+                <card.icon style={{ color: 'white', fontSize: '18px' }} />
+              ) : null}
+              <div style={{
+                position: 'absolute',
+                top: '-50%',
+                right: '-50%',
+                width: '100%',
+                height: '100%',
+                background: `radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)`,
+                pointerEvents: 'none'
+              }} />
           </div>
             
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <h3 style={{
                 fontSize: '18px',
-                fontWeight: '600',
-                color: '#111827',
-                margin: '0 0 2px 0'
+                fontWeight: '700',
+                color: '#0f172a',
+                margin: '0 0 4px 0',
+                lineHeight: '1.2',
+                letterSpacing: '-0.3px'
               }}>
                 {card.prefix || ''}
                 <AnimatedNumber 
@@ -1707,9 +1758,12 @@ const DashboardAnalytics = () => {
                 />
               </h3>
               <p style={{
-                fontSize: '12px',
-                color: '#6b7280',
-                margin: 0
+                fontSize: '11px',
+                color: '#64748b',
+                margin: 0,
+                fontWeight: '500',
+                textTransform: 'uppercase',
+                letterSpacing: '0.3px'
               }}>
                 {card.label}
               </p>
@@ -1727,17 +1781,33 @@ const DashboardAnalytics = () => {
       {/* Compact Charts Grid */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        gridTemplateColumns: 'repeat(4, 1fr)',
         gap: '16px',
-        marginBottom: '20px'
-      }}>
+        marginBottom: '20px',
+        width: '100%'
+      }}
+      className="charts-grid-responsive"
+      >
         {/* Status Distribution Chart */}
         <div style={{
-          background: 'white',
-          borderRadius: '6px',
-          padding: '16px',
-          border: '1px solid #e5e7eb'
-        }}>
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+          borderRadius: '12px',
+          padding: '20px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
+          transition: 'all 0.3s ease',
+          minWidth: 0,
+          width: '100%'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.transform = 'translateY(-2px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+        >
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -1773,18 +1843,31 @@ const DashboardAnalytics = () => {
               <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
           </div>
         </div>
-          <div style={{ height: '200px' }}>
+          <div style={{ height: '240px', position: 'relative' }}>
             <Bar data={getStatusDistribution()} options={chartOptionsWithClick} />
           </div>
           </div>
 
         {/* Category Distribution Chart */}
         <div style={{
-          background: 'white',
-          borderRadius: '6px',
-          padding: '16px',
-          border: '1px solid #e5e7eb'
-        }}>
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+          borderRadius: '12px',
+          padding: '20px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
+          transition: 'all 0.3s ease',
+          minWidth: 0,
+          width: '100%'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.transform = 'translateY(-2px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+        >
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -1820,18 +1903,31 @@ const DashboardAnalytics = () => {
               <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
           </div>
           </div>
-          <div style={{ height: '200px' }}>
+          <div style={{ height: '240px', position: 'relative' }}>
             <Pie data={getCategoryDistribution()} options={pieChartOptions} />
         </div>
       </div>
 
         {/* Branch Distribution Chart */}
         <div style={{
-          background: 'white',
-          borderRadius: '6px',
-          padding: '16px',
-          border: '1px solid #e5e7eb'
-        }}>
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+          borderRadius: '12px',
+          padding: '20px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
+          transition: 'all 0.3s ease',
+          minWidth: 0,
+          width: '100%'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.transform = 'translateY(-2px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+        >
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -1867,18 +1963,31 @@ const DashboardAnalytics = () => {
               <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
               </div>
             </div>
-          <div style={{ height: '200px' }}>
+          <div style={{ height: '240px', position: 'relative' }}>
                 <Bar data={getBranchDistribution()} options={branchChartOptions} />
             </div>
           </div>
 
         {/* Tag Usage Distribution Chart */}
         <div style={{
-          background: 'white',
-          borderRadius: '6px',
-          padding: '16px',
-          border: '1px solid #e5e7eb'
-        }}>
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+          borderRadius: '12px',
+          padding: '20px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
+          transition: 'all 0.3s ease',
+          minWidth: 0,
+          width: '100%'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.transform = 'translateY(-2px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+        >
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -1914,7 +2023,7 @@ const DashboardAnalytics = () => {
               <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
             </div>
           </div>
-          <div style={{ height: '200px', position: 'relative' }}>
+          <div style={{ height: '240px', position: 'relative' }}>
               {tagUsageLoading && !loading && (
               <div style={{
                 position: 'absolute',
@@ -2083,7 +2192,7 @@ const DashboardAnalytics = () => {
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '11px'
+              fontSize: '10px'
             }}>
                 <thead>
                 <tr style={{
@@ -2095,28 +2204,28 @@ const DashboardAnalytics = () => {
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '10px'
                   }}>{t('analytics.rank')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '10px'
                   }}>Product Name</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '10px'
                   }}>{t('analytics.count')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '10px'
                   }}>{t('analytics.share')}</th>
                   </tr>
                 </thead>
@@ -2146,21 +2255,21 @@ const DashboardAnalytics = () => {
                           <td style={{
                             padding: '6px',
                             color: '#6b7280',
-                            fontSize: '11px'
+                            fontSize: '10px'
                           }}>{startIndex + index + 1}</td>
                           <td style={{
                             padding: '6px'
                           }}>
                             <div>
                               <div style={{
-                                fontSize: '11px',
+                                fontSize: '10px',
                                 fontWeight: '500',
                                 color: '#111827'
                               }}>
                                 {name.length > 15 ? name.substring(0, 15) + '...' : name}
                               </div>
                               <div style={{
-                                fontSize: '10px',
+                                fontSize: '9px',
                                 color: '#6b7280'
                               }}>
                                 Product Item
@@ -2169,7 +2278,7 @@ const DashboardAnalytics = () => {
                             </td>
                           <td style={{
                             padding: '6px',
-                            fontSize: '11px',
+                            fontSize: '10px',
                             fontWeight: '600',
                             color: '#111827'
                           }}>
@@ -2284,7 +2393,7 @@ const DashboardAnalytics = () => {
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '11px'
+              fontSize: '10px'
             }}>
                 <thead>
                 <tr style={{
@@ -2454,7 +2563,7 @@ const DashboardAnalytics = () => {
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '11px'
+              fontSize: '10px'
             }}>
                 <thead>
                 <tr style={{
@@ -4568,14 +4677,126 @@ const DashboardAnalytics = () => {
           90% { transform: translate3d(0,-2px,0); }
         }
         
-        /* Responsive Design */
+        /* Metrics Cards Grid Responsive */
+        .metrics-cards-grid {
+          display: grid;
+          grid-template-columns: repeat(6, 1fr);
+          gap: 16px;
+        }
+        
+        @media (max-width: 1600px) {
+          .metrics-cards-grid {
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+          }
+        }
+        
         @media (max-width: 1200px) {
+          .metrics-cards-grid {
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+          }
+          
+          .metrics-cards-grid > div {
+            padding: 16px !important;
+          }
+          
+          .metrics-cards-grid > div > div[style*="width: 48px"] {
+            width: 44px !important;
+            height: 44px !important;
+          }
+          
+          .metrics-cards-grid > div h3 {
+            font-size: 16px !important;
+          }
+          
+          .metrics-cards-grid > div p {
+            font-size: 10px !important;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .metrics-cards-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+          }
+          
+          .metrics-cards-grid > div {
+            padding: 14px !important;
+          }
+          
+          .metrics-cards-grid > div > div[style*="width: 48px"] {
+            width: 40px !important;
+            height: 40px !important;
+          }
+          
+          .metrics-cards-grid > div h3 {
+            font-size: 16px !important;
+          }
+          
+          .metrics-cards-grid > div p {
+            font-size: 10px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .metrics-cards-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
+          
+          .metrics-cards-grid > div {
+            padding: 12px !important;
+          }
+        }
+        
+        /* Responsive Design */
+        .charts-grid-responsive {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 16px;
+        }
+        
+        @media (max-width: 1400px) {
+          .charts-grid-responsive {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+          }
+        }
+        
+        @media (max-width: 1200px) {
+          .charts-grid-responsive {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+          }
+          
+          .charts-grid-responsive > div {
+            padding: 16px;
+          }
+          
+          .charts-grid-responsive > div > div[style*="height: 240px"] {
+            height: 200px !important;
+          }
+          
           .charts-grid {
             grid-template-columns: repeat(2, 1fr);
           }
         }
         
         @media (max-width: 768px) {
+          .charts-grid-responsive {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+          
+          .charts-grid-responsive > div {
+            padding: 14px;
+          }
+          
+          .charts-grid-responsive > div > div[style*="height: 240px"] {
+            height: 180px !important;
+          }
+          
           .charts-grid {
             grid-template-columns: 1fr;
           }
@@ -4586,6 +4807,19 @@ const DashboardAnalytics = () => {
         }
         
         @media (max-width: 480px) {
+          .charts-grid-responsive {
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
+          
+          .charts-grid-responsive > div {
+            padding: 12px;
+          }
+          
+          .charts-grid-responsive > div > div[style*="height: 240px"] {
+            height: 200px !important;
+          }
+          
           .summary-cards {
             grid-template-columns: 1fr;
           }

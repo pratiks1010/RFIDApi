@@ -27,8 +27,6 @@ const AddStock = () => {
   // Single Product Form State
   const [singleProduct, setSingleProduct] = useState({
     client_code: '',
-    branch_id: '',
-    counter_id: '',
     RFIDNumber: '',
     Itemcode: '',
     category_id: '',
@@ -37,7 +35,6 @@ const AddStock = () => {
     purity_id: '',
     grosswt: '',
     stonewt: '',
-    diamondheight: '',
     diamondweight: '',
     netwt: '',
     box_details: '',
@@ -60,13 +57,13 @@ const AddStock = () => {
   const [productTemplate, setProductTemplate] = useState({
     RFIDNumber: '',
     Itemcode: '',
+    quantity: 1, // Quantity for this product
     category_id: '',
     product_id: '',
     design_id: '',
     purity_id: '',
     grosswt: '',
     stonewt: '',
-    diamondheight: '',
     diamondweight: '',
     netwt: '',
     box_details: '',
@@ -79,11 +76,17 @@ const AddStock = () => {
     MakingFixedAmt: '',
     MRP: '',
     imageurl: '',
-    status: 'ApiActive'
+    status: 'ApiActive' // Always ApiActive, non-editable
   });
 
   const [quantity, setQuantity] = useState(1);
   const [showTemplateForm, setShowTemplateForm] = useState(true);
+  
+  // Pagination and search for multiple products
+  const [currentPage, setCurrentPage] = useState(1);
+  const [productsPerPage] = useState(10);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [expandedProducts, setExpandedProducts] = useState(new Set());
 
   // Bulk Upload State
   const [bulkUploadFile, setBulkUploadFile] = useState(null);
@@ -395,7 +398,6 @@ const AddStock = () => {
         purity_id: '',
         grosswt: '0',
         stonewt: '0',
-        diamondheight: '0',
         diamondweight: '0',
         netwt: '0',
         box_details: '',
@@ -417,7 +419,7 @@ const AddStock = () => {
         if (excelColumn && row[excelColumn] !== undefined && row[excelColumn] !== null) {
           const value = row[excelColumn];
           // Handle numeric fields
-          if (['grosswt', 'stonewt', 'diamondheight', 'diamondweight', 'netwt', 'stoneamount', 'diamondAmount', 'HallmarkAmount', 'MakingPerGram', 'MakingPercentage', 'MakingFixedAmt', 'MRP'].includes(fieldKey)) {
+          if (['grosswt', 'stonewt', 'diamondweight', 'netwt', 'stoneamount', 'diamondAmount', 'HallmarkAmount', 'MakingPerGram', 'MakingPercentage', 'MakingFixedAmt', 'MRP'].includes(fieldKey)) {
             product[fieldKey] = value !== '' && value !== null && value !== undefined ? String(value) : '0';
           } else if (fieldKey === 'size') {
             product[fieldKey] = value !== '' && value !== null && value !== undefined ? Number(value) : 0;
@@ -498,11 +500,12 @@ const AddStock = () => {
   // Get product ID from product name
   const getProductId = (productName) => {
     if (!productName) return '';
+    // Check ProductName first to match API response
     const product = products.find(p => 
       p.ProductName === productName || 
+      p.productName === productName ||
       p.Name === productName || 
       p.Product === productName ||
-      p.productName === productName ||
       p.name === productName ||
       p.product === productName
     );
@@ -512,11 +515,12 @@ const AddStock = () => {
   // Get design ID from design name
   const getDesignId = (designName) => {
     if (!designName) return '';
+    // Check DesignName first to match API response
     const design = designs.find(d => 
       d.DesignName === designName || 
+      d.designName === designName ||
       d.Name === designName || 
       d.Design === designName ||
-      d.designName === designName ||
       d.name === designName ||
       d.design === designName
     );
@@ -526,11 +530,12 @@ const AddStock = () => {
   // Get purity ID from purity name
   const getPurityId = (purityName) => {
     if (!purityName) return '';
+    // Check PurityName first to match API response
     const purity = purities.find(p => 
       p.PurityName === purityName || 
+      p.purityName === purityName ||
       p.Name === purityName || 
       p.Purity === purityName ||
-      p.purityName === purityName ||
       p.name === purityName ||
       p.purity === purityName
     );
@@ -541,8 +546,6 @@ const AddStock = () => {
   const resetSingleForm = () => {
     setSingleProduct({
       client_code: userInfo?.ClientCode || '',
-      branch_id: '',
-      counter_id: '',
       RFIDNumber: '',
       Itemcode: '',
       category_id: '',
@@ -551,7 +554,6 @@ const AddStock = () => {
       purity_id: '',
       grosswt: '',
       stonewt: '',
-      diamondheight: '',
       diamondweight: '',
       netwt: '',
       box_details: '',
@@ -570,12 +572,34 @@ const AddStock = () => {
 
   // Add products based on quantity
   const handleAddProducts = () => {
-    // Validate shared data (RFID Number and Item Code)
-    if (!sharedData.RFIDNumber || !sharedData.Itemcode) {
+    // Validate required fields in product template
+    if (!productTemplate.RFIDNumber || !productTemplate.Itemcode) {
       addNotification({
         type: 'error',
         title: 'Validation Error',
-        message: 'Please fill RFID Number and Item Code in Common Information section'
+        message: 'Please fill RFID Number and Item Code for this product'
+      });
+      return;
+    }
+
+    // Check for duplicate RFID or Item Code
+    const existingRFIDs = multipleProducts.map(p => p.RFIDNumber);
+    const existingItemCodes = multipleProducts.map(p => p.Itemcode);
+    
+    if (existingRFIDs.includes(productTemplate.RFIDNumber)) {
+      addNotification({
+        type: 'error',
+        title: 'Duplicate RFID',
+        message: 'This RFID Number already exists. Please use a unique RFID Number.'
+      });
+      return;
+    }
+    
+    if (existingItemCodes.includes(productTemplate.Itemcode)) {
+      addNotification({
+        type: 'error',
+        title: 'Duplicate Item Code',
+        message: 'This Item Code already exists. Please use a unique Item Code.'
       });
       return;
     }
@@ -591,7 +615,8 @@ const AddStock = () => {
       return;
     }
 
-    if (quantity < 1 || quantity > 100) {
+    const productQuantity = productTemplate.quantity || 1;
+    if (productQuantity < 1 || productQuantity > 100) {
       addNotification({
         type: 'error',
         title: 'Invalid Quantity',
@@ -600,44 +625,25 @@ const AddStock = () => {
       return;
     }
 
-    // Create products based on quantity
-    const newProducts = Array.from({ length: quantity }, (_, index) => {
-      const baseItemCode = sharedData.Itemcode || '';
-      // Make Item Code unique by appending index if quantity > 1
-      let uniqueItemCode = baseItemCode;
-      if (quantity > 1 && baseItemCode) {
-        // Check if base code already exists in multipleProducts
-        const existingCodes = multipleProducts.map(p => p.Itemcode);
-        let suffix = index + 1;
-        uniqueItemCode = `${baseItemCode}-${suffix}`;
-        
-        // Ensure it's truly unique
-        while (existingCodes.includes(uniqueItemCode)) {
-          suffix++;
-          uniqueItemCode = `${baseItemCode}-${suffix}`;
-        }
-      }
-      
-      return {
+    // Create products based on quantity - each with same RFID and ItemCode but can be edited
+    const newProduct = {
         ...productTemplate,
-        RFIDNumber: sharedData.RFIDNumber,
-        Itemcode: uniqueItemCode
+      quantity: productQuantity
       };
-    });
 
-    setMultipleProducts(prev => [...prev, ...newProducts]);
+    setMultipleProducts(prev => [...prev, newProduct]);
     
     // Reset template form
     setProductTemplate({
       RFIDNumber: '',
       Itemcode: '',
+      quantity: 1,
       category_id: '',
       product_id: '',
       design_id: '',
       purity_id: '',
       grosswt: '',
       stonewt: '',
-      diamondheight: '',
       diamondweight: '',
       netwt: '',
       box_details: '',
@@ -657,8 +663,8 @@ const AddStock = () => {
 
     addNotification({
       type: 'success',
-      title: 'Products Added',
-      message: `${quantity} product(s) added successfully! You can now edit individual products or add more.`
+      title: 'Product Added',
+      message: 'Product added successfully! You can now edit it or add more products.'
     });
   };
 
@@ -670,6 +676,9 @@ const AddStock = () => {
   // Clear all products
   const clearAllProducts = () => {
     setMultipleProducts([]);
+    setSearchTerm('');
+    setCurrentPage(1);
+    setExpandedProducts(new Set());
     setShowTemplateForm(true);
     addNotification({
       type: 'info',
@@ -683,27 +692,72 @@ const AddStock = () => {
     setMultipleProducts(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Calculate net weight: grosswt - stonewt - diamondweight
+  const calculateNetWeight = (grosswt, stonewt, diamondweight) => {
+    const gross = parseFloat(grosswt) || 0;
+    const stone = parseFloat(stonewt) || 0;
+    const diamond = parseFloat(diamondweight) || 0;
+    const net = gross - stone - diamond;
+    return net >= 0 ? net.toFixed(3) : '0';
+  };
+
   // Update single product field
   const updateSingleField = (field, value) => {
-    setSingleProduct(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    // Prevent status from being changed - always keep it as 'ApiActive'
+    if (field === 'status') {
+      return; // Don't allow status changes
+    }
+    
+    setSingleProduct(prev => {
+      const updated = { ...prev, [field]: value };
+      
+      // Auto-calculate net weight when grosswt, stonewt, or diamondweight changes
+      if (field === 'grosswt' || field === 'stonewt' || field === 'diamondweight') {
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
+      }
+      
+      return updated;
+    });
   };
 
   // Update multiple product field
   const updateMultipleField = (index, field, value) => {
-    setMultipleProducts(prev => prev.map((product, i) => 
-      i === index ? { ...product, [field]: value } : product
-    ));
+    // Prevent status from being changed - always keep it as 'ApiActive'
+    if (field === 'status') {
+      return; // Don't allow status changes
+    }
+    
+    setMultipleProducts(prev => prev.map((product, i) => {
+      if (i !== index) return product;
+      
+      const updated = { ...product, [field]: value };
+      
+      // Auto-calculate net weight when grosswt, stonewt, or diamondweight changes
+      if (field === 'grosswt' || field === 'stonewt' || field === 'diamondweight') {
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
+      }
+      
+      return updated;
+    }));
   };
 
   // Update template form field
   const updateTemplateField = (field, value) => {
-    setProductTemplate(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    // Prevent status from being changed - always keep it as 'ApiActive'
+    if (field === 'status') {
+      return; // Don't allow status changes
+    }
+    
+    setProductTemplate(prev => {
+      const updated = { ...prev, [field]: value };
+      
+      // Auto-calculate net weight when grosswt, stonewt, or diamondweight changes
+      if (field === 'grosswt' || field === 'stonewt' || field === 'diamondweight') {
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
+      }
+      
+      return updated;
+    });
   };
 
   // Validate required fields
@@ -731,6 +785,13 @@ const AddStock = () => {
       }
     }
 
+    // Validate net weight: netwt should not be greater than grosswt
+    const grosswt = parseFloat(product.grosswt) || 0;
+    const netwt = parseFloat(product.netwt) || 0;
+    if (grosswt > 0 && netwt > grosswt) {
+      errors.push('Net Weight cannot be greater than Gross Weight');
+    }
+
     return errors;
   };
 
@@ -748,32 +809,33 @@ const AddStock = () => {
 
     setLoading(true);
     try {
+      // Match exact API payload structure from documentation
+      // Send names directly (not IDs) for branch, counter, category, product, design, and purity
       const payload = [{
-        client_code: singleProduct.client_code || userInfo?.ClientCode,
-        branch_id: getBranchId(sharedData.branch_name),
-        counter_id: getCounterId(sharedData.counter_name),
-        RFIDNumber: singleProduct.RFIDNumber,
-        Itemcode: singleProduct.Itemcode,
-        category_id: getCategoryId(singleProduct.category_id),
-        product_id: getProductId(singleProduct.product_id),
-        design_id: getDesignId(singleProduct.design_id) || '',
-        purity_id: getPurityId(singleProduct.purity_id) || '',
-        grosswt: singleProduct.grosswt || '0',
-        stonewt: singleProduct.stonewt || '0',
-        diamondheight: singleProduct.diamondheight || '0',
-        diamondweight: singleProduct.diamondweight || singleProduct.diamondheight || '0',
-        netwt: singleProduct.netwt || '0',
-        box_details: singleProduct.box_details || '',
-        size: singleProduct.size || 0,
-        stoneamount: singleProduct.stoneamount || '0',
-        diamondAmount: singleProduct.diamondAmount || '0',
-        HallmarkAmount: singleProduct.HallmarkAmount || '0',
-        MakingPerGram: singleProduct.MakingPerGram || '0',
-        MakingPercentage: singleProduct.MakingPercentage || '0',
-        MakingFixedAmt: singleProduct.MakingFixedAmt || '0',
-        MRP: singleProduct.MRP || '0',
-        imageurl: singleProduct.imageurl || '',
-        status: singleProduct.status || 'ApiActive'
+        client_code: String(singleProduct.client_code || userInfo?.ClientCode || ''),
+        branch_id: String(sharedData.branch_name || ''),
+        counter_id: String(sharedData.counter_name || ''),
+        RFIDNumber: String(singleProduct.RFIDNumber || ''),
+        Itemcode: String(singleProduct.Itemcode || ''),
+        category_id: String(singleProduct.category_id || ''),
+        product_id: String(singleProduct.product_id || ''),
+        design_id: String(singleProduct.design_id || ''),
+        purity_id: String(singleProduct.purity_id || ''),
+        grosswt: String(singleProduct.grosswt || '0'),
+        stonewt: String(singleProduct.stonewt || '0'),
+        diamondweight: String(singleProduct.diamondweight || '0'),
+        netwt: String(singleProduct.netwt || '0'),
+        box_details: String(singleProduct.box_details || ''),
+        size: Number(singleProduct.size || 0),
+        stoneamount: String(singleProduct.stoneamount || '0'),
+        diamondAmount: String(singleProduct.diamondAmount || '0'),
+        HallmarkAmount: String(singleProduct.HallmarkAmount || '0'),
+        MakingPerGram: String(singleProduct.MakingPerGram || '0'),
+        MakingPercentage: String(singleProduct.MakingPercentage || '0'),
+        MakingFixedAmt: String(singleProduct.MakingFixedAmt || '0'),
+        MRP: String(singleProduct.MRP || '0'),
+        imageurl: String(singleProduct.imageurl || ''),
+        status: String(singleProduct.status || 'ApiActive')
       }];
 
       const response = await axios.post(
@@ -813,35 +875,51 @@ const AddStock = () => {
     multipleProducts.forEach((product, index) => {
       const errors = validateProduct(product, false, multipleProducts);
       if (errors.length > 0) {
-        allErrors.push(`Row ${index + 1}: ${errors.join(', ')}`);
+        allErrors.push(`Product ${index + 1}: ${errors.join(', ')}`);
       } else {
+        const quantity = product.quantity || 1;
+        
+        // If quantity > 1, create multiple entries with unique ItemCodes
+        for (let qtyIndex = 0; qtyIndex < quantity; qtyIndex++) {
+          let itemCode = product.Itemcode || '';
+          let rfidNumber = product.RFIDNumber || '';
+          
+          // If quantity > 1, append suffix to ItemCode to make it unique
+          if (quantity > 1 && qtyIndex > 0) {
+            itemCode = `${product.Itemcode}-${qtyIndex + 1}`;
+            // Optionally append suffix to RFID as well
+            rfidNumber = `${product.RFIDNumber}-${qtyIndex + 1}`;
+          }
+          
+          // Match exact API payload structure - same as single product
+          // Send names directly (not IDs) for branch, counter, category, product, design, and purity
         validProducts.push({
-          client_code: userInfo?.ClientCode || '',
-          branch_id: getBranchId(sharedData.branch_name),
-          counter_id: getCounterId(sharedData.counter_name),
-          RFIDNumber: product.RFIDNumber,
-          Itemcode: product.Itemcode,
-          category_id: getCategoryId(product.category_id),
-          product_id: getProductId(product.product_id),
-          design_id: getDesignId(product.design_id) || '',
-          purity_id: getPurityId(product.purity_id) || '',
-          grosswt: product.grosswt || '0',
-          stonewt: product.stonewt || '0',
-          diamondheight: product.diamondheight || '0',
-          diamondweight: product.diamondweight || product.diamondheight || '0',
-          netwt: product.netwt || '0',
-          box_details: product.box_details || '',
-          size: product.size || 0,
-          stoneamount: product.stoneamount || '0',
-          diamondAmount: product.diamondAmount || '0',
-          HallmarkAmount: product.HallmarkAmount || '0',
-          MakingPerGram: product.MakingPerGram || '0',
-          MakingPercentage: product.MakingPercentage || '0',
-          MakingFixedAmt: product.MakingFixedAmt || '0',
-          MRP: product.MRP || '0',
-          imageurl: product.imageurl || '',
-          status: product.status || 'ApiActive'
+          client_code: String(userInfo?.ClientCode || ''),
+            branch_id: String(sharedData.branch_name || ''), // Shared branch name
+            counter_id: String(sharedData.counter_name || ''), // Shared counter name
+            RFIDNumber: String(rfidNumber),
+            Itemcode: String(itemCode),
+          category_id: String(product.category_id || ''),
+          product_id: String(product.product_id || ''),
+          design_id: String(product.design_id || ''),
+          purity_id: String(product.purity_id || ''),
+          grosswt: String(product.grosswt || '0'),
+          stonewt: String(product.stonewt || '0'),
+          diamondweight: String(product.diamondweight || '0'),
+          netwt: String(product.netwt || '0'),
+          box_details: String(product.box_details || ''),
+          size: Number(product.size || 0),
+          stoneamount: String(product.stoneamount || '0'),
+          diamondAmount: String(product.diamondAmount || '0'),
+          HallmarkAmount: String(product.HallmarkAmount || '0'),
+          MakingPerGram: String(product.MakingPerGram || '0'),
+          MakingPercentage: String(product.MakingPercentage || '0'),
+          MakingFixedAmt: String(product.MakingFixedAmt || '0'),
+          MRP: String(product.MRP || '0'),
+          imageurl: String(product.imageurl || ''),
+          status: String(product.status || 'ApiActive')
         });
+        }
       }
     });
 
@@ -890,7 +968,6 @@ const AddStock = () => {
         purity_id: '',
         grosswt: '',
         stonewt: '',
-        diamondheight: '',
         diamondweight: '',
         netwt: '',
         box_details: '',
@@ -931,7 +1008,6 @@ const AddStock = () => {
       'purity_id': '22CT',
       'grosswt': '20.800',
       'stonewt': '0.500',
-      'diamondheight': '0.250',
       'diamondweight': '0.250',
       'netwt': '19.250',
       'box_details': 'Box A',
@@ -1074,12 +1150,9 @@ const AddStock = () => {
 
       for (let i = 0; i < preview.length; i += chunkSize) {
         const chunk = preview.slice(i, i + chunkSize).map(product => {
-          // Get branch and counter IDs (handle both names and IDs)
+          // Get branch and counter names (send names as strings, not IDs)
           const branchValue = product.branch_id || sharedData.branch_name || '';
           const counterValue = product.counter_id || sharedData.counter_name || '';
-          
-          const branchId = branchValue ? (getBranchId(branchValue) || branchValue) : '';
-          const counterId = counterValue ? (getCounterId(counterValue) || counterValue) : '';
 
           // Ensure product_id is always a valid string (not null, undefined, or number)
           let productIdValue = product.product_id;
@@ -1093,8 +1166,8 @@ const AddStock = () => {
 
           return {
             client_code: String(product.client_code || userInfo?.ClientCode || ''),
-            branch_id: String(branchId || 'string'),
-            counter_id: String(counterId || 'string'),
+            branch_id: String(branchValue || ''), // Send branch name as string, not ID
+            counter_id: String(counterValue || ''), // Send counter name as string, not ID
             RFIDNumber: String(product.RFIDNumber || ''),
             Itemcode: String(product.Itemcode || ''),
             category_id: String(product.category_id || ''), // Send category name as string, not ID
@@ -1103,7 +1176,6 @@ const AddStock = () => {
             purity_id: String(product.purity_id || ''), // Send purity name as string, not ID
             grosswt: String(product.grosswt || '0'),
             stonewt: String(product.stonewt || '0'),
-            diamondheight: String(product.diamondheight || '0'),
             diamondweight: String(product.diamondweight || '0'),
             netwt: String(product.netwt || '0'),
             box_details: String(product.box_details || ''),
@@ -1409,14 +1481,33 @@ const AddStock = () => {
       let errorCount = 0;
 
       for (let i = 0; i < validProducts.length; i += chunkSize) {
+        // Match exact API payload structure from documentation
+        // Send names directly (not IDs) for branch, counter, category, product, design, and purity
         const chunk = validProducts.slice(i, i + chunkSize).map(product => ({
-          ...product,
-          category_id: getCategoryId(product.category_id),
-          product_id: getProductId(product.product_id),
-          design_id: getDesignId(product.design_id) || '',
-          purity_id: getPurityId(product.purity_id) || '',
-          branch_id: getBranchId(product.branch_id || sharedData.branch_name),
-          counter_id: getCounterId(product.counter_id || sharedData.counter_name)
+          client_code: String(product.client_code || userInfo?.ClientCode || ''),
+          branch_id: String(product.branch_id || sharedData.branch_name || ''), // Send branch name as string, not ID
+          counter_id: String(product.counter_id || sharedData.counter_name || ''), // Send counter name as string, not ID
+          RFIDNumber: String(product.RFIDNumber || ''),
+          Itemcode: String(product.Itemcode || ''),
+          category_id: String(product.category_id || ''),
+          product_id: String(product.product_id || ''),
+          design_id: String(product.design_id || ''), // Send design name as string, not ID
+          purity_id: String(product.purity_id || ''),
+          grosswt: String(product.grosswt || '0'),
+          stonewt: String(product.stonewt || '0'),
+          diamondweight: String(product.diamondweight || '0'),
+          netwt: String(product.netwt || '0'),
+          box_details: String(product.box_details || ''),
+          size: Number(product.size || 0),
+          stoneamount: String(product.stoneamount || '0'),
+          diamondAmount: String(product.diamondAmount || '0'),
+          HallmarkAmount: String(product.HallmarkAmount || '0'),
+          MakingPerGram: String(product.MakingPerGram || '0'),
+          MakingPercentage: String(product.MakingPercentage || '0'),
+          MakingFixedAmt: String(product.MakingFixedAmt || '0'),
+          MRP: String(product.MRP || '0'),
+          imageurl: String(product.imageurl || ''),
+          status: String(product.status || 'ApiActive')
         }));
         try {
           const response = await axios.post(
@@ -1472,17 +1563,14 @@ const AddStock = () => {
   const formFields = [
     { key: 'RFIDNumber', label: 'RFID Number', type: 'text', required: true, placeholder: 'e.g., CZ3506' },
     { key: 'Itemcode', label: 'Item Code (Must be Unique)', type: 'text', required: true, placeholder: 'e.g., SAU124' },
-    { key: 'branch_id', label: 'Branch', type: 'text', required: false, placeholder: 'Branch ID or Name' },
-    { key: 'counter_id', label: 'Counter', type: 'text', required: false, placeholder: 'Counter ID or Name' },
     { key: 'category_id', label: 'Category', type: 'select', required: true, options: 'categories' },
     { key: 'product_id', label: 'Product', type: 'select', required: true, options: 'products' },
     { key: 'design_id', label: 'Design', type: 'select', required: false, options: 'designs' },
     { key: 'purity_id', label: 'Purity', type: 'select', required: false, options: 'purities' },
     { key: 'grosswt', label: 'Gross Weight', type: 'number', required: false, placeholder: 'e.g., 20.800', step: '0.001' },
     { key: 'stonewt', label: 'Stone Weight', type: 'number', required: false, placeholder: 'e.g., 0.500', step: '0.001' },
-    { key: 'diamondheight', label: 'Diamond Height', type: 'number', required: false, placeholder: 'e.g., 0.250', step: '0.001' },
     { key: 'diamondweight', label: 'Diamond Weight', type: 'number', required: false, placeholder: 'e.g., 0.250', step: '0.001' },
-    { key: 'netwt', label: 'Net Weight', type: 'number', required: false, placeholder: 'e.g., 19.250', step: '0.001' },
+    { key: 'netwt', label: 'Net Weight', type: 'number', required: false, placeholder: 'Auto-calculated', step: '0.001', readOnly: true },
     { key: 'box_details', label: 'Box Details', type: 'text', required: false, placeholder: 'e.g., Box A' },
     { key: 'size', label: 'Size', type: 'number', required: false, placeholder: 'e.g., 0', step: '1' },
     { key: 'stoneamount', label: 'Stone Amount', type: 'number', required: false, placeholder: 'e.g., 20', step: '0.01' },
@@ -1493,7 +1581,7 @@ const AddStock = () => {
     { key: 'MakingFixedAmt', label: 'Making Fixed Amount', type: 'number', required: false, placeholder: 'e.g., 37', step: '0.01' },
     { key: 'MRP', label: 'MRP', type: 'number', required: false, placeholder: 'e.g., 5000', step: '0.01' },
     { key: 'imageurl', label: 'Image URL', type: 'text', required: false, placeholder: 'Image URL' },
-    { key: 'status', label: 'Status', type: 'select', required: false, options: ['ApiActive', 'Sold'] }
+    { key: 'status', label: 'Status', type: 'select', required: false, options: ['ApiActive'], disabled: true }
   ];
 
   const renderField = (field, value, onChange, isMultiple = false, index = null) => {
@@ -1514,12 +1602,18 @@ const AddStock = () => {
         dataArray = purities;
       }
       
-      // Extract names from data array
+      // Extract names from data array - specific to each type
       dropdownOptions = dataArray.map(item => {
-        return item.CategoryName || item.ProductName || item.DesignName || item.PurityName ||
-               item.Name || item.Category || item.Product || item.Design || item.Purity ||
-               item.categoryName || item.productName || item.designName || item.purityName ||
-               item.name || item.category || item.product || item.design || item.purity || '';
+        if (field.options === 'categories') {
+          return item.CategoryName || item.Name || item.Category || item.categoryName || item.name || item.category || '';
+        } else if (field.options === 'products') {
+          return item.ProductName || item.Name || item.Product || item.productName || item.name || item.product || '';
+        } else if (field.options === 'designs') {
+          return item.DesignName || item.Name || item.Design || item.designName || item.name || item.design || '';
+        } else if (field.options === 'purities') {
+          return item.PurityName || item.Name || item.Purity || item.purityName || item.name || item.purity || '';
+        }
+        return '';
       }).filter(Boolean).sort();
     } else if (Array.isArray(field.options)) {
       dropdownOptions = field.options;
@@ -1543,9 +1637,9 @@ const AddStock = () => {
         {field.type === 'select' ? (
           <select
             id={fieldId}
-            value={value || ''}
-            onChange={(e) => onChange(field.key, e.target.value)}
-            disabled={loadingMasterData && typeof field.options === 'string'}
+            value={field.disabled ? (field.options && field.options[0]) : (value || '')}
+            onChange={(e) => !field.disabled && onChange(field.key, e.target.value)}
+            disabled={field.disabled || (loadingMasterData && typeof field.options === 'string')}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -1555,13 +1649,14 @@ const AddStock = () => {
               outline: 'none',
               transition: 'all 0.2s',
               boxSizing: 'border-box',
-              background: (loadingMasterData && typeof field.options === 'string') ? '#f1f5f9' : '#ffffff',
-              cursor: (loadingMasterData && typeof field.options === 'string') ? 'not-allowed' : 'pointer'
+              background: (field.disabled || (loadingMasterData && typeof field.options === 'string')) ? '#f1f5f9' : '#ffffff',
+              cursor: (field.disabled || (loadingMasterData && typeof field.options === 'string')) ? 'not-allowed' : 'pointer',
+              color: field.disabled ? '#64748b' : '#1e293b'
             }}
-            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            onFocus={(e) => !field.disabled && (e.target.style.borderColor = '#3b82f6')}
+            onBlur={(e) => !field.disabled && (e.target.style.borderColor = '#e2e8f0')}
           >
-            <option value="">Select {field.label}</option>
+            {!field.disabled && <option value="">Select {field.label}</option>}
             {dropdownOptions.map((option, idx) => (
               <option key={idx} value={option}>{option}</option>
             ))}
@@ -1571,10 +1666,11 @@ const AddStock = () => {
             id={fieldId}
             type={field.type}
             value={value || ''}
-            onChange={(e) => onChange(field.key, e.target.value)}
+            onChange={(e) => !field.readOnly && onChange(field.key, e.target.value)}
             placeholder={field.placeholder}
             step={field.step}
             required={field.required}
+            readOnly={field.readOnly}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -1583,10 +1679,13 @@ const AddStock = () => {
               borderRadius: '8px',
               outline: 'none',
               transition: 'all 0.2s',
-              boxSizing: 'border-box'
+              boxSizing: 'border-box',
+              background: field.readOnly ? '#f1f5f9' : '#ffffff',
+              cursor: field.readOnly ? 'not-allowed' : 'text',
+              color: field.readOnly ? '#64748b' : '#1e293b'
             }}
-            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            onFocus={(e) => !field.readOnly && (e.target.style.borderColor = '#3b82f6')}
+            onBlur={(e) => !field.readOnly && (e.target.style.borderColor = '#e2e8f0')}
           />
         )}
       </div>
@@ -1872,9 +1971,124 @@ const AddStock = () => {
             </div>
           </div>
 
-          {/* Product Fields (excluding RFID Number and Item Code as they're in Common Information) */}
+          {/* Product Details Section */}
+          <div style={{ marginBottom: '24px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1e293b', marginBottom: '16px' }}>Product Details</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+              {/* Category Field - Rendered directly like Counter */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                  Category <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  value={singleProduct.category_id}
+                  onChange={(e) => updateSingleField('category_id', e.target.value)}
+                  disabled={loadingMasterData}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '13px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                    cursor: loadingMasterData ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                >
+                  <option value="">Select Category</option>
+                  {categories.map((category, index) => {
+                    const categoryName = category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '';
+                    return (
+                      <option key={index} value={categoryName}>{categoryName}</option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Product Field - Keep using renderField for now */}
+              {formFields.filter(field => field.key === 'product_id').map(field => renderField(field, singleProduct[field.key], updateSingleField))}
+
+              {/* Design Field - Rendered directly like Counter */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                  Design
+                </label>
+                <select
+                  value={singleProduct.design_id}
+                  onChange={(e) => updateSingleField('design_id', e.target.value)}
+                  disabled={loadingMasterData}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '13px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                    cursor: loadingMasterData ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                >
+                  <option value="">Select Design</option>
+                  {designs.map((design, index) => {
+                    const designName = design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '';
+                    return (
+                      <option key={index} value={designName}>{designName}</option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Purity Field - Rendered directly like Counter */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                  Purity
+                </label>
+                <select
+                  value={singleProduct.purity_id}
+                  onChange={(e) => updateSingleField('purity_id', e.target.value)}
+                  disabled={loadingMasterData}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '13px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                    cursor: loadingMasterData ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                >
+                  <option value="">Select Purity</option>
+                  {purities.map((purity, index) => {
+                    const purityName = purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '';
+                    return (
+                      <option key={index} value={purityName}>{purityName}</option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Other Product Fields (excluding RFID Number, Item Code, Category, Product, Design, Purity) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-            {formFields.filter(field => field.key !== 'RFIDNumber' && field.key !== 'Itemcode').map(field => renderField(field, singleProduct[field.key], updateSingleField))}
+            {formFields.filter(field => 
+              field.key !== 'RFIDNumber' && 
+              field.key !== 'Itemcode' && 
+              field.key !== 'category_id' && 
+              field.key !== 'product_id' && 
+              field.key !== 'design_id' && 
+              field.key !== 'purity_id'
+            ).map(field => renderField(field, singleProduct[field.key], updateSingleField))}
           </div>
 
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e5e7eb' }}>
@@ -1993,6 +2207,86 @@ const AddStock = () => {
             </div>
           </div>
 
+          {/* Common Branch and Counter Selection - At the top */}
+            <div style={{
+            marginBottom: '24px',
+            padding: '20px',
+              background: '#f8fafc',
+              borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+            }}>
+            <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+              Common Information (Applied to All Products)
+                </h4>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: '200px', maxWidth: '300px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                  Branch Name
+                    </label>
+                <select
+                  value={sharedData.branch_name}
+                  onChange={(e) => setSharedData(prev => ({ ...prev, branch_name: e.target.value }))}
+                  disabled={loadingBranchesCounters}
+                      style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                        fontSize: '13px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                    background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
+                    cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s',
+                    color: '#1e293b'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                >
+                  <option value="">Select Branch</option>
+                  {branches.map((branch, index) => {
+                    const branchName = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
+                    return (
+                      <option key={index} value={branchName}>{branchName}</option>
+                    );
+                  })}
+                </select>
+                  </div>
+              <div style={{ minWidth: '200px', maxWidth: '300px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                  Counter Name
+                </label>
+                <select
+                  value={sharedData.counter_name}
+                  onChange={(e) => setSharedData(prev => ({ ...prev, counter_name: e.target.value }))}
+                  disabled={loadingBranchesCounters}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '13px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
+                    cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s',
+                    color: '#1e293b'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                >
+                  <option value="">Select Counter</option>
+                  {counters.map((counter, index) => {
+                    const counterName = counter.CounterName || counter.Name || counter.counterName || counter.name || '';
+                    return (
+                      <option key={index} value={counterName}>{counterName}</option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+          </div>
+
           {/* Template Form - Show when adding new products */}
           {showTemplateForm && (
             <div style={{
@@ -2004,33 +2298,8 @@ const AddStock = () => {
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
-                  Product Template
+                  Add New Product
                 </h4>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>
-                      Quantity:
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={quantity}
-                      onChange={(e) => setQuantity(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
-                      style={{
-                        width: '80px',
-                        padding: '8px 12px',
-                        fontSize: '13px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                        outline: 'none',
-                        textAlign: 'center',
-                        fontWeight: 600
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                    />
-                  </div>
                   <button
                     onClick={handleAddProducts}
                     style={{
@@ -2055,30 +2324,29 @@ const AddStock = () => {
                       e.target.style.background = '#10b981';
                     }}
                   >
-                    <FaPlus /> Add Product{quantity > 1 ? `s (${quantity})` : ''}
+                  <FaPlus /> Add Product
                   </button>
-                </div>
               </div>
 
-              {/* Common Information */}
-              <div style={{ marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid #e5e7eb' }}>
-                <h5 style={{ marginBottom: '12px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
-                  Common Information
+              {/* Product Identification - RFID, Item Code, Quantity */}
+              <div style={{ marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #e5e7eb' }}>
+                <h5 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+                  Product Identification
                 </h5>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
                       RFID Number <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
                       type="text"
-                      value={sharedData.RFIDNumber}
-                      onChange={(e) => setSharedData(prev => ({ ...prev, RFIDNumber: e.target.value }))}
+                      value={productTemplate.RFIDNumber}
+                      onChange={(e) => updateTemplateField('RFIDNumber', e.target.value)}
                       placeholder="e.g., CZ3506"
                       required
                       style={{
                         width: '100%',
-                        padding: '8px 12px',
+                        padding: '10px 12px',
                         fontSize: '13px',
                         border: '1px solid #e2e8f0',
                         borderRadius: '8px',
@@ -2096,13 +2364,13 @@ const AddStock = () => {
                     </label>
                     <input
                       type="text"
-                      value={sharedData.Itemcode}
-                      onChange={(e) => setSharedData(prev => ({ ...prev, Itemcode: e.target.value }))}
+                      value={productTemplate.Itemcode}
+                      onChange={(e) => updateTemplateField('Itemcode', e.target.value)}
                       placeholder="e.g., SAU124"
                       required
                       style={{
                         width: '100%',
-                        padding: '8px 12px',
+                        padding: '10px 12px',
                         fontSize: '13px',
                         border: '1px solid #e2e8f0',
                         borderRadius: '8px',
@@ -2116,62 +2384,136 @@ const AddStock = () => {
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
-                      Branch Name
+                      Quantity <span style={{ color: '#ef4444' }}>*</span>
                     </label>
-                    <select
-                      value={sharedData.branch_name}
-                      onChange={(e) => setSharedData(prev => ({ ...prev, branch_name: e.target.value }))}
-                      disabled={loadingBranchesCounters}
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={productTemplate.quantity || 1}
+                      onChange={(e) => updateTemplateField('quantity', Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                      placeholder="1"
+                      required
                       style={{
                         width: '100%',
-                        padding: '8px 12px',
+                        padding: '10px 12px',
                         fontSize: '13px',
                         border: '1px solid #e2e8f0',
                         borderRadius: '8px',
                         outline: 'none',
-                        background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
-                        cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Product Details Section */}
+              <div style={{ marginBottom: '20px' }}>
+                <h5 style={{ marginBottom: '12px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                  Product Details
+                </h5>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+                  {/* Category Field - Rendered directly like Counter */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                      Category <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <select
+                      value={productTemplate.category_id}
+                      onChange={(e) => updateTemplateField('category_id', e.target.value)}
+                      disabled={loadingMasterData}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        fontSize: '13px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                        cursor: loadingMasterData ? 'not-allowed' : 'pointer',
                         transition: 'all 0.2s'
                       }}
                       onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                       onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                     >
-                      <option value="">Select Branch</option>
-                      {branches.map((branch, index) => {
-                        const branchName = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
+                      <option value="">Select Category</option>
+                      {categories.map((category, idx) => {
+                        const categoryName = category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '';
                         return (
-                          <option key={index} value={branchName}>{branchName}</option>
+                          <option key={idx} value={categoryName}>{categoryName}</option>
                         );
                       })}
                     </select>
                   </div>
+
+                  {/* Product Field - Keep using renderField */}
+                  {formFields.filter(field => field.key === 'product_id').map(field => renderField(field, productTemplate[field.key], updateTemplateField))}
+
+                  {/* Design Field - Rendered directly like Counter */}
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
-                      Counter Name
+                      Design
                     </label>
                     <select
-                      value={sharedData.counter_name}
-                      onChange={(e) => setSharedData(prev => ({ ...prev, counter_name: e.target.value }))}
-                      disabled={loadingBranchesCounters}
+                      value={productTemplate.design_id}
+                      onChange={(e) => updateTemplateField('design_id', e.target.value)}
+                      disabled={loadingMasterData}
                       style={{
                         width: '100%',
-                        padding: '8px 12px',
+                        padding: '10px 12px',
                         fontSize: '13px',
                         border: '1px solid #e2e8f0',
                         borderRadius: '8px',
                         outline: 'none',
-                        background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
-                        cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
+                        background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                        cursor: loadingMasterData ? 'not-allowed' : 'pointer',
                         transition: 'all 0.2s'
                       }}
                       onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                       onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                     >
-                      <option value="">Select Counter</option>
-                      {counters.map((counter, index) => {
-                        const counterName = counter.CounterName || counter.Name || counter.counterName || counter.name || '';
+                      <option value="">Select Design</option>
+                      {designs.map((design, idx) => {
+                        const designName = design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '';
                         return (
-                          <option key={index} value={counterName}>{counterName}</option>
+                          <option key={idx} value={designName}>{designName}</option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* Purity Field - Rendered directly like Counter */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                      Purity
+                    </label>
+                    <select
+                      value={productTemplate.purity_id}
+                      onChange={(e) => updateTemplateField('purity_id', e.target.value)}
+                      disabled={loadingMasterData}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        fontSize: '13px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                        cursor: loadingMasterData ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    >
+                      <option value="">Select Purity</option>
+                      {purities.map((purity, idx) => {
+                        const purityName = purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '';
+                        return (
+                          <option key={idx} value={purityName}>{purityName}</option>
                         );
                       })}
                     </select>
@@ -2179,9 +2521,16 @@ const AddStock = () => {
                 </div>
               </div>
 
-              {/* Product Fields Template (excluding RFID Number and Item Code as they're in Common Information) */}
+              {/* Other Product Fields Template (excluding RFID Number, Item Code, Category, Product, Design, Purity) */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
-                {formFields.filter(field => field.key !== 'RFIDNumber' && field.key !== 'Itemcode').map(field => renderField(field, productTemplate[field.key], updateTemplateField))}
+                {formFields.filter(field => 
+                  field.key !== 'RFIDNumber' && 
+                  field.key !== 'Itemcode' && 
+                  field.key !== 'category_id' && 
+                  field.key !== 'product_id' && 
+                  field.key !== 'design_id' && 
+                  field.key !== 'purity_id'
+                ).map(field => renderField(field, productTemplate[field.key], updateTemplateField))}
               </div>
             </div>
           )}
@@ -2189,32 +2538,192 @@ const AddStock = () => {
           {/* Product Rows - Show added products */}
           {multipleProducts.length > 0 && (
             <div style={{ marginBottom: '24px' }}>
-              <h4 style={{ marginBottom: '16px', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                marginBottom: '16px',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
                 Added Products ({multipleProducts.length} {multipleProducts.length === 1 ? 'item' : 'items'})
               </h4>
-              <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-                {multipleProducts.map((product, index) => (
-              <div
-                key={index}
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* Search Input */}
+                  <input
+                    type="text"
+                    placeholder="Search by RFID, Item Code..."
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      width: '250px',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  />
+                  <button
+                    onClick={clearAllProducts}
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      border: '1px solid #ef4444',
+                      background: '#ffffff',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#ef4444';
+                      e.target.style.color = '#ffffff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.color = '#ef4444';
+                    }}
+                  >
+                    <FaTrash /> Clear All
+                  </button>
+                </div>
+              </div>
+
+              {/* Filtered and Paginated Products */}
+              {(() => {
+                // Filter products based on search term
+                const filteredProducts = multipleProducts.filter(product => {
+                  if (!searchTerm) return true;
+                  const search = searchTerm.toLowerCase();
+                  return (
+                    (product.RFIDNumber || '').toLowerCase().includes(search) ||
+                    (product.Itemcode || '').toLowerCase().includes(search) ||
+                    (product.category_id || '').toLowerCase().includes(search) ||
+                    (product.product_id || '').toLowerCase().includes(search)
+                  );
+                });
+
+                // Calculate pagination
+                const totalPages = Math.ceil(filteredProducts.length / productsPerPage);
+                const startIndex = (currentPage - 1) * productsPerPage;
+                const endIndex = startIndex + productsPerPage;
+                const currentProducts = filteredProducts.slice(startIndex, endIndex);
+
+                return (
+                  <>
+                    {filteredProducts.length === 0 ? (
+                      <div style={{
+                        padding: '40px',
+                        textAlign: 'center',
+                        background: '#f8fafc',
+                        borderRadius: '8px',
+                        border: '1px dashed #cbd5e1'
+                      }}>
+                        <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
+                          No products found matching "{searchTerm}"
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ marginBottom: '16px' }}>
+                          {currentProducts.map((product, displayIndex) => {
+                            const actualIndex = multipleProducts.indexOf(product);
+                            const isExpanded = expandedProducts.has(actualIndex);
+                            
+                            return (
+                              <div
+                                key={actualIndex}
                 style={{
-                  marginBottom: '32px',
-                  padding: '24px',
+                                  marginBottom: '16px',
+                                  padding: '16px',
                   border: '2px solid #e5e7eb',
                   borderRadius: '12px',
-                  background: index % 2 === 0 ? '#ffffff' : '#f8fafc',
-                  position: 'relative'
+                                  background: actualIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                                  position: 'relative',
+                                  transition: 'all 0.2s'
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
-                    Product {index + 1}
+                                {/* Compact Header - Always Visible */}
+                                <div 
+                                  style={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between', 
+                                    alignItems: 'center',
+                                    cursor: 'pointer'
+                                  }}
+                                  onClick={() => {
+                                    const newExpanded = new Set(expandedProducts);
+                                    if (isExpanded) {
+                                      newExpanded.delete(actualIndex);
+                                    } else {
+                                      newExpanded.add(actualIndex);
+                                    }
+                                    setExpandedProducts(newExpanded);
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', flex: 1 }}>
+                                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>
+                                      Product {actualIndex + 1}
                   </h4>
+                                    <div style={{ 
+                                      display: 'flex', 
+                                      gap: '12px', 
+                                      flexWrap: 'wrap',
+                                      padding: '6px 12px',
+                                      background: '#f1f5f9',
+                                      borderRadius: '6px'
+                                    }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>RFID:</span>
+                                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>{product.RFIDNumber || 'N/A'}</span>
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Item:</span>
+                                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>{product.Itemcode || 'N/A'}</span>
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Qty:</span>
+                                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#10b981' }}>{product.quantity || 1}</span>
+                                      </div>
+                                      {(product.category_id || product.product_id) && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b' }}>
+                                            {product.category_id || ''} / {product.product_id || ''}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <span style={{ 
+                                      fontSize: '12px', 
+                                      color: '#64748b',
+                                      marginRight: '8px'
+                                    }}>
+                                      {isExpanded ? '▼' : '▶'}
+                                    </span>
                   {multipleProducts.length > 1 && (
                     <button
-                      onClick={() => removeProductRow(index)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          removeProductRow(actualIndex);
+                                        }}
                       style={{
-                        padding: '6px 12px',
-                        fontSize: '12px',
+                                          padding: '4px 8px',
+                                          fontSize: '11px',
                         fontWeight: 600,
                         borderRadius: '6px',
                         border: '1px solid #ef4444',
@@ -2223,7 +2732,7 @@ const AddStock = () => {
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '6px',
+                                          gap: '4px',
                         transition: 'all 0.2s'
                       }}
                       onMouseEnter={(e) => {
@@ -2235,18 +2744,283 @@ const AddStock = () => {
                         e.target.style.color = '#ef4444';
                       }}
                     >
-                      <FaTrash /> Remove
+                                        <FaTrash style={{ fontSize: '10px' }} /> Remove
                     </button>
                   )}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
-                  {formFields.map(field => renderField(field, product[field.key], (field, value) => updateMultipleField(index, field, value), true, index))}
                 </div>
+
+                                {/* Expanded Content - Show when clicked */}
+                                {isExpanded && (
+                                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+                                    {/* Product Identification */}
+                                    <div style={{ marginBottom: '16px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                      <h5 style={{ marginBottom: '10px', fontSize: '11px', fontWeight: 600, color: '#475569' }}>
+                                        Product Identification
+                                      </h5>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
+                                            RFID Number <span style={{ color: '#ef4444' }}>*</span>
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={product.RFIDNumber || ''}
+                                            onChange={(e) => updateMultipleField(actualIndex, 'RFIDNumber', e.target.value)}
+                                            placeholder="e.g., CZ3506"
+                                            required
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              fontSize: '12px',
+                                              border: '1px solid #e2e8f0',
+                                              borderRadius: '6px',
+                                              outline: 'none',
+                                              transition: 'all 0.2s',
+                                              boxSizing: 'border-box'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                          />
               </div>
-                ))}
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
+                                            Item Code <span style={{ color: '#ef4444' }}>*</span>
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={product.Itemcode || ''}
+                                            onChange={(e) => updateMultipleField(actualIndex, 'Itemcode', e.target.value)}
+                                            placeholder="e.g., SAU124"
+                                            required
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              fontSize: '12px',
+                                              border: '1px solid #e2e8f0',
+                                              borderRadius: '6px',
+                                              outline: 'none',
+                                              transition: 'all 0.2s',
+                                              boxSizing: 'border-box'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
+                                            Quantity <span style={{ color: '#ef4444' }}>*</span>
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max="100"
+                                            value={product.quantity || 1}
+                                            onChange={(e) => updateMultipleField(actualIndex, 'quantity', Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                                            placeholder="1"
+                                            required
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              fontSize: '12px',
+                                              border: '1px solid #e2e8f0',
+                                              borderRadius: '6px',
+                                              outline: 'none',
+                                              transition: 'all 0.2s',
+                                              boxSizing: 'border-box'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Product Details Section */}
+                                    <div style={{ marginBottom: '16px' }}>
+                                      <h5 style={{ marginBottom: '10px', fontSize: '11px', fontWeight: 600, color: '#475569' }}>
+                                        Product Details
+                                      </h5>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                                        {/* Category Field */}
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
+                                            Category <span style={{ color: '#ef4444' }}>*</span>
+                                          </label>
+                                          <select
+                                            value={product.category_id || ''}
+                                            onChange={(e) => updateMultipleField(actualIndex, 'category_id', e.target.value)}
+                                            disabled={loadingMasterData}
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              fontSize: '12px',
+                                              border: '1px solid #e2e8f0',
+                                              borderRadius: '6px',
+                                              outline: 'none',
+                                              background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                                              cursor: loadingMasterData ? 'not-allowed' : 'pointer',
+                                              transition: 'all 0.2s'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                          >
+                                            <option value="">Select Category</option>
+                                            {categories.map((category, idx) => {
+                                              const categoryName = category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '';
+                                              return (
+                                                <option key={idx} value={categoryName}>{categoryName}</option>
+                                              );
+                                            })}
+                                          </select>
+                                        </div>
+
+                                        {/* Product Field */}
+                                        {formFields.filter(field => field.key === 'product_id').map(field => renderField(field, product[field.key], (fieldKey, value) => updateMultipleField(actualIndex, fieldKey, value), true, actualIndex))}
+
+                                        {/* Design Field */}
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
+                                            Design
+                                          </label>
+                                          <select
+                                            value={product.design_id || ''}
+                                            onChange={(e) => updateMultipleField(actualIndex, 'design_id', e.target.value)}
+                                            disabled={loadingMasterData}
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              fontSize: '12px',
+                                              border: '1px solid #e2e8f0',
+                                              borderRadius: '6px',
+                                              outline: 'none',
+                                              background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                                              cursor: loadingMasterData ? 'not-allowed' : 'pointer',
+                                              transition: 'all 0.2s'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                          >
+                                            <option value="">Select Design</option>
+                                            {designs.map((design, idx) => {
+                                              const designName = design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '';
+                                              return (
+                                                <option key={idx} value={designName}>{designName}</option>
+                                              );
+                                            })}
+                                          </select>
+                                        </div>
+
+                                        {/* Purity Field */}
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
+                                            Purity
+                                          </label>
+                                          <select
+                                            value={product.purity_id || ''}
+                                            onChange={(e) => updateMultipleField(actualIndex, 'purity_id', e.target.value)}
+                                            disabled={loadingMasterData}
+                                            style={{
+                                              width: '100%',
+                                              padding: '6px 8px',
+                                              fontSize: '12px',
+                                              border: '1px solid #e2e8f0',
+                                              borderRadius: '6px',
+                                              outline: 'none',
+                                              background: loadingMasterData ? '#f1f5f9' : '#ffffff',
+                                              cursor: loadingMasterData ? 'not-allowed' : 'pointer',
+                                              transition: 'all 0.2s'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                          >
+                                            <option value="">Select Purity</option>
+                                            {purities.map((purity, idx) => {
+                                              const purityName = purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '';
+                                              return (
+                                                <option key={idx} value={purityName}>{purityName}</option>
+                                              );
+                                            })}
+                                          </select>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Other Product Fields */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                                      {formFields.filter(field => 
+                                        field.key !== 'category_id' && 
+                                        field.key !== 'product_id' && 
+                                        field.key !== 'design_id' && 
+                                        field.key !== 'purity_id'
+                                      ).map(field => renderField(field, product[field.key], (fieldKey, value) => updateMultipleField(actualIndex, fieldKey, value), true, actualIndex))}
               </div>
             </div>
           )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Pagination Controls */}
+                        {totalPages > 1 && (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginTop: '20px',
+                            padding: '12px',
+                            background: '#f8fafc',
+                            borderRadius: '8px'
+                          }}>
+                            <button
+                              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                              disabled={currentPage === 1}
+                              style={{
+                                padding: '6px 12px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
+                                color: currentPage === 1 ? '#94a3b8' : '#1e293b',
+                                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              Previous
+                            </button>
+                            <span style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>
+                              Page {currentPage} of {totalPages} ({filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'})
+                            </span>
+                            <button
+                              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                              disabled={currentPage === totalPages}
+                              style={{
+                                padding: '6px 12px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
+                                color: currentPage === totalPages ? '#94a3b8' : '#1e293b',
+                                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              Next
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+                
 
           {/* Submit Button */}
           {multipleProducts.length > 0 && (

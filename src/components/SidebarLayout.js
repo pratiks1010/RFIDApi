@@ -91,19 +91,19 @@ const SidebarLayout = ({ children }) => {
     { path: '/analytics', icon: HiChartBar, label: 'Smart Analytics', color: '#10b981' },
     { path: '/dashboard', icon: HiHome, label: 'RFID API Hub', color: '#3b82f6' },
     { path: '/api-documentation', icon: HiBookOpen, label: 'API Integration Guide', color: '#9333ea' },
+    { path: '/rfid-integration', icon: HiLightningBolt, label: 'Quick Integration', color: '#8b5cf6' },
   ];
 
   const navigationSection2 = [
-    { path: '/rfid-integration', icon: HiLightningBolt, label: 'Quick Integration', color: '#8b5cf6' },
-    { path: '/stock', icon: HiCube, label: 'Inventory Manager', color: '#f59e0b' },
-    { path: '/quotation', icon: HiDocument, label: 'Create Quotation', color: '#ec4899' },
-    { path: '/create-invoice', icon: HiReceiptTax, label: 'Create Invoice', color: '#22c55e' },
-    { path: '/create-label', icon: HiPencil, label: 'Label Designer', color: '#06b6d4' },
+    { path: '/stock', icon: HiCube, label: 'Add Stock', color: '#f59e0b' },
     { path: '/label-stock', icon: HiClipboardList, label: 'Label Stock List', color: '#f59e0b' },
+    { path: '/create-invoice', icon: HiReceiptTax, label: 'Create Invoice', color: '#22c55e' },
+    { path: '/quotation', icon: HiDocument, label: 'Create Quotation', color: '#ec4899' },
+    { path: '/rfid-label', icon: HiPrinter, label: 'Create PRN Label', color: '#667eea' },
+    { path: '/create-label', icon: HiPencil, label: 'Create Label', color: '#06b6d4' },
   ];
 
   const navigationSection3 = [
-    { path: '/rfid-label', icon: HiPrinter, label: 'Print Labels', color: '#667eea' },
     { path: '/rfid-devices', icon: HiChip, label: 'Device Manager', color: '#ec4899' },
     { path: '/rfid-tags', icon: HiTag, label: 'Tag Explorer', color: '#ef4444' },
     { path: '/tag-usage', icon: FaTag, label: 'Tag Analytics', color: '#06b6d4' },
@@ -947,8 +947,75 @@ const SidebarLayout = ({ children }) => {
             }} />
 
             {/* Section 2 - Next 6 items */}
-            {navigationSection2.map(({ path, icon: Icon, label, color }) => {
+            {navigationSection2.map(({ path, icon: Icon, label, color, comingSoon }) => {
               const isActive = location.pathname === path;
+              
+              // If coming soon, render as non-clickable div
+              if (comingSoon) {
+                return (
+                  <div
+                    key={path}
+                    className="sidebar-nav-item"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: sidebarCollapsed ? '0' : '10px',
+                      padding: sidebarCollapsed ? '10px' : '8px 14px',
+                      margin: '1px 8px',
+                      borderRadius: '10px',
+                      color: '#94a3b8',
+                      background: 'transparent',
+                      fontWeight: 500,
+                      fontSize: '13px',
+                      transition: 'all 0.2s ease',
+                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                      position: 'relative',
+                      border: '1px solid transparent',
+                      cursor: 'not-allowed',
+                      opacity: 0.6
+                    }}
+                    title={sidebarCollapsed ? label : 'Coming Soon'}
+                  >
+                    <Icon style={{ 
+                      fontSize: '20px', 
+                      color: '#cbd5e1', 
+                      flexShrink: 0
+                    }} />
+                    {!sidebarCollapsed && (
+                      <>
+                        <span style={{ 
+                          whiteSpace: 'nowrap', 
+                          overflow: 'hidden', 
+                          textOverflow: 'ellipsis',
+                          maxWidth: '120px',
+                          display: 'inline-block',
+                          color: '#94a3b8',
+                          letterSpacing: '-0.2px',
+                          flex: 1
+                        }}>
+                          {label}
+                        </span>
+                        <span style={{
+                          fontSize: '9px',
+                          fontWeight: '700',
+                          color: '#ffffff',
+                          background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                          padding: '2px 6px',
+                          borderRadius: '8px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          boxShadow: '0 2px 4px rgba(245, 158, 11, 0.3)',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          Coming Soon
+                        </span>
+                      </>
+                    )}
+                  </div>
+                );
+              }
+              
+              // Regular clickable link
               return (
                 <Link
                   key={path}
@@ -1025,80 +1092,90 @@ const SidebarLayout = ({ children }) => {
             })}
 
             {/* Section 3 - Remaining items */}
-            {navigationSection3.map(({ path, icon: Icon, label, color }) => {
+            {navigationSection3.map(({ path, icon: Icon, label, color }, index) => {
               const isActive = location.pathname === path;
               return (
-                <Link
-                  key={path}
-                  to={path}
-                  onClick={() => isMobile && setMobileMenuOpen(false)}
-                  className="sidebar-nav-item"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: sidebarCollapsed ? '0' : '10px',
-                    padding: sidebarCollapsed ? '10px' : '8px 14px',
-                    margin: '1px 8px',
-                    borderRadius: '10px',
-                    textDecoration: 'none',
-                    color: isActive ? '#1e293b' : '#1e293b',
-                    background: isActive ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` : 'transparent',
-                    fontWeight: isActive ? 700 : 600,
-                    fontSize: '13px',
-                    transition: 'all 0.2s ease',
-                    justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                    position: 'relative',
-                    border: isActive ? `1px solid ${color}40` : '1px solid transparent'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = '#f8fafc';
-                      e.currentTarget.style.borderColor = `${color}30`;
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.borderColor = 'transparent';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }
-                  }}
-                  title={sidebarCollapsed ? label : ''}
-                >
-                  <Icon style={{ 
-                    fontSize: '20px', 
-                    color: isActive ? color : color, 
-                    flexShrink: 0,
-                    filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
-                  }} />
-                  {!sidebarCollapsed && (
-                    <span style={{ 
-                      whiteSpace: 'nowrap', 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis',
-                      maxWidth: '180px',
-                      display: 'inline-block',
-                      color: '#1e293b',
-                      letterSpacing: '-0.2px'
-                    }}>
-                      {label}
-                    </span>
-                  )}
-                  {isActive && (
+                <React.Fragment key={path}>
+                  <Link
+                    to={path}
+                    onClick={() => isMobile && setMobileMenuOpen(false)}
+                    className="sidebar-nav-item"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: sidebarCollapsed ? '0' : '10px',
+                      padding: sidebarCollapsed ? '10px' : '8px 14px',
+                      margin: '1px 8px',
+                      borderRadius: '10px',
+                      textDecoration: 'none',
+                      color: isActive ? '#1e293b' : '#1e293b',
+                      background: isActive ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` : 'transparent',
+                      fontWeight: isActive ? 700 : 600,
+                      fontSize: '13px',
+                      transition: 'all 0.2s ease',
+                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                      position: 'relative',
+                      border: isActive ? `1px solid ${color}40` : '1px solid transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = '#f8fafc';
+                        e.currentTarget.style.borderColor = `${color}30`;
+                        e.currentTarget.style.transform = 'translateX(4px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.borderColor = 'transparent';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                      }
+                    }}
+                    title={sidebarCollapsed ? label : ''}
+                  >
+                    <Icon style={{ 
+                      fontSize: '20px', 
+                      color: isActive ? color : color, 
+                      flexShrink: 0,
+                      filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
+                    }} />
+                    {!sidebarCollapsed && (
+                      <span style={{ 
+                        whiteSpace: 'nowrap', 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis',
+                        maxWidth: '180px',
+                        display: 'inline-block',
+                        color: '#1e293b',
+                        letterSpacing: '-0.2px'
+                      }}>
+                        {label}
+                      </span>
+                    )}
+                    {isActive && (
+                      <div style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        width: '4px',
+                        height: '70%',
+                        background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
+                        borderRadius: '0 3px 3px 0',
+                        boxShadow: `0 2px 6px ${color}40`
+                      }} />
+                    )}
+                  </Link>
+                  {/* Add separator after Print Labels (first item) */}
+                  {index === 0 && (
                     <div style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      width: '4px',
-                      height: '70%',
-                      background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
-                      borderRadius: '0 3px 3px 0',
-                      boxShadow: `0 2px 6px ${color}40`
+                      height: '1px',
+                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
+                      margin: '8px 12px',
+                      opacity: 0.6
                     }} />
                   )}
-                </Link>
+                </React.Fragment>
               );
             })}
           </div>

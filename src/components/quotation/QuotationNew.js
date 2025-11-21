@@ -12,7 +12,8 @@ import {
   FaList,
   FaSearch,
   FaSpinner,
-  FaEdit
+  FaEdit,
+  FaBox
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
@@ -1320,15 +1321,47 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
         flexWrap: 'wrap',
         gap: '10px'
       }}>
-        <h2 style={{ 
-          margin: 0, 
-          fontSize: isSmallScreen ? '14px' : '16px', 
-          fontWeight: 700, 
-          color: '#1e293b',
-          lineHeight: '1.2'
-        }}>
-          Quotation
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2 style={{ 
+            margin: 0, 
+            fontSize: isSmallScreen ? '14px' : '16px', 
+            fontWeight: 700, 
+            color: '#1e293b',
+            lineHeight: '1.2'
+          }}>
+            Quotation
+          </h2>
+          {/* Toggle Button to RFID Tray Quotation */}
+          <button
+            onClick={() => navigate('/quotation-rfid-tray')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              border: '1px solid #627282',
+              borderRadius: '6px',
+              background: '#ffffff',
+              color: '#627282',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            title="Switch to Quotation with RFID Tray"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#627282';
+              e.currentTarget.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#ffffff';
+              e.currentTarget.style.color = '#627282';
+            }}
+          >
+            <FaBox />
+            RFID Tray
+          </button>
+        </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ fontSize: isSmallScreen ? '11px' : '12px', color: '#64748b', fontWeight: 600 }}>Quotation No:</span>
@@ -1601,8 +1634,40 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
               marginBottom: '12px',
               position: 'relative',
               display: 'flex',
-              justifyContent: 'flex-end'
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: '8px'
             }}>
+              {/* Tray Scanning Icon Button */}
+              <button
+                onClick={() => navigate('/quotation-rfid-tray')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '6px 10px',
+                  fontSize: '13px',
+                  border: '1px solid #627282',
+                  borderRadius: '6px',
+                  background: '#ffffff',
+                  color: '#627282',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  minWidth: '40px',
+                  height: '32px'
+                }}
+                title="Quotation with RFID Tray"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#627282';
+                  e.currentTarget.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.color = '#627282';
+                }}
+              >
+                <FaBox />
+              </button>
               <div style={{
                 position: 'relative',
                 display: 'flex',

@@ -95,8 +95,8 @@ const SidebarLayout = ({ children }) => {
   ];
 
   const navigationSection2 = [
-    { path: '/stock', icon: HiCube, label: 'Add Stock', color: '#f59e0b' },
-    { path: '/label-stock', icon: HiClipboardList, label: 'Label Stock List', color: '#f59e0b' },
+    { path: '/stock', icon: HiCube, label: 'Add Stocks', color: '#f59e0b' },
+    { path: '/label-stock', icon: HiClipboardList, label: 'Label List', color: '#f59e0b' },
     { path: '/labeling', icon: HiPrinter, label: 'Labeling', color: '#667eea' },
     { path: '/create-invoice', icon: HiReceiptTax, label: 'Create Invoice', color: '#22c55e' },
     { path: '/quotation', icon: HiDocument, label: 'Create Quotation', color: '#ec4899' },
@@ -105,11 +105,11 @@ const SidebarLayout = ({ children }) => {
   ];
 
   const navigationSection3 = [
-    { path: '/rfid-devices', icon: HiChip, label: 'Device Manager', color: '#ec4899' },
+    { path: '/rfid-devices', icon: HiChip, label: 'Scan to Desktop', color: '#ec4899' },
     { path: '/rfid-tags', icon: HiTag, label: 'Tag Explorer', color: '#ef4444' },
-    { path: '/tag-usage', icon: FaTag, label: 'Tag Analytics', color: '#06b6d4' },
-    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Auditor', color: '#84cc16' },
-    { path: '/upload-rfid', icon: HiCloudUpload, label: 'Bulk Upload', color: '#6366f1' },
+    { path: '/tag-usage', icon: FaTag, label: 'RFID Tags Usage', color: '#06b6d4' },
+    { path: '/stock-verification', icon: HiCheckCircle, label: 'RFID Stock Verification', color: '#84cc16' },
+    { path: '/upload-rfid', icon: HiCloudUpload, label: 'RFID Tags Sheet Upload', color: '#6366f1' },
   ];
 
   // Effects

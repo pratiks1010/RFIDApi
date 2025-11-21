@@ -2956,40 +2956,40 @@ const Labeling = () => {
               </div>
 
               {/* Print Labels Button */}
-              <button 
+            <button 
                 onClick={handlePrintLabel} 
                 disabled={selectedRows.length === 0 || !selectedTemplate}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '8px',
                   border: '1px solid #06b6d4',
-                  background: '#ffffff',
+                background: '#ffffff',
                   color: '#06b6d4',
                   cursor: (selectedRows.length === 0 || !selectedTemplate) ? 'not-allowed' : 'pointer',
                   opacity: (selectedRows.length === 0 || !selectedTemplate) ? 0.5 : 1,
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
                   if (selectedRows.length > 0 && selectedTemplate) {
                     e.target.style.background = '#06b6d4';
-                    e.target.style.color = '#ffffff';
+                e.target.style.color = '#ffffff';
                   }
-                }}
-                onMouseLeave={(e) => {
+              }}
+              onMouseLeave={(e) => {
                   if (selectedRows.length > 0 && selectedTemplate) {
-                    e.target.style.background = '#ffffff';
+                e.target.style.background = '#ffffff';
                     e.target.style.color = '#06b6d4';
                   }
-                }}
-              >
+              }}
+            >
                 <FaPrint />
                 <span>Print Labels</span>
-              </button>
+            </button>
             </div>
 
             {/* Filter Button */}
@@ -3584,17 +3584,20 @@ const Labeling = () => {
                     <input
                       type="checkbox"
                       onChange={(e) => {
+                        e.stopPropagation();
                         if (e.target.checked) {
                           setSelectedRows(currentItems.map(item => item.Id));
                         } else {
                           setSelectedRows([]);
                         }
                       }}
-                      checked={currentItems.length > 0 && selectedRows.length === currentItems.length}
+                      onClick={(e) => e.stopPropagation()}
+                      checked={currentItems.length > 0 && currentItems.length > 0 && selectedRows.length === currentItems.length && currentItems.every(item => selectedRows.includes(item.Id))}
                       style={{
                         cursor: 'pointer',
                         width: '16px',
-                        height: '16px'
+                        height: '16px',
+                        pointerEvents: 'auto'
                       }}
                     />
                   </th>
@@ -3649,30 +3652,40 @@ const Labeling = () => {
                 </tr>
               </thead>
               <tbody>
-                {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item, index) => (
+                {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item, index) => {
+                  const isSelected = selectedRows.includes(item.Id);
+                  return (
                   <tr
                     key={item.Id}
-                    onClick={() => handleRowSelection(item.Id)}
+                    onClick={(e) => {
+                      // Don't trigger row selection if clicking on checkbox or its container
+                      if (e.target.type === 'checkbox' || e.target.closest('td')?.querySelector('input[type="checkbox"]')) {
+                        return;
+                      }
+                      handleRowSelection(item.Id);
+                    }}
                     style={{
                       cursor: 'pointer',
                       borderBottom: '1px solid #e5e7eb',
-                      background: selectedRows.includes(item.Id) 
+                      background: isSelected 
                         ? '#eff6ff' 
                         : index % 2 === 0 
                         ? '#ffffff' 
                         : '#f8fafc',
-                      transition: 'background 0.2s'
+                      transition: 'background-color 0.15s ease'
                     }}
                     onMouseEnter={(e) => {
-                      if (!selectedRows.includes(item.Id)) {
+                      if (!isSelected) {
                         e.currentTarget.style.background = '#f1f5f9';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (!selectedRows.includes(item.Id)) {
+                      if (!isSelected) {
                         e.currentTarget.style.background = index % 2 === 0 
                           ? '#ffffff' 
                           : '#f8fafc';
+                      } else {
+                        e.currentTarget.style.background = '#eff6ff';
                       }
                     }}
                   >
@@ -3680,16 +3693,23 @@ const Labeling = () => {
                       padding: '12px',
                       textAlign: 'center',
                       fontSize: '12px'
-                    }}>
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="checkbox"
                         checked={selectedRows.includes(item.Id)}
-                        onChange={() => handleRowSelection(item.Id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleRowSelection(item.Id);
+                        }}
                         onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         style={{
                           cursor: 'pointer',
                           width: '16px',
-                          height: '16px'
+                          height: '16px',
+                          pointerEvents: 'auto'
                         }}
                       />
                     </td>
@@ -3739,15 +3759,15 @@ const Labeling = () => {
                       fontSize: '12px',
                       textAlign: 'center'
                     }}>
-                        <button 
+                      <button 
                           onClick={(e) => handlePrintSingleLabel(item, e)}
                           disabled={!selectedTemplate || previewLoading}
-                          style={{
+                        style={{
                             padding: '8px 12px',
                             fontSize: '14px',
-                            borderRadius: '6px',
+                          borderRadius: '6px',
                             border: '1px solid #3b82f6',
-                            background: '#ffffff',
+                          background: '#ffffff',
                             color: '#3b82f6',
                             cursor: (!selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer',
                             opacity: (!selectedTemplate || previewLoading) ? 0.5 : 1,
@@ -3757,16 +3777,16 @@ const Labeling = () => {
                             justifyContent: 'center',
                             gap: '6px',
                             margin: '0 auto'
-                          }}
-                          onMouseEnter={(e) => {
+                        }}
+                        onMouseEnter={(e) => {
                             if (selectedTemplate && !previewLoading) {
                               e.target.style.background = '#3b82f6';
-                              e.target.style.color = '#ffffff';
+                          e.target.style.color = '#ffffff';
                             }
-                          }}
-                          onMouseLeave={(e) => {
+                        }}
+                        onMouseLeave={(e) => {
                             if (selectedTemplate && !previewLoading) {
-                              e.target.style.background = '#ffffff';
+                          e.target.style.background = '#ffffff';
                               e.target.style.color = '#3b82f6';
                             }
                           }}
@@ -3777,10 +3797,11 @@ const Labeling = () => {
                           ) : (
                             <FaPrint size={14} />
                           )}
-                        </button>
+                      </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 </tbody>
               </table>
             </div>

@@ -20,6 +20,8 @@ import {
 import CreateLabel from './components/inventory/CreateLabel';
 import CreateInvoice from './components/inventory/CreateInvoice';
 import QuotationNew from './components/quotation/QuotationNew';
+import QuotationWithRFIDTray from './components/quotation/QuotationWithRFIDTray';
+import QuotationList from './components/quotation/QuotationList';
 import Footer from './components/Footer';
 import UploadRFID from './components/UploadRFID';
 import RFIDTransactions from './components/RFIDTransactions';
@@ -502,6 +504,26 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <QuotationNew />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/quotation-rfid-tray"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <QuotationWithRFIDTray />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/quotation_list"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <QuotationList />
                 </PageWrapper>
               </AuthGuard>
             }

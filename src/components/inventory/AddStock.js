@@ -12,10 +12,223 @@ import {
   FaTimesCircle,
   FaExclamationTriangle,
   FaMap,
-  FaColumns
+  FaColumns,
+  FaChevronDown,
+  FaTimes
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
+
+// Searchable Dropdown Component
+const SearchableDropdown = ({ 
+  options = [], 
+  value = '', 
+  onChange, 
+  placeholder = 'Select...', 
+  disabled = false,
+  required = false,
+  label = '',
+  style = {}
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Filter options based on search term
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Get display value
+  const displayValue = value || '';
+
+  // Handle option selection
+  const handleSelect = (option) => {
+    onChange(option);
+    setSearchTerm('');
+    setIsOpen(false);
+  };
+
+  // Handle input change
+  const handleInputChange = (e) => {
+    const newValue = e.target.value;
+    setSearchTerm(newValue);
+    setIsOpen(true);
+    // If user clears the input, clear the selection
+    if (!newValue && value) {
+      onChange('');
+    }
+  };
+
+  // Handle input focus
+  const handleFocus = () => {
+    setIsOpen(true);
+    setSearchTerm(value || '');
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+        setSearchTerm('');
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  // Reset search term when value changes externally
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchTerm('');
+    }
+  }, [value, isOpen]);
+
+  return (
+    <div ref={dropdownRef} style={{ position: 'relative', width: '100%', ...style }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          ref={inputRef}
+          type="text"
+          value={isOpen ? searchTerm : displayValue}
+          onChange={handleInputChange}
+          onFocus={handleFocus}
+          placeholder={!value ? placeholder : ''}
+          disabled={disabled}
+          required={required}
+          style={{
+            width: '100%',
+            padding: '5px 30px 5px 8px',
+            fontSize: '12px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            outline: 'none',
+            transition: 'all 0.2s',
+            boxSizing: 'border-box',
+            background: disabled ? '#f1f5f9' : '#ffffff',
+            cursor: disabled ? 'not-allowed' : 'text',
+            color: disabled ? '#64748b' : '#1e293b',
+            height: '28px',
+            minHeight: '28px'
+          }}
+          onFocus={(e) => {
+            handleFocus();
+            e.target.style.borderColor = '#3b82f6';
+            if (!isOpen) {
+              e.target.select();
+            }
+          }}
+          onBlur={(e) => {
+            e.target.style.borderColor = '#e2e8f0';
+            // Reset search term when closing if no selection was made
+            if (!value) {
+              setSearchTerm('');
+            }
+          }}
+        />
+        <div style={{
+          position: 'absolute',
+          right: '8px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px'
+        }}>
+          {value && !disabled && (
+            <FaTimes
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('');
+                setSearchTerm('');
+              }}
+              style={{
+                cursor: 'pointer',
+                fontSize: '10px',
+                color: '#94a3b8',
+                pointerEvents: 'auto'
+              }}
+            />
+          )}
+          <FaChevronDown
+            style={{
+              fontSize: '10px',
+              color: '#94a3b8',
+              transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s'
+            }}
+          />
+        </div>
+      </div>
+
+      {isOpen && !disabled && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          marginTop: '4px',
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+          zIndex: 1000,
+          maxHeight: '200px',
+          overflowY: 'auto',
+          overflowX: 'hidden'
+        }}>
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((option, index) => (
+              <div
+                key={index}
+                onClick={() => handleSelect(option)}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  color: '#1e293b',
+                  transition: 'background-color 0.15s',
+                  backgroundColor: value === option ? '#eff6ff' : 'transparent',
+                  borderBottom: index < filteredOptions.length - 1 ? '1px solid #f1f5f9' : 'none'
+                }}
+                onMouseEnter={(e) => {
+                  if (value !== option) {
+                    e.target.style.backgroundColor = '#f8fafc';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (value !== option) {
+                    e.target.style.backgroundColor = 'transparent';
+                  }
+                }}
+              >
+                {option}
+              </div>
+            ))
+          ) : (
+            <div style={{
+              padding: '12px',
+              fontSize: '12px',
+              color: '#94a3b8',
+              textAlign: 'center'
+            }}>
+              No options found
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const AddStock = () => {
   const { loading, setLoading } = useLoading();
@@ -1620,47 +1833,29 @@ const AddStock = () => {
     }
     
     return (
-      <div key={field.key} style={{ marginBottom: '16px' }}>
+      <div key={field.key} style={{ marginBottom: '8px' }}>
         <label 
           htmlFor={fieldId}
           style={{
             display: 'block',
-            fontSize: '12px',
+            fontSize: '11px',
             fontWeight: 600,
             color: '#475569',
-            marginBottom: '6px'
+            marginBottom: '3px'
           }}
         >
           {field.label}
           {field.required && <span style={{ color: '#ef4444' }}> *</span>}
         </label>
         {field.type === 'select' ? (
-          <select
-            id={fieldId}
+          <SearchableDropdown
+            options={dropdownOptions}
             value={field.disabled ? (field.options && field.options[0]) : (value || '')}
-            onChange={(e) => !field.disabled && onChange(field.key, e.target.value)}
+            onChange={(val) => !field.disabled && onChange(field.key, val)}
+            placeholder={`Select ${field.label}`}
             disabled={field.disabled || (loadingMasterData && typeof field.options === 'string')}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              fontSize: '13px',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              outline: 'none',
-              transition: 'all 0.2s',
-              boxSizing: 'border-box',
-              background: (field.disabled || (loadingMasterData && typeof field.options === 'string')) ? '#f1f5f9' : '#ffffff',
-              cursor: (field.disabled || (loadingMasterData && typeof field.options === 'string')) ? 'not-allowed' : 'pointer',
-              color: field.disabled ? '#64748b' : '#1e293b'
-            }}
-            onFocus={(e) => !field.disabled && (e.target.style.borderColor = '#3b82f6')}
-            onBlur={(e) => !field.disabled && (e.target.style.borderColor = '#e2e8f0')}
-          >
-            {!field.disabled && <option value="">Select {field.label}</option>}
-            {dropdownOptions.map((option, idx) => (
-              <option key={idx} value={option}>{option}</option>
-            ))}
-          </select>
+            required={field.required}
+          />
         ) : (
           <input
             id={fieldId}
@@ -1673,16 +1868,18 @@ const AddStock = () => {
             readOnly={field.readOnly}
             style={{
               width: '100%',
-              padding: '10px 12px',
-              fontSize: '13px',
+              padding: '5px 8px',
+              fontSize: '12px',
               border: '1px solid #e2e8f0',
-              borderRadius: '8px',
+              borderRadius: '6px',
               outline: 'none',
               transition: 'all 0.2s',
               boxSizing: 'border-box',
               background: field.readOnly ? '#f1f5f9' : '#ffffff',
               cursor: field.readOnly ? 'not-allowed' : 'text',
-              color: field.readOnly ? '#64748b' : '#1e293b'
+              color: field.readOnly ? '#64748b' : '#1e293b',
+              height: '28px',
+              minHeight: '28px'
             }}
             onFocus={(e) => !field.readOnly && (e.target.style.borderColor = '#3b82f6')}
             onBlur={(e) => !field.readOnly && (e.target.style.borderColor = '#e2e8f0')}
@@ -1693,31 +1890,46 @@ const AddStock = () => {
   };
 
   return (
-    <div style={{ padding: '24px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', minHeight: '100vh' }}>
+    <div style={{ padding: '16px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', minHeight: '100vh' }}>
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        .product-details-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 6px;
+        }
+        @media (max-width: 1200px) {
+          .product-details-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+        @media (max-width: 768px) {
+          .product-details-grid {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
       {/* Header with Toggle Buttons */}
       <div style={{
         background: '#ffffff',
         borderRadius: '12px',
-        padding: '20px 24px',
-        marginBottom: '24px',
+        padding: '12px 16px',
+        marginBottom: '16px',
         boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
         border: '1px solid #e5e7eb',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: '20px'
+        gap: '12px'
       }}>
         {/* Left Side - Title */}
         <div>
-          <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#1e293b' }}>Add Stock</h2>
-          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
+          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>Add Stock</h2>
+          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
             Add new RFID transaction details with complete product information
           </p>
         </div>
@@ -1844,22 +2056,22 @@ const AddStock = () => {
         <div style={{
           background: '#ffffff',
           borderRadius: '12px',
-          padding: '32px',
+          padding: '16px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
           border: '1px solid #e5e7eb'
         }}>
-          <h3 style={{ marginTop: 0, marginBottom: '24px', fontSize: '18px', fontWeight: 600, color: '#1e293b' }}>
+          <h3 style={{ marginTop: 0, marginBottom: '12px', fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
             Add Single Product
           </h3>
 
           {/* Shared Fields - Compact */}
-          <div style={{ marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid #e5e7eb' }}>
-            <h4 style={{ marginBottom: '12px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+          <div style={{ marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' }}>
+            <h4 style={{ marginBottom: '6px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
               Common Information
             </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '6px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   RFID Number <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
@@ -1870,10 +2082,10 @@ const AddStock = () => {
                   required
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '13px',
+                    padding: '5px 8px',
+                    fontSize: '12px',
                     border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     outline: 'none',
                     transition: 'all 0.2s',
                     boxSizing: 'border-box'
@@ -1883,7 +2095,7 @@ const AddStock = () => {
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Item Code (Must be Unique) <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
@@ -1894,10 +2106,10 @@ const AddStock = () => {
                   required
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '13px',
+                    padding: '5px 8px',
+                    fontSize: '12px',
                     border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     outline: 'none',
                     transition: 'all 0.2s',
                     boxSizing: 'border-box'
@@ -1907,180 +2119,98 @@ const AddStock = () => {
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Branch Name
                 </label>
-                <select
+                <SearchableDropdown
+                  options={branches.map(branch => branch.BranchName || branch.Name || branch.branchName || branch.name || '').filter(Boolean)}
                   value={sharedData.branch_name}
-                  onChange={(e) => setSharedData(prev => ({ ...prev, branch_name: e.target.value }))}
+                  onChange={(value) => setSharedData(prev => ({ ...prev, branch_name: value }))}
+                  placeholder="Select Branch"
                   disabled={loadingBranchesCounters}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
-                    cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Select Branch</option>
-                  {branches.map((branch, index) => {
-                    const branchName = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
-                    return (
-                      <option key={index} value={branchName}>{branchName}</option>
-                    );
-                  })}
-                </select>
+                />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Counter Name
                 </label>
-                <select
+                <SearchableDropdown
+                  options={counters.map(counter => counter.CounterName || counter.Name || counter.counterName || counter.name || '').filter(Boolean)}
                   value={sharedData.counter_name}
-                  onChange={(e) => setSharedData(prev => ({ ...prev, counter_name: e.target.value }))}
+                  onChange={(value) => setSharedData(prev => ({ ...prev, counter_name: value }))}
+                  placeholder="Select Counter"
                   disabled={loadingBranchesCounters}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
-                    cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Select Counter</option>
-                  {counters.map((counter, index) => {
-                    const counterName = counter.CounterName || counter.Name || counter.counterName || counter.name || '';
-                    return (
-                      <option key={index} value={counterName}>{counterName}</option>
-                    );
-                  })}
-                </select>
+                />
               </div>
             </div>
           </div>
 
           {/* Product Details Section */}
-          <div style={{ marginBottom: '24px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1e293b', marginBottom: '16px' }}>Product Details</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
-              {/* Category Field - Rendered directly like Counter */}
+          <div style={{ marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>Product Details</h3>
+            <div className="product-details-grid">
+              {/* Category Field */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Category <span style={{ color: '#ef4444' }}>*</span>
                 </label>
-                <select
+                <SearchableDropdown
+                  options={categories.map(category => category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '').filter(Boolean)}
                   value={singleProduct.category_id}
-                  onChange={(e) => updateSingleField('category_id', e.target.value)}
+                  onChange={(value) => updateSingleField('category_id', value)}
+                  placeholder="Select Category"
                   disabled={loadingMasterData}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                    cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Select Category</option>
-                  {categories.map((category, index) => {
-                    const categoryName = category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '';
-                    return (
-                      <option key={index} value={categoryName}>{categoryName}</option>
-                    );
-                  })}
-                </select>
+                  required={true}
+                />
               </div>
 
-              {/* Product Field - Keep using renderField for now */}
-              {formFields.filter(field => field.key === 'product_id').map(field => renderField(field, singleProduct[field.key], updateSingleField))}
-
-              {/* Design Field - Rendered directly like Counter */}
+              {/* Product Field */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                  Product <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <SearchableDropdown
+                  options={products.map(product => product.ProductName || product.Name || product.Product || product.productName || product.name || product.product || '').filter(Boolean)}
+                  value={singleProduct.product_id}
+                  onChange={(value) => updateSingleField('product_id', value)}
+                  placeholder="Select Product"
+                  disabled={loadingMasterData}
+                  required={true}
+                />
+              </div>
+
+              {/* Design Field */}
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Design
                 </label>
-                <select
+                <SearchableDropdown
+                  options={designs.map(design => design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '').filter(Boolean)}
                   value={singleProduct.design_id}
-                  onChange={(e) => updateSingleField('design_id', e.target.value)}
+                  onChange={(value) => updateSingleField('design_id', value)}
+                  placeholder="Select Design"
                   disabled={loadingMasterData}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                    cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Select Design</option>
-                  {designs.map((design, index) => {
-                    const designName = design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '';
-                    return (
-                      <option key={index} value={designName}>{designName}</option>
-                    );
-                  })}
-                </select>
+                />
               </div>
 
-              {/* Purity Field - Rendered directly like Counter */}
+              {/* Purity Field */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Purity
                 </label>
-                <select
+                <SearchableDropdown
+                  options={purities.map(purity => purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '').filter(Boolean)}
                   value={singleProduct.purity_id}
-                  onChange={(e) => updateSingleField('purity_id', e.target.value)}
+                  onChange={(value) => updateSingleField('purity_id', value)}
+                  placeholder="Select Purity"
                   disabled={loadingMasterData}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                    cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Select Purity</option>
-                  {purities.map((purity, index) => {
-                    const purityName = purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '';
-                    return (
-                      <option key={index} value={purityName}>{purityName}</option>
-                    );
-                  })}
-                </select>
+                />
               </div>
             </div>
           </div>
 
           {/* Other Product Fields (excluding RFID Number, Item Code, Category, Product, Design, Purity) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '6px', marginBottom: '12px' }}>
             {formFields.filter(field => 
               field.key !== 'RFIDNumber' && 
               field.key !== 'Itemcode' && 
@@ -2091,14 +2221,14 @@ const AddStock = () => {
             ).map(field => renderField(field, singleProduct[field.key], updateSingleField))}
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e5e7eb' }}>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px', paddingTop: '12px', borderTop: '2px solid #e5e7eb' }}>
             <button
               onClick={resetSingleForm}
               style={{
-                padding: '12px 24px',
-                fontSize: '14px',
+                padding: '8px 16px',
+                fontSize: '13px',
                 fontWeight: 600,
-                borderRadius: '8px',
+                borderRadius: '6px',
                 border: '1px solid #e2e8f0',
                 background: '#ffffff',
                 color: '#64748b',
@@ -2112,17 +2242,17 @@ const AddStock = () => {
               onClick={handleSubmitSingle}
               disabled={loading}
               style={{
-                padding: '12px 24px',
-                fontSize: '14px',
+                padding: '8px 16px',
+                fontSize: '13px',
                 fontWeight: 600,
-                borderRadius: '8px',
+                borderRadius: '6px',
                 border: 'none',
                 background: loading ? '#94a3b8' : '#3b82f6',
                 color: '#ffffff',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '6px',
                 transition: 'all 0.2s'
               }}
             >
@@ -2137,12 +2267,12 @@ const AddStock = () => {
         <div style={{
           background: '#ffffff',
           borderRadius: '12px',
-          padding: '32px',
+          padding: '16px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
           border: '1px solid #e5e7eb'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#1e293b' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
               Add Multiple Products ({multipleProducts.length} {multipleProducts.length === 1 ? 'item' : 'items'})
             </h3>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2209,80 +2339,40 @@ const AddStock = () => {
 
           {/* Common Branch and Counter Selection - At the top */}
             <div style={{
-            marginBottom: '24px',
-            padding: '20px',
+            marginBottom: '12px',
+            padding: '12px',
               background: '#f8fafc',
               borderRadius: '12px',
             border: '1px solid #e2e8f0',
             boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
             }}>
-            <h4 style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
               Common Information (Applied to All Products)
                 </h4>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
               <div style={{ minWidth: '200px', maxWidth: '300px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Branch Name
                     </label>
-                <select
+                <SearchableDropdown
+                  options={branches.map(branch => branch.BranchName || branch.Name || branch.branchName || branch.name || '').filter(Boolean)}
                   value={sharedData.branch_name}
-                  onChange={(e) => setSharedData(prev => ({ ...prev, branch_name: e.target.value }))}
+                  onChange={(value) => setSharedData(prev => ({ ...prev, branch_name: value }))}
+                  placeholder="Select Branch"
                   disabled={loadingBranchesCounters}
-                      style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                        fontSize: '13px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                        outline: 'none',
-                    background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
-                    cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    color: '#1e293b'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Select Branch</option>
-                  {branches.map((branch, index) => {
-                    const branchName = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
-                    return (
-                      <option key={index} value={branchName}>{branchName}</option>
-                    );
-                  })}
-                </select>
+                />
                   </div>
               <div style={{ minWidth: '200px', maxWidth: '300px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                   Counter Name
                 </label>
-                <select
+                <SearchableDropdown
+                  options={counters.map(counter => counter.CounterName || counter.Name || counter.counterName || counter.name || '').filter(Boolean)}
                   value={sharedData.counter_name}
-                  onChange={(e) => setSharedData(prev => ({ ...prev, counter_name: e.target.value }))}
+                  onChange={(value) => setSharedData(prev => ({ ...prev, counter_name: value }))}
+                  placeholder="Select Counter"
                   disabled={loadingBranchesCounters}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    background: loadingBranchesCounters ? '#f1f5f9' : '#ffffff',
-                    cursor: loadingBranchesCounters ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    color: '#1e293b'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Select Counter</option>
-                  {counters.map((counter, index) => {
-                    const counterName = counter.CounterName || counter.Name || counter.counterName || counter.name || '';
-                    return (
-                      <option key={index} value={counterName}>{counterName}</option>
-                    );
-                  })}
-                </select>
+                />
               </div>
             </div>
           </div>
@@ -2290,30 +2380,30 @@ const AddStock = () => {
           {/* Template Form - Show when adding new products */}
           {showTemplateForm && (
             <div style={{
-              marginBottom: '32px',
-              padding: '24px',
+              marginBottom: '16px',
+              padding: '16px',
               background: '#f8fafc',
               borderRadius: '12px',
               border: '2px dashed #cbd5e1'
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>
                   Add New Product
                 </h4>
                   <button
                     onClick={handleAddProducts}
                     style={{
-                      padding: '10px 24px',
-                      fontSize: '13px',
+                      padding: '8px 16px',
+                      fontSize: '12px',
                       fontWeight: 600,
-                      borderRadius: '8px',
+                      borderRadius: '6px',
                       border: 'none',
                       background: '#10b981',
                       color: '#ffffff',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
+                      gap: '6px',
                       transition: 'all 0.2s',
                       whiteSpace: 'nowrap'
                     }}
@@ -2329,13 +2419,13 @@ const AddStock = () => {
               </div>
 
               {/* Product Identification - RFID, Item Code, Quantity */}
-              <div style={{ marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #e5e7eb' }}>
-                <h5 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: 600, color: '#475569' }}>
+              <div style={{ marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid #e5e7eb' }}>
+                <h5 style={{ marginBottom: '8px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
                   Product Identification
                 </h5>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                       RFID Number <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
@@ -2346,20 +2436,22 @@ const AddStock = () => {
                       required
                       style={{
                         width: '100%',
-                        padding: '10px 12px',
-                        fontSize: '13px',
+                        padding: '5px 8px',
+                        fontSize: '12px',
                         border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
+                        borderRadius: '6px',
                         outline: 'none',
                         transition: 'all 0.2s',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        height: '28px',
+                        minHeight: '28px'
                       }}
                       onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                       onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                       Item Code (Must be Unique) <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
@@ -2370,20 +2462,22 @@ const AddStock = () => {
                       required
                       style={{
                         width: '100%',
-                        padding: '10px 12px',
-                        fontSize: '13px',
+                        padding: '5px 8px',
+                        fontSize: '12px',
                         border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
+                        borderRadius: '6px',
                         outline: 'none',
                         transition: 'all 0.2s',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        height: '28px',
+                        minHeight: '28px'
                       }}
                       onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                       onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                       Quantity <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
@@ -2396,10 +2490,10 @@ const AddStock = () => {
                       required
                       style={{
                         width: '100%',
-                        padding: '10px 12px',
-                        fontSize: '13px',
+                        padding: '5px 8px',
+                        fontSize: '12px',
                         border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
+                        borderRadius: '6px',
                         outline: 'none',
                         transition: 'all 0.2s',
                         boxSizing: 'border-box'
@@ -2412,117 +2506,73 @@ const AddStock = () => {
               </div>
 
               {/* Product Details Section */}
-              <div style={{ marginBottom: '20px' }}>
-                <h5 style={{ marginBottom: '12px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <h5 style={{ marginBottom: '8px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
                   Product Details
                 </h5>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
-                  {/* Category Field - Rendered directly like Counter */}
+                <div className="product-details-grid">
+                  {/* Category Field */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                       Category <span style={{ color: '#ef4444' }}>*</span>
                     </label>
-                    <select
+                    <SearchableDropdown
+                      options={categories.map(category => category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '').filter(Boolean)}
                       value={productTemplate.category_id}
-                      onChange={(e) => updateTemplateField('category_id', e.target.value)}
+                      onChange={(value) => updateTemplateField('category_id', value)}
+                      placeholder="Select Category"
                       disabled={loadingMasterData}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        fontSize: '13px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                        outline: 'none',
-                        background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                        cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                    >
-                      <option value="">Select Category</option>
-                      {categories.map((category, idx) => {
-                        const categoryName = category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '';
-                        return (
-                          <option key={idx} value={categoryName}>{categoryName}</option>
-                        );
-                      })}
-                    </select>
+                      required={true}
+                    />
                   </div>
 
-                  {/* Product Field - Keep using renderField */}
-                  {formFields.filter(field => field.key === 'product_id').map(field => renderField(field, productTemplate[field.key], updateTemplateField))}
-
-                  {/* Design Field - Rendered directly like Counter */}
+                  {/* Product Field */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                      Product <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <SearchableDropdown
+                      options={products.map(product => product.ProductName || product.Name || product.Product || product.productName || product.name || product.product || '').filter(Boolean)}
+                      value={productTemplate.product_id}
+                      onChange={(value) => updateTemplateField('product_id', value)}
+                      placeholder="Select Product"
+                      disabled={loadingMasterData}
+                      required={true}
+                    />
+                  </div>
+
+                  {/* Design Field */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                       Design
                     </label>
-                    <select
+                    <SearchableDropdown
+                      options={designs.map(design => design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '').filter(Boolean)}
                       value={productTemplate.design_id}
-                      onChange={(e) => updateTemplateField('design_id', e.target.value)}
+                      onChange={(value) => updateTemplateField('design_id', value)}
+                      placeholder="Select Design"
                       disabled={loadingMasterData}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        fontSize: '13px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                        outline: 'none',
-                        background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                        cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                    >
-                      <option value="">Select Design</option>
-                      {designs.map((design, idx) => {
-                        const designName = design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '';
-                        return (
-                          <option key={idx} value={designName}>{designName}</option>
-                        );
-                      })}
-                    </select>
+                    />
                   </div>
 
-                  {/* Purity Field - Rendered directly like Counter */}
+                  {/* Purity Field */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
                       Purity
                     </label>
-                    <select
+                    <SearchableDropdown
+                      options={purities.map(purity => purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '').filter(Boolean)}
                       value={productTemplate.purity_id}
-                      onChange={(e) => updateTemplateField('purity_id', e.target.value)}
+                      onChange={(value) => updateTemplateField('purity_id', value)}
+                      placeholder="Select Purity"
                       disabled={loadingMasterData}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        fontSize: '13px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                        outline: 'none',
-                        background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                        cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                      onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                    >
-                      <option value="">Select Purity</option>
-                      {purities.map((purity, idx) => {
-                        const purityName = purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '';
-                        return (
-                          <option key={idx} value={purityName}>{purityName}</option>
-                        );
-                      })}
-                    </select>
+                    />
                   </div>
                 </div>
               </div>
 
               {/* Other Product Fields Template (excluding RFID Number, Item Code, Category, Product, Design, Purity) */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '6px', marginBottom: '12px' }}>
                 {formFields.filter(field => 
                   field.key !== 'RFIDNumber' && 
                   field.key !== 'Itemcode' && 
@@ -2841,74 +2891,49 @@ const AddStock = () => {
                                       <h5 style={{ marginBottom: '10px', fontSize: '11px', fontWeight: 600, color: '#475569' }}>
                                         Product Details
                                       </h5>
-                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                                      <div className="product-details-grid">
                                         {/* Category Field */}
                                         <div>
                                           <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
                                             Category <span style={{ color: '#ef4444' }}>*</span>
                                           </label>
-                                          <select
+                                          <SearchableDropdown
+                                            options={categories.map(category => category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '').filter(Boolean)}
                                             value={product.category_id || ''}
-                                            onChange={(e) => updateMultipleField(actualIndex, 'category_id', e.target.value)}
+                                            onChange={(value) => updateMultipleField(actualIndex, 'category_id', value)}
+                                            placeholder="Select Category"
                                             disabled={loadingMasterData}
-                                            style={{
-                                              width: '100%',
-                                              padding: '6px 8px',
-                                              fontSize: '12px',
-                                              border: '1px solid #e2e8f0',
-                                              borderRadius: '6px',
-                                              outline: 'none',
-                                              background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                                              cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                                              transition: 'all 0.2s'
-                                            }}
-                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                          >
-                                            <option value="">Select Category</option>
-                                            {categories.map((category, idx) => {
-                                              const categoryName = category.CategoryName || category.Name || category.Category || category.categoryName || category.name || category.category || '';
-                                              return (
-                                                <option key={idx} value={categoryName}>{categoryName}</option>
-                                              );
-                                            })}
-                                          </select>
+                                            required={true}
+                                          />
                                         </div>
 
                                         {/* Product Field */}
-                                        {formFields.filter(field => field.key === 'product_id').map(field => renderField(field, product[field.key], (fieldKey, value) => updateMultipleField(actualIndex, fieldKey, value), true, actualIndex))}
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
+                                            Product <span style={{ color: '#ef4444' }}>*</span>
+                                          </label>
+                                          <SearchableDropdown
+                                            options={products.map(product => product.ProductName || product.Name || product.Product || product.productName || product.name || product.product || '').filter(Boolean)}
+                                            value={product.product_id || ''}
+                                            onChange={(value) => updateMultipleField(actualIndex, 'product_id', value)}
+                                            placeholder="Select Product"
+                                            disabled={loadingMasterData}
+                                            required={true}
+                                          />
+                                        </div>
 
                                         {/* Design Field */}
                                         <div>
                                           <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
                                             Design
                                           </label>
-                                          <select
+                                          <SearchableDropdown
+                                            options={designs.map(design => design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '').filter(Boolean)}
                                             value={product.design_id || ''}
-                                            onChange={(e) => updateMultipleField(actualIndex, 'design_id', e.target.value)}
+                                            onChange={(value) => updateMultipleField(actualIndex, 'design_id', value)}
+                                            placeholder="Select Design"
                                             disabled={loadingMasterData}
-                                            style={{
-                                              width: '100%',
-                                              padding: '6px 8px',
-                                              fontSize: '12px',
-                                              border: '1px solid #e2e8f0',
-                                              borderRadius: '6px',
-                                              outline: 'none',
-                                              background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                                              cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                                              transition: 'all 0.2s'
-                                            }}
-                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                          >
-                                            <option value="">Select Design</option>
-                                            {designs.map((design, idx) => {
-                                              const designName = design.DesignName || design.Name || design.Design || design.designName || design.name || design.design || '';
-                                              return (
-                                                <option key={idx} value={designName}>{designName}</option>
-                                              );
-                                            })}
-                                          </select>
+                                          />
                                         </div>
 
                                         {/* Purity Field */}
@@ -2916,32 +2941,13 @@ const AddStock = () => {
                                           <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>
                                             Purity
                                           </label>
-                                          <select
+                                          <SearchableDropdown
+                                            options={purities.map(purity => purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '').filter(Boolean)}
                                             value={product.purity_id || ''}
-                                            onChange={(e) => updateMultipleField(actualIndex, 'purity_id', e.target.value)}
+                                            onChange={(value) => updateMultipleField(actualIndex, 'purity_id', value)}
+                                            placeholder="Select Purity"
                                             disabled={loadingMasterData}
-                                            style={{
-                                              width: '100%',
-                                              padding: '6px 8px',
-                                              fontSize: '12px',
-                                              border: '1px solid #e2e8f0',
-                                              borderRadius: '6px',
-                                              outline: 'none',
-                                              background: loadingMasterData ? '#f1f5f9' : '#ffffff',
-                                              cursor: loadingMasterData ? 'not-allowed' : 'pointer',
-                                              transition: 'all 0.2s'
-                                            }}
-                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                          >
-                                            <option value="">Select Purity</option>
-                                            {purities.map((purity, idx) => {
-                                              const purityName = purity.PurityName || purity.Name || purity.Purity || purity.purityName || purity.name || purity.purity || '';
-                                              return (
-                                                <option key={idx} value={purityName}>{purityName}</option>
-                                              );
-                                            })}
-                                          </select>
+                                          />
                                         </div>
                                       </div>
                                     </div>

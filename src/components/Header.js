@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   FaHome, 
@@ -119,7 +119,7 @@ const Header = () => {
     };
   }, []);
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     const isCurrentlyFullscreen = !!(
       document.fullscreenElement ||
       document.webkitFullscreenElement ||
@@ -153,7 +153,23 @@ const Header = () => {
         document.msExitFullscreen();
       }
     }
-  };
+  }, []);
+
+  // Keyboard shortcut for fullscreen (Ctrl+F)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Check for Ctrl+F or Cmd+F (Mac) - prevent default browser find behavior
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault(); // Prevent browser's find function
+        toggleFullscreen();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [toggleFullscreen]);
 
   const headerStyles = {
     position: 'fixed',
@@ -442,7 +458,7 @@ const Header = () => {
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            title={isFullscreen ? 'Exit Fullscreen (Ctrl+F)' : 'Enter Fullscreen (Ctrl+F)'}
           >
             {isFullscreen ? (
               <FaCompress style={{ fontSize: '20px', color: '#64748b' }} />

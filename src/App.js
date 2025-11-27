@@ -19,6 +19,8 @@ import {
 } from './components/inventory/components';
 import CreateLabel from './components/inventory/CreateLabel';
 import CreateInvoice from './components/inventory/CreateInvoice';
+import SampleOut from './components/inventory/SampleOut';
+import SampleOutList from './components/inventory/SampleOutList';
 import QuotationNew from './components/quotation/QuotationNew';
 import QuotationWithRFIDTray from './components/quotation/QuotationWithRFIDTray';
 import QuotationList from './components/quotation/QuotationList';
@@ -564,6 +566,26 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <CreateLabel />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/sample-out"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <SampleOut />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/sample-out-list"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <SampleOutList />
                 </PageWrapper>
               </AuthGuard>
             }

@@ -88,6 +88,7 @@ const Labeling = () => {
     productId: 'All', // Store the actual selected value
     categoryId: 'All', // Store the actual selected value
     designId: 'All', // Store the actual selected value
+    purityId: 'All', // Store the actual selected value
     boxName: 'All',
     vendor: 'All',
     branch: 'All',
@@ -118,8 +119,21 @@ const Labeling = () => {
     products: [],
     designs: [],
     categories: [],
+    purities: [],
     counters: [],
     branches: []
+  });
+
+  // State for searchable dropdowns
+  const [dropdownStates, setDropdownStates] = useState({
+    branch: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    counterName: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    boxName: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    categoryId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    productId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    designId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    purityId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    status: { isOpen: false, searchTerm: '', filteredOptions: [] }
   });
 
   // Get userInfo from localStorage
@@ -308,6 +322,7 @@ const Labeling = () => {
         CategoryId: getFilterValueForAPI('categoryId', filterValues.categoryId),
         ProductId: getFilterValueForAPI('productId', filterValues.productId),
         DesignId: getFilterValueForAPI('designId', filterValues.designId),
+        PurityId: getFilterValueForAPI('purityId', filterValues.purityId),
         PageNumber: 1,
         PageSize: 999999, // Large number to get all data
         BranchId: filterValues.branch !== 'All' ? (() => {
@@ -459,12 +474,14 @@ const Labeling = () => {
         productsResponse,
         designsResponse,
         categoriesResponse,
+        puritiesResponse,
         countersResponse,
         branchesResponse
       ] = await Promise.all([
         axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers }),
         axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllDesign', requestBody, { headers }),
         axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllCategory', requestBody, { headers }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllPurity', requestBody, { headers }),
         axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllCounters', requestBody, { headers }),
         axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllBranchMaster', requestBody, { headers })
       ]);
@@ -492,6 +509,7 @@ const Labeling = () => {
         products: normalizeArray(productsResponse.data),
         designs: normalizeArray(designsResponse.data),
         categories: normalizeArray(categoriesResponse.data),
+        purities: normalizeArray(puritiesResponse.data),
         counters: normalizeArray(countersResponse.data),
         branches: normalizeArray(branchesResponse.data)
       };
@@ -502,6 +520,7 @@ const Labeling = () => {
         products: normalizedData.products.length,
         designs: normalizedData.designs.length,
         categories: normalizedData.categories.length,
+        purities: normalizedData.purities.length,
         counters: normalizedData.counters.length,
         branches: normalizedData.branches.length
       });
@@ -521,6 +540,7 @@ const Labeling = () => {
         products: prev.products.length > 0 ? prev.products : [],
         designs: prev.designs.length > 0 ? prev.designs : [],
         categories: prev.categories.length > 0 ? prev.categories : [],
+        purities: prev.purities.length > 0 ? prev.purities : [],
         counters: prev.counters.length > 0 ? prev.counters : [],
         branches: prev.branches.length > 0 ? prev.branches : []
       }));
@@ -586,6 +606,7 @@ const Labeling = () => {
         CategoryId: getFilterValueForAPI('categoryId', safeFilters.categoryId),
         ProductId: getFilterValueForAPI('productId', safeFilters.productId),
         DesignId: getFilterValueForAPI('designId', safeFilters.designId),
+        PurityId: getFilterValueForAPI('purityId', safeFilters.purityId),
         PageNumber: page,
         PageSize: pageSize,
         BranchId: safeFilters.branch !== 'All' && safeFilters.branch ? (() => {
@@ -859,6 +880,304 @@ const Labeling = () => {
   const showSuccessNotification = (title, message) => {
     setSuccessMessage({ title, message });
     setShowSuccess(true);
+  };
+
+  // Helper function to handle dropdown search and filtering
+  const handleDropdownSearch = (field, searchTerm) => {
+    setDropdownStates(prev => {
+      const currentState = prev[field] || { isOpen: false, searchTerm: '', filteredOptions: [] };
+      let filteredOptions = [];
+      
+      if (field === 'branch') {
+        const options = apiFilterData.branches || [];
+        filteredOptions = options.filter(item => {
+          const name = (item.BranchName || item.Name || item.branchName || item.name || '').toLowerCase();
+          return name.includes(searchTerm.toLowerCase());
+        });
+      } else if (field === 'counterName') {
+        const options = apiFilterData.counters || [];
+        filteredOptions = options.filter(item => {
+          const name = (item.CounterName || item.Name || item.counterName || '').toLowerCase();
+          return name.includes(searchTerm.toLowerCase());
+        });
+      } else if (field === 'boxName') {
+        const options = filterOptions.boxNames || [];
+        filteredOptions = options.filter(opt => opt !== 'All' && opt.toLowerCase().includes(searchTerm.toLowerCase()));
+      } else if (field === 'categoryId') {
+        const options = apiFilterData.categories || [];
+        filteredOptions = options.filter(item => {
+          const name = (item.CategoryName || item.Name || item.categoryName || '').toLowerCase();
+          return name.includes(searchTerm.toLowerCase());
+        });
+      } else if (field === 'productId') {
+        const options = apiFilterData.products || [];
+        filteredOptions = options.filter(item => {
+          const name = (item.ProductName || item.Name || item.productName || '').toLowerCase();
+          return name.includes(searchTerm.toLowerCase());
+        });
+      } else if (field === 'designId') {
+        const options = apiFilterData.designs || [];
+        filteredOptions = options.filter(item => {
+          const name = (item.DesignName || item.Name || item.designName || '').toLowerCase();
+          return name.includes(searchTerm.toLowerCase());
+        });
+      } else if (field === 'purityId') {
+        const options = apiFilterData.purities || [];
+        filteredOptions = options.filter(item => {
+          const name = (item.PurityName || item.Name || item.Purity || item.purityName || '').toLowerCase();
+          return name.includes(searchTerm.toLowerCase());
+        });
+      } else if (field === 'status') {
+        const options = filterOptions.statuses || [];
+        filteredOptions = options.filter(opt => opt !== 'All' && opt.toLowerCase().includes(searchTerm.toLowerCase()));
+      }
+      
+      return {
+        ...prev,
+        [field]: {
+          ...currentState,
+          searchTerm,
+          filteredOptions: searchTerm ? filteredOptions : []
+        }
+      };
+    });
+  };
+
+  // Helper function to get display value for dropdown
+  const getDisplayValue = (field, value) => {
+    if (value === 'All' || !value) {
+      if (field === 'branch') return 'All';
+      if (field === 'counterName') return 'All Counters';
+      if (field === 'boxName') return 'All';
+      if (field === 'categoryId') return 'All Categories';
+      if (field === 'productId') return 'All Products';
+      if (field === 'designId') return 'All Designs';
+      if (field === 'purityId') return 'All Purities';
+      if (field === 'status') return 'All';
+      return 'All';
+    }
+    return value;
+  };
+
+  // Helper function to toggle dropdown
+  const toggleDropdown = (field) => {
+    setDropdownStates(prev => ({
+      ...prev,
+      [field]: {
+        ...prev[field],
+        isOpen: !prev[field]?.isOpen,
+        searchTerm: prev[field]?.isOpen ? '' : prev[field]?.searchTerm || ''
+      }
+    }));
+  };
+
+  // Helper function to close all dropdowns
+  const closeAllDropdowns = () => {
+    setDropdownStates(prev => {
+      const updated = {};
+      Object.keys(prev).forEach(key => {
+        updated[key] = { ...prev[key], isOpen: false, searchTerm: '' };
+      });
+      return updated;
+    });
+  };
+
+  // Helper function to render searchable dropdown
+  const renderSearchableDropdown = (field, label, placeholder, options, getOptionValue, getOptionLabel, allLabel) => {
+    const isOpen = dropdownStates[field]?.isOpen || false;
+    const searchTerm = dropdownStates[field]?.searchTerm || '';
+    const filteredOptions = dropdownStates[field]?.filteredOptions || [];
+    const currentValue = filterValues[field] || 'All';
+    let displayValue = allLabel;
+    if (currentValue !== 'All' && currentValue) {
+      // Find the option that matches the current value
+      const selectedOption = allOptions.find(opt => {
+        const optValue = getOptionValue ? getOptionValue(opt) : opt;
+        return optValue === currentValue;
+      });
+      if (selectedOption) {
+        displayValue = getOptionLabel ? getOptionLabel(selectedOption) : (getOptionValue ? getOptionValue(selectedOption) : selectedOption);
+      } else {
+        displayValue = currentValue; // Fallback to raw value if not found
+      }
+    }
+
+    // Get all options for display
+    const allOptions = options || [];
+    const showOptions = searchTerm ? filteredOptions : allOptions;
+
+    return (
+      <div style={{ position: 'relative', width: '100%' }}>
+        <label style={{
+          display: 'block',
+          fontSize: windowWidth <= 768 ? '11px' : '10px',
+          fontWeight: 600,
+          color: '#475569',
+          marginBottom: '6px'
+        }}>{label}</label>
+        <div style={{ position: 'relative' }}>
+          <div
+            onClick={() => {
+              closeAllDropdowns();
+              toggleDropdown(field);
+            }}
+            style={{
+              width: '100%',
+              padding: windowWidth <= 768 ? '10px 12px' : '8px 12px',
+              fontSize: windowWidth <= 768 ? '13px' : '12px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              background: '#ffffff',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              boxSizing: 'border-box',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              minHeight: windowWidth <= 768 ? '42px' : '36px'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#10b981'}
+            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+          >
+            <span style={{ 
+              color: currentValue === 'All' ? '#94a3b8' : '#1e293b',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1
+            }}>
+              {displayValue}
+            </span>
+            <KeyboardArrowDownIcon 
+              style={{ 
+                fontSize: '16px', 
+                color: '#64748b',
+                transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s'
+              }} 
+            />
+          </div>
+          {isOpen && (
+            <>
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: '4px',
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                  zIndex: 10000,
+                  maxHeight: '300px',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+              >
+                <div style={{ padding: '8px', borderBottom: '1px solid #e2e8f0' }}>
+                  <input
+                    type="text"
+                    placeholder={placeholder || `Search ${label.toLowerCase()}...`}
+                    value={searchTerm}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      handleDropdownSearch(field, e.target.value);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    autoFocus
+                  />
+                </div>
+                <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                  <div
+                    onClick={() => {
+                      handleFilterChange(field, 'All');
+                      closeAllDropdowns();
+                    }}
+                    style={{
+                      padding: '10px 12px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      background: currentValue === 'All' ? '#f0fdf4' : '#ffffff',
+                      color: currentValue === 'All' ? '#10b981' : '#1e293b',
+                      fontWeight: currentValue === 'All' ? 600 : 400,
+                      borderBottom: '1px solid #f1f5f9'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (currentValue !== 'All') {
+                        e.currentTarget.style.background = '#f8fafc';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (currentValue !== 'All') {
+                        e.currentTarget.style.background = '#ffffff';
+                      }
+                    }}
+                  >
+                    {allLabel}
+                  </div>
+                  {showOptions.length > 0 ? (
+                    showOptions.map((option, index) => {
+                      const optionValue = getOptionValue ? getOptionValue(option) : option;
+                      const optionLabel = getOptionLabel ? getOptionLabel(option) : option;
+                      const isSelected = currentValue === optionValue;
+                      return (
+                        <div
+                          key={index}
+                          onClick={() => {
+                            handleFilterChange(field, optionValue);
+                            closeAllDropdowns();
+                          }}
+                          style={{
+                            padding: '10px 12px',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            background: isSelected ? '#f0fdf4' : '#ffffff',
+                            color: isSelected ? '#10b981' : '#1e293b',
+                            fontWeight: isSelected ? 600 : 400,
+                            borderBottom: index < showOptions.length - 1 ? '1px solid #f1f5f9' : 'none'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              e.currentTarget.style.background = '#f8fafc';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) {
+                              e.currentTarget.style.background = '#ffffff';
+                            }
+                          }}
+                        >
+                          {optionLabel}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
+                      No results found
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const handleExportToExcel = async () => {
@@ -1289,7 +1608,7 @@ const Labeling = () => {
         fetchAllFilteredData();
       }
     }
-  }, [filterValues.categoryId, filterValues.productId, filterValues.designId, 
+  }, [filterValues.categoryId, filterValues.productId, filterValues.designId, filterValues.purityId,
       filterValues.branch, filterValues.counterName, filterValues.boxName, filterValues.vendor, filterValues.status]);
 
   const handleResetFilters = () => {
@@ -1298,6 +1617,7 @@ const Labeling = () => {
       productId: 'All',
       categoryId: 'All',
       designId: 'All',
+      purityId: 'All',
       boxName: 'All',
       vendor: 'All',
       branch: 'All',
@@ -1306,6 +1626,7 @@ const Labeling = () => {
       dateTo: ''
     };
     setFilterValues(resetFilters);
+    closeAllDropdowns();
     // Reset to first page when resetting filters
     setCurrentPage(1);
     // Show loader immediately
@@ -3132,7 +3453,10 @@ const Labeling = () => {
         <>
           {/* Overlay */}
           <div 
-            onClick={() => setShowFilterPanel(false)}
+            onClick={() => {
+              closeAllDropdowns();
+              setShowFilterPanel(false);
+            }}
             style={{
               position: 'fixed',
               top: 0,
@@ -3210,232 +3534,78 @@ const Labeling = () => {
                   flexDirection: 'column',
                   gap: '16px'
                 }}>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>Branch</label>
-                  <select 
-                    value={filterValues.branch} 
-                    onChange={e => handleFilterChange('branch', e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  >
-                    <option value="All">All</option>
-                    {apiFilterData.branches?.map(branch => (
-                      <option key={branch.Id || branch.id} value={branch.BranchName || branch.Name || branch.branchName || branch.name}>
-                        {branch.BranchName || branch.Name || branch.branchName || branch.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>Counter Name</label>
-                  <select 
-                    value={filterValues.counterName} 
-                    onChange={e => handleFilterChange('counterName', e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  >
-                    <option value="All">All Counters</option>
-                    {apiFilterData.counters?.map(counter => (
-                      <option key={counter.Id || counter.id} value={counter.CounterName || counter.Name || counter.counterName}>
-                        {counter.CounterName || counter.Name || counter.counterName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>Box Name</label>
-                  <select 
-                    value={filterValues.boxName} 
-                    onChange={e => handleFilterChange('boxName', e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  >
-                    {filterOptions.boxNames.map((option, index) => (
-                      <option key={`box-${option}-${index}`} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>Category</label>
-                  <select 
-                    value={filterValues.categoryId} 
-                    onChange={e => handleFilterChange('categoryId', e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  >
-                    <option value="All">All Categories</option>
-                    {apiFilterData.categories.map(category => (
-                      <option key={category.Id} value={category.CategoryName}>{category.CategoryName}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>Product Name</label>
-                  <select 
-                    value={filterValues.productId} 
-                    onChange={e => handleFilterChange('productId', e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  >
-                    <option value="All">All Products</option>
-                    {apiFilterData.products.map(product => (
-                      <option key={product.Id} value={product.ProductName}>{product.ProductName}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>Design</label>
-                  <select 
-                    value={filterValues.designId} 
-                    onChange={e => handleFilterChange('designId', e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  >
-                    <option value="All">All Designs</option>
-                    {apiFilterData.designs.map(design => (
-                      <option key={design.Id} value={design.DesignName}>{design.DesignName}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>Status</label>
-                  <select 
-                    value={filterValues.status}
-                    onChange={e => handleFilterChange('status', e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  >
-                    {filterOptions.statuses.map((option, index) => (
-                      <option key={`status-${option}-${index}`} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
+                {renderSearchableDropdown(
+                  'branch',
+                  'Branch',
+                  'Search branch...',
+                  apiFilterData.branches || [],
+                  (item) => item.BranchName || item.Name || item.branchName || item.name,
+                  (item) => item.BranchName || item.Name || item.branchName || item.name,
+                  'All'
+                )}
+                {renderSearchableDropdown(
+                  'counterName',
+                  'Counter Name',
+                  'Search counter...',
+                  apiFilterData.counters || [],
+                  (item) => item.CounterName || item.Name || item.counterName,
+                  (item) => item.CounterName || item.Name || item.counterName,
+                  'All Counters'
+                )}
+                {renderSearchableDropdown(
+                  'boxName',
+                  'Box Name',
+                  'Search box name...',
+                  filterOptions.boxNames.filter(opt => opt !== 'All') || [],
+                  (item) => item,
+                  (item) => item,
+                  'All'
+                )}
+                {renderSearchableDropdown(
+                  'categoryId',
+                  'Category',
+                  'Search category...',
+                  apiFilterData.categories || [],
+                  (item) => item.CategoryName || item.Name || item.categoryName,
+                  (item) => item.CategoryName || item.Name || item.categoryName,
+                  'All Categories'
+                )}
+                {renderSearchableDropdown(
+                  'productId',
+                  'Product Name',
+                  'Search product...',
+                  apiFilterData.products || [],
+                  (item) => item.ProductName || item.Name || item.productName,
+                  (item) => item.ProductName || item.Name || item.productName,
+                  'All Products'
+                )}
+                {renderSearchableDropdown(
+                  'designId',
+                  'Design',
+                  'Search design...',
+                  apiFilterData.designs || [],
+                  (item) => item.DesignName || item.Name || item.designName,
+                  (item) => item.DesignName || item.Name || item.designName,
+                  'All Designs'
+                )}
+                {renderSearchableDropdown(
+                  'purityId',
+                  'Purity',
+                  'Search purity...',
+                  apiFilterData.purities || [],
+                  (item) => item.PurityName || item.Name || item.Purity || item.purityName,
+                  (item) => item.PurityName || item.Name || item.Purity || item.purityName,
+                  'All Purities'
+                )}
+                {renderSearchableDropdown(
+                  'status',
+                  'Status',
+                  'Search status...',
+                  filterOptions.statuses.filter(opt => opt !== 'All') || [],
+                  (item) => item,
+                  (item) => item,
+                  'All'
+                )}
                 <div>
                   <label style={{
                     display: 'block',

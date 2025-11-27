@@ -11,10 +11,12 @@ import {
   FaUndo,
   FaRedo,
   FaExpand,
-  FaCompress
+  FaCompress,
+  FaSpinner
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
+import SuccessNotification from '../common/SuccessNotification';
 import LabelToolbox from './label/LabelToolbox';
 import LabelCanvasArea from './label/LabelCanvasArea';
 import LabelPropertiesPanel from './label/LabelPropertiesPanel';
@@ -66,6 +68,11 @@ const CreateLabel = () => {
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState(null);
   const [templateNameInput, setTemplateNameInput] = useState('');
+
+  // Success/Error Notification State
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState({ title: '', message: '' });
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   // Master Data
   const [categories, setCategories] = useState([]);
@@ -268,6 +275,12 @@ const CreateLabel = () => {
     setZoomLevel(1);
     setTemplateNameInput('');
     initializeDefaultElements();
+  };
+
+  // Show success/error notification popup
+  const showSuccessNotification = (title, message) => {
+    setSuccessMessage({ title, message });
+    setShowSuccess(true);
   };
 
   // Template options for dropdown
@@ -879,6 +892,7 @@ const CreateLabel = () => {
   };
 
   const handleSaveConfirm = async () => {
+    setSavingTemplate(true);
     try {
       // Serialize layout for save (store binding keys, not resolved values)
       const serializeLayoutForSave = (layout) => {
@@ -1002,12 +1016,11 @@ const CreateLabel = () => {
         // Refresh templates list
         await fetchSavedTemplates();
 
-        // Show success notification with template name
-        addNotification({
-          type: 'success',
-          title: 'Success',
-          message: `Template "${templateName}" ${isEditingTemplate ? 'updated' : 'saved'} successfully!`
-        });
+        // Show success popup notification
+        showSuccessNotification(
+          'Success',
+          `Template "${templateName}" ${isEditingTemplate ? 'updated' : 'saved'} successfully!`
+        );
 
         // Clear form
         setSaveOption('single');
@@ -1021,11 +1034,13 @@ const CreateLabel = () => {
       }
     } catch (error) {
       console.error('Error saving template:', error);
-      addNotification({
-        type: 'error',
-        title: 'Error',
-        message: error.response?.data?.message || 'Failed to save template. Please try again.'
-      });
+      // Show error popup notification
+      showSuccessNotification(
+        'Error',
+        error.response?.data?.message || 'Failed to save template. Please try again.'
+      );
+    } finally {
+      setSavingTemplate(false);
     }
   };
 
@@ -1612,6 +1627,7 @@ const CreateLabel = () => {
               <button
                 onClick={handleSaveConfirm}
                 disabled={
+                  savingTemplate ||
                   (saveOption === 'category' && !selectedCategory) ||
                   (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct))
                 }
@@ -1621,22 +1637,53 @@ const CreateLabel = () => {
                   fontWeight: 600,
                   borderRadius: '8px',
                   border: 'none',
-                  background: (saveOption === 'category' && !selectedCategory) ||
-                    (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct))
+                  background: (savingTemplate ||
+                    (saveOption === 'category' && !selectedCategory) ||
+                    (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct)))
                     ? '#cbd5e1' : '#3b82f6',
                   color: '#ffffff',
-                  cursor: (saveOption === 'category' && !selectedCategory) ||
-                    (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct))
-                    ? 'not-allowed' : 'pointer'
+                  cursor: (savingTemplate ||
+                    (saveOption === 'category' && !selectedCategory) ||
+                    (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct)))
+                    ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
                 }}
               >
-                <FaSave style={{ marginRight: '6px' }} />
-                {isEditingTemplate ? 'Update Template' : 'Save Template'}
+                {savingTemplate ? (
+                  <>
+                    <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+                    {isEditingTemplate ? 'Updating...' : 'Saving...'}
+                  </>
+                ) : (
+                  <>
+                    <FaSave />
+                    {isEditingTemplate ? 'Update Template' : 'Save Template'}
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Success/Error Notification Popup */}
+      <SuccessNotification
+        title={successMessage.title}
+        message={successMessage.message}
+        isVisible={showSuccess}
+        onClose={() => setShowSuccess(false)}
+      />
+
+      {/* Spinner animation */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 };

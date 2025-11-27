@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   FaHome, 
@@ -29,7 +29,10 @@ import {
   FaBook,
   FaBox,
   FaFileAlt,
-  FaTag as FaCreateLabel
+  FaTag as FaCreateLabel,
+  FaExchangeAlt,
+  FaArrowDown,
+  FaArrowUp
 } from 'react-icons/fa';
 import { 
   HiChartBar,
@@ -102,6 +105,9 @@ const SidebarLayout = ({ children }) => {
     { path: '/quotation', icon: HiDocument, label: 'Create Quotation', color: '#ec4899' },
     { path: '/rfid-label', icon: HiPrinter, label: 'Create PRN Label', color: '#667eea' },
     { path: '/create-label', icon: HiPencil, label: 'Create Label', color: '#06b6d4' },
+    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#f97316', comingSoon: true },
+    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#10b981', comingSoon: true },
+    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#ef4444' },
   ];
 
   const navigationSection3 = [
@@ -181,7 +187,7 @@ const SidebarLayout = ({ children }) => {
   }, []);
 
   // Handlers
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     const isCurrentlyFullscreen = !!(
       document.fullscreenElement ||
       document.webkitFullscreenElement ||
@@ -210,7 +216,23 @@ const SidebarLayout = ({ children }) => {
         document.msExitFullscreen();
       }
     }
-  };
+  }, []);
+
+  // Keyboard shortcut for fullscreen (Ctrl+F)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Check for Ctrl+F or Cmd+F (Mac) - prevent default browser find behavior
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault(); // Prevent browser's find function
+        toggleFullscreen();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [toggleFullscreen]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -423,7 +445,7 @@ const SidebarLayout = ({ children }) => {
               e.currentTarget.style.background = 'transparent';
               e.currentTarget.style.color = '#64748b';
             }}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            title={isFullscreen ? 'Exit Fullscreen (Ctrl+F)' : 'Enter Fullscreen (Ctrl+F)'}
           >
             {isFullscreen ? <FaCompress size={18} /> : <FaExpand size={18} />}
           </button>
@@ -860,7 +882,7 @@ const SidebarLayout = ({ children }) => {
           )}
 
           {/* Sidebar Content */}
-          <div className="sidebar-content" style={{ padding: '8px 0', height: '100%', overflowY: 'auto' }}>
+          <div className="sidebar-content" style={{ padding: '4px 0', height: '100%', overflowY: 'auto' }}>
             {/* Section 1 - First 3 items */}
             {navigationSection1.map(({ path, icon: Icon, label, color }) => {
               const isActive = location.pathname === path;
@@ -904,7 +926,7 @@ const SidebarLayout = ({ children }) => {
                   title={sidebarCollapsed ? label : ''}
                 >
                   <Icon style={{ 
-                    fontSize: '20px', 
+                    fontSize: '18px', 
                     color: isActive ? color : color, 
                     flexShrink: 0,
                     filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
@@ -928,8 +950,8 @@ const SidebarLayout = ({ children }) => {
                       left: 0,
                       top: '50%',
                       transform: 'translateY(-50%)',
-                      width: '4px',
-                      height: '70%',
+                      width: '3px',
+                      height: '60%',
                       background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
                       borderRadius: '0 3px 3px 0',
                       boxShadow: `0 2px 6px ${color}40`
@@ -943,7 +965,7 @@ const SidebarLayout = ({ children }) => {
             <div style={{
               height: '1px',
               background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
-              margin: '8px 12px',
+              margin: '6px 10px',
               opacity: 0.6
             }} />
 
@@ -960,14 +982,14 @@ const SidebarLayout = ({ children }) => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '10px',
-                      padding: sidebarCollapsed ? '10px' : '8px 14px',
-                      margin: '1px 8px',
-                      borderRadius: '10px',
+                      gap: sidebarCollapsed ? '0' : '8px',
+                      padding: sidebarCollapsed ? '8px' : '6px 12px',
+                      margin: '1px 6px',
+                      borderRadius: '8px',
                       color: '#94a3b8',
                       background: 'transparent',
                       fontWeight: 500,
-                      fontSize: '13px',
+                      fontSize: '12px',
                       transition: 'all 0.2s ease',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
@@ -978,7 +1000,7 @@ const SidebarLayout = ({ children }) => {
                     title={sidebarCollapsed ? label : 'Coming Soon'}
                   >
                     <Icon style={{ 
-                      fontSize: '20px', 
+                      fontSize: '18px', 
                       color: '#cbd5e1', 
                       flexShrink: 0
                     }} />
@@ -1026,15 +1048,15 @@ const SidebarLayout = ({ children }) => {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: sidebarCollapsed ? '0' : '10px',
-                    padding: sidebarCollapsed ? '10px' : '8px 14px',
-                    margin: '1px 8px',
-                    borderRadius: '10px',
+                    gap: sidebarCollapsed ? '0' : '8px',
+                    padding: sidebarCollapsed ? '8px' : '6px 12px',
+                    margin: '1px 6px',
+                    borderRadius: '8px',
                     textDecoration: 'none',
                     color: isActive ? '#1e293b' : '#1e293b',
                     background: isActive ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` : 'transparent',
                     fontWeight: isActive ? 700 : 600,
-                    fontSize: '13px',
+                    fontSize: '12px',
                     transition: 'all 0.2s ease',
                     justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                     position: 'relative',
@@ -1057,7 +1079,7 @@ const SidebarLayout = ({ children }) => {
                   title={sidebarCollapsed ? label : ''}
                 >
                   <Icon style={{ 
-                    fontSize: '20px', 
+                    fontSize: '18px', 
                     color: isActive ? color : color, 
                     flexShrink: 0,
                     filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
@@ -1081,8 +1103,8 @@ const SidebarLayout = ({ children }) => {
                       left: 0,
                       top: '50%',
                       transform: 'translateY(-50%)',
-                      width: '4px',
-                      height: '70%',
+                      width: '3px',
+                      height: '60%',
                       background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
                       borderRadius: '0 3px 3px 0',
                       boxShadow: `0 2px 6px ${color}40`
@@ -1104,15 +1126,15 @@ const SidebarLayout = ({ children }) => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '10px',
-                      padding: sidebarCollapsed ? '10px' : '8px 14px',
-                      margin: '1px 8px',
-                      borderRadius: '10px',
+                      gap: sidebarCollapsed ? '0' : '8px',
+                      padding: sidebarCollapsed ? '8px' : '6px 12px',
+                      margin: '1px 6px',
+                      borderRadius: '8px',
                       textDecoration: 'none',
                       color: isActive ? '#1e293b' : '#1e293b',
                       background: isActive ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` : 'transparent',
                       fontWeight: isActive ? 700 : 600,
-                      fontSize: '13px',
+                      fontSize: '12px',
                       transition: 'all 0.2s ease',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
@@ -1135,7 +1157,7 @@ const SidebarLayout = ({ children }) => {
                     title={sidebarCollapsed ? label : ''}
                   >
                     <Icon style={{ 
-                      fontSize: '20px', 
+                      fontSize: '18px', 
                       color: isActive ? color : color, 
                       flexShrink: 0,
                       filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
@@ -1172,7 +1194,7 @@ const SidebarLayout = ({ children }) => {
                     <div style={{
                       height: '1px',
                       background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
-                      margin: '8px 12px',
+                      margin: '6px 10px',
                       opacity: 0.6
                     }} />
                   )}
@@ -1333,23 +1355,23 @@ const SidebarLayout = ({ children }) => {
         /* Mobile responsive sidebar */
         @media (max-width: 768px) {
           .sidebar-content {
-            padding: 6px 0 !important;
+            padding: 4px 0 !important;
             overflow-y: visible !important;
             overflow-x: hidden !important;
             height: auto !important;
             max-height: calc(100vh - 64px) !important;
           }
           .sidebar-nav-item {
-            padding: 8px 12px !important;
-            margin: 1px 6px !important;
-            font-size: 12px !important;
-            gap: 8px !important;
+            padding: 5px 10px !important;
+            margin: 1px 5px !important;
+            font-size: 11px !important;
+            gap: 7px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 18px !important;
+            font-size: 16px !important;
           }
           aside {
-            width: 260px !important;
+            width: 240px !important;
             overflow-y: visible !important;
             overflow-x: hidden !important;
           }
@@ -1361,21 +1383,21 @@ const SidebarLayout = ({ children }) => {
         
         @media (max-width: 480px) {
           .sidebar-content {
-            padding: 4px 0 !important;
+            padding: 3px 0 !important;
             overflow-y: visible !important;
             overflow-x: hidden !important;
           }
           .sidebar-nav-item {
-            padding: 6px 10px !important;
+            padding: 4px 8px !important;
             margin: 1px 4px !important;
-            font-size: 11px !important;
+            font-size: 10px !important;
             gap: 6px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 16px !important;
+            font-size: 14px !important;
           }
           aside {
-            width: 240px !important;
+            width: 220px !important;
             overflow-y: visible !important;
             overflow-x: hidden !important;
           }
@@ -1387,16 +1409,27 @@ const SidebarLayout = ({ children }) => {
         
         @media (max-width: 360px) {
           .sidebar-nav-item {
-            padding: 5px 8px !important;
+            padding: 3px 6px !important;
             margin: 1px 3px !important;
-            font-size: 10px !important;
+            font-size: 9px !important;
             gap: 5px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 14px !important;
+            font-size: 12px !important;
           }
           aside {
-            width: 220px !important;
+            width: 200px !important;
+          }
+        }
+        
+        /* Tablet responsive */
+        @media (min-width: 769px) and (max-width: 1024px) {
+          .sidebar-nav-item {
+            padding: 5px 10px !important;
+            font-size: 11px !important;
+          }
+          .sidebar-nav-item svg {
+            font-size: 17px !important;
           }
         }
         

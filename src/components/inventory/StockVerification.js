@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
@@ -27,6 +28,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { useLoading } from '../../App';
 
 const StockVerification = () => {
+  const navigate = useNavigate();
   // Global loader
   const { setLoading } = useLoading();
   
@@ -34,7 +36,7 @@ const StockVerification = () => {
   const [sessions, setSessions] = useState([]);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortConfig, setSortConfig] = useState({ key: 'SessionNumber', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'BranchName', direction: 'asc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [totalSessions, setTotalSessions] = useState(0);
@@ -50,6 +52,7 @@ const StockVerification = () => {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('');
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [pageInput, setPageInput] = useState('');
   const isInitialMount = useRef(true);
@@ -254,10 +257,11 @@ const StockVerification = () => {
     await fetchSessions();
   };
 
-  // Handle date filter reset
+  // Handle filter reset
   const handleResetDateFilters = () => {
     setDateFrom('');
     setDateTo('');
+    setSelectedBranch('');
     setShowFilterPanel(false);
   };
 
@@ -266,6 +270,16 @@ const StockVerification = () => {
     setShowFilterPanel(false);
     // The useEffect will trigger fetchSessions when dateFrom/dateTo change
   };
+
+  // Get unique branches from sessions
+  const uniqueBranches = useMemo(() => {
+    const branches = sessions
+      .map(session => session.BranchName)
+      .filter(branch => branch && branch.trim() !== '')
+      .filter((value, index, self) => self.indexOf(value) === index)
+      .sort();
+    return branches;
+  }, [sessions]);
 
   // Search and filter logic
   const filteredSessions = useMemo(() => {
@@ -276,10 +290,16 @@ const StockVerification = () => {
       const matchesSearch = (
         session.ScanBatchId?.toLowerCase().includes(searchLower) ||
         session.SessionNumber?.toString().includes(searchLower) ||
+        session.BranchName?.toLowerCase().includes(searchLower) ||
         new Date(session.StartedOn).toLocaleDateString().includes(searchLower) ||
         new Date(session.EndedOn).toLocaleDateString().includes(searchLower)
       );
       if (!matchesSearch) return false;
+    }
+
+    // Branch filter
+    if (selectedBranch) {
+      if (session.BranchName !== selectedBranch) return false;
     }
 
     // Date filter (client-side filtering as backup, but API should handle it)
@@ -302,7 +322,7 @@ const StockVerification = () => {
 
     return true;
   });
-  }, [sessions, searchQuery, dateFrom, dateTo]);
+  }, [sessions, searchQuery, dateFrom, dateTo, selectedBranch]);
 
   // Sorting logic
   const sortedSessions = useMemo(() => {
@@ -311,6 +331,16 @@ const StockVerification = () => {
     
     let aValue = a[sortConfig.key];
     let bValue = b[sortConfig.key];
+    
+    // Handle null/undefined values
+    if (aValue == null) aValue = '';
+    if (bValue == null) bValue = '';
+    
+    // Convert to string for comparison if not date
+    if (sortConfig.key !== 'StartedOn' && sortConfig.key !== 'EndedOn') {
+      aValue = String(aValue).toLowerCase();
+      bValue = String(bValue).toLowerCase();
+    }
     
     // Handle dates
     if (sortConfig.key === 'StartedOn' || sortConfig.key === 'EndedOn') {
@@ -397,13 +427,10 @@ const StockVerification = () => {
     }
   };
 
-  // Handle view session details
+  // Handle view session details - navigate to separate page
   const handleViewSession = (session) => {
     console.log('View session:', session);
-    setMatchedPage(1);
-    setUnmatchedPage(1);
-    setShowDetailsSlider(true);
-    fetchSessionDetails(session.ScanBatchId);
+    navigate(`/session-details/${encodeURIComponent(session.ScanBatchId)}`);
   };
 
   // Pagination helper functions
@@ -774,7 +801,7 @@ const StockVerification = () => {
             }} />
             <input
               type="text"
-              placeholder="Search by session ID or batch..."
+              placeholder="Search by branch name, session ID or batch..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -943,6 +970,40 @@ const StockVerification = () => {
                   fontWeight: 600,
                   color: '#475569',
                   marginBottom: '8px'
+                }}>Branch Name</label>
+                <select
+                  value={selectedBranch}
+                  onChange={(e) => setSelectedBranch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    fontSize: '12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    background: '#ffffff',
+                    cursor: 'pointer'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                >
+                  <option value="">All Branches</option>
+                  {uniqueBranches.map((branch, index) => (
+                    <option key={index} value={branch}>
+                      {branch}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#475569',
+                  marginBottom: '8px'
                 }}>From Date</label>
                 <input
                   type="date"
@@ -990,7 +1051,7 @@ const StockVerification = () => {
                   onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
-              {(dateFrom || dateTo) && (
+              {(dateFrom || dateTo || selectedBranch) && (
                 <div style={{
                   padding: '12px',
                   background: '#f8fafc',
@@ -999,7 +1060,7 @@ const StockVerification = () => {
                   fontSize: '12px',
                   color: '#64748b'
                 }}>
-                  Filtering by: {dateFrom ? `From ${dateFrom}` : ''} {dateTo ? `To ${dateTo}` : ''}
+                  Filtering by: {selectedBranch ? `Branch: ${selectedBranch}` : ''} {selectedBranch && (dateFrom || dateTo) ? ' | ' : ''} {dateFrom ? `From ${dateFrom}` : ''} {dateTo ? `To ${dateTo}` : ''}
                 </div>
               )}
             </div>
@@ -1088,14 +1149,22 @@ const StockVerification = () => {
                 background: '#f8fafc',
                 borderBottom: '2px solid #e5e7eb'
               }}>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Session Number</th>
+                <th 
+                  onClick={() => handleSort('BranchName')}
+                  style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#475569',
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    userSelect: 'none'
+                  }}
+                >
+                  Branch Name
+                  {renderSortIcon('BranchName')}
+                </th>
                 <th style={{
                   padding: '12px',
                   textAlign: 'left',
@@ -1190,7 +1259,7 @@ const StockVerification = () => {
                         color: '#1e293b',
                         whiteSpace: 'nowrap',
                         fontWeight: 600
-                      }}>{session.SessionNumber || globalIndex + 1}</td>
+                      }}>{session.BranchName || 'N/A'}</td>
                       <td style={{
                         padding: '12px',
                         fontSize: '12px',

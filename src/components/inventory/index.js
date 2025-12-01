@@ -4,4 +4,5 @@ export { default as RFIDTags } from './RFIDTags';
 export { default as TagUsage } from './TagUsage';
 export { default as StockVerification } from './StockVerification';
 export { default as StockTransfer } from './StockTransfer';
-export { default as InvoiceStock } from './InvoiceStock'; 
+export { default as InvoiceStock } from './InvoiceStock';
+export { default as OrderList } from './OrderList'; 

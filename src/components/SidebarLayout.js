@@ -24,8 +24,6 @@ import {
   FaCompress,
   FaBars,
   FaTimes,
-  FaChevronLeft,
-  FaChevronRight,
   FaBook,
   FaBox,
   FaFileAlt,
@@ -73,8 +71,8 @@ const SidebarLayout = ({ children }) => {
   const { t } = useTranslation();
   const { notifications, addNotification } = useNotifications();
   
-  // State
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // State - collapse option disabled, sidebar always expanded
+  const sidebarCollapsed = false;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -89,34 +87,44 @@ const SidebarLayout = ({ children }) => {
   const dropdownRef = useRef(null);
   const notificationsRef = useRef(null);
 
-  // Navigation items with attractive icons - organized in sections
-  const navigationSection1 = [
-    { path: '/analytics', icon: HiChartBar, label: 'Smart Analytics', color: '#10b981' },
+  // Navigation items with attractive icons - organized in 5 sections
+  // Section 1: Inventory Management
+  const inventorySession = [
+    { path: '/analytics', icon: HiChartBar, label: 'Dashboard', color: '#10b981', section: 'Inventory Management' },
+    { path: '/stock', icon: HiCube, label: 'Add Inventory', color: '#f59e0b', section: 'Inventory Management' },
+    { path: '/label-stock', icon: HiClipboardList, label: 'Inventory List', color: '#3b82f6', section: 'Inventory Management' },
+    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#84cc16', section: 'Inventory Management' },
+    { path: '/create-label', icon: HiPencil, label: 'Design Label', color: '#06b6d4', section: 'Inventory Management' },
+    { path: '/rfid-label', icon: HiPrinter, label: 'Create PRN Label', color: '#667eea', section: 'Inventory Management' },
+  ];
+
+  // Section 2: Transaction
+  const navigationSection2 = [
+    { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#ec4899' },
+    { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#22c55e' },
+    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#10b981' },
+    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#ef4444' },
+    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#f97316' },
+    { path: '/order-list', icon: HiClipboardList, label: 'Order List', color: '#8b5cf6' },
+    { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#06b6d4' },
+  ];
+
+  // Section 3: RFID Tags Management
+  const navigationSection3 = [
+    { path: '/rfid-devices', icon: HiChip, label: 'Scan to Desktop', color: '#ec4899' },
+    { path: '/upload-rfid', icon: HiCloudUpload, label: 'RFID Tags Sheet Upload', color: '#6366f1' },
+    { path: '/rfid-tags', icon: HiTag, label: 'RFID Tag List', color: '#ef4444' },
+    { path: '/tag-usage', icon: FaTag, label: 'RFID Tags Usage', color: '#06b6d4' },
+  ];
+
+  // Section 4: RFID Operations
+  const navigationSection4 = [
     { path: '/dashboard', icon: HiHome, label: 'RFID API Hub', color: '#3b82f6' },
     { path: '/api-documentation', icon: HiBookOpen, label: 'API Integration Guide', color: '#9333ea' },
     { path: '/rfid-integration', icon: HiLightningBolt, label: 'Quick Integration', color: '#8b5cf6' },
   ];
 
-  const navigationSection2 = [
-    { path: '/stock', icon: HiCube, label: 'Add Stocks', color: '#f59e0b' },
-    { path: '/label-stock', icon: HiClipboardList, label: 'Label List', color: '#f59e0b' },
-    { path: '/labeling', icon: HiPrinter, label: 'Labeling', color: '#667eea' },
-    { path: '/create-invoice', icon: HiReceiptTax, label: 'Create Invoice', color: '#22c55e' },
-    { path: '/quotation', icon: HiDocument, label: 'Create Quotation', color: '#ec4899' },
-    { path: '/rfid-label', icon: HiPrinter, label: 'Create PRN Label', color: '#667eea' },
-    { path: '/create-label', icon: HiPencil, label: 'Create Label', color: '#06b6d4' },
-    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#f97316', comingSoon: true },
-    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#10b981', comingSoon: true },
-    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#ef4444' },
-  ];
-
-  const navigationSection3 = [
-    { path: '/rfid-devices', icon: HiChip, label: 'Scan to Desktop', color: '#ec4899' },
-    { path: '/rfid-tags', icon: HiTag, label: 'Tag Explorer', color: '#ef4444' },
-    { path: '/tag-usage', icon: FaTag, label: 'RFID Tags Usage', color: '#06b6d4' },
-    { path: '/stock-verification', icon: HiCheckCircle, label: 'RFID Stock Verification', color: '#84cc16' },
-    { path: '/upload-rfid', icon: HiCloudUpload, label: 'RFID Tags Sheet Upload', color: '#6366f1' },
-  ];
+  // Section 5: Labeling & Documents (removed - items moved to Section 1)
 
   // Effects
   useEffect(() => {
@@ -134,9 +142,6 @@ const SidebarLayout = ({ children }) => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      if (mobile) {
-        setSidebarCollapsed(true);
-      }
     };
     window.addEventListener('resize', handleResize);
     handleResize();
@@ -301,13 +306,13 @@ const SidebarLayout = ({ children }) => {
   const tcode = userInfo.TCode || userInfo.tcode || userInfo.TCODE || '';
   const avatarLetter = username ? username[0].toUpperCase() : 'U';
 
-  const sidebarWidth = sidebarCollapsed ? (isMobile ? '0' : '64px') : '260px';
+  const sidebarWidth = isMobile ? (mobileMenuOpen ? '260px' : '0') : '260px';
   const mainContentMargin = isMobile ? '0' : sidebarWidth;
 
   return (
     <div style={{ 
       minHeight: '100vh',
-      background: '#f8fafc',
+      background: '#ffffff',
       display: 'flex',
       flexDirection: 'column',
       fontFamily: 'var(--font-family, "Roboto", sans-serif)'
@@ -319,7 +324,7 @@ const SidebarLayout = ({ children }) => {
         left: 0,
         right: 0,
         height: '64px',
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+        background: '#ffffff',
         borderBottom: '1px solid #e5e7eb',
         zIndex: 1000,
         display: 'flex',
@@ -828,168 +833,66 @@ const SidebarLayout = ({ children }) => {
           bottom: 0,
           width: sidebarWidth,
           background: '#ffffff',
-          borderRight: '1px solid #e5e7eb',
-          transition: 'width 0.3s ease',
+          borderRight: '2px solid #e5e7eb',
+          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           overflow: 'hidden',
           zIndex: 999,
           display: isMobile && !mobileMenuOpen ? 'none' : 'block',
-          overflowY: isMobile ? 'visible' : 'auto'
+          overflowY: isMobile ? 'visible' : 'auto',
+          boxShadow: '2px 0 8px rgba(0, 0, 0, 0.04)'
         }}>
-          {/* Collapse Toggle Button - More Attractive */}
-          {!isMobile && (
-            <button
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              style={{
-                position: 'absolute',
-                top: '12px',
-                right: sidebarCollapsed ? '8px' : '-18px',
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                border: '2px solid #ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)',
-                zIndex: 10,
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                outline: 'none'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.5)';
-                e.currentTarget.style.transform = 'scale(1.15)';
-                const icon = e.currentTarget.querySelector('svg');
-                if (icon) icon.style.color = '#ffffff';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.4)';
-                e.currentTarget.style.transform = 'scale(1)';
-                const icon = e.currentTarget.querySelector('svg');
-                if (icon) icon.style.color = '#ffffff';
-              }}
-              title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-            >
-              {sidebarCollapsed ? (
-                <FaChevronRight size={16} color="#ffffff" style={{ transition: 'all 0.2s ease', fontWeight: 'bold' }} />
-              ) : (
-                <FaChevronLeft size={16} color="#ffffff" style={{ transition: 'all 0.2s ease', fontWeight: 'bold' }} />
-              )}
-            </button>
-          )}
-
           {/* Sidebar Content */}
-          <div className="sidebar-content" style={{ padding: '4px 0', height: '100%', overflowY: 'auto' }}>
-            {/* Section 1 - First 3 items */}
-            {navigationSection1.map(({ path, icon: Icon, label, color }) => {
-              const isActive = location.pathname === path;
-              return (
-                <Link
-                  key={path}
-                  to={path}
-                  onClick={() => isMobile && setMobileMenuOpen(false)}
-                  className="sidebar-nav-item"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: sidebarCollapsed ? '0' : '10px',
-                    padding: sidebarCollapsed ? '10px' : '8px 14px',
-                    margin: '1px 8px',
-                    borderRadius: '10px',
-                    textDecoration: 'none',
-                    color: isActive ? '#1e293b' : '#1e293b',
-                    background: isActive ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` : 'transparent',
-                    fontWeight: isActive ? 700 : 600,
-                    fontSize: '13px',
-                    transition: 'all 0.2s ease',
-                    justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                    position: 'relative',
-                    border: isActive ? `1px solid ${color}40` : '1px solid transparent'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = '#f8fafc';
-                      e.currentTarget.style.borderColor = `${color}30`;
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.borderColor = 'transparent';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }
-                  }}
-                  title={sidebarCollapsed ? label : ''}
-                >
-                  <Icon style={{ 
-                    fontSize: '18px', 
-                    color: isActive ? color : color, 
-                    flexShrink: 0,
-                    filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
-                  }} />
-                  {!sidebarCollapsed && (
-                    <span style={{ 
-                      whiteSpace: 'nowrap', 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis',
-                      maxWidth: '180px',
-                      display: 'inline-block',
-                      color: '#1e293b',
-                      letterSpacing: '-0.2px'
-                    }}>
-                      {label}
-                    </span>
-                  )}
-                  {isActive && (
-                    <div style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      width: '3px',
-                      height: '60%',
-                      background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
-                      borderRadius: '0 3px 3px 0',
-                      boxShadow: `0 2px 6px ${color}40`
-                    }} />
-                  )}
-                </Link>
-              );
-            })}
-
-            {/* Separator Line */}
-            <div style={{
-              height: '1px',
-              background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
-              margin: '6px 10px',
-              opacity: 0.6
-            }} />
-
-            {/* Section 2 - Next 6 items */}
-            {navigationSection2.map(({ path, icon: Icon, label, color, comingSoon }) => {
-              const isActive = location.pathname === path;
-              
-              // If coming soon, render as non-clickable div
-              if (comingSoon) {
+          <div className="sidebar-content" style={{ padding: '2px 0', height: '100%', overflowY: 'auto' }}>
+            
+            {/* Helper function to render section header */}
+            {(() => {
+              const renderSectionHeader = (title, gradientColors) => {
+                if (sidebarCollapsed) return null;
                 return (
-                  <div
-                    key={path}
-                    className="sidebar-nav-item"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '8px' : '6px 12px',
-                      margin: '1px 6px',
-                      borderRadius: '8px',
+                  <div style={{
+                    padding: '2px 8px',
+                    margin: '4px 8px 3px 8px',
+                    background: 'transparent',
+                    borderRadius: '4px',
+                    border: 'none',
+                    boxShadow: 'none'
+                  }}>
+                    <span style={{
+                      fontSize: '8px',
+                      fontWeight: '700',
+                      color: '#1e293b',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.3px',
+                      lineHeight: '1.2',
+                      textShadow: 'none'
+                    }}>
+                      {title}
+                    </span>
+                  </div>
+                );
+              };
+
+              const renderMenuItem = (item) => {
+                const { path, icon: Icon, label, color, comingSoon } = item;
+                const isActive = location.pathname === path;
+
+                if (comingSoon) {
+                  return (
+                    <div
+                      key={path}
+                      className="sidebar-nav-item"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                      gap: sidebarCollapsed ? '0' : '6px',
+                      padding: sidebarCollapsed ? '6px' : '4px 8px',
+                      margin: '1px 8px',
+                      borderRadius: '6px',
                       color: '#94a3b8',
                       background: 'transparent',
                       fontWeight: 500,
-                      fontSize: '12px',
+                      fontSize: '11px',
+                      lineHeight: '1.3',
                       transition: 'all 0.2s ease',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
@@ -997,154 +900,80 @@ const SidebarLayout = ({ children }) => {
                       cursor: 'not-allowed',
                       opacity: 0.6
                     }}
-                    title={sidebarCollapsed ? label : 'Coming Soon'}
-                  >
-                    <Icon style={{ 
-                      fontSize: '18px', 
-                      color: '#cbd5e1', 
-                      flexShrink: 0
-                    }} />
-                    {!sidebarCollapsed && (
-                      <>
-                        <span style={{ 
-                          whiteSpace: 'nowrap', 
-                          overflow: 'hidden', 
-                          textOverflow: 'ellipsis',
-                          maxWidth: '120px',
-                          display: 'inline-block',
-                          color: '#94a3b8',
-                          letterSpacing: '-0.2px',
-                          flex: 1
-                        }}>
-                          {label}
-                        </span>
-                        <span style={{
-                          fontSize: '9px',
-                          fontWeight: '700',
-                          color: '#ffffff',
-                          background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                          padding: '2px 6px',
-                          borderRadius: '8px',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                          boxShadow: '0 2px 4px rgba(245, 158, 11, 0.3)',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          Coming Soon
-                        </span>
-                      </>
-                    )}
-                  </div>
-                );
-              }
-              
-              // Regular clickable link
-              return (
-                <Link
-                  key={path}
-                  to={path}
-                  onClick={() => isMobile && setMobileMenuOpen(false)}
-                  className="sidebar-nav-item"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: sidebarCollapsed ? '0' : '8px',
-                    padding: sidebarCollapsed ? '8px' : '6px 12px',
-                    margin: '1px 6px',
-                    borderRadius: '8px',
-                    textDecoration: 'none',
-                    color: isActive ? '#1e293b' : '#1e293b',
-                    background: isActive ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` : 'transparent',
-                    fontWeight: isActive ? 700 : 600,
-                    fontSize: '12px',
-                    transition: 'all 0.2s ease',
-                    justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                    position: 'relative',
-                    border: isActive ? `1px solid ${color}40` : '1px solid transparent'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = '#f8fafc';
-                      e.currentTarget.style.borderColor = `${color}30`;
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.borderColor = 'transparent';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }
-                  }}
-                  title={sidebarCollapsed ? label : ''}
-                >
-                  <Icon style={{ 
-                    fontSize: '18px', 
-                    color: isActive ? color : color, 
-                    flexShrink: 0,
-                    filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
-                  }} />
-                  {!sidebarCollapsed && (
-                    <span style={{ 
-                      whiteSpace: 'nowrap', 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis',
-                      maxWidth: '180px',
-                      display: 'inline-block',
-                      color: '#1e293b',
-                      letterSpacing: '-0.2px'
-                    }}>
-                      {label}
-                    </span>
-                  )}
-                  {isActive && (
-                    <div style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      width: '3px',
-                      height: '60%',
-                      background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
-                      borderRadius: '0 3px 3px 0',
-                      boxShadow: `0 2px 6px ${color}40`
-                    }} />
-                  )}
-                </Link>
-              );
-            })}
+                      title={sidebarCollapsed ? label : 'Coming Soon'}
+                    >
+                      <Icon style={{ 
+                        fontSize: '14px', 
+                        color: '#cbd5e1', 
+                        flexShrink: 0
+                      }} />
+                      {!sidebarCollapsed && (
+                        <>
+                          <span style={{ 
+                            whiteSpace: 'nowrap', 
+                            overflow: 'hidden', 
+                            textOverflow: 'ellipsis',
+                            maxWidth: '140px',
+                            display: 'inline-block',
+                            color: '#94a3b8',
+                            letterSpacing: '-0.2px',
+                            flex: 1
+                          }}>
+                            {label}
+                          </span>
+                          <span style={{
+                            fontSize: '9px',
+                            fontWeight: '700',
+                            color: '#ffffff',
+                            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                            padding: '2px 6px',
+                            borderRadius: '8px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            boxShadow: '0 2px 4px rgba(245, 158, 11, 0.3)',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            Coming Soon
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  );
+                }
 
-            {/* Section 3 - Remaining items */}
-            {navigationSection3.map(({ path, icon: Icon, label, color }, index) => {
-              const isActive = location.pathname === path;
-              return (
-                <React.Fragment key={path}>
+                return (
                   <Link
+                    key={path}
                     to={path}
                     onClick={() => isMobile && setMobileMenuOpen(false)}
                     className="sidebar-nav-item"
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '8px' : '6px 12px',
-                      margin: '1px 6px',
-                      borderRadius: '8px',
+                      gap: sidebarCollapsed ? '0' : '7px',
+                      padding: sidebarCollapsed ? '6px' : '4px 8px',
+                      margin: '1px 8px',
+                      borderRadius: '6px',
                       textDecoration: 'none',
-                      color: isActive ? '#1e293b' : '#1e293b',
-                      background: isActive ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` : 'transparent',
-                      fontWeight: isActive ? 700 : 600,
-                      fontSize: '12px',
-                      transition: 'all 0.2s ease',
+                      color: '#1e293b',
+                      background: isActive 
+                        ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` 
+                        : 'transparent',
+                      fontWeight: isActive ? 600 : 500,
+                      fontSize: '11px',
+                      lineHeight: '1.3',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
-                      border: isActive ? `1px solid ${color}40` : '1px solid transparent'
+                      border: isActive ? `1px solid ${color}40` : `1px solid transparent`,
+                      boxShadow: isActive ? `0 1px 3px ${color}20` : 'none'
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.background = '#f8fafc';
-                        e.currentTarget.style.borderColor = `${color}30`;
+                        e.currentTarget.style.background = `linear-gradient(135deg, ${color}12 0%, ${color}06 100%)`;
+                        e.currentTarget.style.borderColor = `${color}40`;
                         e.currentTarget.style.transform = 'translateX(4px)';
+                        e.currentTarget.style.boxShadow = `0 1px 4px ${color}15`;
                       }
                     }}
                     onMouseLeave={(e) => {
@@ -1152,15 +981,17 @@ const SidebarLayout = ({ children }) => {
                         e.currentTarget.style.background = 'transparent';
                         e.currentTarget.style.borderColor = 'transparent';
                         e.currentTarget.style.transform = 'translateX(0)';
+                        e.currentTarget.style.boxShadow = 'none';
                       }
                     }}
                     title={sidebarCollapsed ? label : ''}
                   >
                     <Icon style={{ 
-                      fontSize: '18px', 
+                      fontSize: '14px', 
                       color: isActive ? color : color, 
                       flexShrink: 0,
-                      filter: isActive ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none'
+                      filter: isActive ? 'none' : 'none',
+                      transition: 'all 0.3s ease'
                     }} />
                     {!sidebarCollapsed && (
                       <span style={{ 
@@ -1169,7 +1000,6 @@ const SidebarLayout = ({ children }) => {
                         textOverflow: 'ellipsis',
                         maxWidth: '180px',
                         display: 'inline-block',
-                        color: '#1e293b',
                         letterSpacing: '-0.2px'
                       }}>
                         {label}
@@ -1181,26 +1011,68 @@ const SidebarLayout = ({ children }) => {
                         left: 0,
                         top: '50%',
                         transform: 'translateY(-50%)',
-                        width: '4px',
-                        height: '70%',
+                        width: '3px',
+                        height: '60%',
                         background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
                         borderRadius: '0 3px 3px 0',
-                        boxShadow: `0 2px 6px ${color}40`
+                        boxShadow: `0 2px 4px ${color}40`
                       }} />
                     )}
                   </Link>
-                  {/* Add separator after Print Labels (first item) */}
-                  {index === 0 && (
+                );
+              };
+
+              return (
+                <>
+                  {/* Section 1: Inventory Management */}
+                  {renderSectionHeader('Inventory Management', ['#10b981', '#10b981'])}
+                  {inventorySession.map(renderMenuItem)}
+
+                  {/* Separator */}
+                  {!sidebarCollapsed && (
                     <div style={{
                       height: '1px',
                       background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
-                      margin: '6px 10px',
-                      opacity: 0.6
+                      margin: '3px 10px',
+                      opacity: 0.3
                     }} />
                   )}
-                </React.Fragment>
+
+                  {/* Section 2: Transaction */}
+                  {renderSectionHeader('Transaction', ['#f97316', '#f97316'])}
+                  {navigationSection2.map(renderMenuItem)}
+
+                  {/* Separator */}
+                  {!sidebarCollapsed && (
+                    <div style={{
+                      height: '1px',
+                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
+                      margin: '3px 10px',
+                      opacity: 0.3
+                    }} />
+                  )}
+
+                  {/* Section 3: RFID Tags Management */}
+                  {renderSectionHeader('RFID Tags Management', ['#ef4444', '#ef4444'])}
+                  {navigationSection3.map(renderMenuItem)}
+
+                  {/* Separator */}
+                  {!sidebarCollapsed && (
+                    <div style={{
+                      height: '1px',
+                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
+                      margin: '3px 10px',
+                      opacity: 0.3
+                    }} />
+                  )}
+
+                  {/* Section 4: RFID Operations */}
+                  {renderSectionHeader('RFID Operations', ['#3b82f6', '#3b82f6'])}
+                  {navigationSection4.map(renderMenuItem)}
+
+                </>
               );
-            })}
+            })()}
           </div>
         </aside>
 
@@ -1227,7 +1099,7 @@ const SidebarLayout = ({ children }) => {
           transition: 'margin-left 0.3s ease',
           padding: '24px',
           minHeight: 'calc(100vh - 64px)',
-          background: '#f8fafc',
+          background: '#ffffff',
           width: `calc(100% - ${mainContentMargin})`
         }}>
           {children}
@@ -1362,22 +1234,29 @@ const SidebarLayout = ({ children }) => {
             max-height: calc(100vh - 64px) !important;
           }
           .sidebar-nav-item {
-            padding: 5px 10px !important;
-            margin: 1px 5px !important;
+            padding: 6px 10px !important;
+            margin: 1px 8px !important;
             font-size: 11px !important;
-            gap: 7px !important;
+            gap: 8px !important;
+            border-radius: 8px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 16px !important;
+            font-size: 15px !important;
           }
           aside {
-            width: 240px !important;
+            width: 260px !important;
             overflow-y: visible !important;
             overflow-x: hidden !important;
           }
           main {
             padding: 12px !important;
             overflow-x: hidden !important;
+          }
+          /* Section headers responsive */
+          .sidebar-content > div > div:first-child {
+            padding: 4px 10px !important;
+            margin: 8px 8px 5px 8px !important;
+            font-size: 9px !important;
           }
         }
         
@@ -1388,48 +1267,84 @@ const SidebarLayout = ({ children }) => {
             overflow-x: hidden !important;
           }
           .sidebar-nav-item {
-            padding: 4px 8px !important;
-            margin: 1px 4px !important;
+            padding: 5px 8px !important;
+            margin: 1px 6px !important;
             font-size: 10px !important;
-            gap: 6px !important;
+            gap: 7px !important;
           }
           .sidebar-nav-item svg {
             font-size: 14px !important;
           }
           aside {
-            width: 220px !important;
+            width: 240px !important;
             overflow-y: visible !important;
             overflow-x: hidden !important;
           }
           main {
-            padding: 8px !important;
+            padding: 10px !important;
             overflow-x: hidden !important;
+          }
+          /* Section headers responsive */
+          .sidebar-content > div > div:first-child {
+            padding: 3px 8px !important;
+            margin: 6px 6px 4px 6px !important;
+            font-size: 8px !important;
           }
         }
         
         @media (max-width: 360px) {
+          .sidebar-content {
+            padding: 2px 0 !important;
+          }
           .sidebar-nav-item {
-            padding: 3px 6px !important;
-            margin: 1px 3px !important;
+            padding: 4px 7px !important;
+            margin: 1px 5px !important;
             font-size: 9px !important;
-            gap: 5px !important;
+            gap: 6px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 12px !important;
+            font-size: 13px !important;
           }
           aside {
-            width: 200px !important;
+            width: 220px !important;
+          }
+          /* Section headers responsive */
+          .sidebar-content > div > div:first-child {
+            padding: 3px 7px !important;
+            margin: 5px 5px 3px 5px !important;
+            font-size: 7px !important;
           }
         }
         
         /* Tablet responsive */
         @media (min-width: 769px) and (max-width: 1024px) {
           .sidebar-nav-item {
-            padding: 5px 10px !important;
+            padding: 6px 10px !important;
             font-size: 11px !important;
+            gap: 8px !important;
+          }
+          .sidebar-nav-item svg {
+            font-size: 15px !important;
+          }
+          .sidebar-content > div > div:first-child {
+            padding: 4px 10px !important;
+            font-size: 9px !important;
+          }
+        }
+        
+        /* Large screens */
+        @media (min-width: 1920px) {
+          .sidebar-nav-item {
+            padding: 7px 12px !important;
+            font-size: 13px !important;
+            gap: 10px !important;
           }
           .sidebar-nav-item svg {
             font-size: 17px !important;
+          }
+          .sidebar-content > div > div:first-child {
+            padding: 5px 12px !important;
+            font-size: 10px !important;
           }
         }
         

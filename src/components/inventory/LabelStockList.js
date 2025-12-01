@@ -20,7 +20,8 @@ import {
   FaInfoCircle,
   FaEdit,
   FaTimes,
-  FaSave
+  FaSave,
+  FaPrint
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -35,8 +36,8 @@ import IconButton from '@mui/material/IconButton';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 
-const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
-const DEFAULT_PAGE_SIZE = 25;
+const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
+const DEFAULT_PAGE_SIZE = 500;
 
 const getUniqueOptions = (data, field) => {
   if (!data || !Array.isArray(data)) return ['All'];
@@ -138,7 +139,13 @@ const LabelStockList = () => {
   const [userInfo, setUserInfo] = useState(null);
   const { addNotification } = useNotifications();
 
+  // Template selector state
+  const [savedTemplates, setSavedTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
 
+  // Label preview modal state
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Add state for status change popup
   const [showStatusPopup, setShowStatusPopup] = useState(false);
@@ -200,11 +207,11 @@ const LabelStockList = () => {
           setFilterValues(defaultFilters);
           setCurrentPage(1);
           
-          // Fetch filter data and stock data in parallel for faster loading
-          // Stock data can load independently while filters load
+          // Fetch filter data, stock data, and templates in parallel
           const [filterDataResult] = await Promise.allSettled([
             fetchFilterData(),
-            fetchLabeledStock(1, itemsPerPage, '', defaultFilters)
+            fetchLabeledStock(1, itemsPerPage, '', defaultFilters),
+            fetchSavedTemplates()
           ]);
           
           // If filter data failed, still allow stock to display
@@ -817,6 +824,323 @@ const LabelStockList = () => {
   const showSuccessNotification = (title, message) => {
     setSuccessMessage({ title, message });
     setShowSuccess(true);
+  };
+
+  // Fetch saved label templates
+  const fetchSavedTemplates = async () => {
+    if (!userInfo?.ClientCode) return;
+    
+    try {
+      setTemplatesLoading(true);
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      };
+      const requestBody = { ClientCode: userInfo.ClientCode };
+
+      // Use LabelTemplates API (matching backend)
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/LabelTemplates/GetAllLabelTemplates',
+        requestBody,
+        { headers }
+      );
+
+      const normalizeArray = (data) => {
+        if (Array.isArray(data)) return data;
+        if (data && typeof data === 'object') {
+          return data.data || data.items || data.results || data.list || [];
+        }
+        return [];
+      };
+
+      setSavedTemplates(normalizeArray(response.data));
+    } catch (error) {
+      console.error('Error fetching saved templates:', error);
+      setSavedTemplates([]);
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to load saved templates.'
+      });
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  // Template options for dropdown
+  const templateOptions = useMemo(() => {
+    const options = savedTemplates.map((template) => ({
+      value: template.Id || template.id || template.LabelTemplateId,
+      label: template.TemplateName || template.Name || 'Unnamed Template',
+      template: template,
+    }));
+    return options;
+  }, [savedTemplates]);
+
+  // Auto-select first template when templates are loaded
+  useEffect(() => {
+    if (templateOptions.length > 0 && !selectedTemplate && !templatesLoading) {
+      setSelectedTemplate(templateOptions[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateOptions.length, templatesLoading]);
+
+  // Function to print a single label
+  const handlePrintSingleLabel = async (item, e) => {
+    if (e) {
+      e.stopPropagation(); // Prevent row selection
+    }
+    
+    if (!selectedTemplate) {
+      showSuccessNotification('No Template Selected', 'Please select a template from the dropdown to print labels.');
+      return;
+    }
+
+    try {
+      setPreviewLoading(true);
+      
+      // Prepare API payload
+      const clientCode = userInfo?.ClientCode || '';
+      const templateId = selectedTemplate.value;
+      
+      // Build payload - use ItemCode if available, otherwise RFIDCode
+      const payload = {
+        clientCode: clientCode,
+        templateId: templateId,
+        itemCode: item.ItemCode || null,
+        rfidCode: item.RFIDCode || null,
+        itemCodes: null,
+        rfidCodes: null
+      };
+
+      // Call GenerateLabel API
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/LabelTemplates/GenerateLabel',
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      // Process response
+      const labels = response.data.labels || response.data.Labels || [];
+      
+      if (!labels || labels.length === 0) {
+        showSuccessNotification('Error', 'No label was generated. Please check the item.');
+        setPreviewLoading(false);
+        return;
+      }
+
+      const label = labels[0];
+      
+      if (!(label.isSuccess || label.IsSuccess)) {
+        const errorMsg = label.errorMessage || label.ErrorMessage || 'Failed to generate label.';
+        showSuccessNotification('Error', errorMsg);
+        setPreviewLoading(false);
+        return;
+      }
+
+      const generatedLayout = label.generatedLayout || label.GeneratedLayout;
+      
+      if (!generatedLayout) {
+        showSuccessNotification('Error', 'Invalid label layout received from server.');
+        setPreviewLoading(false);
+        return;
+      }
+
+      // Extract label data from elements (for PDF generation)
+      const labelData = {};
+      if (generatedLayout.elements) {
+        generatedLayout.elements.forEach(element => {
+          if (element.binding && element.value !== undefined) {
+            labelData[element.binding] = element.value;
+          }
+        });
+      }
+      
+      // Add item code and RFID code
+      labelData.ItemCode = label.itemCode || label.ItemCode || item.ItemCode || '';
+      labelData.RFIDCode = label.rfidCode || label.RFIDCode || item.RFIDCode || '';
+
+      // Generate and open PDF directly
+      await generateAndOpenPDF(generatedLayout, labelData, item);
+      setPreviewLoading(false);
+
+    } catch (error) {
+      console.error('Error generating label:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to generate label. Please try again.';
+      showSuccessNotification('Error', errorMessage);
+      setPreviewLoading(false);
+    }
+  };
+
+  // Function to generate and open PDF directly
+  const generateAndOpenPDF = async (layout, labelData, item) => {
+    try {
+      // Import required libraries
+      const { jsPDF } = await import('jspdf');
+      const html2canvas = (await import('html2canvas')).default;
+      const QRCode = (await import('qrcode')).default;
+
+      // Create a temporary container for rendering - completely hidden
+      const tempContainer = document.createElement('div');
+      tempContainer.style.position = 'fixed';
+      tempContainer.style.left = '-99999px';
+      tempContainer.style.top = '-99999px';
+      tempContainer.style.width = `${layout.page.width}px`;
+      tempContainer.style.height = `${layout.page.height}px`;
+      tempContainer.style.background = '#ffffff';
+      tempContainer.style.overflow = 'hidden';
+      tempContainer.style.opacity = '0';
+      tempContainer.style.pointerEvents = 'none';
+      tempContainer.style.visibility = 'hidden';
+      tempContainer.className = 'label-canvas-print-target';
+      document.body.appendChild(tempContainer);
+
+      // Render elements directly to DOM
+      layout.elements.forEach(element => {
+        const elementDiv = document.createElement('div');
+        elementDiv.style.position = 'absolute';
+        elementDiv.style.left = `${element.x}px`;
+        elementDiv.style.top = `${element.y}px`;
+        elementDiv.style.width = `${element.width}px`;
+        elementDiv.style.height = `${element.height}px`;
+        elementDiv.style.zIndex = element.zIndex || 10;
+
+        if (element.type === 'text') {
+          const labelText = element.label || '';
+          const bindingValue = element.value !== undefined ? String(element.value) : '';
+          let displayText = '';
+          if (labelText && bindingValue) {
+            displayText = `${labelText}: ${bindingValue}`;
+          } else if (labelText) {
+            displayText = labelText;
+          } else if (bindingValue) {
+            displayText = bindingValue;
+          }
+
+          elementDiv.style.fontSize = `${element.fontSize || 12}px`;
+          elementDiv.style.fontWeight = element.fontWeight || 'normal';
+          elementDiv.style.color = element.color || '#000000';
+          elementDiv.style.display = 'flex';
+          elementDiv.style.alignItems = 'center';
+          elementDiv.style.padding = '2px';
+          elementDiv.style.whiteSpace = 'nowrap';
+          elementDiv.style.overflow = 'hidden';
+          elementDiv.textContent = displayText;
+        } else if (element.type === 'qrcode') {
+          // QR code will be added directly to PDF, just mark the position
+          elementDiv.style.border = '1px dashed transparent';
+          elementDiv.setAttribute('data-qr-value', element.value || labelData.ItemCode || '');
+          elementDiv.setAttribute('data-qr-size', element.width || 60);
+        }
+
+        tempContainer.appendChild(elementDiv);
+      });
+
+      // Wait a bit for rendering
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Capture canvas while container is still hidden off-screen
+      const canvas = await html2canvas(tempContainer, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+        width: layout.page.width,
+        height: layout.page.height,
+        windowWidth: layout.page.width,
+        windowHeight: layout.page.height,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        ignoreElements: (element) => {
+          return element.hasAttribute('data-qr-value');
+        },
+        onclone: (clonedDoc) => {
+          // Ensure cloned document also has hidden container
+          const clonedContainer = clonedDoc.querySelector('.label-canvas-print-target');
+          if (clonedContainer) {
+            clonedContainer.style.position = 'fixed';
+            clonedContainer.style.left = '0px';
+            clonedContainer.style.top = '0px';
+            clonedContainer.style.opacity = '1';
+            clonedContainer.style.visibility = 'visible';
+          }
+        }
+      });
+
+      // Cleanup immediately
+      document.body.removeChild(tempContainer);
+
+      // Convert to image
+      const imgData = canvas.toDataURL('image/png', 1.0);
+
+      // Get dimensions in mm
+      const pxToMm = 0.264583; // 96 DPI
+      let labelWidthMm = layout.page.width * pxToMm;
+      let labelHeightMm = layout.page.height * pxToMm;
+
+      // Ensure minimum dimensions (at least 10mm)
+      if (labelWidthMm < 10) labelWidthMm = 100;
+      if (labelHeightMm < 10) labelHeightMm = 50;
+
+      // Create PDF with proper dimensions
+      const doc = new jsPDF({
+        orientation: labelWidthMm > labelHeightMm ? 'landscape' : 'portrait',
+        unit: 'mm',
+        format: [Math.max(labelHeightMm, 10), Math.max(labelWidthMm, 10)]
+      });
+
+      // Add background image
+      doc.addImage(imgData, 'PNG', 0, 0, labelWidthMm, labelHeightMm);
+
+      // Add QR codes directly to PDF for better quality
+      const qrElementsArray = layout.elements.filter(el => el.type === 'qrcode');
+      for (const qrElement of qrElementsArray) {
+        const qrValue = qrElement.value || labelData.ItemCode || '';
+        if (qrValue) {
+          const qrDataUrl = await QRCode.toDataURL(String(qrValue), {
+            errorCorrectionLevel: 'M',
+            type: 'image/png',
+            quality: 1.0,
+            margin: 1,
+            width: (qrElement.width || 60) * 3
+          });
+          const qrX = qrElement.x * pxToMm;
+          const qrY = qrElement.y * pxToMm;
+          const qrWidth = (qrElement.width || 60) * pxToMm;
+          const qrHeight = (qrElement.height || qrElement.width || 60) * pxToMm;
+          doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrWidth, qrHeight);
+        }
+      }
+
+      // Open PDF in new tab
+      const pdfBlob = doc.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const newTab = window.open(pdfUrl, '_blank');
+      
+      if (!newTab) {
+        // Fallback: download the PDF
+        doc.save(`Label-${labelData.ItemCode || 'N/A'}.pdf`);
+        showSuccessNotification('Info', 'PDF downloaded. Please check your downloads folder.');
+      } else {
+        // Clean up the blob URL after a delay
+        setTimeout(() => {
+          URL.revokeObjectURL(pdfUrl);
+        }, 1000);
+      }
+
+      showSuccessNotification('Success', `Label PDF opened for ${labelData.ItemCode || 'N/A'}.`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      showSuccessNotification('Error', 'Failed to generate PDF. Please try again.');
+      throw error;
+    }
   };
 
   // Helper function to handle dropdown search and filtering
@@ -1674,73 +1998,287 @@ const LabelStockList = () => {
     await fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues);
   };
 
-  const handlePrintLabel = () => {
+  // Function to generate PDF for multiple labels
+  const generateMultipleLabelsPDF = async (labels, selectedItems) => {
     try {
-      const selectedItems = currentItems.filter(item => selectedRows.includes(item.Id));
+      // Import required libraries
+      const { jsPDF } = await import('jspdf');
+      const html2canvas = (await import('html2canvas')).default;
+      const QRCode = (await import('qrcode')).default;
+
+      let doc = null;
+      let firstLabelDimensions = null;
+
+      // Process each label
+      for (let i = 0; i < labels.length; i++) {
+        const label = labels[i];
+        const generatedLayout = label.generatedLayout || label.GeneratedLayout;
+        
+        if (!generatedLayout) {
+          console.warn(`Skipping label ${i + 1}: Invalid layout`);
+          continue;
+        }
+
+        // Extract label data from elements
+        const labelData = {};
+        if (generatedLayout.elements) {
+          generatedLayout.elements.forEach(element => {
+            if (element.binding && element.value !== undefined) {
+              labelData[element.binding] = element.value;
+            }
+          });
+        }
+        
+        // Add item code and RFID code
+        labelData.ItemCode = label.itemCode || label.ItemCode || '';
+        labelData.RFIDCode = label.rfidCode || label.RFIDCode || '';
+
+        // Get dimensions in mm
+        const pxToMm = 0.264583; // 96 DPI
+        let labelWidthMm = generatedLayout.page.width * pxToMm;
+        let labelHeightMm = generatedLayout.page.height * pxToMm;
+
+        // Ensure minimum dimensions (at least 10mm)
+        if (labelWidthMm < 10) labelWidthMm = 100;
+        if (labelHeightMm < 10) labelHeightMm = 50;
+
+        // Initialize PDF with first label dimensions
+        if (!doc) {
+          firstLabelDimensions = { width: labelWidthMm, height: labelHeightMm };
+          doc = new jsPDF({
+            orientation: labelWidthMm > labelHeightMm ? 'landscape' : 'portrait',
+        unit: 'mm',
+            format: [Math.max(labelHeightMm, 10), Math.max(labelWidthMm, 10)]
+          });
+        } else {
+          // Add new page for each additional label
+          doc.addPage([Math.max(labelHeightMm, 10), Math.max(labelWidthMm, 10)], 
+            labelWidthMm > labelHeightMm ? 'landscape' : 'portrait');
+        }
+
+        // Create temporary container for rendering
+        const tempContainer = document.createElement('div');
+        tempContainer.style.position = 'absolute';
+        tempContainer.style.left = '-9999px';
+        tempContainer.style.top = '0px';
+        tempContainer.style.width = `${generatedLayout.page.width}px`;
+        tempContainer.style.height = `${generatedLayout.page.height}px`;
+        tempContainer.style.background = '#ffffff';
+        tempContainer.style.overflow = 'hidden';
+        tempContainer.className = 'label-canvas-print-target';
+        document.body.appendChild(tempContainer);
+
+        // Render elements directly to DOM
+        generatedLayout.elements.forEach(element => {
+          const elementDiv = document.createElement('div');
+          elementDiv.style.position = 'absolute';
+          elementDiv.style.left = `${element.x}px`;
+          elementDiv.style.top = `${element.y}px`;
+          elementDiv.style.width = `${element.width}px`;
+          elementDiv.style.height = `${element.height}px`;
+          elementDiv.style.zIndex = element.zIndex || 10;
+
+          if (element.type === 'text') {
+            const labelText = element.label || '';
+            const bindingValue = element.value !== undefined ? String(element.value) : '';
+            let displayText = '';
+            if (labelText && bindingValue) {
+              displayText = `${labelText}: ${bindingValue}`;
+            } else if (labelText) {
+              displayText = labelText;
+            } else if (bindingValue) {
+              displayText = bindingValue;
+            }
+
+            elementDiv.style.fontSize = `${element.fontSize || 12}px`;
+            elementDiv.style.fontWeight = element.fontWeight || 'normal';
+            elementDiv.style.color = element.color || '#000000';
+            elementDiv.style.display = 'flex';
+            elementDiv.style.alignItems = 'center';
+            elementDiv.style.padding = '2px';
+            elementDiv.style.whiteSpace = 'nowrap';
+            elementDiv.style.overflow = 'hidden';
+            elementDiv.textContent = displayText;
+          } else if (element.type === 'qrcode') {
+            // QR code will be added directly to PDF, just mark the position
+            elementDiv.style.border = '1px dashed transparent';
+            elementDiv.setAttribute('data-qr-value', element.value || labelData.ItemCode || '');
+            elementDiv.setAttribute('data-qr-size', element.width || 60);
+          }
+
+          tempContainer.appendChild(elementDiv);
+        });
+
+        // Wait a bit for rendering
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Ensure container is visible for html2canvas
+        tempContainer.style.left = '0px';
+        tempContainer.style.top = '0px';
+        tempContainer.style.zIndex = '9999';
+
+        // Capture canvas (without QR codes, we'll add them to PDF)
+        const canvas = await html2canvas(tempContainer, {
+          scale: 2,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          logging: false,
+          width: generatedLayout.page.width,
+          height: generatedLayout.page.height,
+          windowWidth: generatedLayout.page.width,
+          windowHeight: generatedLayout.page.height,
+          ignoreElements: (element) => {
+            return element.hasAttribute('data-qr-value');
+          }
+        });
+
+        // Cleanup
+        document.body.removeChild(tempContainer);
+
+        // Convert to image
+        const imgData = canvas.toDataURL('image/png', 1.0);
+
+        // Add background image to PDF
+        doc.addImage(imgData, 'PNG', 0, 0, labelWidthMm, labelHeightMm);
+
+        // Add QR codes directly to PDF for better quality
+        const qrElementsArray = generatedLayout.elements.filter(el => el.type === 'qrcode');
+        for (const qrElement of qrElementsArray) {
+          const qrValue = qrElement.value || labelData.ItemCode || '';
+          if (qrValue) {
+            const qrDataUrl = await QRCode.toDataURL(String(qrValue), {
+              errorCorrectionLevel: 'M',
+              type: 'image/png',
+              quality: 1.0,
+              margin: 1,
+              width: (qrElement.width || 60) * 3
+            });
+            const qrX = qrElement.x * pxToMm;
+            const qrY = qrElement.y * pxToMm;
+            const qrWidth = (qrElement.width || 60) * pxToMm;
+            const qrHeight = (qrElement.height || qrElement.width || 60) * pxToMm;
+            doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrWidth, qrHeight);
+          }
+        }
+      }
+
+      // Open PDF in new tab
+      if (doc) {
+        const pdfBlob = doc.output('blob');
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        const newTab = window.open(pdfUrl, '_blank');
+        
+        if (!newTab) {
+          // Fallback: download the PDF
+          doc.save(`Labels-${labels.length}-items.pdf`);
+          showSuccessNotification('Info', 'PDF downloaded. Please check your downloads folder.');
+        } else {
+          // Clean up the blob URL after a delay
+          setTimeout(() => {
+            URL.revokeObjectURL(pdfUrl);
+          }, 1000);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error generating multiple labels PDF:', error);
+      showSuccessNotification('Error', 'Failed to generate PDF. Please try again.');
+      throw error;
+    }
+  };
+
+  const handlePrintLabel = async () => {
+    try {
+      if (!selectedTemplate) {
+        showSuccessNotification('No Template Selected', 'Please select a template from the dropdown to print labels.');
+        return;
+      }
+
+      const selectedItems = showAllData && allFilteredData.length > 0 
+        ? allFilteredData.filter(item => selectedRows.includes(item.Id))
+        : currentItems.filter(item => selectedRows.includes(item.Id));
       
       if (selectedItems.length === 0) {
         showSuccessNotification('No Selection', 'Please select at least one item to print labels.');
         return;
       }
 
-      // Create a new PDF document with small page size for labels (horizontal)
-      const doc = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: [14, 27] // 14mm height x 27mm width (landscape)
-      });
+      setPreviewLoading(true);
 
-      selectedItems.forEach((item, index) => {
-        if (index > 0) {
-          doc.addPage(); // Add new page for each label
-        }
-
-        // Use complete label space with BIG fonts for perfect readability
-        // Product Name - Top left, BIG font (like "GOLD 22 CT")
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "bold");
-        const productName = (item.ProductName || 'N/A').substring(0, 18);
-        doc.text(productName, 1, 5);
-
-        // Item Code - BIG font without "Code:" text
-        doc.setFontSize(5);
-        doc.setFont("helvetica", "bold");
-        doc.text(item.ItemCode || 'N/A', 1, 9);
-
-        // Weights - Right side, BIG font
-        doc.text(`G: ${item.GrossWt || '0'}g`, 16, 5);
-        doc.text(`N: ${item.NetWt || '0'}g`, 16, 9);
-
-        // No border around the label
-      });
-
-      // Open PDF in new tab instead of downloading
-      const pdfDataUri = doc.output('datauristring');
-      const newTab = window.open();
-      newTab.document.write(`
-        <html>
-          <head>
-            <title>Labels - ${selectedItems.length} items</title>
-            <style>
-              body { margin: 0; padding: 20px; background: #f5f5f5; }
-              iframe { width: 100%; height: calc(100vh - 40px); border: none; }
-            </style>
-          </head>
-          <body>
-            <iframe src="${pdfDataUri}"></iframe>
-          </body>
-        </html>
-      `);
-      newTab.document.close();
+      // Prepare API payload for multiple products
+      const clientCode = userInfo?.ClientCode || '';
+      const templateId = selectedTemplate.value;
       
-      showSuccessNotification(
-        'Labels Opened', 
-        `Successfully opened ${selectedItems.length} label(s) in new tab for printing.`
+      // Collect item codes and RFID codes
+      const itemCodes = selectedItems
+        .map(item => item.ItemCode)
+        .filter(code => code && code.trim() !== '');
+      
+      const rfidCodes = selectedItems
+        .map(item => item.RFIDCode)
+        .filter(code => code && code.trim() !== '');
+
+      // Build payload for multiple products
+      const payload = {
+        clientCode: clientCode,
+        templateId: templateId,
+        itemCode: null,
+        rfidCode: null,
+        itemCodes: itemCodes.length > 0 ? itemCodes : null,
+        rfidCodes: rfidCodes.length > 0 ? rfidCodes : null
+      };
+
+      // Call GenerateLabel API
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/LabelTemplates/GenerateLabel',
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
       );
+
+      // Process response
+      const labels = response.data.labels || response.data.Labels || [];
+      
+      if (!labels || labels.length === 0) {
+        showSuccessNotification('Error', 'No labels were generated. Please check your selection.');
+        setPreviewLoading(false);
+        return;
+      }
+
+      // Filter successful labels
+      const successfulLabels = labels.filter(label => label.isSuccess || label.IsSuccess);
+      const failedLabels = labels.filter(label => !(label.isSuccess || label.IsSuccess));
+
+      if (successfulLabels.length === 0) {
+        const errorMsg = failedLabels.length > 0 
+          ? failedLabels.map(l => l.errorMessage || l.ErrorMessage).join('; ')
+          : 'All label generation requests failed.';
+        showSuccessNotification('Error', errorMsg);
+        setPreviewLoading(false);
+        return;
+      }
+
+      // Generate PDF for all successful labels
+      await generateMultipleLabelsPDF(successfulLabels, selectedItems);
+
+      // Show success notification
+      let message = `Successfully generated ${successfulLabels.length} label(s)`;
+      if (failedLabels.length > 0) {
+        message += ` (${failedLabels.length} failed)`;
+      }
+      message += '. PDF opened in new tab for printing.';
+      showSuccessNotification('Labels Generated', message);
+      setPreviewLoading(false);
 
     } catch (error) {
       console.error('Error generating labels:', error);
-      showSuccessNotification('Error', 'Failed to generate labels. Please try again.');
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to generate labels. Please try again.';
+      showSuccessNotification('Error', errorMessage);
+      setPreviewLoading(false);
     }
   };
 
@@ -2000,8 +2538,7 @@ const LabelStockList = () => {
     { key: 'Branch', label: 'Branch', width: '120px' },
     { key: 'CreatedDate', label: 'Created Date', width: '150px' },
     { key: 'PackingWeight', label: 'Packing Weight', width: '120px' },
-    { key: 'TotalWeight', label: 'Total Weight', width: '120px' },
-    { key: 'Status', label: 'Status', width: '110px' }
+    { key: 'TotalWeight', label: 'Total Weight', width: '120px' }
   ];
 
   const generateAndShowReport = () => {
@@ -2494,15 +3031,23 @@ const LabelStockList = () => {
       />
 
       <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-        {/* Unified Header & Action Section */}
-        <div style={{
+        {/* Unified Header & Action Section - Sticky */}
+        <div 
+          role="banner"
+          aria-label="Label Stock List Header with Actions"
+          style={{
           background: '#ffffff',
           borderRadius: '12px',
           padding: '16px 20px',
           marginBottom: '16px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb'
-        }}>
+            border: '1px solid #e5e7eb',
+            position: 'sticky',
+            top: '0',
+            zIndex: 100,
+            transition: 'box-shadow 0.2s'
+          }}
+        >
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -2521,15 +3066,141 @@ const LabelStockList = () => {
               }}>Label Stock List</h2>
             </div>
 
-            {/* Right: Total Count */}
+            {/* Right: Total Count, Template & Print Label */}
             <div style={{
-              fontSize: '12px',
-              color: '#64748b',
-              fontWeight: 600
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              flexWrap: 'wrap'
             }}>
-              Total: {showAllData && allFilteredData.length > 0 
-                ? allFilteredData.length 
-                : totalRecords} records
+              {/* Total Count */}
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                fontWeight: 600
+              }}>
+                Total: {showAllData && allFilteredData.length > 0 
+                  ? allFilteredData.length 
+                  : totalRecords} records
+              </div>
+
+              {/* Template Selector - Small */}
+              <div style={{ 
+                minWidth: '160px',
+                flexShrink: 0
+              }}>
+                <select
+                  id="template-selector-header"
+                  value={selectedTemplate?.value || ''}
+                  onChange={(e) => {
+                    const selectedValue = e.target.value;
+                    if (selectedValue === '') {
+                      setSelectedTemplate(null);
+                    } else {
+                      const option = templateOptions.find(opt => String(opt.value) === String(selectedValue));
+                      if (option) {
+                        setSelectedTemplate(option);
+                      }
+                    }
+                  }}
+                  disabled={templatesLoading}
+                  aria-label="Select label template"
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    border: selectedTemplate ? '1.5px solid #06b6d4' : '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    background: templatesLoading ? '#f1f5f9' : '#ffffff',
+                    cursor: templatesLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    color: selectedTemplate ? '#1e293b' : '#64748b'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#06b6d4';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = selectedTemplate ? '#06b6d4' : '#cbd5e1';
+                  }}
+                >
+                  {templateOptions.length === 0 ? (
+                    <option value="">{templatesLoading ? 'Loading...' : 'No templates'}</option>
+                  ) : (
+                    <>
+                      <option value="">Select Template</option>
+                      {templateOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </div>
+
+              {/* Print Label Button - Small */}
+              <button 
+                onClick={handlePrintLabel} 
+                disabled={selectedRows.length === 0 || !selectedTemplate || previewLoading}
+                aria-label={selectedRows.length === 0 
+                  ? 'Please select items to print labels' 
+                  : !selectedTemplate 
+                  ? 'Please select a template to print labels' 
+                  : `Print labels for ${selectedRows.length} selected item(s)`}
+                title={selectedRows.length === 0 
+                  ? 'Please select items to print labels' 
+                  : !selectedTemplate 
+                  ? 'Please select a template to print labels' 
+                  : `Print labels for ${selectedRows.length} selected item(s)`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: (selectedRows.length > 0 && selectedTemplate && !previewLoading) 
+                    ? 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)' 
+                    : '#e2e8f0',
+                  color: (selectedRows.length > 0 && selectedTemplate && !previewLoading) 
+                    ? '#ffffff' 
+                    : '#94a3b8',
+                  cursor: (selectedRows.length === 0 || !selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer',
+                  opacity: (selectedRows.length === 0 || !selectedTemplate || previewLoading) ? 0.6 : 1,
+                  transition: 'all 0.2s ease',
+                  minWidth: '100px',
+                  justifyContent: 'center',
+                  height: '32px'
+                }}
+                onMouseEnter={(e) => {
+                  if (selectedRows.length > 0 && selectedTemplate && !previewLoading) {
+                    e.target.style.background = 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)';
+                    e.target.style.transform = 'translateY(-1px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selectedRows.length > 0 && selectedTemplate && !previewLoading) {
+                    e.target.style.background = 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)';
+                    e.target.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                {previewLoading ? (
+                  <>
+                    <FaSpinner style={{ animation: 'spin 1s linear infinite', fontSize: '10px' }} />
+                    <span>Printing...</span>
+                  </>
+                ) : (
+                  <>
+                    <FaFilePdf style={{ fontSize: '11px' }} />
+                    <span>Print Label</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -2539,14 +3210,18 @@ const LabelStockList = () => {
             flexWrap: 'wrap',
             gap: '10px',
             alignItems: 'center',
+            justifyContent: 'space-between',
             marginTop: '16px',
             paddingTop: '16px',
             borderTop: '1px solid #e5e7eb'
-          }}>
+          }}
+          role="toolbar"
+          aria-label="Action buttons toolbar"
+          >
             {/* Search Input */}
             <div style={{
               position: 'relative',
-              flex: '1',
+              flex: '0 1 auto',
               minWidth: windowWidth <= 768 ? '100%' : '250px',
               maxWidth: windowWidth <= 768 ? '100%' : '350px'
             }}>
@@ -2574,10 +3249,23 @@ const LabelStockList = () => {
                   transition: 'all 0.2s',
                   boxSizing: 'border-box'
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                onFocus={(e) => e.target.style.borderColor = '#9ca3af'}
                 onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
+            
+            {/* Buttons Container - Right Aligned */}
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '10px',
+              alignItems: 'center',
+              marginLeft: 'auto',
+              minWidth: 'fit-content'
+            }}
+            role="group"
+            aria-label="Action buttons group"
+            >
             {/* Show All Data Button */}
             <button 
               onClick={toggleDataView}
@@ -2661,42 +3349,6 @@ const LabelStockList = () => {
             >
               <FaTrash />
               <span>Delete</span>
-            </button>
-
-            {/* Print Label Button */}
-            <button 
-              onClick={handlePrintLabel} 
-              disabled={selectedRows.length === 0}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #06b6d4',
-                background: '#ffffff',
-                color: '#06b6d4',
-                cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: selectedRows.length === 0 ? 0.5 : 1,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (selectedRows.length > 0) {
-                  e.target.style.background = '#06b6d4';
-                  e.target.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedRows.length > 0) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#06b6d4';
-                }
-              }}
-            >
-              <FaFilePdf />
-              <span>Print Label</span>
             </button>
 
             {/* Export Button */}
@@ -2820,6 +3472,7 @@ const LabelStockList = () => {
               <FaTrash />
               <span>Delete All</span>
             </button>
+            </div>
           </div>
         </div>
           
@@ -3176,10 +3829,9 @@ const LabelStockList = () => {
           border: '1px solid #e5e7eb',
           overflow: 'hidden'
         }}>
-          <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+          <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%', position: 'relative' }}>
             <table style={{ 
               width: '100%',
-              minWidth: '1400px',
               borderCollapse: 'collapse',
               fontSize: '12px',
               tableLayout: 'auto'
@@ -3214,7 +3866,7 @@ const LabelStockList = () => {
                       }}
                     />
                   </th>
-                  {columns.filter(col => col.key !== 'Status').map((column) => {
+                  {columns.map((column) => {
                     // Only hide columns on very small screens (480px and below)
                     const hiddenKeys = ['PackingWeight', 'TotalWeight'];
                     const isHiddenOnMobile = windowWidth <= 480 && hiddenKeys.includes(column.key);
@@ -3255,12 +3907,18 @@ const LabelStockList = () => {
                   })}
                   <th style={{
                     padding: '12px',
-                    textAlign: 'left',
+                    textAlign: 'center',
                     fontSize: '12px',
                     fontWeight: 600,
                     color: '#475569',
-                    whiteSpace: 'nowrap'
-                  }}>Status</th>
+                    whiteSpace: 'nowrap',
+                    position: 'sticky',
+                    right: 0,
+                    background: '#f8fafc',
+                    zIndex: 10,
+                    width: '120px',
+                    borderLeft: '1px solid #e5e7eb'
+                  }}>Print Label</th>
                 </tr>
               </thead>
               <tbody>
@@ -3272,9 +3930,7 @@ const LabelStockList = () => {
                       cursor: 'pointer',
                       borderBottom: '1px solid #e5e7eb',
                       background: selectedRows.includes(item.Id) 
-                        ? '#eff6ff' 
-                        : item.Status === 'Sold' 
-                        ? '#fef2f2' 
+                        ? '#f3f4f6' 
                         : index % 2 === 0 
                         ? '#ffffff' 
                         : '#f8fafc',
@@ -3283,15 +3939,28 @@ const LabelStockList = () => {
                     onMouseEnter={(e) => {
                       if (!selectedRows.includes(item.Id)) {
                         e.currentTarget.style.background = '#f1f5f9';
+                        // Update sticky columns background on hover
+                        const cells = e.currentTarget.querySelectorAll('td');
+                        cells.forEach(cell => {
+                          if (cell.style.position === 'sticky') {
+                            cell.style.background = '#f1f5f9';
+                          }
+                        });
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!selectedRows.includes(item.Id)) {
-                        e.currentTarget.style.background = item.Status === 'Sold' 
-                          ? '#fef2f2' 
-                          : index % 2 === 0 
+                        const bgColor = index % 2 === 0 
                           ? '#ffffff' 
                           : '#f8fafc';
+                        e.currentTarget.style.background = bgColor;
+                        // Update sticky columns background on leave
+                        const cells = e.currentTarget.querySelectorAll('td');
+                        cells.forEach(cell => {
+                          if (cell.style.position === 'sticky') {
+                            cell.style.background = bgColor;
+                          }
+                        });
                       }
                     }}
                   >
@@ -3312,7 +3981,7 @@ const LabelStockList = () => {
                         }}
                       />
                     </td>
-                    {columns.filter(col => col.key !== 'Status').map(column => {
+                    {columns.map(column => {
                       // Only hide columns on very small screens (480px and below)
                       const hiddenKeys = ['PackingWeight', 'TotalWeight'];
                       const isHiddenOnMobile = windowWidth <= 480 && hiddenKeys.includes(column.key);
@@ -3355,32 +4024,59 @@ const LabelStockList = () => {
                     })}
                     <td style={{
                       padding: '12px',
-                      fontSize: '12px'
+                      fontSize: '12px',
+                      textAlign: 'center',
+                      position: 'sticky',
+                      right: 0,
+                      background: selectedRows.includes(item.Id) 
+                        ? '#f3f4f6' 
+                        : index % 2 === 0 
+                        ? '#ffffff' 
+                        : '#f8fafc',
+                      zIndex: 5,
+                      borderLeft: '1px solid #e5e7eb'
                     }}>
                       <button 
-                        onClick={(e) => openRFIDTransactionPopup(item, e)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePrintSingleLabel(item, e);
+                          }}
+                          disabled={!selectedTemplate || previewLoading}
                         style={{
-                          padding: '4px 12px',
-                          fontSize: '10px',
-                          fontWeight: 600,
+                            padding: '8px 12px',
+                            fontSize: '14px',
                           borderRadius: '6px',
-                          border: '1px solid',
+                            border: '1px solid #3b82f6',
                           background: '#ffffff',
-                          color: item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444',
-                          borderColor: item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s'
+                            color: '#3b82f6',
+                            cursor: (!selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer',
+                            opacity: (!selectedTemplate || previewLoading) ? 0.5 : 1,
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            margin: '0 auto'
                         }}
                         onMouseEnter={(e) => {
-                          e.target.style.background = item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444';
+                            if (selectedTemplate && !previewLoading) {
+                              e.target.style.background = '#3b82f6';
                           e.target.style.color = '#ffffff';
+                            }
                         }}
                         onMouseLeave={(e) => {
+                            if (selectedTemplate && !previewLoading) {
                           e.target.style.background = '#ffffff';
-                          e.target.style.color = item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444';
-                        }}
-                      >
-                        {item.Status || 'N/A'}
+                              e.target.style.color = '#3b82f6';
+                            }
+                          }}
+                          title={!selectedTemplate ? "Please select a template first" : "Print Label"}
+                        >
+                          {previewLoading ? (
+                            <FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={14} />
+                          ) : (
+                            <FaPrint size={14} />
+                          )}
                       </button>
                     </td>
                   </tr>
@@ -3504,9 +4200,9 @@ const LabelStockList = () => {
                         fontWeight: 600,
                         borderRadius: '6px',
                         border: '1px solid',
-                        background: currentPage === page ? '#3b82f6' : '#ffffff',
+                        background: currentPage === page ? '#9ca3af' : '#ffffff',
                         color: currentPage === page ? '#ffffff' : '#475569',
-                        borderColor: currentPage === page ? '#3b82f6' : '#e2e8f0',
+                        borderColor: currentPage === page ? '#9ca3af' : '#e2e8f0',
                         cursor: 'pointer',
                         transition: 'all 0.2s',
                         minWidth: '36px'

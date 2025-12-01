@@ -1186,7 +1186,7 @@ const Dashboard = () => {
     `}</style>
     <div style={{
       minHeight: '100vh',
-      background: '#f8fafc',
+      background: '#ffffff',
       fontFamily: 'Inter, system-ui, sans-serif',
       width: '100%',
       padding: 0,
@@ -1207,22 +1207,24 @@ const Dashboard = () => {
           width: '380px',
           background: '#ffffff',
           borderRadius: '16px',
-          padding: '24px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          padding: '28px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          border: '1px solid #f1f5f9',
           overflowY: 'auto',
           flexShrink: 0,
           boxSizing: 'border-box',
           maxWidth: '100%'
         }}>
           <h5 style={{ 
-            color: '#1e293b', 
+            color: '#0f172a', 
             fontFamily: 'Inter, system-ui, sans-serif', 
-            fontWeight: 700, 
-            fontSize: '18px',
-            marginBottom: '20px',
-            letterSpacing: '-0.02em'
+            fontWeight: 800, 
+            fontSize: '20px',
+            marginBottom: '24px',
+            letterSpacing: '-0.03em',
+            lineHeight: '1.2'
           }}>API Endpoints</h5>
-          <div className="endpoint-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="endpoint-list" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {API_ENDPOINTS.map((endpoint, idx) => {
               const isSelected = selectedEndpoint?.id === endpoint.id;
               return (
@@ -1232,26 +1234,35 @@ const Dashboard = () => {
                   onClick={() => handleEndpointClick(endpoint)}
                   style={{
                     width: '100%',
-                    padding: '16px',
-                    borderRadius: '12px',
+                    padding: '18px',
+                    borderRadius: '14px',
                     background: isSelected ? endpoint.gradient : '#ffffff',
-                    border: isSelected ? 'none' : '1px solid #e2e8f0',
-                    transition: 'all 0.2s ease',
+                    border: isSelected ? 'none' : '1.5px solid #e2e8f0',
+                    transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease',
                     cursor: 'pointer',
                     textAlign: 'left',
-                    boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 2px rgba(0,0,0,0.05)',
-                    transform: isSelected ? 'translateY(-2px)' : 'translateY(0)',
+                    boxShadow: isSelected ? '0 6px 20px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
+                    transform: isSelected ? 'translateY(-2px) scale(1.01)' : 'translateY(0) scale(1)',
+                    willChange: 'transform, background-color, box-shadow',
                   }}
                   onMouseEnter={(e) => {
                     if (!isSelected) {
-                      e.currentTarget.style.background = '#f8fafc';
-                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                      const target = e.currentTarget;
+                      target.style.transition = 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease';
+                      target.style.background = '#f8fafc';
+                      target.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                      target.style.borderColor = '#cbd5e1';
+                      target.style.transform = 'translateY(-1px) scale(1.005)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isSelected) {
-                      e.currentTarget.style.background = '#ffffff';
-                      e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+                      const target = e.currentTarget;
+                      target.style.transition = 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease';
+                      target.style.background = '#ffffff';
+                      target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
+                      target.style.borderColor = '#e2e8f0';
+                      target.style.transform = 'translateY(0) scale(1)';
                     }
                   }}
                 >
@@ -1259,24 +1270,27 @@ const Dashboard = () => {
                     {getEndpointIcon(idx, isSelected)}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h6 className="endpoint-title" style={{ 
-                        fontSize: '15px', 
-                        fontWeight: 600, 
+                        fontSize: '16px', 
+                        fontWeight: 700, 
                         fontFamily: 'Inter, system-ui, sans-serif',
-                        color: isSelected ? '#ffffff' : '#1e293b',
+                        color: isSelected ? '#ffffff' : '#0f172a',
                         margin: 0,
-                        marginBottom: '4px',
-                        letterSpacing: '-0.01em'
+                        marginBottom: '6px',
+                        letterSpacing: '-0.02em',
+                        lineHeight: '1.3'
                       }}>
                         {endpoint.name}
                       </h6>
                       <small className="endpoint-method" style={{ 
                         fontSize: '12px', 
-                        fontFamily: 'Inter, system-ui, sans-serif', 
-                        color: isSelected ? 'rgba(255,255,255,0.85)' : '#64748b',
+                        fontFamily: 'Monaco, Menlo, "Courier New", monospace', 
+                        color: isSelected ? 'rgba(255,255,255,0.9)' : '#64748b',
                         display: 'block',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                        letterSpacing: '0.01em'
                       }}>
                         {endpoint.method} {endpoint.endpoint}
                       </small>
@@ -1303,7 +1317,8 @@ const Dashboard = () => {
               background: '#ffffff',
               borderRadius: '16px',
               padding: '32px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+              border: '1px solid #f1f5f9',
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
@@ -1319,12 +1334,13 @@ const Dashboard = () => {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <h5 style={{ 
-                    color: '#1e293b', 
+                    color: '#0f172a', 
                     fontFamily: 'Inter, system-ui, sans-serif', 
-                    fontWeight: 700, 
-                    fontSize: '22px',
+                    fontWeight: 800, 
+                    fontSize: '24px',
                     margin: 0,
-                    letterSpacing: '-0.02em'
+                    letterSpacing: '-0.03em',
+                    lineHeight: '1.2'
                   }}>
                     {selectedEndpoint.name}
                   </h5>
@@ -1373,18 +1389,24 @@ const Dashboard = () => {
                         border: '2px solid #22c55e', 
                         color: '#22c55e', 
                         background: '#fff', 
-                        transition: 'all 0.2s', 
+                        transition: 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease', 
                         fontFamily: 'Inter, system-ui, sans-serif',
                         padding: '8px 16px',
                         cursor: 'pointer'
                       }}
-                      onMouseOver={e => {
-                        e.currentTarget.style.background = '#dcfce7';
-                        e.currentTarget.style.color = '#16a34a';
+                      onMouseEnter={e => {
+                        const target = e.currentTarget;
+                        target.style.transition = 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease';
+                        target.style.background = '#dcfce7';
+                        target.style.color = '#16a34a';
+                        target.style.borderColor = '#16a34a';
                       }}
-                      onMouseOut={e => {
-                        e.currentTarget.style.background = '#fff';
-                        e.currentTarget.style.color = '#22c55e';
+                      onMouseLeave={e => {
+                        const target = e.currentTarget;
+                        target.style.transition = 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease';
+                        target.style.background = '#fff';
+                        target.style.color = '#22c55e';
+                        target.style.borderColor = '#22c55e';
                       }}
                     >
                       <FaFileExcel style={{ marginRight: 8, fontSize: 16 }} /> Download Format
@@ -1400,18 +1422,24 @@ const Dashboard = () => {
                         border: '2px solid #2563eb', 
                         color: '#2563eb', 
                         background: '#fff', 
-                        transition: 'all 0.2s', 
+                        transition: 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease', 
                         fontFamily: 'Inter, system-ui, sans-serif',
                         padding: '8px 16px',
                         cursor: 'pointer'
                       }}
-                      onMouseOver={e => {
-                        e.currentTarget.style.background = '#dbeafe';
-                        e.currentTarget.style.color = '#1d4ed8';
+                      onMouseEnter={e => {
+                        const target = e.currentTarget;
+                        target.style.transition = 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease';
+                        target.style.background = '#dbeafe';
+                        target.style.color = '#1d4ed8';
+                        target.style.borderColor = '#1d4ed8';
                       }}
-                      onMouseOut={e => {
-                        e.currentTarget.style.background = '#fff';
-                        e.currentTarget.style.color = '#2563eb';
+                      onMouseLeave={e => {
+                        const target = e.currentTarget;
+                        target.style.transition = 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease';
+                        target.style.background = '#fff';
+                        target.style.color = '#2563eb';
+                        target.style.borderColor = '#2563eb';
                       }}
                     >
                       <FaCloudUploadAlt style={{ marginRight: 8, fontSize: 16 }} /> Add Bulk Stock
@@ -1496,22 +1524,29 @@ const Dashboard = () => {
                     fontSize: '14px',
                     fontFamily: 'Inter, system-ui, sans-serif',
                     cursor: loading ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
+                    transition: 'transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease',
                     opacity: loading ? 0.7 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    marginBottom: '24px'
+                    marginBottom: '24px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                   }}
-                  onMouseOver={e => {
+                  onMouseEnter={e => {
                     if (!loading) {
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                      const target = e.currentTarget;
+                      target.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
+                      target.style.transform = 'translateY(-1px)';
+                      target.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
                     }
                   }}
-                  onMouseOut={e => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
+                  onMouseLeave={e => {
+                    if (!loading) {
+                      const target = e.currentTarget;
+                      target.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
+                      target.style.transform = 'translateY(0)';
+                      target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                    }
                   }}
                 >
                   {loading ? (
@@ -1596,18 +1631,22 @@ const Dashboard = () => {
                                 border: '1px solid #e2e8f0',
                                 color: '#64748b',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s',
+                                transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '6px'
                               }}
-                              onMouseOver={e => {
-                                e.currentTarget.style.background = '#f8fafc';
-                                e.currentTarget.style.borderColor = '#cbd5e1';
+                              onMouseEnter={e => {
+                                const target = e.currentTarget;
+                                target.style.transition = 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease';
+                                target.style.background = '#f8fafc';
+                                target.style.borderColor = '#cbd5e1';
                               }}
-                              onMouseOut={e => {
-                                e.currentTarget.style.background = '#ffffff';
-                                e.currentTarget.style.borderColor = '#e2e8f0';
+                              onMouseLeave={e => {
+                                const target = e.currentTarget;
+                                target.style.transition = 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease';
+                                target.style.background = '#ffffff';
+                                target.style.borderColor = '#e2e8f0';
                               }}
                             >
                               <FaCopy /> Copy
@@ -1736,9 +1775,10 @@ const Dashboard = () => {
             ) : (
               <div style={{ 
                 background: '#ffffff',
-                borderRadius: '12px',
-                padding: '24px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                borderRadius: '16px',
+                padding: '32px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                border: '1px solid #f1f5f9',
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1761,18 +1801,20 @@ const Dashboard = () => {
                   <FaShieldAlt style={{ fontSize: '28px', color: '#2563eb' }} />
                 </div>
                 <h4 className="welcome-title" style={{ 
-                  fontSize: '20px',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                  marginBottom: '8px',
-                  letterSpacing: '-0.01em'
+                  fontSize: '24px',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  marginBottom: '12px',
+                  letterSpacing: '-0.03em',
+                  lineHeight: '1.2'
                 }}>Secure RFID Integration</h4>
                 <p className="welcome-text" style={{ 
-                  fontSize: '13px',
+                  fontSize: '14px',
                   color: '#64748b',
-                  marginBottom: '24px',
+                  marginBottom: '32px',
                   maxWidth: '500px',
-                  lineHeight: '1.5'
+                  lineHeight: '1.6',
+                  fontWeight: 400
                 }}>Select an endpoint from the left to start making secure API requests for your RFID operations.</p>
 
                 <div className="grid-cards" style={{ 

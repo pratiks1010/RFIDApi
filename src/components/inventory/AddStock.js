@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { useNavigate } from 'react-router-dom';
 import { 
   FaPlus, 
   FaTrash, 
@@ -14,7 +15,8 @@ import {
   FaMap,
   FaColumns,
   FaChevronDown,
-  FaTimes
+  FaTimes,
+  FaList
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
@@ -106,8 +108,8 @@ const SearchableDropdown = ({
           required={required}
           style={{
             width: '100%',
-            padding: '5px 30px 5px 8px',
-            fontSize: '12px',
+            padding: '10px 35px 10px 12px',
+            fontSize: '14px',
             border: '1px solid #e2e8f0',
             borderRadius: '6px',
             outline: 'none',
@@ -116,8 +118,10 @@ const SearchableDropdown = ({
             background: disabled ? '#f1f5f9' : '#ffffff',
             cursor: disabled ? 'not-allowed' : 'text',
             color: disabled ? '#64748b' : '#1e293b',
-            height: '28px',
-            minHeight: '28px'
+            height: '40px',
+            minHeight: '40px',
+            fontSize: '14px',
+            padding: '10px 12px'
           }}
           onFocus={(e) => {
             handleFocus();
@@ -231,10 +235,11 @@ const SearchableDropdown = ({
 };
 
 const AddStock = () => {
+  const navigate = useNavigate();
   const { loading, setLoading } = useLoading();
   const { addNotification } = useNotifications();
   const fileInputRef = useRef(null);
-  const [activeSection, setActiveSection] = useState(1); // 1: Single, 2: Multiple, 3: Bulk Upload
+  const [activeSection, setActiveSection] = useState(1); // 1: Unified Form, 3: Bulk Upload
   const [userInfo, setUserInfo] = useState(null);
 
   // Single Product Form State
@@ -1878,8 +1883,8 @@ const AddStock = () => {
               background: field.readOnly ? '#f1f5f9' : '#ffffff',
               cursor: field.readOnly ? 'not-allowed' : 'text',
               color: field.readOnly ? '#64748b' : '#1e293b',
-              height: '28px',
-              minHeight: '28px'
+              height: '40px',
+              minHeight: '40px'
             }}
             onFocus={(e) => !field.readOnly && (e.target.style.borderColor = '#3b82f6')}
             onBlur={(e) => !field.readOnly && (e.target.style.borderColor = '#e2e8f0')}
@@ -1890,7 +1895,7 @@ const AddStock = () => {
   };
 
   return (
-    <div style={{ padding: '16px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', minHeight: '100vh' }}>
+    <div style={{ padding: '24px', fontFamily: 'Inter, system-ui, sans-serif', background: '#ffffff', minHeight: '100vh' }}>
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
@@ -1898,17 +1903,19 @@ const AddStock = () => {
         }
         .product-details-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 6px;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          gap: 20px;
         }
         @media (max-width: 1200px) {
           .product-details-grid {
             grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
           }
         }
         @media (max-width: 768px) {
           .product-details-grid {
             grid-template-columns: 1fr;
+            gap: 20px;
           }
         }
       `}</style>
@@ -1936,60 +1943,6 @@ const AddStock = () => {
 
         {/* Right Side - Toggle Buttons */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setActiveSection(1)}
-            style={{
-              padding: '10px 20px',
-              fontSize: '13px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: 'none',
-              background: activeSection === 1 ? '#3b82f6' : '#f1f5f9',
-              color: activeSection === 1 ? '#ffffff' : '#64748b',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              whiteSpace: 'nowrap'
-            }}
-            onMouseEnter={(e) => {
-              if (activeSection !== 1) {
-                e.target.style.background = '#e2e8f0';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (activeSection !== 1) {
-                e.target.style.background = '#f1f5f9';
-              }
-            }}
-          >
-            Add Single Product
-          </button>
-          <button
-            onClick={() => setActiveSection(2)}
-            style={{
-              padding: '10px 20px',
-              fontSize: '13px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: 'none',
-              background: activeSection === 2 ? '#3b82f6' : '#f1f5f9',
-              color: activeSection === 2 ? '#ffffff' : '#64748b',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              whiteSpace: 'nowrap'
-            }}
-            onMouseEnter={(e) => {
-              if (activeSection !== 2) {
-                e.target.style.background = '#e2e8f0';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (activeSection !== 2) {
-                e.target.style.background = '#f1f5f9';
-              }
-            }}
-          >
-            Add Multiple Products
-          </button>
           <button
             onClick={() => setActiveSection(3)}
             style={{
@@ -2031,7 +1984,7 @@ const AddStock = () => {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '16px',
                 transition: 'all 0.2s',
                 whiteSpace: 'nowrap',
                 marginLeft: '8px'
@@ -2060,18 +2013,15 @@ const AddStock = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
           border: '1px solid #e5e7eb'
         }}>
-          <h3 style={{ marginTop: 0, marginBottom: '12px', fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
-            Add Single Product
-          </h3>
 
-          {/* Shared Fields - Compact */}
-          <div style={{ marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' }}>
-            <h4 style={{ marginBottom: '6px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+          {/* Common Information Section */}
+          <div style={{ marginBottom: '24px', paddingBottom: '16px', borderBottom: '2px solid #e5e7eb' }}>
+            <h4 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
               Common Information
             </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   RFID Number <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
@@ -2082,20 +2032,22 @@ const AddStock = () => {
                   required
                   style={{
                     width: '100%',
-                    padding: '5px 8px',
-                    fontSize: '12px',
+                    padding: '10px 12px',
+                    fontSize: '14px',
                     border: '1px solid #e2e8f0',
                     borderRadius: '6px',
                     outline: 'none',
                     transition: 'all 0.2s',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    height: '40px',
+                    minHeight: '40px'
                   }}
                   onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                   onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Item Code (Must be Unique) <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
@@ -2106,20 +2058,22 @@ const AddStock = () => {
                   required
                   style={{
                     width: '100%',
-                    padding: '5px 8px',
-                    fontSize: '12px',
+                    padding: '10px 12px',
+                    fontSize: '14px',
                     border: '1px solid #e2e8f0',
                     borderRadius: '6px',
                     outline: 'none',
                     transition: 'all 0.2s',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    height: '40px',
+                    minHeight: '40px'
                   }}
                   onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                   onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Branch Name
                 </label>
                 <SearchableDropdown
@@ -2131,7 +2085,7 @@ const AddStock = () => {
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Counter Name
                 </label>
                 <SearchableDropdown
@@ -2146,12 +2100,12 @@ const AddStock = () => {
           </div>
 
           {/* Product Details Section */}
-          <div style={{ marginBottom: '12px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>Product Details</h3>
-            <div className="product-details-grid">
+          <div style={{ marginBottom: '24px', paddingBottom: '16px', borderBottom: '2px solid #e5e7eb' }}>
+            <h4 style={{ fontSize: '16px', fontWeight: 600, color: '#1e293b', marginBottom: '16px' }}>Product Details</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
               {/* Category Field */}
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Category <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <SearchableDropdown
@@ -2166,7 +2120,7 @@ const AddStock = () => {
 
               {/* Product Field */}
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Product <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <SearchableDropdown
@@ -2181,7 +2135,7 @@ const AddStock = () => {
 
               {/* Design Field */}
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Design
                 </label>
                 <SearchableDropdown
@@ -2195,7 +2149,7 @@ const AddStock = () => {
 
               {/* Purity Field */}
               <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Purity
                 </label>
                 <SearchableDropdown
@@ -2221,19 +2175,54 @@ const AddStock = () => {
             ).map(field => renderField(field, singleProduct[field.key], updateSingleField))}
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px', paddingTop: '12px', borderTop: '2px solid #e5e7eb' }}>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px', paddingTop: '24px', borderTop: '2px solid #e5e7eb' }}>
+            <button
+              onClick={() => navigate('/label-stock')}
+              style={{
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: 600,
+                borderRadius: '8px',
+                border: '1px solid #10b981',
+                background: '#ffffff',
+                color: '#10b981',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#10b981';
+                e.target.style.color = '#ffffff';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#ffffff';
+                e.target.style.color = '#10b981';
+              }}
+            >
+              <FaList /> Inventory List
+            </button>
             <button
               onClick={resetSingleForm}
               style={{
-                padding: '8px 16px',
-                fontSize: '13px',
+                padding: '10px 20px',
+                fontSize: '14px',
                 fontWeight: 600,
-                borderRadius: '6px',
+                borderRadius: '8px',
                 border: '1px solid #e2e8f0',
                 background: '#ffffff',
                 color: '#64748b',
                 cursor: 'pointer',
                 transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#f1f5f9';
+                e.target.style.borderColor = '#cbd5e1';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#ffffff';
+                e.target.style.borderColor = '#e2e8f0';
               }}
             >
               Reset
@@ -2242,17 +2231,17 @@ const AddStock = () => {
               onClick={handleSubmitSingle}
               disabled={loading}
               style={{
-                padding: '8px 16px',
-                fontSize: '13px',
+                padding: '10px 20px',
+                fontSize: '14px',
                 fontWeight: 600,
-                borderRadius: '6px',
+                borderRadius: '8px',
                 border: 'none',
                 background: loading ? '#94a3b8' : '#3b82f6',
                 color: '#ffffff',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '8px',
                 transition: 'all 0.2s'
               }}
             >
@@ -2290,7 +2279,7 @@ const AddStock = () => {
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '16px',
                     transition: 'all 0.2s'
                   }}
                   onMouseEnter={(e) => {
@@ -2351,7 +2340,7 @@ const AddStock = () => {
                 </h4>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
               <div style={{ minWidth: '200px', maxWidth: '300px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Branch Name
                     </label>
                 <SearchableDropdown
@@ -2363,7 +2352,7 @@ const AddStock = () => {
                 />
                   </div>
               <div style={{ minWidth: '200px', maxWidth: '300px' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                   Counter Name
                 </label>
                 <SearchableDropdown
@@ -2403,7 +2392,7 @@ const AddStock = () => {
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
+                      gap: '16px',
                       transition: 'all 0.2s',
                       whiteSpace: 'nowrap'
                     }}
@@ -2425,7 +2414,7 @@ const AddStock = () => {
                 </h5>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       RFID Number <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
@@ -2451,7 +2440,7 @@ const AddStock = () => {
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       Item Code (Must be Unique) <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
@@ -2477,7 +2466,7 @@ const AddStock = () => {
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       Quantity <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
@@ -2513,7 +2502,7 @@ const AddStock = () => {
                 <div className="product-details-grid">
                   {/* Category Field */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       Category <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <SearchableDropdown
@@ -2528,7 +2517,7 @@ const AddStock = () => {
 
                   {/* Product Field */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       Product <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <SearchableDropdown
@@ -2543,7 +2532,7 @@ const AddStock = () => {
 
                   {/* Design Field */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       Design
                     </label>
                     <SearchableDropdown
@@ -2557,7 +2546,7 @@ const AddStock = () => {
 
                   {/* Purity Field */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       Purity
                     </label>
                     <SearchableDropdown
@@ -2634,7 +2623,7 @@ const AddStock = () => {
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
+                      gap: '16px',
                       transition: 'all 0.2s',
                       whiteSpace: 'nowrap'
                     }}

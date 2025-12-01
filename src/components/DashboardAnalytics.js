@@ -65,10 +65,10 @@ const DashboardAnalytics = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [productSearch, setProductSearch] = useState('');
-  const [vendorSearch, setVendorSearch] = useState('');
+  const [counterSearch, setCounterSearch] = useState('');
   const [categorySearch, setCategorySearch] = useState('');
   const [productPage, setProductPage] = useState(1);
-  const [vendorPage, setVendorPage] = useState(1);
+  const [counterPage, setCounterPage] = useState(1);
   const [categoryPage, setCategoryPage] = useState(1);
   const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
   const [selectedAnalytics, setSelectedAnalytics] = useState(null);
@@ -221,7 +221,7 @@ const DashboardAnalytics = () => {
     const dummyItems = [];
     const categories = ['Gold', 'Silver', 'Diamond', 'Platinum', 'Gemstone'];
     const statuses = ['Active', 'Sold', 'Inactive', 'Pending'];
-    const vendors = ['Vendor A', 'Vendor B', 'Vendor C', 'Vendor D', 'Vendor E'];
+    const counters = ['Counter A', 'Counter B', 'Counter C', 'Counter D', 'Counter E'];
     const products = ['Ring', 'Necklace', 'Bracelet', 'Earring', 'Pendant', 'Chain', 'Bangle', 'Coin'];
     
     for (let i = 0; i < 150; i++) {
@@ -229,7 +229,7 @@ const DashboardAnalytics = () => {
         ProductName: products[Math.floor(Math.random() * products.length)],
         CategoryName: categories[Math.floor(Math.random() * categories.length)],
         Status: statuses[Math.floor(Math.random() * statuses.length)],
-        VendorName: vendors[Math.floor(Math.random() * vendors.length)],
+        CounterName: counters[Math.floor(Math.random() * counters.length)],
         GrossWt: (Math.random() * 50 + 5).toFixed(2),
         TodaysRate: Math.floor(Math.random() * 5000 + 2000)
       });
@@ -390,21 +390,22 @@ const DashboardAnalytics = () => {
     };
   };
 
-  const getVendorDistribution = () => {
-    const vendorCounts = filteredData.reduce((acc, item) => {
-      acc[item.VendorName] = (acc[item.VendorName] || 0) + 1;
+  const getCounterDistribution = () => {
+    const counterCounts = filteredData.reduce((acc, item) => {
+      const counterName = item.CounterName || item.Counter || 'Unassigned';
+      acc[counterName] = (acc[counterName] || 0) + 1;
       return acc;
     }, {});
 
-    const sortedVendors = Object.entries(vendorCounts)
+    const sortedCounters = Object.entries(counterCounts)
       .sort(([,a], [,b]) => b - a)
       .slice(0, 8);
 
     return {
-      labels: sortedVendors.map(([name]) => name.length > 12 ? name.substring(0, 12) + '...' : name),
+      labels: sortedCounters.map(([name]) => name.length > 12 ? name.substring(0, 12) + '...' : name),
       datasets: [{
         label: t('analytics.itemsCount'),
-        data: sortedVendors.map(([,count]) => count),
+        data: sortedCounters.map(([,count]) => count),
         backgroundColor: (context) => {
           const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
           const colors = [
@@ -608,7 +609,7 @@ const DashboardAnalytics = () => {
   const totalValue = filteredData.reduce((sum, item) => sum + (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt) || 0), 0);
   const soldItems = filteredData.filter(item => item.Status === 'Sold').length;
   const availableItems = filteredData.filter(item => item.Status !== 'Sold').length;
-  const uniqueVendors = [...new Set(filteredData.map(item => item.VendorName))].length;
+  const uniqueCounters = [...new Set(filteredData.map(item => item.CounterName || item.Counter || 'Unassigned'))].length;
 
   const chartOptions = {
     responsive: true,
@@ -856,30 +857,31 @@ const DashboardAnalytics = () => {
     });
     y = doc.lastAutoTable.finalY + 32;
 
-    // Top Vendors
+    // Counter Wise Stock Check
     doc.setFillColor(232, 254, 240); // very light green
     doc.roundedRect(40, y, pageWidth-80, 32, 8, 8, 'F');
     doc.setFontSize(16);
     doc.setTextColor('#22c55e');
-    doc.text(t('analytics.chart.vendorDistribution'), pageWidth/2, y+22, { align: 'center' });
+    doc.text('Counter Wise Stock Check', pageWidth/2, y+22, { align: 'center' });
     y += 48;
     autoTable(doc, {
       startY: y,
-      head: [[t('analytics.rank'), t('analytics.vendorName'), t('analytics.items'), t('analytics.performance')]],
+      head: [[t('analytics.rank'), 'Counter Name', t('analytics.items'), t('analytics.performance')]],
       body: (() => {
-        const vendorCounts = filteredData.reduce((acc, item) => {
-          acc[item.VendorName] = (acc[item.VendorName] || 0) + 1;
+        const counterCounts = filteredData.reduce((acc, item) => {
+          const counterName = item.CounterName || item.Counter || 'Unassigned';
+          acc[counterName] = (acc[counterName] || 0) + 1;
           return acc;
         }, {});
-        const sortedVendors = Object.entries(vendorCounts)
+        const sortedCounters = Object.entries(counterCounts)
           .sort(([,a], [,b]) => b - a)
           .slice(0, 8);
-        const maxCount = Math.max(...Object.values(vendorCounts));
-        return sortedVendors.map(([name, count], idx) => [
+        const maxCount = sortedCounters.length > 0 ? Math.max(...sortedCounters.map(([,count]) => count)) : 0;
+        return sortedCounters.map(([name, count], idx) => [
           idx+1,
           name,
           count,
-          `${((count/maxCount)*100).toFixed(0)}%`
+          maxCount > 0 ? `${((count/maxCount)*100).toFixed(0)}%` : '0%'
         ]);
       })(),
       theme: 'striped',
@@ -1170,14 +1172,15 @@ const DashboardAnalytics = () => {
       return acc;
     }, {});
     
-    const vendorBreakdown = items.reduce((acc, item) => {
-      acc[item.VendorName] = (acc[item.VendorName] || 0) + 1;
+    const counterBreakdown = items.reduce((acc, item) => {
+      const counterName = item.CounterName || item.Counter || 'Unassigned';
+      acc[counterName] = (acc[counterName] || 0) + 1;
       return acc;
     }, {});
     
     return {
       byStatus: Object.entries(statusBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
-      topVendors: Object.entries(vendorBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
+      topCounters: Object.entries(counterBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
       totalWeight: items.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0).toFixed(2),
       totalValue: items.reduce((sum, item) => sum + (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt) || 0), 0).toFixed(0)
     };
@@ -1272,10 +1275,10 @@ const DashboardAnalytics = () => {
               </div>
               
               <div className="breakdown-section">
-                <h4>{data.type === 'status' ? t('analytics.modal.topItems') : data.type === 'category' ? t('analytics.chart.vendorDistribution') : t('analytics.byStatus')}</h4>
+                <h4>{data.type === 'status' ? t('analytics.modal.topItems') : data.type === 'category' ? 'Number of Counters' : t('analytics.byStatus')}</h4>
                 <div className="breakdown-list">
                   {(data.type === 'status' ? data.breakdown.topProducts : 
-                    data.type === 'category' ? data.breakdown.topVendors : 
+                    data.type === 'category' ? data.breakdown.topCounters : 
                     data.breakdown.byStatus).map(([name, count], idx) => (
                     <div key={name} className="breakdown-item">
                       <span className="breakdown-name">{name.length > 20 ? name.substring(0, 20) + '...' : name}</span>
@@ -1521,7 +1524,7 @@ const DashboardAnalytics = () => {
   return (
     <div style={{
       padding: '16px',
-      background: '#f8fafc',
+      background: '#ffffff',
       minHeight: '100vh',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       position: 'relative',
@@ -1658,8 +1661,8 @@ const DashboardAnalytics = () => {
           },
           { 
             icon: FaBuilding, 
-            label: t('analytics.chart.vendorDistribution'), 
-            value: uniqueVendors,
+            label: 'Number of Counter', 
+            value: uniqueCounters,
             suffix: '',
             decimals: 0,
             color: '#06b6d4'
@@ -2192,7 +2195,8 @@ const DashboardAnalytics = () => {
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '10px'
+              fontSize: '10px',
+              tableLayout: 'fixed'
             }}>
                 <thead>
                 <tr style={{
@@ -2204,28 +2208,36 @@ const DashboardAnalytics = () => {
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '10px'
+                    fontSize: '10px',
+                    width: '50px',
+                    minWidth: '50px'
                   }}>{t('analytics.rank')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '10px'
+                    fontSize: '10px',
+                    width: '200px',
+                    minWidth: '200px'
                   }}>Product Name</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '10px'
+                    fontSize: '10px',
+                    width: '80px',
+                    minWidth: '80px'
                   }}>{t('analytics.count')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '10px'
+                    fontSize: '10px',
+                    width: 'auto',
+                    minWidth: '150px'
                   }}>{t('analytics.share')}</th>
                   </tr>
                 </thead>
@@ -2255,18 +2267,27 @@ const DashboardAnalytics = () => {
                           <td style={{
                             padding: '6px',
                             color: '#6b7280',
-                            fontSize: '10px'
+                            fontSize: '10px',
+                            width: '50px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
                           }}>{startIndex + index + 1}</td>
                           <td style={{
-                            padding: '6px'
+                            padding: '6px',
+                            width: '200px',
+                            overflow: 'hidden'
                           }}>
                             <div>
                               <div style={{
                                 fontSize: '10px',
                                 fontWeight: '500',
-                                color: '#111827'
+                                color: '#111827',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
                               }}>
-                                {name.length > 15 ? name.substring(0, 15) + '...' : name}
+                                {name}
                               </div>
                               <div style={{
                                 fontSize: '9px',
@@ -2280,12 +2301,16 @@ const DashboardAnalytics = () => {
                             padding: '6px',
                             fontSize: '10px',
                             fontWeight: '600',
-                            color: '#111827'
+                            color: '#111827',
+                            width: '80px',
+                            textAlign: 'right'
                           }}>
                             {count.toLocaleString()}
                             </td>
                           <td style={{
-                            padding: '6px'
+                            padding: '6px',
+                            width: 'auto',
+                            minWidth: '150px'
                           }}>
                             <div style={{
                               display: 'flex',
@@ -2359,7 +2384,7 @@ const DashboardAnalytics = () => {
                 color: '#111827',
                 margin: 0
               }}>
-                {t('analytics.chart.vendorDistribution')}
+                Counter Wise Stock 
               </h3>
             </div>
             <div style={{
@@ -2374,9 +2399,9 @@ const DashboardAnalytics = () => {
               <FaSearch style={{ color: '#9ca3af', fontSize: '10px' }} />
                 <input
                   type="text"
-                  placeholder={t('analytics.searchVendors')}
-                  value={vendorSearch}
-                  onChange={(e) => setVendorSearch(e.target.value)}
+                  placeholder="Search Counters..."
+                  value={counterSearch}
+                  onChange={(e) => setCounterSearch(e.target.value)}
                 style={{
                   border: 'none',
                   outline: 'none',
@@ -2393,7 +2418,8 @@ const DashboardAnalytics = () => {
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '10px'
+              fontSize: '10px',
+              tableLayout: 'fixed'
             }}>
                 <thead>
                 <tr style={{
@@ -2405,75 +2431,93 @@ const DashboardAnalytics = () => {
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: '50px',
+                    minWidth: '50px'
                   }}>{t('analytics.rank')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
-                  }}>{t('analytics.vendorName')}</th>
+                    fontSize: '11px',
+                    width: '180px',
+                    minWidth: '180px'
+                  }}>Counter Name</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: '80px',
+                    minWidth: '80px'
                   }}>{t('analytics.items')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: 'auto',
+                    minWidth: '150px'
                   }}>{t('analytics.performance')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(() => {
-                  const vendorCounts = data.reduce((acc, item) => {
-                    acc[item.Vendor] = (acc[item.Vendor] || 0) + 1;
+                  const counterCounts = filteredData.reduce((acc, item) => {
+                    const counterName = item.CounterName || item.Counter || 'Unassigned';
+                    acc[counterName] = (acc[counterName] || 0) + 1;
                       return acc;
                     }, {});
                     
-                    const filteredVendorCounts = Object.entries(vendorCounts)
-                      .filter(([name]) => name && name.toLowerCase().includes(vendorSearch.toLowerCase()));
+                    const filteredCounterCounts = Object.entries(counterCounts)
+                      .filter(([name]) => name && name.toLowerCase().includes(counterSearch.toLowerCase()));
                     
-                    const sortedVendors = filteredVendorCounts
+                    const sortedCounters = filteredCounterCounts
                       .sort(([,a], [,b]) => b - a);
-                    const maxCount = filteredVendorCounts.length > 0 ? Math.max(...filteredVendorCounts.map(([,count]) => count)) : 0;
+                    const maxCount = filteredCounterCounts.length > 0 ? Math.max(...filteredCounterCounts.map(([,count]) => count)) : 0;
                     
-                    const startIndex = (vendorPage - 1) * itemsPerPage;
-                    const paginatedVendors = sortedVendors.slice(startIndex, startIndex + itemsPerPage);
+                    const startIndex = (counterPage - 1) * itemsPerPage;
+                    const paginatedCounters = sortedCounters.slice(startIndex, startIndex + itemsPerPage);
                     
                     return (
                       <>
-                        {paginatedVendors.map(([name, count], index) => (
+                        {paginatedCounters.map(([name, count], index) => (
                         <tr key={name} style={{
                           borderBottom: '1px solid #f3f4f6'
                         }}>
                           <td style={{
                             padding: '6px',
                             color: '#6b7280',
-                            fontSize: '11px'
+                            fontSize: '11px',
+                            width: '50px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
                           }}>{startIndex + index + 1}</td>
                           <td style={{
-                            padding: '6px'
+                            padding: '6px',
+                            width: '180px',
+                            overflow: 'hidden'
                           }}>
                             <div>
                               <div style={{
                                 fontSize: '11px',
                                 fontWeight: '500',
-                                color: '#111827'
+                                color: '#111827',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
                               }}>
-                                {name?.length > 15 ? name.substring(0, 15) + '...' : name || 'Unknown'}
+                                {name || 'Unknown'}
                               </div>
                               <div style={{
                                 fontSize: '10px',
                                 color: '#6b7280'
                               }}>
-                                Supplier
+                                Counter
                               </div>
                               </div>
                             </td>
@@ -2481,12 +2525,16 @@ const DashboardAnalytics = () => {
                             padding: '6px',
                             fontSize: '11px',
                             fontWeight: '600',
-                            color: '#111827'
+                            color: '#111827',
+                            width: '80px',
+                            textAlign: 'right'
                           }}>
                             {count.toLocaleString()}
                             </td>
                           <td style={{
-                            padding: '6px'
+                            padding: '6px',
+                            width: 'auto',
+                            minWidth: '150px'
                           }}>
                             <div style={{
                               display: 'flex',
@@ -2563,7 +2611,8 @@ const DashboardAnalytics = () => {
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              fontSize: '10px'
+              fontSize: '10px',
+              tableLayout: 'fixed'
             }}>
                 <thead>
                 <tr style={{
@@ -2575,35 +2624,45 @@ const DashboardAnalytics = () => {
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: '150px',
+                    minWidth: '150px'
                   }}>{t('analytics.categoryName')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: '80px',
+                    minWidth: '80px'
                   }}>{t('analytics.items')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: '120px',
+                    minWidth: '120px'
                   }}>Weight (G)</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: '120px',
+                    minWidth: '120px'
                   }}>{t('analytics.avgValue')}</th>
                   <th style={{
                     padding: '8px 6px',
                     textAlign: 'left',
                     fontWeight: '600',
                     color: '#374151',
-                    fontSize: '11px'
+                    fontSize: '11px',
+                    width: 'auto',
+                    minWidth: '150px'
                   }}>{t('analytics.topProduct')}</th>
                   </tr>
                 </thead>

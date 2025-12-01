@@ -15,15 +15,20 @@ import {
   StockVerification,
   InvoiceStock,
   RFIDLabel,
-  AddStock
+  AddStock,
+  OrderList
 } from './components/inventory/components';
 import CreateLabel from './components/inventory/CreateLabel';
 import CreateInvoice from './components/inventory/CreateInvoice';
 import SampleOut from './components/inventory/SampleOut';
 import SampleOutList from './components/inventory/SampleOutList';
+import SampleIn from './components/inventory/SampleIn';
+import SessionDetails from './components/inventory/SessionDetails';
 import QuotationNew from './components/quotation/QuotationNew';
 import QuotationWithRFIDTray from './components/quotation/QuotationWithRFIDTray';
 import QuotationList from './components/quotation/QuotationList';
+import Reports from './components/Reports';
+import StockReportSummary from './components/StockReportSummary';
 import Footer from './components/Footer';
 import UploadRFID from './components/UploadRFID';
 import RFIDTransactions from './components/RFIDTransactions';
@@ -551,6 +556,36 @@ const RoutesWrapper = () => {
             }
           />
           <Route
+            path="/order-list"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <OrderList />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+            <Route
+            path="/reports"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <Reports />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/stock-report-summary"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <StockReportSummary />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/rfid-label"
             element={
               <AuthGuard>
@@ -591,6 +626,16 @@ const RoutesWrapper = () => {
             }
           />
           <Route
+            path="/sample-in"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <SampleIn />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/rfid-devices"
             element={
               <AuthGuard>
@@ -626,6 +671,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <StockVerification />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/session-details/:sessionId"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <SessionDetails />
                 </PageWrapper>
               </AuthGuard>
             }

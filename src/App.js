@@ -13,6 +13,7 @@ import {
   RFIDTags,
   TagUsage,
   StockVerification,
+  StockTransfer,
   InvoiceStock,
   RFIDLabel,
   AddStock,
@@ -36,6 +37,11 @@ import RFIDAppDownload from './components/RFIDAppDownload';
 import NotFound from './components/NotFound';
 import { AdminLogin, AdminDashboard } from './components/admin';
 import AdminRfidTagsReport from './components/admin/AdminRfidTagsReport';
+import SingleUseTags from './components/SingleUseTags';
+import ThirdPartySoftwareIntegration from './components/ThirdPartySoftwareIntegration';
+import DownloadApiDoc from './components/DownloadApiDoc';
+import DownloadResources from './components/DownloadResources';
+import ProfileMenuPage from './components/ProfileMenuPage';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
 import './styles/rtl.css';
@@ -48,7 +54,7 @@ import WelcomeModal from './components/common/WelcomeModal';
 import './i18n';
 
 // Global loading context
-export const LoadingContext = createContext({ loading: false, setLoading: () => {} });
+export const LoadingContext = createContext({ loading: false, setLoading: () => { } });
 export const useLoading = () => useContext(LoadingContext);
 
 const LoadingProvider = ({ children }) => {
@@ -65,13 +71,13 @@ const LoadingProvider = ({ children }) => {
 const useAuthProtection = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   React.useEffect(() => {
     const token = localStorage.getItem('token');
     const adminToken = localStorage.getItem('adminToken');
     let isAuth = false;
     let isAdminAuth = false;
-    
+
     // Check user authentication
     if (token) {
       try {
@@ -79,12 +85,12 @@ const useAuthProtection = () => {
         const base64Url = token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
         const tokenPayload = JSON.parse(window.atob(base64));
-        
+
         // Check if token is expired (if exp field exists)
         if (tokenPayload.exp) {
           const currentTime = Math.floor(Date.now() / 1000);
           isAuth = tokenPayload.exp > currentTime;
-          
+
           // If token is expired, clear storage
           if (!isAuth) {
             localStorage.removeItem('token');
@@ -102,7 +108,7 @@ const useAuthProtection = () => {
         isAuth = false;
       }
     }
-    
+
     // Check admin authentication
     if (adminToken) {
       try {
@@ -110,12 +116,12 @@ const useAuthProtection = () => {
         const base64Url = adminToken.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
         const tokenPayload = JSON.parse(window.atob(base64));
-        
+
         // Check if token is expired (if exp field exists)
         if (tokenPayload.exp) {
           const currentTime = Math.floor(Date.now() / 1000);
           isAdminAuth = tokenPayload.exp > currentTime;
-          
+
           // If token is expired, clear storage
           if (!isAdminAuth) {
             localStorage.removeItem('adminToken');
@@ -129,20 +135,20 @@ const useAuthProtection = () => {
         isAdminAuth = false;
       }
     }
-    
+
     // Handle navigation based on authentication status
     const currentPath = location.pathname;
-    
+
     // If user is authenticated and tries to access login/register pages
     if (isAuth && (currentPath === '/login' || currentPath === '/register')) {
       navigate('/dashboard', { replace: true });
     }
-    
+
     // If admin is authenticated and tries to access admin-login
     if (isAdminAuth && currentPath === '/admin-login') {
       navigate('/admin-dashboard', { replace: true });
     }
-    
+
     // If no authentication and trying to access protected routes
     if (!isAuth && !isAdminAuth) {
       const protectedRoutes = [
@@ -154,13 +160,17 @@ const useAuthProtection = () => {
         '/rfid-tags',
         '/tag-usage',
         '/stock-verification',
-
         '/upload-rfid',
         '/rfid-transactions',
-        '/rfid-app-download'
+        '/rfid-app-download',
+        '/third-party-integration',
+        '/download-api-doc',
+        '/download-resources',
+        '/single-use-tags',
+        '/profile-menu'
       ];
       const adminRoutes = ['/admin-dashboard'];
-      
+
       if (protectedRoutes.includes(currentPath)) {
         navigate('/login', { replace: true });
       } else if (adminRoutes.includes(currentPath)) {
@@ -169,18 +179,18 @@ const useAuthProtection = () => {
         navigate('/login', { replace: true });
       }
     }
-    
+
     // If user is authenticated but tries to access admin routes
     if (isAuth && !isAdminAuth && currentPath === '/admin-dashboard') {
       navigate('/dashboard', { replace: true });
     }
-    
-      // If admin is authenticated but tries to access user routes
-      if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'].includes(currentPath)) {
-        navigate('/admin-dashboard', { replace: true });
-      }
+
+    // If admin is authenticated but tries to access user routes
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'].includes(currentPath)) {
+      navigate('/admin-dashboard', { replace: true });
+    }
   }, [location.pathname, navigate]);
-  
+
   // Add popstate listener to handle browser back/forward buttons
   React.useEffect(() => {
     const handlePopState = () => {
@@ -189,9 +199,9 @@ const useAuthProtection = () => {
       const isAuth = !!token;
       const isAdminAuth = !!adminToken;
       const currentPath = window.location.pathname;
-      
+
       // If not authenticated, always redirect to login/admin-login on protected routes
-              const protectedRoutes = [
+      const protectedRoutes = [
         '/dashboard',
         '/analytics',
         '/rfid-integration',
@@ -204,10 +214,15 @@ const useAuthProtection = () => {
         '/stock-verification',
         '/upload-rfid',
         '/rfid-transactions',
-        '/rfid-app-download'
+        '/rfid-app-download',
+        '/third-party-integration',
+        '/download-api-doc',
+        '/download-resources',
+        '/single-use-tags',
+        '/profile-menu'
       ];
       const adminRoutes = ['/admin-dashboard'];
-      
+
       if (!isAuth && !isAdminAuth) {
         if (protectedRoutes.includes(currentPath)) {
           navigate('/login', { replace: true });
@@ -216,7 +231,7 @@ const useAuthProtection = () => {
         }
       }
     };
-    
+
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [navigate]);
@@ -226,28 +241,28 @@ const useAuthProtection = () => {
 const isAuthenticated = () => {
   const token = localStorage.getItem('token');
   if (!token) return false;
-  
+
   try {
     // Validate token format and expiry
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const tokenPayload = JSON.parse(window.atob(base64));
-    
+
     // Check if token is expired (if exp field exists)
     if (tokenPayload.exp) {
       const currentTime = Math.floor(Date.now() / 1000);
       const isValid = tokenPayload.exp > currentTime;
-      
+
       // If token is expired, clear storage
       if (!isValid) {
         localStorage.removeItem('token');
         localStorage.removeItem('userInfo');
         localStorage.removeItem('lastLoginTime');
       }
-      
+
       return isValid;
     }
-    
+
     return true; // If no expiry field, consider valid
   } catch (error) {
     // Invalid token format, clear storage
@@ -262,26 +277,26 @@ const isAuthenticated = () => {
 const isAdminAuthenticated = () => {
   const adminToken = localStorage.getItem('adminToken');
   if (!adminToken) return false;
-  
+
   try {
     // Validate admin token format and expiry
     const base64Url = adminToken.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const tokenPayload = JSON.parse(window.atob(base64));
-    
+
     // Check if token is expired (if exp field exists)
     if (tokenPayload.exp) {
       const currentTime = Math.floor(Date.now() / 1000);
       const isValid = tokenPayload.exp > currentTime;
-      
+
       // If token is expired, clear storage
       if (!isValid) {
         localStorage.removeItem('adminToken');
       }
-      
+
       return isValid;
     }
-    
+
     return true; // If no expiry field, consider valid
   } catch (error) {
     // Invalid token format, clear storage
@@ -297,10 +312,8 @@ const PageWrapper = ({ children }) => (
     overflowY: 'auto',
     scrollBehavior: 'smooth',
     msOverflowStyle: 'none', /* IE and Edge */
-    scrollbarWidth: 'none',  /* Firefox */
-    '&::-webkit-scrollbar': {
-      display: 'none' /* Chrome, Safari, Opera */
-    }
+    scrollbarWidth: 'none'  /* Firefox */
+    /* Chrome, Safari, Opera scrollbar is handled via CSS class */
   }}>
     {children}
   </div>
@@ -311,10 +324,10 @@ const useSessionTimeout = () => {
   const navigate = useNavigate();
   const timeoutRef = React.useRef(null);
   const warningRef = React.useRef(null);
-  
+
   const TIMEOUT_DURATION = 30 * 60 * 1000; // 30 minutes
   const WARNING_DURATION = 5 * 60 * 1000; // 5 minutes before timeout
-  
+
   const logout = React.useCallback(() => {
     // Clear all authentication data
     localStorage.removeItem('token');
@@ -323,47 +336,47 @@ const useSessionTimeout = () => {
     localStorage.removeItem('showWelcomeToast');
     localStorage.removeItem('adminToken');
     sessionStorage.clear();
-    
+
     // Navigate to login
     navigate('/login?session_expired=true', { replace: true });
   }, [navigate]);
-  
+
   const resetTimeout = React.useCallback(() => {
     // Clear existing timeouts
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (warningRef.current) clearTimeout(warningRef.current);
-    
+
     // Only set timeout if user is authenticated
     const token = localStorage.getItem('token');
     const adminToken = localStorage.getItem('adminToken');
-    
+
     if (token || adminToken) {
       // Set warning timeout
       warningRef.current = setTimeout(() => {
         console.warn('Session will expire in 5 minutes');
       }, TIMEOUT_DURATION - WARNING_DURATION);
-      
+
       // Set logout timeout
       timeoutRef.current = setTimeout(() => {
         logout();
       }, TIMEOUT_DURATION);
     }
   }, [logout, TIMEOUT_DURATION, WARNING_DURATION]);
-  
+
   React.useEffect(() => {
     // Events that reset the timeout
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-    
+
     const resetTimeoutHandler = () => resetTimeout();
-    
+
     // Add event listeners
     events.forEach(event => {
       document.addEventListener(event, resetTimeoutHandler, true);
     });
-    
+
     // Initial timeout setup
     resetTimeout();
-    
+
     // Cleanup
     return () => {
       events.forEach(event => {
@@ -379,30 +392,30 @@ const useSessionTimeout = () => {
 const AuthGuard = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // Add session timeout management
   useSessionTimeout();
-  
+
   React.useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem('token');
       const adminToken = localStorage.getItem('adminToken');
       const currentPath = location.pathname;
-      
+
       // Public routes that don't require authentication
       const publicRoutes = ['/login', '/register', '/admin-login'];
-      
+
       // If on a public route, allow access
       if (publicRoutes.includes(currentPath)) {
         return;
       }
-      
+
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download'];
-      
+      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'];
+
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
-      
+
       // Check if trying to access user routes
       if (userRoutes.includes(currentPath)) {
         if (!isAuthenticated()) {
@@ -410,7 +423,7 @@ const AuthGuard = ({ children }) => {
           return;
         }
       }
-      
+
       // Check if trying to access admin routes
       if (adminRoutes.includes(currentPath)) {
         if (!isAdminAuthenticated()) {
@@ -418,7 +431,7 @@ const AuthGuard = ({ children }) => {
           return;
         }
       }
-      
+
       // Handle root path
       if (currentPath === '/') {
         if (isAuthenticated()) {
@@ -430,18 +443,18 @@ const AuthGuard = ({ children }) => {
         }
       }
     };
-    
+
     // Check authentication on every route change
     checkAuth();
   }, [location.pathname, navigate]);
-  
+
   return children;
 };
 
 // Routes wrapper component with authentication protection
 const RoutesWrapper = () => {
   useAuthProtection();
-  
+
   return (
     <AuthGuard>
       <Routes>
@@ -565,7 +578,7 @@ const RoutesWrapper = () => {
               </AuthGuard>
             }
           />
-            <Route
+          <Route
             path="/reports"
             element={
               <AuthGuard>
@@ -591,6 +604,26 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <RFIDLabel />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/single-use-tags"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <SingleUseTags />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/profile-menu"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <ProfileMenuPage />
                 </PageWrapper>
               </AuthGuard>
             }
@@ -676,6 +709,16 @@ const RoutesWrapper = () => {
             }
           />
           <Route
+            path="/stock-transfer"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <StockTransfer />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/session-details/:sessionId"
             element={
               <AuthGuard>
@@ -716,8 +759,38 @@ const RoutesWrapper = () => {
               </AuthGuard>
             }
           />
+          <Route
+            path="/download-api-doc"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <DownloadApiDoc />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/download-resources"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <DownloadResources />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/third-party-integration"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <ThirdPartySoftwareIntegration />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
         </Route>
-        
+
         {/* Admin routes */}
         <Route
           path="/admin-rfid-tags-report"
@@ -729,7 +802,7 @@ const RoutesWrapper = () => {
             </AuthGuard>
           }
         />
-        
+
         {/* Not found route */}
         <Route path="*" element={<NotFound />} />
         <Route path="/" element={<Navigate to="/analytics" replace />} />
@@ -823,7 +896,7 @@ function App() {
 
               <RoutesWrapper />
             </div>
-            <ToastContainer 
+            <ToastContainer
               position="bottom-right"
               autoClose={3000}
               hideProgressBar={false}

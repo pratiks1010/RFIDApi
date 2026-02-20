@@ -19,6 +19,7 @@ const RFIDTags = () => {
   const [selectedTags, setSelectedTags] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [editingRows, setEditingRows] = useState(new Set());
   const [editedValues, setEditedValues] = useState({});
@@ -220,18 +221,61 @@ const RFIDTags = () => {
     });
   };
 
-  // Handle delete
+  // Handle delete confirmation
   const handleDelete = () => {
     if (selectedTags.length === 0) {
       toast.warning('Please select tags to delete');
       return;
     }
-    const deletedTags = selectedTags.map(id => rfidData.find(tag => tag.Id === id)?.BarcodeNumber).filter(Boolean).join(', ');
-    addNotification({
-      title: 'Tag deleted',
-      description: `${selectedTags.length} tag(s) deleted: ${deletedTags}`,
-      type: 'success'
-    });
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      setShowDeleteConfirm(false);
+      setLoading(true);
+      
+      const clientCode = getClientCode();
+      if (!clientCode) {
+        toast.error('Client code not found. Please login again.');
+        return;
+      }
+
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/Device/DeleteAllRFID',
+        {
+          ClientCode: clientCode,
+          Ids: selectedTags
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.data && response.data.success !== false) {
+        toast.success('Tags deleted successfully');
+        
+        const userInfo = JSON.parse(localStorage.getItem('userInfo'));
+        addNotification({
+          title: 'Tags Deleted',
+          description: `${selectedTags.length} tag(s) deleted by ${userInfo?.Username || userInfo?.UserName || 'User'}`,
+          type: 'success'
+        });
+
+        setSelectedTags([]);
+        await fetchRFIDData();
+      } else {
+        throw new Error(response.data?.message || 'Failed to delete tags');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      toast.error(err.message || 'Failed to delete tags');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handle edit functions
@@ -1060,6 +1104,51 @@ const RFIDTags = () => {
           </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0" style={{ borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
+              <div className="modal-header border-0 pb-0">
+                <h5 className="modal-title fw-bold text-danger" style={{ fontSize: '18px' }}>
+                   <FaTrash className="me-2" /> Delete Confirmation
+                </h5>
+                <button 
+                  type="button" 
+                  className="btn-close"
+                  onClick={() => setShowDeleteConfirm(false)}
+                ></button>
+              </div>
+              <div className="modal-body py-4">
+                <p className="mb-0" style={{ fontSize: '14px', color: '#4b5563' }}>
+                  Are you sure you want to delete <strong>{selectedTags.length}</strong> selected tag(s)?
+                  <br/>
+                  <span className="text-danger mt-2 d-block" style={{ fontSize: '12px' }}>This action cannot be undone.</span>
+                </p>
+              </div>
+              <div className="modal-footer border-0 pt-0">
+                <button 
+                  type="button" 
+                  className="btn btn-light"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  style={{ fontSize: '13px', fontWeight: 500 }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-danger"
+                  onClick={handleConfirmDelete}
+                  style={{ fontSize: '13px', fontWeight: 500, padding: '8px 20px' }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         * {
           scrollbar-width: none;

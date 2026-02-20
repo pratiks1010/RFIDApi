@@ -151,9 +151,10 @@ const AdminLogin = () => {
           {/* Logo and Title */}
           <div style={{ marginBottom: '0.5rem' }}>
             <img
-              src="/Logo/Sparkle RFID svg.svg"
+              src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
               alt="Sparkle RFID"
               style={{ height: 32, marginRight: 6, verticalAlign: 'middle' }}
+              onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
             />
           </div>
           <div style={{ color: '#64748b', fontSize: 13, fontWeight: 400, margin: '0 0 0.5rem 0', fontFamily: 'Inter, Poppins, sans-serif' }}>

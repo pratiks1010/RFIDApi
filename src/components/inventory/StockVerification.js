@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+              import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -21,7 +21,11 @@ import {
   FaChartBar,
   FaFileExcel,
   FaChevronLeft,
-  FaChevronRight
+  FaChevronRight,
+  FaChevronDown,
+  FaChevronUp,
+  FaBoxes,
+  FaBarcode
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -48,6 +52,8 @@ const StockVerification = () => {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [matchedPage, setMatchedPage] = useState(1);
   const [unmatchedPage, setUnmatchedPage] = useState(1);
+  const [matchedSearchQuery, setMatchedSearchQuery] = useState('');
+  const [unmatchedSearchQuery, setUnmatchedSearchQuery] = useState('');
   const [tableItemsPerPage] = useState(10);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
@@ -56,9 +62,69 @@ const StockVerification = () => {
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [pageInput, setPageInput] = useState('');
   const isInitialMount = useRef(true);
+  const [activeTab, setActiveTab] = useState('batches'); // 'batches' or 'combineReport'
+  
+  // Combine Report State
+  const [consolidationData, setConsolidationData] = useState(null);
+  const [consolidationLoading, setConsolidationLoading] = useState(false);
+  const [consolidationError, setConsolidationError] = useState(null);
+  const [selectedReportDate, setSelectedReportDate] = useState(() => {
+    // Default to today's date in YYYY-MM-DD format
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  
+  // Navigation State for Zoho-like flow
+  const [currentView, setCurrentView] = useState('branches'); // 'branches', 'categories', 'products'
+  const [selectedBranchForView, setSelectedBranchForView] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [branchDetails, setBranchDetails] = useState({});
+  const [categoryDetails, setCategoryDetails] = useState({});
+  const [loadingBranch, setLoadingBranch] = useState(null);
+  const [loadingCategory, setLoadingCategory] = useState(null);
+  
+  // Pagination for each view
+  const [branchPage, setBranchPage] = useState(1);
+  const [categoryPage, setCategoryPage] = useState(1);
+  const [productPage, setProductPage] = useState(1);
+  const [consolidationItemsPerPage] = useState(20);
 
   const { addNotification } = useNotifications();
   const { t } = useTranslation();
+
+  // Filtered lists for Matched/Unmatched items in Session Details
+  const filteredMatchedList = useMemo(() => {
+    if (!sessionDetails?.MatchedList) return [];
+    if (!matchedSearchQuery) return sessionDetails.MatchedList;
+    const lowerQuery = matchedSearchQuery.toLowerCase();
+    return sessionDetails.MatchedList.filter(item =>
+      (item.ItemCode && String(item.ItemCode).toLowerCase().includes(lowerQuery)) ||
+      (item.ProductName && String(item.ProductName).toLowerCase().includes(lowerQuery)) ||
+      (item.CategoryName && String(item.CategoryName).toLowerCase().includes(lowerQuery)) ||
+      (item.RFIDCode && String(item.RFIDCode).toLowerCase().includes(lowerQuery))
+    );
+  }, [sessionDetails?.MatchedList, matchedSearchQuery]);
+
+  const filteredUnmatchedList = useMemo(() => {
+    if (!sessionDetails?.UnmatchedList) return [];
+    if (!unmatchedSearchQuery) return sessionDetails.UnmatchedList;
+    const lowerQuery = unmatchedSearchQuery.toLowerCase();
+    return sessionDetails.UnmatchedList.filter(item =>
+      (item.ItemCode && String(item.ItemCode).toLowerCase().includes(lowerQuery)) ||
+      (item.ProductName && String(item.ProductName).toLowerCase().includes(lowerQuery)) ||
+      (item.CategoryName && String(item.CategoryName).toLowerCase().includes(lowerQuery)) ||
+      (item.RFIDCode && String(item.RFIDCode).toLowerCase().includes(lowerQuery))
+    );
+  }, [sessionDetails?.UnmatchedList, unmatchedSearchQuery]);
+
+  // Reset pagination when search query changes
+  useEffect(() => {
+    setMatchedPage(1);
+  }, [matchedSearchQuery]);
+
+  useEffect(() => {
+    setUnmatchedPage(1);
+  }, [unmatchedSearchQuery]);
 
   // Get user info and client code
   useEffect(() => {
@@ -398,6 +464,161 @@ const StockVerification = () => {
     setSortConfig({ key, direction });
   };
 
+  // Fetch Consolidation Report
+  const fetchConsolidationReport = async (payload = null) => {
+    if (!clientCode) return;
+
+    try {
+      setConsolidationLoading(true);
+      setConsolidationError(null);
+
+      const requestPayload = payload || { 
+        ClientCode: clientCode,
+        ReportDate: selectedReportDate
+      };
+
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetConsolidationStockVerificationReport',
+        requestPayload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      );
+
+      console.log('Consolidation Report Response:', response.data);
+
+      if (response.data && response.data.Branches) {
+        setConsolidationData(response.data);
+      } else {
+        setConsolidationData(null);
+      }
+
+    } catch (err) {
+      console.error('Error fetching consolidation report:', err);
+      setConsolidationError('Failed to load consolidation report');
+      toast.error('Failed to load consolidation report');
+    } finally {
+      setConsolidationLoading(false);
+    }
+  };
+
+  // Navigate to Branch Categories View
+  const handleBranchClick = async (branch) => {
+    setSelectedBranchForView(branch);
+    setCategoryPage(1);
+    
+    // Load branch details if not cached
+    if (!branchDetails[branch.BranchId]) {
+      try {
+        setLoadingBranch(branch.BranchId);
+        
+        const response = await axios.post(
+          'https://rrgold.loyalstring.co.in/api/ProductMaster/GetConsolidationStockVerificationReport',
+          {
+            ClientCode: clientCode,
+            ReportDate: selectedReportDate,
+            BranchId: branch.BranchId
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }
+        );
+
+        if (response.data && response.data.Branches && response.data.Branches.length > 0) {
+          const branchData = response.data.Branches[0];
+          setBranchDetails(prev => ({
+            ...prev,
+            [branch.BranchId]: branchData
+          }));
+        }
+      } catch (err) {
+        console.error('Error fetching branch details:', err);
+        toast.error('Failed to load branch details');
+      } finally {
+        setLoadingBranch(null);
+      }
+    }
+    
+    setCurrentView('categories');
+  };
+
+  // Navigate to Category Products View
+  const handleCategoryClick = async (category) => {
+    setSelectedCategory(category);
+    setProductPage(1);
+    
+    const key = `${selectedBranchForView.BranchId}_${category.CategoryId}`;
+    
+    // Load category details if not cached
+    if (!categoryDetails[key]) {
+      try {
+        setLoadingCategory(key);
+        
+        const response = await axios.post(
+          'https://rrgold.loyalstring.co.in/api/ProductMaster/GetConsolidationStockVerificationReport',
+          {
+            ClientCode: clientCode,
+            ReportDate: selectedReportDate,
+            BranchId: selectedBranchForView.BranchId,
+            CategoryId: category.CategoryId
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }
+        );
+
+        if (response.data && response.data.Branches && response.data.Branches.length > 0) {
+          const branchData = response.data.Branches[0];
+          const categoryData = branchData.Categories?.find(cat => cat.CategoryId === category.CategoryId);
+          
+          if (categoryData) {
+            setCategoryDetails(prev => ({
+              ...prev,
+              [key]: categoryData
+            }));
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching category details:', err);
+        toast.error('Failed to load category details');
+      } finally {
+        setLoadingCategory(null);
+      }
+    }
+    
+    setCurrentView('products');
+  };
+
+  // Navigation handlers
+  const handleBackToBranches = () => {
+    setCurrentView('branches');
+    setSelectedBranchForView(null);
+    setSelectedCategory(null);
+    setBranchPage(1);
+  };
+
+  const handleBackToCategories = () => {
+    setCurrentView('categories');
+    setSelectedCategory(null);
+    setProductPage(1);
+  };
+
+  // Fetch consolidation data when tab changes
+  useEffect(() => {
+    if (activeTab === 'combineReport' && clientCode) {
+      fetchConsolidationReport();
+    }
+  }, [activeTab, clientCode]);
+
   // Fetch session details
   const fetchSessionDetails = async (scanBatchId) => {
     try {
@@ -517,6 +738,7 @@ const StockVerification = () => {
           'Item Code',
           'Product Name',
           'Category',
+          'RFIDCode',
           'Gross Weight (g)',
           'Pieces',
           'Net Weight (g)',
@@ -527,6 +749,7 @@ const StockVerification = () => {
           item.ItemCode || 'N/A',
           item.ProductName || 'N/A',
           item.CategoryName || 'N/A',
+          item.RFIDCode || 'RFID Tag not Attached',
           item.GrossWeight || 0,
           item.Quantity || 0,
           item.NetWeight || 0,
@@ -540,6 +763,7 @@ const StockVerification = () => {
           { width: 15 },
           { width: 25 },
           { width: 15 },
+          { width: 20 },
           { width: 15 },
           { width: 10 },
           { width: 15 },
@@ -555,6 +779,7 @@ const StockVerification = () => {
           'Item Code',
           'Product Name',
           'Category',
+          'RFIDCode',
           'Gross Weight (g)',
           'Pieces',
           'Net Weight (g)',
@@ -565,6 +790,7 @@ const StockVerification = () => {
           item.ItemCode || 'N/A',
           item.ProductName || 'N/A',
           item.CategoryName || 'N/A',
+          item.RFIDCode || 'RFID Tag not Attached',
           item.GrossWeight || 0,
           item.Quantity || 0,
           item.NetWeight || 0,
@@ -578,6 +804,7 @@ const StockVerification = () => {
           { width: 15 },
           { width: 25 },
           { width: 15 },
+          { width: 20 },
           { width: 15 },
           { width: 10 },
           { width: 15 },
@@ -592,6 +819,7 @@ const StockVerification = () => {
         'Item Code',
         'Product Name',
         'Category',
+        'RFIDCode',
         'Gross Weight (g)',
         'Pieces',
         'Net Weight (g)',
@@ -608,6 +836,7 @@ const StockVerification = () => {
             item.ItemCode || 'N/A',
             item.ProductName || 'N/A',
             item.CategoryName || 'N/A',
+            item.RFIDCode || 'RFID Tag not Attached',
             item.GrossWeight || 0,
             item.Quantity || 0,
             item.NetWeight || 0,
@@ -624,6 +853,7 @@ const StockVerification = () => {
             item.ItemCode || 'N/A',
             item.ProductName || 'N/A',
             item.CategoryName || 'N/A',
+            item.RFIDCode || 'RFID Tag not Attached',
             item.GrossWeight || 0,
             item.Quantity || 0,
             item.NetWeight || 0,
@@ -641,6 +871,7 @@ const StockVerification = () => {
           { width: 15 },
           { width: 25 },
           { width: 15 },
+          { width: 20 },
           { width: 15 },
           { width: 10 },
           { width: 15 },
@@ -680,6 +911,364 @@ const StockVerification = () => {
   };
 
 
+  // Export Consolidation Report
+  const exportConsolidationReport = () => {
+    if (!consolidationData || !consolidationData.Branches || consolidationData.Branches.length === 0) {
+      toast.error('No data available for export');
+      return;
+    }
+
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // Summary Sheet
+      const reportDateStr = consolidationData.ReportDate
+        ? new Date(consolidationData.ReportDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+        : '-';
+      const summaryData = [
+        ['Consolidation Stock Verification Report'],
+        ['Report Date:', reportDateStr],
+        ['Generated on:', new Date().toLocaleString('en-IN')],
+        consolidationData.Message ? ['Message:', consolidationData.Message] : [],
+        [''],
+        ['Summary'],
+        ['Total Scanned Items:', consolidationData.Totals?.TotalScannedItems ?? 0],
+        ['Matched Qty:', consolidationData.Totals?.MatchedQty ?? 0],
+        ['Unmatch Qty:', consolidationData.Totals?.UnmatchQty ?? 0],
+        ['Total Match Weight:', `${consolidationData.Totals?.TotalMatchWeight ?? 0}g`],
+        ['Total Unmatch Weight:', `${consolidationData.Totals?.TotalUnmatchWeight ?? 0}g`],
+        [''],
+        ['Detailed Report']
+      ].filter(row => row.length > 0);
+
+      const summaryWS = XLSX.utils.aoa_to_sheet(summaryData);
+      summaryWS['!cols'] = [{ width: 25 }, { width: 30 }];
+      XLSX.utils.book_append_sheet(wb, summaryWS, 'Summary');
+
+      // Detailed Report Sheet - TotalScannedItems, MatchedQty, UnmatchQty, MatchWeight, UnmatchWeight
+      const headers = [
+        'Branch',
+        'Category',
+        'Product',
+        'Total Scanned Items',
+        'Matched Qty',
+        'Unmatch Qty',
+        'Match Weight',
+        'Unmatch Weight'
+      ];
+
+      const data = [];
+      (consolidationData.Branches || []).forEach(branch => {
+        (branch.Categories || []).forEach(category => {
+          (category.Products || []).forEach(product => {
+            data.push([
+              branch.BranchName || '',
+              category.CategoryName || '',
+              product.ProductName || '',
+              product.TotalScannedItems ?? product.ScannedCount ?? 0,
+              product.MatchedQty ?? 0,
+              product.UnmatchQty ?? 0,
+              product.MatchWeight ?? 0,
+              product.UnmatchWeight ?? 0
+            ]);
+          });
+        });
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+      ws['!cols'] = [
+        { width: 20 },
+        { width: 20 },
+        { width: 25 },
+        { width: 16 },
+        { width: 12 },
+        { width: 12 },
+        { width: 14 },
+        { width: 14 }
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Detailed Report');
+
+      const timestamp = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `Consolidation_Stock_Report_${timestamp}.xlsx`);
+      
+      toast.success('Report exported successfully');
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      toast.error('Failed to export report');
+    }
+  };
+
+  // View Components for Page-Based Navigation
+  const ConsolidatedTreeView = ({ branches }) => {
+    const [expandedBranches, setExpandedBranches] = useState({});
+    const [expandedCategories, setExpandedCategories] = useState({});
+
+    const toggleBranch = (branchId) => {
+      setExpandedBranches(prev => ({
+        ...prev,
+        [branchId]: !prev[branchId]
+      }));
+    };
+
+    const toggleCategory = (categoryId) => {
+      setExpandedCategories(prev => ({
+        ...prev,
+        [categoryId]: !prev[categoryId]
+      }));
+    };
+
+    const StatPill = ({ value, color, weight, weightColor = '#64748b' }) => (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{
+          padding: '4px 10px',
+          borderRadius: '12px',
+          background: `${color}15`,
+          color: color,
+          fontWeight: 700,
+                  fontSize: '13px',
+          minWidth: '40px',
+          textAlign: 'center',
+          boxShadow: `0 1px 2px ${color}10`,
+          border: `1px solid ${color}20`
+              }}>
+          {value?.toLocaleString() ?? 0}
+              </div>
+        {weight !== undefined && (
+          <div style={{ fontSize: '10px', color: weightColor, marginTop: '2px', fontWeight: 500, fontFamily: 'monospace' }}>
+            {weight ? `${Number(weight).toFixed(2)}g` : '0g'}
+          </div>
+        )}
+      </div>
+    );
+
+    return (
+        <div style={{
+        overflowX: 'auto', 
+              background: '#ffffff',
+        borderRadius: '16px', 
+              border: '1px solid #e2e8f0',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)'
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0', minWidth: '1000px', fontSize: '13px' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc' }}>
+              <th style={{ padding: '16px 20px', textAlign: 'left', width: '30%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Branch Name</th>
+              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Total Inventory</th>
+              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Scanned</th>
+              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Missing</th>
+              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Matched</th>
+              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Unmatched</th>
+            </tr>
+          </thead>
+          <tbody>
+            {branches.map((branch) => {
+              const isBranchExpanded = expandedBranches[branch.BranchId];
+            return (
+                <React.Fragment key={branch.BranchId}>
+                  {/* Branch Row */}
+                  <tr 
+                style={{
+                      background: isBranchExpanded ? '#eff6ff' : '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s ease',
+                      borderBottom: isBranchExpanded ? 'none' : '1px solid #f1f5f9'
+                }}
+                    onClick={() => toggleBranch(branch.BranchId)}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isBranchExpanded ? '#eff6ff' : '#ffffff'}
+                  >
+                    <td style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                          width: '24px', 
+                          height: '24px', 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                          color: isBranchExpanded ? '#3b82f6' : '#94a3b8',
+                          background: isBranchExpanded ? '#dbeafe' : '#f1f5f9',
+                          borderRadius: '6px',
+                  transition: 'all 0.2s'
+                        }}>
+                          <FaChevronRight size={10} style={{ transform: isBranchExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+              </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <FaLayerGroup style={{ color: '#3b82f6', fontSize: '16px' }} />
+                          <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '14px' }}>{branch.BranchName}</span>
+            </div>
+          </div>
+                    </td>
+                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                      <StatPill value={branch.TotalInventoryItems} color="#0ea5e9" />
+                    </td>
+                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                      <StatPill value={branch.TotalScannedItems} color="#16a34a" />
+                    </td>
+                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                      <StatPill value={branch.NotScannedItems} color="#dc2626" />
+                    </td>
+                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                      <StatPill value={branch.MatchedQty} color="#0d9488" weight={branch.MatchWeight} />
+                    </td>
+                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                      <StatPill value={branch.UnmatchQty} color="#ea580c" weight={branch.UnmatchWeight} />
+                    </td>
+                  </tr>
+
+                  {/* Categories */}
+                  {isBranchExpanded && (branch.Categories || []).map((category) => {
+                    const categoryKey = `${branch.BranchId}_${category.CategoryId}`;
+                    const isCategoryExpanded = expandedCategories[categoryKey];
+    return (
+                      <React.Fragment key={categoryKey}>
+                        {/* Category Row */}
+                        <tr 
+            style={{
+              background: '#ffffff',
+              cursor: 'pointer',
+                            transition: 'background-color 0.2s ease'
+            }}
+                          onClick={() => toggleCategory(categoryKey)}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
+                        >
+                          <td style={{ padding: '12px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingLeft: '32px' }}>
+          <div style={{
+                                position: 'absolute', 
+                                left: '32px', 
+                                height: '40px', 
+                                width: '2px', 
+                                background: '#e2e8f0',
+                                marginTop: '-28px'
+                              }} />
+        <div style={{
+                                width: '12px', 
+                                height: '12px', 
+                                borderLeft: '2px solid #e2e8f0', 
+                                borderBottom: '2px solid #e2e8f0',
+              position: 'absolute',
+                                left: '32px',
+                                marginTop: '-2px'
+                              }} />
+                              
+        <div style={{
+                                width: '20px', 
+                                height: '20px', 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                                color: isCategoryExpanded ? '#f59e0b' : '#94a3b8',
+                                transition: 'transform 0.2s'
+                  }}>
+                                <FaChevronRight size={9} style={{ transform: isCategoryExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+                  </div>
+                              <FaChartBar style={{ color: '#f59e0b', fontSize: '14px' }} />
+                              <span style={{ fontWeight: 600, color: '#334155', fontSize: '13px' }}>{category.CategoryName}</span>
+                  </div>
+                          </td>
+                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
+                            <StatPill value={category.TotalInventoryItems} color="#0ea5e9" />
+                          </td>
+                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
+                            <StatPill value={category.TotalScannedItems} color="#16a34a" />
+                          </td>
+                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
+                            <StatPill value={category.NotScannedItems} color="#dc2626" />
+                          </td>
+                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
+                            <StatPill value={category.MatchedQty} color="#0d9488" weight={category.MatchWeight} />
+                          </td>
+                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
+                            <StatPill value={category.UnmatchQty} color="#ea580c" weight={category.UnmatchWeight} />
+                          </td>
+                        </tr>
+
+                        {/* Products */}
+                        {isCategoryExpanded && (category.Products || []).map((product, pIndex, pArr) => (
+                          <tr 
+                            key={`${categoryKey}_${product.ProductId}`}
+                style={{
+                              background: '#ffffff',
+                              borderBottom: pIndex === pArr.length - 1 ? '1px solid #e2e8f0' : '1px solid #f8fafc'
+                            }}
+                          >
+                            <td style={{ padding: '10px 20px 10px 0', borderBottom: '1px solid #f8fafc' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '72px', position: 'relative' }}>
+              <div style={{
+                                  position: 'absolute', 
+                                  left: '32px', 
+                                  height: '100%', 
+                                  width: '2px', 
+                                  background: '#e2e8f0',
+                                  top: '-50%'
+                                }} />
+                                <div style={{ 
+                                  position: 'absolute', 
+                                  left: '68px', 
+                                  height: '40px', 
+                                  width: '2px', 
+                                  background: '#e2e8f0',
+                                  top: '-24px'
+                                }} />
+                                <div style={{ 
+                                  width: '12px', 
+                                  height: '12px', 
+                                  borderLeft: '2px solid #e2e8f0', 
+                                  borderBottom: '2px solid #e2e8f0',
+                                  position: 'absolute',
+                                  left: '68px',
+                                  marginTop: '-2px'
+                                }} />
+                                
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#cbd5e1' }}></div>
+                                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>{product.ProductName}</span>
+              </div>
+                            </td>
+                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
+                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>{product.TotalInventoryItems?.toLocaleString() ?? 0}</div>
+                            </td>
+                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
+                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>{product.TotalScannedItems ?? product.ScannedCount ?? 0}</div>
+                            </td>
+                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
+                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>{product.NotScannedItems?.toLocaleString() ?? 0}</div>
+                            </td>
+                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
+                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>
+                                <div>{product.MatchedQty?.toLocaleString() ?? 0}</div>
+                                {product.MatchWeight > 0 && <div style={{ fontSize: '10px', color: '#cbd5e1', fontFamily: 'monospace' }}>{Number(product.MatchWeight).toFixed(2)}g</div>}
+            </div>
+                            </td>
+                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
+                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>
+                                <div>{product.UnmatchQty?.toLocaleString() ?? 0}</div>
+                                {product.UnmatchWeight > 0 && <div style={{ fontSize: '10px', color: '#cbd5e1', fontFamily: 'monospace' }}>{Number(product.UnmatchWeight).toFixed(2)}g</div>}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+        {branches.length === 0 && (
+          <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+            <FaLayerGroup style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }} />
+            <div style={{ fontSize: '14px', fontWeight: 500 }}>No consolidation data available</div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+
+
   // Error state
   if (error) {
     return (
@@ -710,6 +1299,75 @@ const StockVerification = () => {
 
   return (
     <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px', position: 'relative' }}>
+      {/* Modern Tabs */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'flex-start',
+        marginBottom: '24px',
+        overflowX: 'auto',
+        paddingBottom: '4px' 
+      }}>
+        <div style={{
+          display: 'flex',
+          padding: '6px',
+          background: '#ffffff',
+          borderRadius: '16px',
+          gap: '8px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+        }}>
+          <button
+            onClick={() => setActiveTab('batches')}
+            style={{
+              padding: '10px 24px',
+              background: activeTab === 'batches' ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'transparent',
+              color: activeTab === 'batches' ? '#ffffff' : '#64748b',
+              border: 'none',
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+              transition: 'all 0.3s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              whiteSpace: 'nowrap',
+              boxShadow: activeTab === 'batches' ? '0 4px 12px rgba(37, 99, 235, 0.2)' : 'none',
+              transform: activeTab === 'batches' ? 'translateY(-1px)' : 'none'
+            }}
+          >
+            <FaLayerGroup /> 
+            <span>Batch Wise Verification</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('combineReport')}
+            style={{
+              padding: '10px 24px',
+              background: activeTab === 'combineReport' ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' : 'transparent',
+              color: activeTab === 'combineReport' ? '#ffffff' : '#64748b',
+              border: 'none',
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+              transition: 'all 0.3s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              whiteSpace: 'nowrap',
+              boxShadow: activeTab === 'combineReport' ? '0 4px 12px rgba(124, 58, 237, 0.2)' : 'none',
+              transform: activeTab === 'combineReport' ? 'translateY(-1px)' : 'none'
+            }}
+          >
+            <FaChartBar /> 
+            <span>Consolidated Report</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Batches Tab */}
+      {activeTab === 'batches' && (
+        <>
       {/* Unified Header & Action Section */}
       <div style={{
         background: '#ffffff',
@@ -1841,7 +2499,9 @@ const StockVerification = () => {
                       background: '#ffffff',
                       borderRadius: '12px',
                       border: '1px solid #e5e7eb',
-                      overflow: 'hidden'
+                      overflow: 'hidden',
+                      display: 'flex',
+                      flexDirection: 'column'
                     }}>
                       <div style={{
                         padding: '12px 16px',
@@ -1849,59 +2509,84 @@ const StockVerification = () => {
                         borderBottom: '1px solid #e5e7eb',
                         display: 'flex',
                         alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
                         gap: '8px'
                       }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <FaCheckCircle style={{ color: '#10b981', fontSize: '14px' }} />
                         <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Matched Items</span>
                         <span style={{
                           fontSize: '10px',
-                          color: '#64748b',
+                            color: '#065f46',
                           background: '#d1fae5',
                           padding: '2px 8px',
                           borderRadius: '12px',
-                          marginLeft: 'auto'
-                        }}>{sessionDetails.MatchedList?.length || 0} items</span>
+                            fontWeight: 600
+                          }}>{filteredMatchedList.length} items</span>
                           </div>
-                      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 500px)', minHeight: '300px' }}>
+                        <div style={{ position: 'relative', width: '150px' }}>
+                          <FaSearch style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
+                          <input 
+                            type="text" 
+                            placeholder="Search..." 
+                            value={matchedSearchQuery}
+                            onChange={(e) => setMatchedSearchQuery(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px 6px 28px',
+                              fontSize: '11px',
+                              border: '1px solid #bbf7d0',
+                              borderRadius: '6px',
+                              outline: 'none',
+                              background: '#ffffff'
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, maxHeight: 'calc(100vh - 550px)', minHeight: '300px' }}>
                         <table style={{
                           width: '100%',
-                          borderCollapse: 'collapse',
+                          borderCollapse: 'separate',
+                          borderSpacing: '0',
                           fontSize: '12px'
                         }}>
                           <thead>
-                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Item Code</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Product Name</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Category</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Gross Wt</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Pieces</th>
+                            <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Item Code</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Product Name</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Category</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>RFID Code</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Gross Wt</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Pieces</th>
                     </tr>
                   </thead>
                   <tbody>
-                                {sessionDetails.MatchedList?.length === 0 ? (
+                            {filteredMatchedList.length === 0 ? (
                                   <tr>
-                                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
-                                  No matched items
+                                <td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                                  {matchedSearchQuery ? 'No matches found' : 'No matched items'}
                                     </td>
                       </tr>
                                 ) : (
-                              getPaginatedData(sessionDetails.MatchedList || [], matchedPage, tableItemsPerPage).map((item, index) => {
+                              getPaginatedData(filteredMatchedList, matchedPage, tableItemsPerPage).map((item, index) => {
                                 const globalIndex = (matchedPage - 1) * tableItemsPerPage + index;
                                 return (
                                   <tr
                                     key={item.Id || index}
                                     style={{
-                                      borderBottom: '1px solid #e5e7eb',
-                                      background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'
+                                      background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                                      transition: 'background 0.2s'
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f0fdf4'}
                                     onMouseLeave={(e) => e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'}
                                   >
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ItemCode || 'N/A'}</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ProductName || 'N/A'}</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.CategoryName || 'N/A'}</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.GrossWeight || 0}g</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.Quantity || 0}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.ItemCode || 'N/A'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.ProductName}>{item.ProductName || 'N/A'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.CategoryName || 'N/A'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9', fontFamily: 'monospace' }}>{item.RFIDCode || '-'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.GrossWeight || 0}g</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.Quantity || 0}</td>
                                     </tr>
                                 );
                               })
@@ -1909,83 +2594,46 @@ const StockVerification = () => {
                         </tbody>
                       </table>
                           </div>
-                          {/* Matched Items Pagination */}
-                          {sessionDetails.MatchedList && sessionDetails.MatchedList.length > tableItemsPerPage && (
+                      {filteredMatchedList.length > tableItemsPerPage && (
                         <div style={{
-                          padding: '12px 16px',
+                          padding: '8px 12px',
                           borderTop: '1px solid #e5e7eb',
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
-                          gap: '12px',
-                          flexWrap: 'wrap'
+                          gap: '8px',
+                          background: '#f9fafb'
                         }}>
                           <span style={{ fontSize: '10px', color: '#64748b' }}>
-                            Showing {((matchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(matchedPage * tableItemsPerPage, sessionDetails.MatchedList.length)} of {sessionDetails.MatchedList.length} items
+                            {((matchedPage - 1) * tableItemsPerPage) + 1}-{Math.min(matchedPage * tableItemsPerPage, filteredMatchedList.length)} of {filteredMatchedList.length}
                           </span>
-                          <div style={{ display: 'flex', gap: '6px' }}>
+                          <div style={{ display: 'flex', gap: '4px' }}>
                                 <button 
                                   onClick={() => setMatchedPage(prev => Math.max(1, prev - 1))}
                                   disabled={matchedPage === 1}
                               style={{
-                                padding: '4px 10px',
+                                padding: '4px 8px',
                                 fontSize: '10px',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                border: '1px solid #10b981',
-                                background: matchedPage === 1 ? '#f1f5f9' : '#ffffff',
-                                color: matchedPage === 1 ? '#94a3b8' : '#10b981',
-                                cursor: matchedPage === 1 ? 'not-allowed' : 'pointer',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (matchedPage !== 1) {
-                                  e.target.style.background = '#10b981';
-                                  e.target.style.color = '#ffffff';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (matchedPage !== 1) {
-                                  e.target.style.background = '#ffffff';
-                                  e.target.style.color = '#10b981';
-                                }
+                                borderRadius: '4px',
+                                border: '1px solid #e5e7eb',
+                                background: matchedPage === 1 ? '#f3f4f6' : '#ffffff',
+                                color: matchedPage === 1 ? '#9ca3af' : '#374151',
+                                cursor: matchedPage === 1 ? 'not-allowed' : 'pointer'
                               }}
                             >
-                              Previous
+                              Prev
                                 </button>
-                            <span style={{
-                              padding: '4px 10px',
-                              fontSize: '10px',
-                              fontWeight: 600,
-                              color: '#475569'
-                            }}>
-                                  {matchedPage} / {getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)}
-                                </span>
                                 <button 
-                                  onClick={() => setMatchedPage(prev => Math.min(getTotalPages(sessionDetails.MatchedList, tableItemsPerPage), prev + 1))}
-                                  disabled={matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)}
+                              onClick={() => setMatchedPage(prev => Math.min(getTotalPages(filteredMatchedList, tableItemsPerPage), prev + 1))}
+                              disabled={matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage)}
                               style={{
-                                padding: '4px 10px',
+                                padding: '4px 8px',
                                 fontSize: '10px',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                border: '1px solid #10b981',
-                                background: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
-                                color: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? '#94a3b8' : '#10b981',
-                                cursor: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (matchedPage !== getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)) {
-                                  e.target.style.background = '#10b981';
-                                  e.target.style.color = '#ffffff';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (matchedPage !== getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)) {
-                                  e.target.style.background = '#ffffff';
-                                  e.target.style.color = '#10b981';
-                                }
+                                borderRadius: '4px',
+                                border: '1px solid #e5e7eb',
+                                background: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? '#f3f4f6' : '#ffffff',
+                                color: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? '#9ca3af' : '#374151',
+                                cursor: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer'
                               }}
                             >
                               Next
@@ -2000,7 +2648,9 @@ const StockVerification = () => {
                       background: '#ffffff',
                       borderRadius: '12px',
                       border: '1px solid #e5e7eb',
-                      overflow: 'hidden'
+                      overflow: 'hidden',
+                      display: 'flex',
+                      flexDirection: 'column'
                     }}>
                       <div style={{
                         padding: '12px 16px',
@@ -2008,59 +2658,84 @@ const StockVerification = () => {
                         borderBottom: '1px solid #e5e7eb',
                         display: 'flex',
                         alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
                         gap: '8px'
                       }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <FaTimesCircle style={{ color: '#ef4444', fontSize: '14px' }} />
                         <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Unmatched Items</span>
                         <span style={{
                           fontSize: '10px',
-                          color: '#64748b',
+                            color: '#7f1d1d',
                           background: '#fee2e2',
                           padding: '2px 8px',
                           borderRadius: '12px',
-                          marginLeft: 'auto'
-                        }}>{sessionDetails.UnmatchedList?.length || 0} items</span>
+                            fontWeight: 600
+                          }}>{filteredUnmatchedList.length} items</span>
                           </div>
-                      <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 500px)', minHeight: '300px' }}>
+                        <div style={{ position: 'relative', width: '150px' }}>
+                          <FaSearch style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
+                          <input 
+                            type="text" 
+                            placeholder="Search..." 
+                            value={unmatchedSearchQuery}
+                            onChange={(e) => setUnmatchedSearchQuery(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px 6px 28px',
+                              fontSize: '11px',
+                              border: '1px solid #fca5a5',
+                              borderRadius: '6px',
+                              outline: 'none',
+                              background: '#ffffff'
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, maxHeight: 'calc(100vh - 550px)', minHeight: '300px' }}>
                         <table style={{
                           width: '100%',
-                          borderCollapse: 'collapse',
+                          borderCollapse: 'separate',
+                          borderSpacing: '0',
                           fontSize: '12px'
                         }}>
                           <thead>
-                            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Item Code</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Product Name</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left' }}>Category</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Gross Wt</th>
-                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Pieces</th>
+                            <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Item Code</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Product Name</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Category</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>RFID Code</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Gross Wt</th>
+                              <th style={{ padding: '10px', fontSize: '10px', fontWeight: 600, color: '#475569', textAlign: 'center', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>Pieces</th>
                       </tr>
                         </thead>
                         <tbody>
-                                {sessionDetails.UnmatchedList?.length === 0 ? (
+                            {filteredUnmatchedList.length === 0 ? (
                                   <tr>
-                                <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
-                                  No unmatched items
+                                <td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                                  {unmatchedSearchQuery ? 'No matches found' : 'No unmatched items'}
                                     </td>
                             </tr>
                                 ) : (
-                              getPaginatedData(sessionDetails.UnmatchedList || [], unmatchedPage, tableItemsPerPage).map((item, index) => {
+                              getPaginatedData(filteredUnmatchedList, unmatchedPage, tableItemsPerPage).map((item, index) => {
                                 const globalIndex = (unmatchedPage - 1) * tableItemsPerPage + index;
                                 return (
                                   <tr
                                     key={item.Id || index}
                                     style={{
-                                      borderBottom: '1px solid #e5e7eb',
-                                      background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'
+                                      background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
+                                      transition: 'background 0.2s'
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
                                     onMouseLeave={(e) => e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'}
                                   >
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ItemCode || 'N/A'}</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.ProductName || 'N/A'}</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', whiteSpace: 'nowrap' }}>{item.CategoryName || 'N/A'}</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.GrossWeight || 0}g</td>
-                                    <td style={{ padding: '10px', fontSize: '12px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.Quantity || 0}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.ItemCode || 'N/A'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.ProductName}>{item.ProductName || 'N/A'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.CategoryName || 'N/A'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9', fontFamily: 'monospace' }}>{item.RFIDCode || '-'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.GrossWeight || 0}g</td>
+                                    <td style={{ padding: '8px 10px', fontSize: '11px', color: '#1e293b', textAlign: 'center', whiteSpace: 'nowrap', borderBottom: '1px solid #f1f5f9' }}>{item.Quantity || 0}</td>
                                     </tr>
                                 );
                               })
@@ -2068,83 +2743,46 @@ const StockVerification = () => {
                   </tbody>
                 </table>
               </div>
-                          {/* Unmatched Items Pagination */}
-                          {sessionDetails.UnmatchedList && sessionDetails.UnmatchedList.length > tableItemsPerPage && (
+                      {filteredUnmatchedList.length > tableItemsPerPage && (
                         <div style={{
-                          padding: '12px 16px',
+                          padding: '8px 12px',
                           borderTop: '1px solid #e5e7eb',
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
-                          gap: '12px',
-                          flexWrap: 'wrap'
+                          gap: '8px',
+                          background: '#f9fafb'
                         }}>
                           <span style={{ fontSize: '10px', color: '#64748b' }}>
-                            Showing {((unmatchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(unmatchedPage * tableItemsPerPage, sessionDetails.UnmatchedList.length)} of {sessionDetails.UnmatchedList.length} items
+                            {((unmatchedPage - 1) * tableItemsPerPage) + 1}-{Math.min(unmatchedPage * tableItemsPerPage, filteredUnmatchedList.length)} of {filteredUnmatchedList.length}
                           </span>
-                          <div style={{ display: 'flex', gap: '6px' }}>
+                          <div style={{ display: 'flex', gap: '4px' }}>
                 <button 
                                   onClick={() => setUnmatchedPage(prev => Math.max(1, prev - 1))}
                                   disabled={unmatchedPage === 1}
                               style={{
-                                padding: '4px 10px',
+                                padding: '4px 8px',
                                 fontSize: '10px',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                border: '1px solid #ef4444',
-                                background: unmatchedPage === 1 ? '#f1f5f9' : '#ffffff',
-                                color: unmatchedPage === 1 ? '#94a3b8' : '#ef4444',
-                                cursor: unmatchedPage === 1 ? 'not-allowed' : 'pointer',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (unmatchedPage !== 1) {
-                                  e.target.style.background = '#ef4444';
-                                  e.target.style.color = '#ffffff';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (unmatchedPage !== 1) {
-                                  e.target.style.background = '#ffffff';
-                                  e.target.style.color = '#ef4444';
-                                }
+                                borderRadius: '4px',
+                                border: '1px solid #e5e7eb',
+                                background: unmatchedPage === 1 ? '#f3f4f6' : '#ffffff',
+                                color: unmatchedPage === 1 ? '#9ca3af' : '#374151',
+                                cursor: unmatchedPage === 1 ? 'not-allowed' : 'pointer'
                               }}
                             >
-                              Previous
+                              Prev
                                 </button>
-                            <span style={{
-                              padding: '4px 10px',
-                              fontSize: '10px',
-                              fontWeight: 600,
-                              color: '#475569'
-                            }}>
-                                  {unmatchedPage} / {getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)}
-                                </span>
                         <button 
-                                  onClick={() => setUnmatchedPage(prev => Math.min(getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage), prev + 1))}
-                                  disabled={unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)}
+                              onClick={() => setUnmatchedPage(prev => Math.min(getTotalPages(filteredUnmatchedList, tableItemsPerPage), prev + 1))}
+                              disabled={unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage)}
                               style={{
-                                padding: '4px 10px',
+                                padding: '4px 8px',
                                 fontSize: '10px',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                border: '1px solid #ef4444',
-                                background: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
-                                color: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? '#94a3b8' : '#ef4444',
-                                cursor: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (unmatchedPage !== getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)) {
-                                  e.target.style.background = '#ef4444';
-                                  e.target.style.color = '#ffffff';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (unmatchedPage !== getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)) {
-                                  e.target.style.background = '#ffffff';
-                                  e.target.style.color = '#ef4444';
-                                }
+                                borderRadius: '4px',
+                                border: '1px solid #e5e7eb',
+                                background: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? '#f3f4f6' : '#ffffff',
+                                color: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? '#9ca3af' : '#374151',
+                                cursor: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer'
                               }}
                             >
                               Next
@@ -2243,6 +2881,391 @@ const StockVerification = () => {
                 </div>
             </div>
         </>
+      )}
+        </>
+      )}
+
+      {/* Combine Report of Stock Verification Tab */}
+      {activeTab === 'combineReport' && (
+        <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
+          {/* Unified Header & Action Section */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            padding: '24px',
+            marginBottom: '24px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            border: '1px solid #f1f5f9'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px'
+            }}>
+              <div style={{ flex: 1 }}>
+                <h2 style={{
+                  margin: 0,
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  color: '#0f172a',
+                  lineHeight: '1.2',
+                  letterSpacing: '-0.025em'
+                }}>Consolidated Stock Report</h2>
+                <div style={{
+                  fontSize: '13px',
+                  color: '#64748b',
+                  marginTop: '4px',
+                  fontWeight: 500
+                }}>
+                  Comprehensive view of stock verification across all branches
+                </div>
+              </div>
+
+              {/* Date Selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FaCalendarAlt style={{ color: '#64748b', fontSize: '14px' }} />
+                <input
+                  type="date"
+                  value={selectedReportDate}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    setSelectedReportDate(newDate);
+                    // Reset view and fetch new data when date changes
+                    setCurrentView('branches');
+                    setSelectedBranchForView(null);
+                    setSelectedCategory(null);
+                    setBranchDetails({});
+                    setCategoryDetails({});
+                    setBranchPage(1);
+                    setCategoryPage(1);
+                    setProductPage(1);
+                    // Fetch data for the new date
+                    if (clientCode) {
+                      fetchConsolidationReport({ 
+                        ClientCode: clientCode, 
+                        ReportDate: newDate 
+                      });
+                    }
+                  }}
+                  max={new Date().toISOString().split('T')[0]} // Can't select future dates
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '13px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    backgroundColor: '#ffffff',
+                    color: '#1e293b',
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => {
+                    setCurrentView('branches');
+                    setSelectedBranchForView(null);
+                    setSelectedCategory(null);
+                    setBranchDetails({});
+                    setCategoryDetails({});
+                    setBranchPage(1);
+                    setCategoryPage(1);
+                    setProductPage(1);
+                    fetchConsolidationReport();
+                  }}
+                  disabled={consolidationLoading}
+                  style={{
+                    padding: '10px 20px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: '#475569',
+                    cursor: consolidationLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s ease',
+                    opacity: consolidationLoading ? 0.7 : 1,
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!consolidationLoading) {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#cbd5e1';
+                      e.target.style.color = '#1e293b';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!consolidationLoading) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.color = '#475569';
+                    }
+                  }}
+                >
+                  <FaSpinner className={consolidationLoading ? 'fa-spin' : ''} /> 
+                  {consolidationLoading ? 'Refreshing...' : 'Refresh Data'}
+                </button>
+                <button 
+                  onClick={exportConsolidationReport}
+                  style={{
+                    padding: '10px 20px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2), 0 2px 4px -1px rgba(16, 185, 129, 0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.transform = 'translateY(-1px)';
+                    e.target.style.boxShadow = '0 6px 8px -1px rgba(16, 185, 129, 0.3), 0 3px 6px -1px rgba(16, 185, 129, 0.15)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.boxShadow = '0 4px 6px -1px rgba(16, 185, 129, 0.2), 0 2px 4px -1px rgba(16, 185, 129, 0.1)';
+                  }}
+                >
+                  <FaFileExcel /> Export Excel
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Combine Report Content */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            border: '1px solid #f1f5f9',
+            overflow: 'hidden'
+          }}>
+            {consolidationLoading ? (
+              <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                <div style={{ 
+                  display: 'inline-block', 
+                  padding: '16px', 
+                  borderRadius: '50%', 
+                  background: '#eff6ff', 
+                  marginBottom: '16px' 
+                }}>
+                  <FaSpinner className="fa-spin" style={{ fontSize: '32px', color: '#3b82f6' }} />
+                </div>
+                <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '16px', fontWeight: 600 }}>Loading Report</h3>
+                <p style={{ margin: 0, color: '#64748b', fontSize: '13px' }}>Fetching consolidated data from all branches...</p>
+              </div>
+            ) : consolidationError ? (
+               <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                <div style={{ 
+                  display: 'inline-block', 
+                  padding: '16px', 
+                  borderRadius: '50%', 
+                  background: '#fef2f2', 
+                  marginBottom: '16px' 
+                }}>
+                  <FaExclamationTriangle style={{ fontSize: '32px', color: '#ef4444' }} />
+                </div>
+                <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '16px', fontWeight: 600 }}>Unable to Load Data</h3>
+                <p style={{ margin: '0 0 24px 0', color: '#64748b', fontSize: '13px' }}>{consolidationError}</p>
+                <button 
+                  onClick={fetchConsolidationReport}
+                  style={{
+                    padding: '10px 24px',
+                    background: '#3b82f6',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = '#2563eb'}
+                  onMouseLeave={(e) => e.target.style.background = '#3b82f6'}
+                >
+                  Retry Request
+                </button>
+              </div>
+            ) : consolidationData && (consolidationData.Branches || consolidationData.Totals) ? (
+              <>
+                {/* Summary Totals - Modern Dashboard Cards */}
+                {consolidationData.Totals && currentView === 'branches' && (
+                  <div style={{ 
+                    padding: '24px', 
+                    background: '#ffffff', 
+                    borderBottom: '1px solid #f1f5f9',
+                    marginBottom: '20px'
+                  }}>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                      gap: '20px' 
+                  }}>
+                      
+                      {/* Total Inventory Card */}
+                      <div style={{ 
+                        background: '#f0f9ff', 
+                        borderRadius: '12px', 
+                        padding: '20px', 
+                        border: '1px solid #e0f2fe',
+                        boxShadow: '0 2px 4px rgba(14, 165, 233, 0.05)',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
+                          <FaBoxes size={80} color="#0ea5e9" />
+                        </div>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Inventory</h4>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0284c7', lineHeight: 1 }}>
+                          {consolidationData.Totals.TotalInventoryQty?.toLocaleString() ?? 0}
+                      </div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
+                          {consolidationData.Totals.TotalInventoryWeight?.toLocaleString() ?? 0} g
+                        </div>
+                      </div>
+
+                      {/* Total Scanned Card */}
+                      <div style={{ 
+                        background: '#f0fdf4', 
+                        borderRadius: '12px', 
+                        padding: '20px', 
+                        border: '1px solid #dcfce7',
+                        boxShadow: '0 2px 4px rgba(34, 197, 94, 0.05)',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
+                          <FaBarcode size={80} color="#22c55e" />
+                        </div>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#15803d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Scanned</h4>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#16a34a', lineHeight: 1 }}>
+                        {consolidationData.Totals.TotalScannedItems?.toLocaleString() ?? 0}
+                      </div>
+                        <div style={{ width: '100%', background: '#bbf7d0', height: '6px', borderRadius: '3px', marginTop: '12px' }}>
+                          <div style={{ 
+                            width: `${Math.min(100, ((consolidationData.Totals.TotalScannedItems || 0) / (consolidationData.Totals.TotalInventoryQty || 1)) * 100)}%`, 
+                            background: '#22c55e', 
+                            height: '100%', 
+                            borderRadius: '3px' 
+                          }}></div>
+                    </div>
+                      </div>
+
+                      {/* Not Scanned Card */}
+                      <div style={{ 
+                        background: '#fef2f2', 
+                        borderRadius: '12px', 
+                        padding: '20px', 
+                        border: '1px solid #fee2e2',
+                        boxShadow: '0 2px 4px rgba(239, 68, 68, 0.05)',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
+                          <FaExclamationTriangle size={80} color="#ef4444" />
+                        </div>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#b91c1c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Not Scanned</h4>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#dc2626', lineHeight: 1 }}>
+                          {consolidationData.Totals.TotalNotScannedItems?.toLocaleString() ?? 0}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#991b1b', marginTop: '8px', fontWeight: 500 }}>
+                          Missing Items
+                        </div>
+                      </div>
+
+                      {/* Matched Qty Card */}
+                      <div style={{ 
+                        background: '#f0fdfa', 
+                        borderRadius: '12px', 
+                        padding: '20px', 
+                        border: '1px solid #ccfbf1',
+                        boxShadow: '0 2px 4px rgba(20, 184, 166, 0.05)',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
+                          <FaCheckCircle size={80} color="#14b8a6" />
+                        </div>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f766e', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Matched Qty</h4>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0d9488', lineHeight: 1 }}>
+                        {consolidationData.Totals.MatchedQty?.toLocaleString() ?? 0}
+                      </div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
+                          {consolidationData.Totals.TotalMatchWeight?.toLocaleString() ?? 0} g
+                    </div>
+                      </div>
+
+                      {/* Unmatched Qty Card */}
+                      <div style={{ 
+                        background: '#fff7ed', 
+                        borderRadius: '12px', 
+                        padding: '20px', 
+                        border: '1px solid #ffedd5',
+                        boxShadow: '0 2px 4px rgba(249, 115, 22, 0.05)',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
+                          <FaTimesCircle size={80} color="#f97316" />
+                    </div>
+                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#c2410c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unmatch Qty</h4>
+                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#ea580c', lineHeight: 1 }}>
+                          {consolidationData.Totals.UnmatchQty?.toLocaleString() ?? 0}
+                      </div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
+                          {consolidationData.Totals.TotalUnmatchWeight?.toLocaleString() ?? 0} g
+                    </div>
+                      </div>
+
+                    </div>
+                  </div>
+                )}
+
+                {/* Consolidated Tree View */}
+                <ConsolidatedTreeView 
+                    branches={consolidationData.Branches || []}
+                />
+              </>
+            ) : (
+              <div style={{ padding: '60px 20px', textAlign: 'center', color: '#64748b' }}>
+                <div style={{ 
+                  display: 'inline-block', 
+                  padding: '20px', 
+                  borderRadius: '50%', 
+                  background: '#f8fafc', 
+                  marginBottom: '16px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <FaChartBar style={{ fontSize: '32px', color: '#cbd5e1' }} />
+                </div>
+                <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '16px', fontWeight: 600 }}>No Data Found</h3>
+                <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>There is no consolidation data available for the current selection.</p>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       <style>{`

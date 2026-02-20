@@ -1,130 +1,111 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  FaHome, 
-  FaPlug, 
-  FaList, 
-  FaMicrochip, 
-  FaTags, 
-  FaTag, 
-  FaClipboard, 
-  FaUpload,
+import {
+  FaHome,
+  FaPlug,
+  FaTags,
+  FaTag,
   FaUserCircle,
-  FaBell,
-  FaCog,
-  FaSignOutAlt,
-  FaTachometerAlt,
   FaRegBell,
   FaDatabase,
-  FaMobileAlt,
-  FaFileInvoice,
-  FaChevronDown,
   FaPrint,
   FaExpand,
   FaCompress,
   FaBars,
   FaTimes,
-  FaBook,
-  FaBox,
-  FaFileAlt,
-  FaTag as FaCreateLabel,
+  FaChevronLeft,
+  FaChevronRight,
   FaExchangeAlt,
   FaArrowDown,
-  FaArrowUp
+  FaArrowUp,
+  FaSignOutAlt,
+  FaChartLine,
+  FaBoxes,
+  FaListUl,
+  FaPaintBrush,
+  FaBarcode,
+  FaFileUpload,
+  FaFileInvoice,
+  FaClipboardList,
+  FaChartPie,
+  FaThLarge,
 } from 'react-icons/fa';
-import { 
-  HiChartBar,
-  HiHome,
-  HiBookOpen,
-  HiLightningBolt,
-  HiClipboardList,
-  HiDocumentText,
-  HiPrinter,
-  HiChip,
-  HiTag,
-  HiCheckCircle,
-  HiCloudUpload,
-  HiCube,
-  HiDocument,
-  HiPencil,
-  HiReceiptTax
-} from 'react-icons/hi';
 import {
-  MdInventory,
-  MdDescription,
-  MdLabel
-} from 'react-icons/md';
+  HiDocumentText,
+  HiDocument,
+  HiReceiptTax,
+  HiCheckCircle,
+  HiTag,
+} from 'react-icons/hi';
 import { useNotifications } from '../context/NotificationContext';
 import { useTranslation } from '../hooks/useTranslation';
-import LanguageSwitcher from './common/LanguageSwitcher';
 import axios from 'axios';
-import RFIDAppDownload from './RFIDAppDownload';
-
-// Component wrapper for modal
-const RFIDAppDownloadPopup = () => {
-  return <RFIDAppDownload />;
-};
-
 const SidebarLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
   const { notifications, addNotification } = useNotifications();
-  
-  // State - collapse option disabled, sidebar always expanded
-  const sidebarCollapsed = false;
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // State - sidebar open/closed and collapsed (icon-only) on desktop
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('sidebarCollapsed') || 'false');
+    } catch {
+      return false;
+    }
+  });
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [userInfo, setUserInfo] = useState({});
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupError, setBackupError] = useState('');
-  const [showRFIDDownload, setShowRFIDDownload] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  
-  const dropdownRef = useRef(null);
+
   const notificationsRef = useRef(null);
 
-  // Navigation items with attractive icons - organized in 5 sections
+  // Section 0: Quick Access
+  const navigationProfile = [
+    { path: '/profile-menu', icon: FaThLarge, label: 'All Apps & Resources', color: '#6366f1' }
+  ];
+
+  // Navigation items – icons matched to menu names, distinct colors
   // Section 1: Inventory Management
   const inventorySession = [
-    { path: '/analytics', icon: HiChartBar, label: 'Dashboard', color: '#10b981', section: 'Inventory Management' },
-    { path: '/stock', icon: HiCube, label: 'Add Inventory', color: '#f59e0b', section: 'Inventory Management' },
-    { path: '/label-stock', icon: HiClipboardList, label: 'Inventory List', color: '#3b82f6', section: 'Inventory Management' },
-    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#84cc16', section: 'Inventory Management' },
-    { path: '/create-label', icon: HiPencil, label: 'Design Label', color: '#06b6d4', section: 'Inventory Management' },
-    { path: '/rfid-label', icon: HiPrinter, label: 'Create PRN Label', color: '#667eea', section: 'Inventory Management' },
+    { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
+    { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management' },
+    { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
+    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management' },
+    { path: '/create-label', icon: FaPaintBrush, label: 'Design Label', color: '#0891b2', section: 'Inventory Management' },
+    { path: '/rfid-label', icon: FaPrint, label: 'Create PRN Label', color: '#7c3aed', section: 'Inventory Management' },
   ];
 
   // Section 2: Transaction
   const navigationSection2 = [
-    { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#ec4899' },
-    { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#22c55e' },
-    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#10b981' },
-    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#ef4444' },
-    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#f97316' },
-    { path: '/order-list', icon: HiClipboardList, label: 'Order List', color: '#8b5cf6' },
-    { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#06b6d4' },
+    { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#be185d' },
+    { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#15803d' },
+    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#0d9488' },
+    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#b91c1c' },
+    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#c2410c' },
+    { path: '/order-list', icon: FaClipboardList, label: 'Order List', color: '#6d28d9' },
+    { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490' },
   ];
 
   // Section 3: RFID Tags Management
   const navigationSection3 = [
-    { path: '/rfid-devices', icon: HiChip, label: 'Scan to Desktop', color: '#ec4899' },
-    { path: '/upload-rfid', icon: HiCloudUpload, label: 'RFID Tags Sheet Upload', color: '#6366f1' },
-    { path: '/rfid-tags', icon: HiTag, label: 'RFID Tag List', color: '#ef4444' },
-    { path: '/tag-usage', icon: FaTag, label: 'RFID Tags Usage', color: '#06b6d4' },
+    { path: '/rfid-devices', icon: FaBarcode, label: 'Scan to Desktop', color: '#a21caf' },
+    { path: '/upload-rfid', icon: FaFileUpload, label: 'RFID Tags Sheet Upload', color: '#4f46e5' },
+    { path: '/rfid-tags', icon: FaTags, label: 'RFID Tag List', color: '#b91c1c' },
+    { path: '/tag-usage', icon: FaChartPie, label: 'RFID Tags Usage', color: '#0e7490' },
   ];
 
-  // Section 4: RFID Operations
-  const navigationSection4 = [
-    { path: '/dashboard', icon: HiHome, label: 'RFID API Hub', color: '#3b82f6' },
-    { path: '/api-documentation', icon: HiBookOpen, label: 'API Integration Guide', color: '#9333ea' },
-    { path: '/rfid-integration', icon: HiLightningBolt, label: 'Quick Integration', color: '#8b5cf6' },
+  const clientCode = userInfo.ClientCode || userInfo.clientcode || userInfo.clientCode || 'N/A';
+  const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
+  const showThirdPartyMenu = (clientCode || '').trim().toUpperCase() === THIRD_PARTY_ALLOWED_CLIENT;
+  const navigationSection5 = [
+    { path: '/third-party-integration', icon: FaPlug, label: 'Third Party Software Integration', color: '#0d9488' },
   ];
-
-  // Section 5: Labeling & Documents (removed - items moved to Section 1)
 
   // Effects
   useEffect(() => {
@@ -142,6 +123,7 @@ const SidebarLayout = ({ children }) => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
+      if (mobile) setSidebarOpen(false);
     };
     window.addEventListener('resize', handleResize);
     handleResize();
@@ -150,9 +132,6 @@ const SidebarLayout = ({ children }) => {
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setDropdownOpen(false);
-      }
       if (notificationsRef.current && !notificationsRef.current.contains(event.target)) {
         setNotificationsOpen(false);
       }
@@ -162,10 +141,16 @@ const SidebarLayout = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    setDropdownOpen(false);
     setNotificationsOpen(false);
-    setMobileMenuOpen(false);
-  }, [location.pathname]);
+    if (isMobile) setSidebarOpen(false);
+  }, [location.pathname, isMobile]);
+
+  // Persist collapsed state for user preference
+  useEffect(() => {
+    try {
+      localStorage.setItem('sidebarCollapsed', JSON.stringify(sidebarCollapsed));
+    } catch (_) {}
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     const checkFullscreen = () => {
@@ -302,570 +287,162 @@ const SidebarLayout = ({ children }) => {
   }
 
   const username = userInfo.Username || userInfo.UserName || userInfo.name || 'User';
-  const clientCode = userInfo.ClientCode || userInfo.clientcode || userInfo.clientCode || 'N/A';
   const tcode = userInfo.TCode || userInfo.tcode || userInfo.TCODE || '';
   const avatarLetter = username ? username[0].toUpperCase() : 'U';
 
-  const sidebarWidth = isMobile ? (mobileMenuOpen ? '260px' : '0') : '260px';
-  const mainContentMargin = isMobile ? '0' : sidebarWidth;
+  const sidebarWidth = sidebarOpen
+    ? (isMobile ? '260px' : (sidebarCollapsed ? '72px' : '220px'))
+    : '0';
+  const mainContentMargin = !isMobile && sidebarOpen
+    ? (sidebarCollapsed ? '72px' : '220px')
+    : '0';
 
   return (
-    <div style={{ 
+    <div style={{
       minHeight: '100vh',
       background: '#ffffff',
       display: 'flex',
       flexDirection: 'column',
       fontFamily: 'var(--font-family, "Roboto", sans-serif)'
     }}>
-      {/* Top Header Bar */}
-      <header style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '64px',
-        background: '#ffffff',
-        borderBottom: '1px solid #e5e7eb',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 20px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)'
-      }}>
-        {/* Mobile Menu Button */}
+      {/* Show Sidebar button - when sidebar is closed */}
+      {!sidebarOpen && (
         <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          onClick={() => setSidebarOpen(true)}
           style={{
-            display: isMobile ? 'flex' : 'none',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'transparent',
-            border: 'none',
-            padding: '8px',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            marginRight: '12px',
-            color: '#64748b'
-          }}
-        >
-          {mobileMenuOpen ? <FaTimes size={20} /> : <FaBars size={20} />}
-        </button>
-
-        {/* Logo */}
-        <Link 
-          to="/analytics" 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            flexShrink: 0, 
-            marginRight: '20px',
-            textDecoration: 'none',
-            transition: 'transform 0.2s ease'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'scale(1.05)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'scale(1)';
-          }}
-        >
-          <img 
-            src="/Logo/Sparkle RFID svg.svg" 
-            alt="Sparkle RFID" 
-            style={{ height: '36px', width: 'auto' }}
-          />
-        </Link>
-
-        {/* App Title */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
-          borderRadius: '8px',
-          border: '1px solid #bfdbfe',
-          padding: '8px 14px',
-          fontWeight: 600,
-          fontSize: '14px',
-          color: '#1e40af',
-          marginRight: 'auto',
-          flexShrink: 0,
-          boxShadow: '0 1px 3px rgba(59, 130, 246, 0.1)',
-          transition: 'all 0.2s ease'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)';
-          e.currentTarget.style.boxShadow = '0 2px 6px rgba(59, 130, 246, 0.15)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)';
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(59, 130, 246, 0.1)';
-        }}
-        >
-          <div style={{
-            width: '14px',
-            height: '14px',
-            borderRadius: '3px',
-            background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
+            position: 'fixed',
+            top: 12,
+            left: 12,
+            zIndex: 1001,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            width: 44,
+            height: 44,
+            background: '#ffffff',
+            border: '1px solid #e0e7ef',
+            borderRadius: '10px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            cursor: 'pointer',
+            color: '#0077d4',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = '#f1f5f9';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,119,212,0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = '#ffffff';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+          }}
+          title="Show menu"
+          aria-label="Show menu"
+        >
+          <FaBars size={20} />
+        </button>
+      )}
+
+      {/* Mobile overlay when sidebar open */}
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 998
+          }}
+        />
+      )}
+
+      <div style={{ display: 'flex', marginTop: 0, minHeight: '100vh' }}>
+        {/* Sidebar - glassmorphism background, logo, nav, bottom controls */}
+        <aside
+          className="sidebar-glass"
+          style={{
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: sidebarWidth,
+            background: 'rgba(255, 255, 255, 0.72)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            borderRight: '1px solid rgba(255, 255, 255, 0.5)',
+            transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            overflow: 'hidden',
+            zIndex: 999,
+            display: sidebarOpen ? 'flex' : 'none',
+            flexDirection: 'column',
+            boxShadow: '4px 0 24px rgba(0, 0, 0, 0.06), inset 1px 0 0 rgba(255,255,255,0.8)',
+          }}
+        >
+          {/* Sidebar top: Logo + collapse/expand on desktop, close on mobile */}
+          <div style={{
+            flexShrink: 0,
+            padding: sidebarCollapsed ? '8px 6px' : '6px 8px',
+            borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+            display: 'flex',
+            flexDirection: sidebarCollapsed ? 'column' : 'row',
+            alignItems: 'center',
+            gap: 8,
+            justifyContent: sidebarCollapsed ? 'center' : 'flex-start'
           }}>
-            <div style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '1px',
-              background: '#ffffff'
-            }} />
-          </div>
-          <span style={{ whiteSpace: 'nowrap', letterSpacing: '0.01em' }}>RFID Dashboard</span>
-        </div>
-
-        {/* Right Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          <LanguageSwitcher variant="header" />
-          
-          <button
-            onClick={toggleFullscreen}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              padding: '8px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#64748b',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#f1f5f9';
-              e.currentTarget.style.color = '#3b82f6';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#64748b';
-            }}
-            title={isFullscreen ? 'Exit Fullscreen (Ctrl+F)' : 'Enter Fullscreen (Ctrl+F)'}
-          >
-            {isFullscreen ? <FaCompress size={18} /> : <FaExpand size={18} />}
-          </button>
-
-          {/* Notifications */}
-          <div ref={notificationsRef} style={{ position: 'relative' }}>
-            <button
-              onClick={() => setNotificationsOpen(!notificationsOpen)}
-              style={{
-                background: notificationsOpen ? '#eff6ff' : 'transparent',
-                border: 'none',
-                padding: '8px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                position: 'relative',
-                color: notificationsOpen ? '#3b82f6' : '#64748b',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                if (!notificationsOpen) {
-                  e.currentTarget.style.background = '#f1f5f9';
-                  e.currentTarget.style.color = '#3b82f6';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!notificationsOpen) {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = '#64748b';
-                }
-              }}
-            >
-              <FaRegBell size={18} />
-              {notifications.length > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: '6px',
-                  right: '6px',
-                  width: '10px',
-                  height: '10px',
-                  background: '#ef4444',
-                  borderRadius: '50%',
-                  border: '2px solid #fff',
-                  boxShadow: '0 0 0 2px rgba(239, 68, 68, 0.2)',
-                  animation: 'pulse 2s infinite'
-                }} />
-              )}
-            </button>
-            {notificationsOpen && (
-              <div style={{
-                position: 'absolute',
-                top: 'calc(100% + 8px)',
-                right: 0,
-                background: '#ffffff',
-                borderRadius: '12px',
-                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
-                border: '1px solid #e2e8f0',
-                width: '320px',
-                zIndex: 1000,
-                maxHeight: '400px',
-                overflowY: 'auto'
-              }}>
-                <div style={{ padding: '16px', borderBottom: '1px solid #e2e8f0' }}>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    {t('header.notifications') || 'Notifications'}
-                  </h3>
-                </div>
-                <div>
-                  {notifications.length === 0 ? (
-                    <div style={{ padding: '20px', color: '#64748b', fontSize: 14, textAlign: 'center' }}>
-                      {t('header.noNotifications') || 'No notifications'}
-                    </div>
-                  ) : notifications.slice(0, 5).map((notif, idx) => (
-                    <div key={notif.id} style={{ borderBottom: idx !== notifications.length - 1 ? '1px solid #f1f5f9' : 'none', padding: '16px' }}>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: '#1e293b' }}>{notif.title}</div>
-                      <div style={{ color: '#64748b', fontSize: 13, margin: '4px 0 0 0' }}>{notif.description}</div>
-                      <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>{formatRelativeTime(notif.timestamp)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            <Link to="/analytics" style={{ display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'flex-start', flex: sidebarCollapsed ? 0 : 1, minWidth: 0, textDecoration: 'none' }} onClick={() => isMobile && setSidebarOpen(false)}>
+              <img src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`} alt="Sparkle RFID" style={{ height: sidebarCollapsed ? 24 : 28, width: 'auto', maxWidth: sidebarCollapsed ? 44 : 'none' }} onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }} />
+            </Link>
+            {!isMobile && !sidebarCollapsed && (
+              <button onClick={() => setSidebarCollapsed(true)} style={{ flexShrink: 0, background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: '#64748b' }} title="Collapse sidebar" aria-label="Collapse sidebar"><FaChevronLeft size={14} /></button>
+            )}
+            {!isMobile && sidebarCollapsed && (
+              <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#64748b' }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={12} /></button>
+            )}
+            {isMobile && (
+              <button onClick={() => setSidebarOpen(false)} style={{ flexShrink: 0, background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: '#64748b' }} title="Close menu" aria-label="Close menu"><FaTimes size={14} /></button>
             )}
           </div>
 
-          {/* User Profile */}
-          <div ref={dropdownRef} style={{ position: 'relative' }}>
-            <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              style={{
-                background: dropdownOpen ? '#eff6ff' : '#ffffff',
-                border: dropdownOpen ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                padding: '6px 12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                cursor: 'pointer',
-                borderRadius: '8px',
-                boxShadow: dropdownOpen ? '0 2px 8px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.05)',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                if (!dropdownOpen) {
-                  e.currentTarget.style.background = '#f8fafc';
-                  e.currentTarget.style.borderColor = '#cbd5e1';
-                  e.currentTarget.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.08)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!dropdownOpen) {
-                  e.currentTarget.style.background = '#ffffff';
-                  e.currentTarget.style.borderColor = '#e2e8f0';
-                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05)';
-                }
-              }}
-            >
-              <div style={{
-                width: '36px',
-                height: '36px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-                color: '#ffffff',
-                borderRadius: '8px',
-                fontSize: '15px',
-                fontWeight: '600',
-                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
-                border: '2px solid rgba(255, 255, 255, 0.2)'
-              }}>
-                {avatarLetter}
-              </div>
-              {!isMobile && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
-                  <span style={{ 
-                    fontSize: '13px', 
-                    fontWeight: 500, 
-                    color: '#1e293b', 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis', 
-                    whiteSpace: 'nowrap', 
-                    maxWidth: '120px',
-                    display: 'inline-block'
-                  }}>
-                    {username}
-                  </span>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>
+          {/* User Profile - Moved to top */}
+          <div style={{
+            flexShrink: 0,
+            padding: sidebarCollapsed ? '8px 6px' : '6px 8px',
+            borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8
+          }}>
+            <button onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }} title={`${username} • ${clientCode}`} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: '#f8fafc', border: '1px solid #e2e8f0', padding: sidebarCollapsed ? '6px' : '6px 10px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s ease' }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0, boxShadow: '0 2px 6px rgba(2, 132, 199, 0.2)' }}>{avatarLetter}</div>
+              {!sidebarCollapsed && (
+                <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, marginBottom: 2 }}>{username}</div>
+                  <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }}></span>
                     {clientCode}
-                  </span>
-                </div>
-              )}
-              <FaChevronDown style={{ 
-                fontSize: 11, 
-                color: dropdownOpen ? '#3b82f6' : '#64748b', 
-                transform: dropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                marginLeft: '4px'
-              }} />
-            </button>
-            {dropdownOpen && (
-              <div style={{
-                position: 'absolute',
-                top: 'calc(100% + 8px)',
-                right: 0,
-                background: '#ffffff',
-                borderRadius: '12px',
-                boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1)',
-                border: '1px solid #e2e8f0',
-                width: '300px',
-                zIndex: 1000,
-                padding: '8px',
-                animation: 'dropdownSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                opacity: 1,
-                transform: 'translateY(0)',
-                overflow: 'hidden'
-              }}>
-                <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', marginBottom: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: '8px',
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-                      color: '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 20,
-                      fontWeight: 600
-                    }}>
-                      {avatarLetter}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: 16, color: '#1e293b', marginBottom: 2 }}>{username}</span>
-                      <span style={{ fontSize: 12, color: '#64748b' }}>Client: {clientCode}</span>
-                      {tcode && <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 500 }}>TCode: {tcode}</span>}
-                    </div>
                   </div>
                 </div>
-                <div style={{ padding: '4px 0' }}>
-                  <button 
-                    onClick={() => { setDropdownOpen(false); }} 
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#f8fafc';
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }}
-                    style={{ 
-                      width: '100%', 
-                      padding: '12px 16px', 
-                      background: 'transparent', 
-                      border: 'none', 
-                      textAlign: 'left', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '12px', 
-                      cursor: 'pointer', 
-                      color: '#475569', 
-                      fontSize: '14px', 
-                      fontWeight: 500,
-                      borderRadius: '8px', 
-                      marginBottom: '4px',
-                      transition: 'all 0.2s ease',
-                      outline: 'none'
-                    }}
-                  >
-                    <FaUserCircle style={{ fontSize: '16px', color: '#64748b', transition: 'color 0.2s' }} />
-                    <span>{t('header.profile') || 'Profile'}</span>
-                  </button>
-                  <button 
-                    onClick={() => { setDropdownOpen(false); }} 
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#f8fafc';
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }}
-                    style={{ 
-                      width: '100%', 
-                      padding: '12px 16px', 
-                      background: 'transparent', 
-                      border: 'none', 
-                      textAlign: 'left', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '12px', 
-                      cursor: 'pointer', 
-                      color: '#475569', 
-                      fontSize: '14px', 
-                      fontWeight: 500,
-                      borderRadius: '8px', 
-                      marginBottom: '4px',
-                      transition: 'all 0.2s ease',
-                      outline: 'none'
-                    }}
-                  >
-                    <FaCog style={{ fontSize: '16px', color: '#64748b', transition: 'color 0.2s' }} />
-                    <span>{t('header.settings') || 'Settings'}</span>
-                  </button>
-                  <div style={{ height: '1px', background: '#f1f5f9', margin: '8px 0' }}></div>
-                  <button 
-                    onClick={handleBackup} 
-                    disabled={backupLoading} 
-                    onMouseEnter={(e) => {
-                      if (!backupLoading) {
-                        e.currentTarget.style.background = '#eff6ff';
-                        e.currentTarget.style.transform = 'translateX(4px)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!backupLoading) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                      }
-                    }}
-                    style={{ 
-                      width: '100%', 
-                      padding: '12px 16px', 
-                      background: 'transparent', 
-                      border: 'none', 
-                      textAlign: 'left', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 12, 
-                      color: '#3b82f6', 
-                      fontWeight: 600, 
-                      fontSize: 14, 
-                      cursor: backupLoading ? 'not-allowed' : 'pointer', 
-                      opacity: backupLoading ? 0.6 : 1, 
-                      borderRadius: '8px', 
-                      marginBottom: '4px',
-                      transition: 'all 0.2s ease',
-                      outline: 'none'
-                    }}
-                  >
-                    <FaDatabase style={{ fontSize: 18, color: '#3b82f6', transition: 'transform 0.2s' }} />
-                    {backupLoading ? (t('header.backingUp') || 'Backing up...') : (t('header.backupData') || 'Backup Data')}
-                  </button>
-                  <button 
-                    onClick={() => { setShowRFIDDownload(true); setDropdownOpen(false); }} 
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#f0fdf4';
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }}
-                    style={{ 
-                      width: '100%', 
-                      padding: '12px 16px', 
-                      background: 'transparent', 
-                      border: 'none', 
-                      textAlign: 'left', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '12px', 
-                      cursor: 'pointer', 
-                      color: '#16a34a', 
-                      fontSize: '14px', 
-                      borderRadius: '8px', 
-                      marginBottom: '4px', 
-                      fontWeight: 600,
-                      transition: 'all 0.2s ease',
-                      outline: 'none'
-                    }}
-                  >
-                    <FaMobileAlt style={{ fontSize: '16px', color: '#16a34a', transition: 'transform 0.2s' }} />
-                    <span>{t('header.rfidAppDownload') || 'RFID App Download'}</span>
-                  </button>
-                  <div style={{ height: '1px', background: '#f1f5f9', margin: '8px 0' }}></div>
-                  <button 
-                    onClick={handleLogout} 
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#fef2f2';
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.transform = 'translateX(0)';
-                    }}
-                    style={{ 
-                      width: '100%', 
-                      padding: '12px 16px', 
-                      background: 'transparent', 
-                      border: 'none', 
-                      textAlign: 'left', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '12px', 
-                      cursor: 'pointer', 
-                      color: '#dc2626', 
-                      fontSize: '14px', 
-                      borderRadius: '8px', 
-                      marginBottom: 0, 
-                      fontWeight: 600,
-                      transition: 'all 0.2s ease',
-                      outline: 'none'
-                    }}
-                  >
-                    <FaSignOutAlt style={{ fontSize: '16px', color: '#dc2626', transition: 'transform 0.2s' }} />
-                    <span>{t('header.logout') || 'Logout'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
+            </button>
           </div>
-        </div>
-      </header>
 
-      <div style={{ display: 'flex', marginTop: '64px', minHeight: 'calc(100vh - 64px)' }}>
-        {/* Sidebar */}
-        <aside style={{
-          position: 'fixed',
-          left: 0,
-          top: '64px',
-          bottom: 0,
-          width: sidebarWidth,
-          background: '#ffffff',
-          borderRight: '2px solid #e5e7eb',
-          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          overflow: 'hidden',
-          zIndex: 999,
-          display: isMobile && !mobileMenuOpen ? 'none' : 'block',
-          overflowY: isMobile ? 'visible' : 'auto',
-          boxShadow: '2px 0 8px rgba(0, 0, 0, 0.04)'
-        }}>
-          {/* Sidebar Content */}
-          <div className="sidebar-content" style={{ padding: '2px 0', height: '100%', overflowY: 'auto' }}>
-            
+          {/* Sidebar nav - no scroll, all items visible in one screen */}
+          <div className="sidebar-content" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '2px 0', display: 'flex', flexDirection: 'column' }}>
+            {/* Nav sections - IIFE */}
             {/* Helper function to render section header */}
             {(() => {
               const renderSectionHeader = (title, gradientColors) => {
                 if (sidebarCollapsed) return null;
                 return (
                   <div style={{
-                    padding: '2px 8px',
-                    margin: '4px 8px 3px 8px',
+                    padding: '1px 6px',
+                    margin: '1px 6px 0px 6px',
                     background: 'transparent',
                     borderRadius: '4px',
-                    border: 'none',
-                    boxShadow: 'none'
                   }}>
-                    <span style={{
-                      fontSize: '8px',
-                      fontWeight: '700',
-                      color: '#1e293b',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.3px',
-                      lineHeight: '1.2',
-                      textShadow: 'none'
-                    }}>
+                    <span style={{ fontSize: '7px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px', lineHeight: 1.2 }}>
                       {title}
                     </span>
                   </div>
@@ -885,33 +462,41 @@ const SidebarLayout = ({ children }) => {
                         display: 'flex',
                         alignItems: 'center',
                       gap: sidebarCollapsed ? '0' : '6px',
-                      padding: sidebarCollapsed ? '6px' : '4px 8px',
-                      margin: '1px 8px',
+                      padding: sidebarCollapsed ? '4px 4px' : '1px 6px',
+                      margin: sidebarCollapsed ? '1px 4px' : '0 6px',
                       borderRadius: '6px',
-                      color: '#94a3b8',
-                      background: 'transparent',
-                      fontWeight: 500,
-                      fontSize: '11px',
-                      lineHeight: '1.3',
-                      transition: 'all 0.2s ease',
-                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                      position: 'relative',
-                      border: '1px solid transparent',
-                      cursor: 'not-allowed',
-                      opacity: 0.6
-                    }}
+                        color: '#94a3b8',
+                        background: 'transparent',
+                        fontWeight: 500,
+                        fontSize: '10px',
+                        lineHeight: '1.25',
+                        transition: 'all 0.2s ease',
+                        justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                        position: 'relative',
+                        border: '1px solid transparent',
+                        cursor: 'not-allowed',
+                        opacity: 0.6
+                      }}
                       title={sidebarCollapsed ? label : 'Coming Soon'}
                     >
-                      <Icon style={{ 
-                        fontSize: '14px', 
-                        color: '#cbd5e1', 
-                        flexShrink: 0
-                      }} />
+                      <span style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 6,
+                        background: 'rgba(148, 163, 184, 0.2)',
+                        color: '#94a3b8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}>
+                        <Icon style={{ fontSize: 10 }} />
+                      </span>
                       {!sidebarCollapsed && (
                         <>
-                          <span style={{ 
-                            whiteSpace: 'nowrap', 
-                            overflow: 'hidden', 
+                          <span style={{
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             maxWidth: '140px',
                             display: 'inline-block',
@@ -945,24 +530,24 @@ const SidebarLayout = ({ children }) => {
                   <Link
                     key={path}
                     to={path}
-                    onClick={() => isMobile && setMobileMenuOpen(false)}
+                    onClick={() => isMobile && setSidebarOpen(false)}
                     className="sidebar-nav-item"
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '7px',
-                      padding: sidebarCollapsed ? '6px' : '4px 8px',
-                      margin: '1px 8px',
+                      gap: sidebarCollapsed ? '0' : '6px',
+                      padding: sidebarCollapsed ? '4px 4px' : '1px 6px',
+                      margin: sidebarCollapsed ? '1px 4px' : '0 6px',
                       borderRadius: '6px',
-                      textDecoration: 'none',
-                      color: '#1e293b',
-                      background: isActive 
-                        ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)` 
+                        textDecoration: 'none',
+                        color: '#1e293b',
+                        background: isActive
+                        ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)`
                         : 'transparent',
                       fontWeight: isActive ? 600 : 500,
-                      fontSize: '11px',
-                      lineHeight: '1.3',
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      fontSize: '10px',
+                      lineHeight: '1.25',
+                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
                       border: isActive ? `1px solid ${color}40` : `1px solid transparent`,
@@ -986,17 +571,24 @@ const SidebarLayout = ({ children }) => {
                     }}
                     title={sidebarCollapsed ? label : ''}
                   >
-                    <Icon style={{ 
-                      fontSize: '14px', 
-                      color: isActive ? color : color, 
+                    <span style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 6,
+                      background: isActive ? `${color}22` : `${color}14`,
+                      color: color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       flexShrink: 0,
-                      filter: isActive ? 'none' : 'none',
-                      transition: 'all 0.3s ease'
-                    }} />
+                      transition: 'all 0.25s ease',
+                    }}>
+                      <Icon style={{ fontSize: 10 }} />
+                    </span>
                     {!sidebarCollapsed && (
-                      <span style={{ 
-                        whiteSpace: 'nowrap', 
-                        overflow: 'hidden', 
+                      <span style={{
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         maxWidth: '180px',
                         display: 'inline-block',
@@ -1032,9 +624,9 @@ const SidebarLayout = ({ children }) => {
                   {!sidebarCollapsed && (
                     <div style={{
                       height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
-                      margin: '3px 10px',
-                      opacity: 0.3
+                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
+                      margin: '0px 8px',
+                      opacity: 0.4
                     }} />
                   )}
 
@@ -1046,9 +638,9 @@ const SidebarLayout = ({ children }) => {
                   {!sidebarCollapsed && (
                     <div style={{
                       height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
-                      margin: '3px 10px',
-                      opacity: 0.3
+                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
+                      margin: '0px 8px',
+                      opacity: 0.4
                     }} />
                   )}
 
@@ -1060,29 +652,66 @@ const SidebarLayout = ({ children }) => {
                   {!sidebarCollapsed && (
                     <div style={{
                       height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%)',
-                      margin: '3px 10px',
-                      opacity: 0.3
+                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
+                      margin: '0px 8px',
+                      opacity: 0.4
                     }} />
                   )}
 
-                  {/* Section 4: RFID Operations */}
-                  {renderSectionHeader('RFID Operations', ['#3b82f6', '#3b82f6'])}
-                  {navigationSection4.map(renderMenuItem)}
+                  {/* Section 5: Third Party (client LS000438 only) */}
+                  {showThirdPartyMenu && (
+                    <>
+                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
+                      {navigationSection5.map(renderMenuItem)}
+                      
+                       {!sidebarCollapsed && (
+                        <div style={{
+                          height: '1px',
+                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
+                          margin: '1px 8px',
+                          opacity: 0.4
+                        }} />
+                      )}
+                    </>
+                  )}
+
+                  {/* Section 0: Quick Access - Moved to Bottom */}
+                  {renderSectionHeader('Main Menu', ['#6366f1', '#6366f1'])}
+                  {navigationProfile.map(renderMenuItem)}
 
                 </>
               );
             })()}
           </div>
+
+          {/* Sidebar bottom: Fullscreen, Logout */}
+          <div style={{
+            flexShrink: 0,
+            padding: sidebarCollapsed ? '8px 6px' : '8px 8px',
+            borderTop: '1px solid rgba(0, 0, 0, 0.06)',
+            display: 'flex',
+            flexDirection: sidebarCollapsed ? 'column' : 'row',
+            alignItems: 'center',
+            gap: 8,
+            justifyContent: 'center'
+          }}>
+            <button onClick={toggleFullscreen} style={{ flexShrink: 0, background: '#f8fafc', border: '1px solid #e2e8f0', padding: 8, borderRadius: 8, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+              {isFullscreen ? <FaCompress size={16} /> : <FaExpand size={16} />}
+            </button>
+            <button onClick={handleLogout} style={{ flex: 1, background: '#fee2e2', border: '1px solid #fecaca', padding: '8px', borderRadius: 8, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: sidebarCollapsed ? 'auto' : '100%', transition: 'all 0.2s ease' }} title="Logout">
+              <FaSignOutAlt size={16} />
+              {!sidebarCollapsed && <span style={{ fontSize: 13, fontWeight: 700 }}>Logout</span>}
+            </button>
+          </div>
         </aside>
 
         {/* Mobile Overlay */}
-        {isMobile && mobileMenuOpen && (
+        {isMobile && sidebarOpen && (
           <div
-            onClick={() => setMobileMenuOpen(false)}
+            onClick={() => setSidebarOpen(false)}
             style={{
               position: 'fixed',
-              top: '64px',
+              top: 0,
               left: 0,
               right: 0,
               bottom: 0,
@@ -1098,9 +727,9 @@ const SidebarLayout = ({ children }) => {
           marginLeft: mainContentMargin,
           transition: 'margin-left 0.3s ease',
           padding: '24px',
-          minHeight: 'calc(100vh - 64px)',
+          minHeight: '100vh',
           background: '#ffffff',
-          width: `calc(100% - ${mainContentMargin})`
+          width: mainContentMargin ? `calc(100% - ${mainContentMargin})` : '100%'
         }}>
           {children}
         </main>
@@ -1127,16 +756,16 @@ const SidebarLayout = ({ children }) => {
         </div>
       )}
 
-      {showRFIDDownload && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.5)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 20px 25px rgba(0, 0, 0, 0.25)', width: 340, maxWidth: '98vw', padding: '28px 24px 24px 24px', position: 'relative' }}>
-            <button onClick={() => setShowRFIDDownload(false)} style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', fontSize: 22, color: '#64748b', cursor: 'pointer', zIndex: 2 }}>&times;</button>
-            <RFIDAppDownloadPopup />
-          </div>
-        </div>
-      )}
-
       <style>{`
+        /* Sidebar glassmorphism */
+        .sidebar-glass {
+          -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+        }
+        .sidebar-glass .sidebar-content {
+          background: transparent;
+          -webkit-overflow-scrolling: touch;
+        }
         /* Trailing ellipsis for all labels and text */
         .text-truncate {
           overflow: hidden;
@@ -1179,7 +808,7 @@ const SidebarLayout = ({ children }) => {
           }
           
           aside {
-            width: 280px !important;
+            width: 220px !important;
           }
         }
         
@@ -1218,35 +847,30 @@ const SidebarLayout = ({ children }) => {
           }
         }
         
-        /* Header improvements */
-        header {
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-        }
-        
         /* Mobile responsive sidebar */
         @media (max-width: 768px) {
           .sidebar-content {
-            padding: 4px 0 !important;
-            overflow-y: visible !important;
+            padding: 2px 0 !important;
+            overflow-y: auto !important;
             overflow-x: hidden !important;
-            height: auto !important;
-            max-height: calc(100vh - 64px) !important;
+            min-height: 0 !important;
           }
           .sidebar-nav-item {
-            padding: 6px 10px !important;
-            margin: 1px 8px !important;
-            font-size: 11px !important;
-            gap: 8px !important;
-            border-radius: 8px !important;
+            padding: 4px 8px !important;
+            margin: 0px 4px !important;
+            font-size: 10px !important;
+            gap: 6px !important;
+            border-radius: 6px !important;
+            height: 24px !important; /* Force height */
+            align-items: center !important;
+            display: flex !important;
           }
           .sidebar-nav-item svg {
-            font-size: 15px !important;
+            font-size: 12px !important;
           }
           aside {
-            width: 260px !important;
-            overflow-y: visible !important;
-            overflow-x: hidden !important;
+            width: 180px !important;
+            overflow: hidden !important;
           }
           main {
             padding: 12px !important;
@@ -1254,31 +878,32 @@ const SidebarLayout = ({ children }) => {
           }
           /* Section headers responsive */
           .sidebar-content > div > div:first-child {
-            padding: 4px 10px !important;
-            margin: 8px 8px 5px 8px !important;
-            font-size: 9px !important;
+            padding: 2px 8px !important;
+            margin: 4px 4px 2px 4px !important;
+            font-size: 8px !important;
+            line-height: 1 !important;
           }
         }
         
         @media (max-width: 480px) {
           .sidebar-content {
-            padding: 3px 0 !important;
-            overflow-y: visible !important;
+            padding: 2px 0 !important;
+            overflow-y: auto !important;
             overflow-x: hidden !important;
           }
           .sidebar-nav-item {
-            padding: 5px 8px !important;
-            margin: 1px 6px !important;
-            font-size: 10px !important;
-            gap: 7px !important;
+            padding: 3px 6px !important;
+            margin: 0px 2px !important;
+            font-size: 9px !important;
+            gap: 5px !important;
+            height: 22px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 14px !important;
+            font-size: 11px !important;
           }
           aside {
-            width: 240px !important;
-            overflow-y: visible !important;
-            overflow-x: hidden !important;
+            width: 160px !important;
+            overflow: hidden !important;
           }
           main {
             padding: 10px !important;
@@ -1286,65 +911,72 @@ const SidebarLayout = ({ children }) => {
           }
           /* Section headers responsive */
           .sidebar-content > div > div:first-child {
-            padding: 3px 8px !important;
-            margin: 6px 6px 4px 6px !important;
-            font-size: 8px !important;
+            padding: 1px 6px !important;
+            margin: 3px 2px 1px 2px !important;
+            font-size: 7px !important;
           }
         }
         
         @media (max-width: 360px) {
           .sidebar-content {
-            padding: 2px 0 !important;
+            padding: 1px 0 !important;
           }
           .sidebar-nav-item {
-            padding: 4px 7px !important;
-            margin: 1px 5px !important;
-            font-size: 9px !important;
-            gap: 6px !important;
+            padding: 2px 4px !important;
+            margin: 0px 2px !important;
+            font-size: 8px !important;
+            gap: 4px !important;
+            height: 20px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 13px !important;
+            font-size: 10px !important;
           }
           aside {
-            width: 220px !important;
+            width: 140px !important;
           }
           /* Section headers responsive */
           .sidebar-content > div > div:first-child {
-            padding: 3px 7px !important;
-            margin: 5px 5px 3px 5px !important;
-            font-size: 7px !important;
+            padding: 1px 4px !important;
+            margin: 2px 2px 1px 2px !important;
+            font-size: 6px !important;
           }
         }
         
         /* Tablet responsive */
         @media (min-width: 769px) and (max-width: 1024px) {
           .sidebar-nav-item {
-            padding: 6px 10px !important;
-            font-size: 11px !important;
-            gap: 8px !important;
+            padding: 4px 8px !important;
+            font-size: 10px !important;
+            gap: 6px !important;
+            margin: 0px 4px !important;
+            height: 26px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 15px !important;
+            font-size: 12px !important;
           }
           .sidebar-content > div > div:first-child {
-            padding: 4px 10px !important;
-            font-size: 9px !important;
+            padding: 2px 8px !important;
+            font-size: 8px !important;
+            margin: 4px 4px 2px 4px !important;
           }
         }
         
-        /* Large screens */
-        @media (min-width: 1920px) {
+        /* Large screens - keep compact to fit */
+        @media (min-width: 1025px) {
           .sidebar-nav-item {
-            padding: 7px 12px !important;
-            font-size: 13px !important;
-            gap: 10px !important;
+            padding: 2px 6px !important;
+            margin: 0 4px !important;
+            font-size: 10px !important;
+            height: 24px !important; /* Compact desktop height */
+            gap: 6px !important;
           }
-          .sidebar-nav-item svg {
-            font-size: 17px !important;
+           .sidebar-nav-item svg {
+            font-size: 12px !important;
           }
           .sidebar-content > div > div:first-child {
-            padding: 5px 12px !important;
-            font-size: 10px !important;
+             margin: 4px 4px 0px 4px !important;
+             padding: 1px 4px !important;
+             font-size: 8px !important;
           }
         }
         

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -6,9 +6,15 @@ import {
   FaExclamationTriangle,
   FaSync,
   FaFilter,
-  FaTimes
+  FaTimes,
+  FaFileExcel,
+  FaFilePdf,
+  FaChevronDown
 } from 'react-icons/fa';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { useLoading } from '../App';
 import { useNotifications } from '../context/NotificationContext';
 
@@ -62,6 +68,8 @@ const Reports = () => {
     purityId: { isOpen: false, searchTerm: '', filteredOptions: [] }
   });
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const exportDropdownRef = useRef(null);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -898,6 +906,217 @@ const Reports = () => {
     return isNaN(numValue) ? '0' : numValue.toString();
   };
 
+  // Close export dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target)) {
+        setShowExportDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Export to Excel
+  const handleExportToExcel = () => {
+    try {
+      if (reportData.length === 0) {
+        addNotification({
+          type: 'error',
+          message: 'No data to export',
+          duration: 3000
+        });
+        return;
+      }
+
+      const totals = calculateTotals();
+      const exportData = reportData.map((item, index) => {
+        return {
+          'S.No': index + 1,
+          'Name': getValue(item, 'Name'),
+          'Opening Qty': parseFloat(item.OpeningQuantity || item.OpeningQty || 0),
+          'Opening Gr Wt': parseFloat(item.OpeningGrossWeight || item.OpeningGrWt || 0),
+          'Opening Net Wt': parseFloat(item.OpeningNetWeight || item.OpeningNetWt || 0),
+          'Stock In Qty': parseFloat(item.StockEntryQuantity || item.StockInQty || 0),
+          'Stock In Gr Wt': parseFloat(item.StockEntryGrWt || item.StockInGrWt || 0),
+          'Sale Qty': parseFloat(item.SaleQty || 0),
+          'Sale Gross Wt': parseFloat(item.SaleGrossWt || 0),
+          'Closing Qty': parseFloat(item.ClosingQty || 0),
+          'Closing Gr Wt': parseFloat(item.ClosingGrossWeight || item.ClosingGrWt || 0),
+          'Closing Net': parseFloat(item.ClosingNetWeight || item.ClosingNet || 0)
+        };
+      });
+
+      // Add summary row
+      exportData.push({
+        'S.No': '',
+        'Name': 'TOTAL',
+        'Opening Qty': totals.OpeningQty,
+        'Opening Gr Wt': totals.OpeningGrWt,
+        'Opening Net Wt': totals.OpeningNetWt,
+        'Stock In Qty': totals.StockInQty,
+        'Stock In Gr Wt': totals.StockInGrWt,
+        'Sale Qty': totals.SaleQty,
+        'Sale Gross Wt': totals.SaleGrossWt,
+        'Closing Qty': totals.ClosingQty,
+        'Closing Gr Wt': totals.ClosingGrWt,
+        'Closing Net': totals.ClosingNet
+      });
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      
+      // Set column widths
+      const colWidths = [
+        { wch: 8 },   // S.No
+        { wch: 25 },  // Name
+        { wch: 12 },  // Opening Qty
+        { wch: 15 },  // Opening Gr Wt
+        { wch: 15 },  // Opening Net Wt
+        { wch: 12 },  // Stock In Qty
+        { wch: 15 },  // Stock In Gr Wt
+        { wch: 10 },  // Sale Qty
+        { wch: 15 },  // Sale Gross Wt
+        { wch: 12 },  // Closing Qty
+        { wch: 15 },  // Closing Gr Wt
+        { wch: 15 }   // Closing Net
+      ];
+      ws['!cols'] = colWidths;
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Stock Report');
+      
+      const fileName = `StockReport_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      addNotification({
+        type: 'success',
+        message: `Stock report exported to ${fileName} successfully`,
+        duration: 3000
+      });
+      setShowExportDropdown(false);
+    } catch (err) {
+      console.error('Error exporting to Excel:', err);
+      addNotification({
+        type: 'error',
+        message: 'Failed to export stock report. Please try again.',
+        duration: 3000
+      });
+    }
+  };
+
+  // Export to PDF
+  const handleExportToPDF = () => {
+    try {
+      if (reportData.length === 0) {
+        addNotification({
+          type: 'error',
+          message: 'No data to export',
+          duration: 3000
+        });
+        return;
+      }
+
+      const totals = calculateTotals();
+      const doc = new jsPDF('landscape');
+      
+      // Title
+      doc.setFontSize(16);
+      doc.text('Stock Report', 15, 20);
+      
+      // Subtitle with date range
+      doc.setFontSize(10);
+      doc.text(`From: ${filterValues.dateFrom || getCurrentDate()} To: ${filterValues.dateTo || getCurrentDate()}`, 15, 28);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 15, 34);
+      doc.text(`Total Records: ${reportData.length}`, 15, 40);
+
+      // Table headers
+      const tableHeaders = [
+        'S.No',
+        'Name',
+        'Opening Qty',
+        'Opening Gr Wt',
+        'Opening Net Wt',
+        'Stock In Qty',
+        'Stock In Gr Wt',
+        'Sale Qty',
+        'Sale Gross Wt',
+        'Closing Qty',
+        'Closing Gr Wt',
+        'Closing Net'
+      ];
+
+      // Table data
+      const tableData = reportData.map((item, index) => [
+        index + 1,
+        getValue(item, 'Name') || '-',
+        formatQty(item.OpeningQuantity || item.OpeningQty),
+        formatNumber(item.OpeningGrossWeight || item.OpeningGrWt),
+        formatNumber(item.OpeningNetWeight || item.OpeningNetWt),
+        formatQty(item.StockEntryQuantity || item.StockInQty),
+        formatNumber(item.StockEntryGrWt || item.StockInGrWt),
+        formatQty(item.SaleQty),
+        formatNumber(item.SaleGrossWt),
+        formatQty(item.ClosingQty),
+        formatNumber(item.ClosingGrossWeight || item.ClosingGrWt),
+        formatNumber(item.ClosingNetWeight || item.ClosingNet)
+      ]);
+
+      // Add summary row
+      tableData.push([
+        '',
+        'TOTAL',
+        formatQty(totals.OpeningQty),
+        formatNumber(totals.OpeningGrWt),
+        formatNumber(totals.OpeningNetWt),
+        formatQty(totals.StockInQty),
+        formatNumber(totals.StockInGrWt),
+        formatQty(totals.SaleQty),
+        formatNumber(totals.SaleGrossWt),
+        formatQty(totals.ClosingQty),
+        formatNumber(totals.ClosingGrWt),
+        formatNumber(totals.ClosingNet)
+      ]);
+
+      doc.autoTable({
+        head: [tableHeaders],
+        body: tableData,
+        startY: 45,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [69, 73, 232], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        margin: { left: 8, right: 8 },
+        tableWidth: 'auto',
+        // Style the last row (summary row)
+        didParseCell: function(data) {
+          if (data.row.index === tableData.length - 1) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [241, 245, 249];
+          }
+        }
+      });
+
+      const fileName = `StockReport_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      
+      addNotification({
+        type: 'success',
+        message: `Stock report exported to ${fileName} successfully`,
+        duration: 3000
+      });
+      setShowExportDropdown(false);
+    } catch (err) {
+      console.error('Error exporting to PDF:', err);
+      addNotification({
+        type: 'error',
+        message: 'Failed to export stock report. Please try again.',
+        duration: 3000
+      });
+    }
+  };
+
   const getValue = (item, key) => {
     // Map API response field names to table keys
     const fieldMapping = {
@@ -1106,6 +1325,117 @@ const Reports = () => {
               )}
               Refresh
             </button>
+
+            {/* Export Button with Dropdown */}
+            <div ref={exportDropdownRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowExportDropdown(!showExportDropdown)}
+                disabled={reportData.length === 0}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #10b981',
+                  background: '#ffffff',
+                  color: '#10b981',
+                  cursor: reportData.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: reportData.length === 0 ? 0.5 : 1,
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (reportData.length > 0) {
+                    e.target.style.background = '#10b981';
+                    e.target.style.color = '#ffffff';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (reportData.length > 0) {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.color = '#10b981';
+                  }
+                }}
+              >
+                <FaFileExcel />
+                Export
+                <FaChevronDown style={{ fontSize: '10px' }} />
+              </button>
+
+              {showExportDropdown && reportData.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '8px',
+                  background: '#ffffff',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
+                  zIndex: 1000,
+                  minWidth: '180px',
+                  overflow: 'hidden'
+                }}>
+                  <button
+                    onClick={handleExportToExcel}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '12px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      background: '#ffffff',
+                      color: '#10b981',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'left',
+                      borderBottom: '1px solid #f1f5f9'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#f0fdf4';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                    }}
+                  >
+                    <FaFileExcel style={{ fontSize: '16px' }} />
+                    Export to Excel
+                  </button>
+                  <button
+                    onClick={handleExportToPDF}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '12px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      background: '#ffffff',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#fef2f2';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                    }}
+                  >
+                    <FaFilePdf style={{ fontSize: '16px' }} />
+                    Export to PDF
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

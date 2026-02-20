@@ -251,8 +251,39 @@ const QuotationList = () => {
           flexWrap: 'wrap',
           gap: '12px'
         }}>
-          {/* Left: Title */}
-          <div>
+          {/* Left: Back button + Title */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              type="button"
+              onClick={() => navigate('/quotation')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                background: '#ffffff',
+                color: '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.borderColor = '#3b82f6';
+                e.currentTarget.style.color = '#3b82f6';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+                e.currentTarget.style.color = '#475569';
+              }}
+            >
+              <FaChevronLeft style={{ fontSize: '12px' }} />
+              Back
+            </button>
             <h2 style={{
               margin: 0,
               fontSize: '16px',

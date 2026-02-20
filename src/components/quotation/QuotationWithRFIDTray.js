@@ -18,6 +18,9 @@ import {
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
+import useMyScansFileWatcher from '../../hooks/useMyScansFileWatcher';
+import { BsUpcScan } from 'react-icons/bs';
+import { toast } from 'react-toastify';
 
 const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
   const { loading, setLoading } = useLoading();
@@ -49,6 +52,54 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
   const [stockItemsPerPage] = useState(20); // Products per page
   const [showQuotationSuccess, setShowQuotationSuccess] = useState(false);
   const [quotationSuccessData, setQuotationSuccessData] = useState(null);
+  const fileInputRef = React.useRef(null);
+  
+  // File Watcher State
+  const [watchEnabled, setWatchEnabled] = useState(false);
+  const {
+    status: watcherStatus,
+    epcArray: scannedEpcs,
+    scanDate: scannedDate,
+    error: watcherError,
+    start: startWatcher,
+    stop: stopWatcher,
+    sendCommand
+  } = useMyScansFileWatcher({
+    intervalMs: 2000,
+    enabled: watchEnabled,
+    onEpcsReceived: async (epcs, date) => {
+      // When EPCs are received from Scandate file, process them
+      if (epcs && epcs.length > 0) {
+        console.log('EPCs received from file:', epcs, 'Date:', date);
+        
+        // Update RFID tags state (store EPCs, but don't send to API yet)
+        setRfidTags(prevTags => {
+          // Merge with existing tags, avoiding duplicates
+          const existingSet = new Set(prevTags);
+          epcs.forEach(epc => existingSet.add(epc));
+          return Array.from(existingSet);
+        });
+        
+        // Don't send to API automatically - user must click "Find Stock" button
+        console.log('✅ EPCs loaded from file watcher:', epcs.length, 'EPC(s)');
+        
+        // Show notification
+        addNotification({
+          type: 'success',
+          title: 'EPCs Scanned',
+          message: `Received ${epcs.length} EPC(s) from file${date ? ` (Date: ${date})` : ''}. Click "Find Stock" to fetch stock data.`
+        });
+      }
+    },
+    onError: (err) => {
+      console.error('File watcher error:', err);
+      addNotification({
+        type: 'error',
+        title: 'File Watcher Error',
+        message: err?.message || 'Error reading scan files'
+      });
+    }
+  });
 
   // Normalize response data helper
   const normalizeArray = (data) => {
@@ -226,9 +277,11 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
     clearRfidTray();
   };
 
-  // Find Stock for RFID Tags
-  const findStockForRfidTags = async () => {
-    if (rfidTags.length === 0) {
+  // Find Stock for RFID Tags (can accept EPCs as parameter or use state)
+  const findStockForRfidTags = async (epcsToSearch = null) => {
+    const tagsToSearch = epcsToSearch || rfidTags;
+    
+    if (tagsToSearch.length === 0) {
       addNotification({
         type: 'warning',
         title: 'No Tags',
@@ -255,7 +308,7 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
 
       const payload = {
         ClientCode: userInfo.ClientCode,
-        TIDNumbers: rfidTags
+        TIDNumbers: tagsToSearch
       };
 
       const response = await axios.post(
@@ -297,8 +350,320 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
     }
   };
 
-  // Create Quotation from All Stock Products
-  const handleCreateQuotation = async () => {
+  // Alias for backward compatibility
+  const findStockForEpcs = findStockForRfidTags;
+
+  // File Watcher Controls
+  const handleStartWatcher = async () => {
+    setLoading(true);
+    try {
+      // Read ScanData.json file immediately when Start is clicked
+      const epcsRead = await readScanDataFileImmediately();
+      
+      // If EPCs were read successfully, they will be displayed in the table below
+      if (epcsRead && epcsRead.length > 0) {
+        console.log(`✅ Successfully loaded ${epcsRead.length} EPCs from file`);
+        toast.success(`${epcsRead.length} EPC(s) loaded. Click "Find Stock" to fetch stock data.`);
+      } else {
+        toast.warning('No EPCs found in scan file');
+      }
+      
+      // Also start continuous watching
+      await sendCommand('start');
+      setWatchEnabled(true);
+      startWatcher();
+      toast.success('File watcher started');
+    } catch (e) {
+      console.error('Error starting watcher:', e);
+      toast.error(e?.message || 'Could not start watcher');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Read ScanData.json file immediately (not waiting for polling)
+  const readScanDataFileImmediately = async () => {
+    console.log('🔍 Starting to read ScanData.json file...');
+    const filePath = 'C:\\loyalstring\\MyScans\\ScanData.json';
+    let epcsRead = [];
+    
+    try {
+      // Method 1: Electron
+      if (typeof window !== 'undefined' && window.electron && window.electron.readFile) {
+        console.log('📱 Trying Electron file read...');
+        try {
+          const content = await window.electron.readFile(filePath);
+          console.log('✅ Electron read successful, content length:', content?.length);
+          
+          if (content) {
+            const parsed = JSON.parse(content);
+            console.log('✅ Parsed JSON, array length:', Array.isArray(parsed) ? parsed.length : 'Not an array');
+            
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              epcsRead = parsed.filter(item => typeof item === 'string' && item.trim().length > 0);
+              console.log('✅ Valid EPCs found:', epcsRead.length);
+              
+              if (epcsRead.length > 0) {
+                // Update RFID tags state (store EPCs, but don't send to API yet)
+                setRfidTags(prevTags => {
+                  const existingSet = new Set(prevTags);
+                  epcsRead.forEach(epc => existingSet.add(epc.trim()));
+                  return Array.from(existingSet);
+                });
+                
+                console.log('✅ EPCs loaded and stored:', epcsRead.length, 'EPC(s)');
+                console.log('📋 EPCs:', epcsRead);
+                
+                addNotification({
+                  type: 'success',
+                  title: 'EPCs Loaded',
+                  message: `Loaded ${epcsRead.length} EPC(s) from ScanData.json. Click "Find Stock" to fetch stock data.`
+                });
+                return epcsRead;
+              }
+            }
+          }
+        } catch (err) {
+          console.error('❌ Electron file read failed:', err);
+          console.error('Error details:', err.message, err.stack);
+        }
+      } else {
+        console.log('⚠️ Electron not available');
+      }
+      
+      // Method 2: API endpoint
+      console.log('🌐 Trying API endpoint to read file...');
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          throw new Error('No authentication token found');
+        }
+
+        const response = await fetch('https://rrgold.loyalstring.co.in/api/FileWatcher/GetScanData', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            filePath: filePath
+          })
+        });
+        
+        console.log('📡 API Response status:', response.status, response.statusText);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ API response received:', data);
+          
+          const content = data.content || data.data || data;
+          let parsed;
+          
+          if (typeof content === 'string') {
+            try {
+              parsed = JSON.parse(content);
+            } catch (parseErr) {
+              console.error('❌ Failed to parse content as JSON:', parseErr);
+              // Try to parse as array of strings directly
+              if (content.trim().startsWith('[')) {
+                parsed = JSON.parse(content);
+              } else {
+                throw parseErr;
+              }
+            }
+          } else {
+            parsed = content;
+          }
+          
+          console.log('✅ Parsed data, is array:', Array.isArray(parsed), 'length:', Array.isArray(parsed) ? parsed.length : 'N/A');
+          
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            epcsRead = parsed.filter(item => typeof item === 'string' && item.trim().length > 0);
+            console.log('✅ Valid EPCs found:', epcsRead.length, epcsRead);
+            
+            if (epcsRead.length > 0) {
+              // Update RFID tags state (store EPCs, but don't send to API yet)
+              setRfidTags(prevTags => {
+                const existingSet = new Set(prevTags);
+                epcsRead.forEach(epc => existingSet.add(epc.trim()));
+                return Array.from(existingSet);
+              });
+              
+              console.log('✅ EPCs loaded and stored:', epcsRead.length, 'EPC(s)');
+              console.log('📋 EPCs:', epcsRead);
+              
+              addNotification({
+                type: 'success',
+                title: 'EPCs Loaded',
+                message: `Loaded ${epcsRead.length} EPC(s) from ScanData.json. Click "Find Stock" to fetch stock data.`
+              });
+              return epcsRead;
+            } else {
+              console.warn('⚠️ No valid EPCs found in array');
+              addNotification({
+                type: 'warning',
+                title: 'No EPCs Found',
+                message: 'The scan file is empty or contains no valid EPC codes.'
+              });
+            }
+          } else {
+            console.warn('⚠️ Response is not a valid array:', parsed);
+            addNotification({
+              type: 'warning',
+              title: 'Invalid File Format',
+              message: 'The scan file does not contain a valid array of EPC codes.'
+            });
+          }
+        } else {
+          const errorText = await response.text();
+          console.error('❌ API request failed:', response.status, errorText);
+          throw new Error(`Failed to read file: ${response.status} ${errorText}`);
+        }
+      } catch (err) {
+        console.error('❌ API file read failed:', err);
+        console.error('Error details:', err.message, err.stack);
+        throw err;
+      }
+      
+      // If we reach here, no EPCs were read
+      if (epcsRead.length === 0) {
+        addNotification({
+          type: 'warning',
+          title: 'File Read Error',
+          message: 'Could not read EPCs from ScanData.json. Please check the file exists and contains valid EPC codes.',
+          duration: 5000
+        });
+      }
+      
+      return epcsRead;
+    } catch (err) {
+      console.error('❌ Unexpected error reading ScanData.json:', err);
+      console.error('Error details:', err.message, err.stack);
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: err?.message || 'Failed to read ScanData.json file. Check browser console for details.'
+      });
+      throw err;
+    }
+  };
+
+  const handleStopWatcher = async () => {
+    try {
+      await sendCommand('stop');
+      stopWatcher();
+      setWatchEnabled(false);
+      toast.success('File watcher stopped');
+    } catch (e) {
+      toast.error(e?.message || 'Could not stop watcher');
+    }
+  };
+
+  const handleResetWatcher = async () => {
+    try {
+      await sendCommand('clear');
+      setRfidTags([]);
+      setRfidTrayInput('');
+      setStockData([]);
+      toast.success('Watcher reset and cleared');
+    } catch (e) {
+      toast.error(e?.message || 'Could not reset watcher');
+    }
+  };
+
+  const isScanning = (watcherStatus === 'watching') && watchEnabled;
+
+  // Handle file input (manual file selection)
+  const handleFileSelect = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    console.log('📁 File selected:', file.name, file.size, 'bytes');
+    
+    try {
+      const reader = new FileReader();
+      
+      reader.onload = async (e) => {
+        try {
+          const content = e.target.result;
+          console.log('✅ File read, content length:', content?.length);
+          
+          const parsed = JSON.parse(content);
+          console.log('✅ Parsed JSON, is array:', Array.isArray(parsed), 'length:', Array.isArray(parsed) ? parsed.length : 'N/A');
+          
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const epcs = parsed.filter(item => typeof item === 'string' && item.trim().length > 0);
+            console.log('✅ Valid EPCs found:', epcs.length, epcs);
+            
+            if (epcs.length > 0) {
+              // Update RFID tags state (store EPCs, but don't send to API yet)
+              setRfidTags(prevTags => {
+                const existingSet = new Set(prevTags);
+                epcs.forEach(epc => existingSet.add(epc.trim()));
+                return Array.from(existingSet);
+              });
+              
+              console.log('✅ EPCs loaded and stored:', epcs.length, 'EPC(s)');
+              console.log('📋 EPCs:', epcs);
+              
+              addNotification({
+                type: 'success',
+                title: 'EPCs Loaded',
+                message: `Loaded ${epcs.length} EPC(s) from ${file.name}. Click "Find Stock" to fetch stock data.`
+              });
+            } else {
+              addNotification({
+                type: 'warning',
+                title: 'No EPCs Found',
+                message: 'File loaded but no valid EPC strings found. Expected format: ["EPC1", "EPC2", ...]'
+              });
+            }
+          } else {
+            addNotification({
+              type: 'error',
+              title: 'Invalid Format',
+              message: 'File must contain a JSON array of EPC strings. Example: ["EPC1", "EPC2", "EPC3"]'
+            });
+          }
+        } catch (parseErr) {
+          console.error('❌ JSON parse error:', parseErr);
+          addNotification({
+            type: 'error',
+            title: 'Parse Error',
+            message: 'Failed to parse JSON file. Please check file format.'
+          });
+        }
+      };
+      
+      reader.onerror = (err) => {
+        console.error('❌ File read error:', err);
+        addNotification({
+          type: 'error',
+          title: 'File Read Error',
+          message: 'Failed to read file. Please try again.'
+        });
+      };
+      
+      reader.readAsText(file);
+    } catch (err) {
+      console.error('❌ Unexpected error:', err);
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: err?.message || 'Failed to process file'
+      });
+    }
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // REMOVED: Create Quotation from All Stock Products functionality
+  // This function has been disabled - users should select individual products
+  // Keeping function signature for potential future use but not accessible via UI
+  const handleCreateQuotation_DISABLED = async () => {
     if (!customerName || customerName === '') {
       addNotification({
         type: 'warning',
@@ -553,6 +918,14 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
           to {
             opacity: 1;
             transform: scale(1);
+          }
+        }
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.5;
           }
         }
       `}</style>
@@ -1008,8 +1381,43 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
                   display: 'flex',
                   gap: isSmallScreen ? '8px' : '10px',
                   flexShrink: 0,
-                  width: isSmallScreen ? '100%' : 'auto'
+                  width: isSmallScreen ? '100%' : 'auto',
+                  flexWrap: 'wrap'
                 }}>
+                  {/* File Watcher Controls */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!watchEnabled || watcherStatus === 'paused' || watcherStatus === 'idle') {
+                        handleStartWatcher();
+                      } else if (isScanning) {
+                        handleStopWatcher();
+                      } else {
+                        handleStartWatcher();
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: isSmallScreen ? '8px 12px' : '8px 16px',
+                      fontSize: isSmallScreen ? '11px' : '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: '1px solid',
+                      background: isScanning ? '#10b981' : '#627282',
+                      color: '#ffffff',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      whiteSpace: 'nowrap',
+                      flex: isSmallScreen ? '1' : 'none'
+                    }}
+                    title="Start/Stop File Watcher (C:\\loyalstring\\MyScans)"
+                  >
+                    <BsUpcScan size={16} />
+                    {isScanning ? 'Stop' : 'Start'}
+                  </button>
+                  
                   <button
                     onClick={resetRfidTray}
                     style={{
@@ -1073,6 +1481,45 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
                     <FaDatabase />
                     Find Stock
                   </button>
+                  
+                  {/* Status Indicator */}
+                  {isScanning && (
+                    <span style={{
+                      fontSize: isSmallScreen ? '10px' : '11px',
+                      color: '#10b981',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '6px 10px',
+                      background: '#f0fdf4',
+                      borderRadius: '6px',
+                      border: '1px solid #10b981'
+                    }}>
+                      <span style={{
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        background: '#10b981',
+                        animation: 'pulse 2s infinite'
+                      }}></span>
+                      Scanning...
+                    </span>
+                  )}
+                  
+                  {/* Scan Date Display */}
+                  {scannedDate && (
+                    <span style={{
+                      fontSize: isSmallScreen ? '10px' : '11px',
+                      color: '#64748b',
+                      fontWeight: 500,
+                      padding: '6px 10px',
+                      background: '#f8fafc',
+                      borderRadius: '6px'
+                    }}>
+                      Date: {scannedDate}
+                    </span>
+                  )}
                 </div>
               </div>
               
@@ -1377,50 +1824,7 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
                 </h3>
               </div>
 
-              {/* Create Quotation Button */}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                marginBottom: '16px',
-                flexWrap: 'wrap',
-                gap: '10px'
-              }}>
-                <button
-                  onClick={handleCreateQuotation}
-                  disabled={!customerName || loading || stockData.length === 0}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '10px 20px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    border: '1px solid #10b981',
-                    borderRadius: '8px',
-                    background: !customerName || loading || stockData.length === 0 ? '#f1f5f9' : '#10b981',
-                    color: !customerName || loading || stockData.length === 0 ? '#94a3b8' : '#ffffff',
-                    cursor: !customerName || loading || stockData.length === 0 ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    boxShadow: !customerName || loading || stockData.length === 0 ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.2)'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (customerName && !loading && stockData.length > 0) {
-                      e.currentTarget.style.background = '#059669';
-                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (customerName && !loading && stockData.length > 0) {
-                      e.currentTarget.style.background = '#10b981';
-                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
-                    }
-                  }}
-                >
-                  <FaFileInvoice />
-                  Create Quotation ({stockData.length} {stockData.length === 1 ? 'Product' : 'Products'})
-                </button>
-              </div>
+              {/* REMOVED: Create Quotation from All Button - This functionality has been removed per requirements */}
 
               {/* Products Grid - Reduced height for many products */}
               {(() => {

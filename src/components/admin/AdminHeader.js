@@ -379,13 +379,10 @@ const AdminHeader = ({
             </button>
           )}
           <img 
-            src="/Logo/Sparkle RFID svg.svg" 
+            src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
             alt="Sparkle RFID" 
-            style={{ 
-              height: isMobile ? 24 : 32, 
-              width: 'auto',
-              display: 'block'
-            }} 
+            style={{ height: isMobile ? 24 : 32, width: 'auto', display: 'block' }}
+            onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
           />
           {!isMobile && (
             <div style={{

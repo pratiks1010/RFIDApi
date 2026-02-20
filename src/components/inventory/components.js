@@ -4,6 +4,7 @@ export { default as RFIDDeviceDetails } from './RFIDDeviceDetails';
 export { default as RFIDTags } from './RFIDTags';
 export { default as TagUsage } from './TagUsage';
 export { default as StockVerification } from './StockVerification';
+export { default as StockTransfer } from './StockTransfer';
 export { default as InvoiceStock } from './InvoiceStock';
 export { default as RFIDLabel } from './RFIDLabel';
 export { default as AddStock } from './AddStock';

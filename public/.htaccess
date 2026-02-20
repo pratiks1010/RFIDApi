@@ -1,5 +1,10 @@
 Options -MultiViews
 RewriteEngine On
+
+# Gati API: forward to PHP proxy (works on shared hosting; no mod_proxy needed)
+RewriteCond %{REQUEST_URI} ^/api/TamannaahBS/
+RewriteRule ^api/TamannaahBS/(.*)$ gati-proxy.php?path=$1 [L,QSA]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [QSA,L]

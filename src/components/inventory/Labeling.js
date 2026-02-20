@@ -1835,6 +1835,80 @@ const Labeling = () => {
       labelData.ItemCode = label.itemCode || label.ItemCode || item.ItemCode || '';
       labelData.RFIDCode = label.rfidCode || label.RFIDCode || item.RFIDCode || '';
 
+      // Ensure Stone Amount and all other important fields are always mapped from item data
+      // This ensures they're available even if API doesn't return them in the layout
+      // Use item data as fallback if labelData doesn't have the value or if it's empty
+      if (!labelData.StoneAmount || labelData.StoneAmount === '' || labelData.StoneAmount === null) {
+        labelData.StoneAmount = item.TotalStoneAmount || item.StoneAmt || item.StoneAmount || '';
+      }
+      if (!labelData.TotalStoneWeight || labelData.TotalStoneWeight === '' || labelData.TotalStoneWeight === null) {
+        labelData.TotalStoneWeight = item.TotalStoneWeight || item.StoneWt || item.StoneWeight || '';
+      }
+      if (!labelData.StoneWeight || labelData.StoneWeight === '' || labelData.StoneWeight === null) {
+        labelData.StoneWeight = item.TotalStoneWeight || item.StoneWt || item.StoneWeight || '';
+      }
+      if (!labelData.DiamondAmount || labelData.DiamondAmount === '' || labelData.DiamondAmount === null) {
+        labelData.DiamondAmount = item.TotalDiamondAmount || item.DiamondAmount || '';
+      }
+      if (!labelData.DiamondWeight || labelData.DiamondWeight === '' || labelData.DiamondWeight === null) {
+        labelData.DiamondWeight = item.TotalDiamondWeight || item.DiamondWt || item.DiamondWeight || '';
+      }
+      if (!labelData.GrossWt || labelData.GrossWt === '' || labelData.GrossWt === null) {
+        labelData.GrossWt = item.GrossWt || item.GrossWeight || '';
+      }
+      if (!labelData.NetWt || labelData.NetWt === '' || labelData.NetWt === null) {
+        labelData.NetWt = item.NetWt || item.NetWeight || '';
+      }
+      if (!labelData.ProductName || labelData.ProductName === '' || labelData.ProductName === null) {
+        labelData.ProductName = item.ProductName || '';
+      }
+      if (!labelData.CategoryName || labelData.CategoryName === '' || labelData.CategoryName === null) {
+        labelData.CategoryName = item.CategoryName || item.Category || '';
+      }
+      if (!labelData.DesignName || labelData.DesignName === '' || labelData.DesignName === null) {
+        labelData.DesignName = item.DesignName || item.Design || '';
+      }
+      if (!labelData.PurityName || labelData.PurityName === '' || labelData.PurityName === null) {
+        labelData.PurityName = item.PurityName || item.Purity || '';
+      }
+      if (!labelData.BranchName || labelData.BranchName === '' || labelData.BranchName === null) {
+        labelData.BranchName = item.BranchName || item.Branch || '';
+      }
+      if (!labelData.CounterName || labelData.CounterName === '' || labelData.CounterName === null) {
+        labelData.CounterName = item.CounterName || item.Counter || '';
+      }
+      if (!labelData.MRP || labelData.MRP === '' || labelData.MRP === null) {
+        labelData.MRP = item.MRP || '';
+      }
+      if (!labelData.Size || labelData.Size === '' || labelData.Size === null) {
+        labelData.Size = item.Size || '';
+      }
+      if (!labelData.MakingFixedAmt || labelData.MakingFixedAmt === '' || labelData.MakingFixedAmt === null) {
+        labelData.MakingFixedAmt = item.MakingFixedAmt || item.FixedAmt || '';
+      }
+      if (!labelData.HallmarkAmount || labelData.HallmarkAmount === '' || labelData.HallmarkAmount === null) {
+        labelData.HallmarkAmount = item.HallmarkAmount || '';
+      }
+      if (!labelData.MakingPerGram || labelData.MakingPerGram === '' || labelData.MakingPerGram === null) {
+        labelData.MakingPerGram = item.MakingPerGram || '';
+      }
+      if (!labelData.MakingPercentage || labelData.MakingPercentage === '' || labelData.MakingPercentage === null) {
+        labelData.MakingPercentage = item.MakingPercentage || '';
+      }
+      if (!labelData.BoxDetails || labelData.BoxDetails === '' || labelData.BoxDetails === null) {
+        labelData.BoxDetails = item.BoxDetails || item.box_details || '';
+      }
+      if (!labelData.RFIDNumber || labelData.RFIDNumber === '' || labelData.RFIDNumber === null) {
+        labelData.RFIDNumber = item.RFIDNumber || item.RFIDCode || '';
+      }
+      
+      // Debug log to verify StoneAmount is populated
+      console.log('Label Data for printing:', {
+        StoneAmount: labelData.StoneAmount,
+        itemStoneAmount: item.TotalStoneAmount || item.StoneAmt || item.StoneAmount,
+        allLabelData: labelData
+      });
+
       // Generate and open PDF directly
       await generateAndOpenPDF(generatedLayout, labelData, item);
       setPreviewLoading(false);
@@ -1879,7 +1953,39 @@ const Labeling = () => {
 
         if (element.type === 'text') {
           const labelText = element.label || '';
-          const bindingValue = element.value !== undefined ? String(element.value) : '';
+          // Get binding value - ALWAYS use labelData if binding exists (it has fallback from item data)
+          let bindingValue = '';
+          if (element.binding) {
+            // If element has a binding, ALWAYS use labelData first (which has fallback from item data)
+            // This ensures StoneAmount and other fields always show even if API returns empty
+            const labelDataValue = labelData[element.binding];
+            if (labelDataValue !== undefined && labelDataValue !== null && String(labelDataValue).trim() !== '') {
+              bindingValue = String(labelDataValue);
+            } else if (element.value !== undefined && element.value !== null && String(element.value).trim() !== '') {
+              // Fallback to element.value only if labelData is empty
+              bindingValue = String(element.value);
+            }
+          } else if (element.value !== undefined && element.value !== null && String(element.value).trim() !== '') {
+            // No binding, just use element.value
+            bindingValue = String(element.value);
+          }
+          
+          // Debug log for StoneAmount binding
+          if (element.binding === 'StoneAmount') {
+            console.log('Rendering StoneAmount element:', {
+              binding: element.binding,
+              elementValue: element.value,
+              labelDataValue: labelData[element.binding],
+              finalBindingValue: bindingValue,
+              labelText: labelText,
+              itemData: {
+                TotalStoneAmount: item.TotalStoneAmount,
+                StoneAmt: item.StoneAmt,
+                StoneAmount: item.StoneAmount
+              }
+            });
+          }
+          
           let displayText = '';
           if (labelText && bindingValue) {
             displayText = `${labelText}: ${bindingValue}`;

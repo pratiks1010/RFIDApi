@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-toastify';
+import axios from 'axios';
 import {
   FaSave,
   FaEdit,
@@ -15,16 +16,52 @@ import {
   FaExclamationTriangle,
   FaSync,
   FaCopy,
-  FaCode
+  FaCode,
+  FaFileExcel,
+  FaFilter,
+  FaSortAmountDown,
+  FaSortAmountUp,
+  FaFileExport,
+  FaFilePdf,
+  FaThList,
+  FaThLarge
 } from 'react-icons/fa';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { rfidLabelService } from '../../services/rfidLabelService';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useNotifications } from '../../context/NotificationContext';
+import { generateClientPrn } from '../../utils/prnTemplates';
+import SuccessNotification from '../common/SuccessNotification';
+import { useLoading } from '../../App';
+
+const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
+const DEFAULT_PAGE_SIZE = 500;
+
+const getUniqueOptions = (data, field) => {
+  if (!data || !Array.isArray(data)) return ['All'];
+
+  const options = data
+    .map(item => item[field])
+    .filter(Boolean)
+    .filter((value, index, self) => self.indexOf(value) === index)
+    .sort((a, b) => a?.toString().localeCompare(b?.toString()));
+
+  return ['All', ...options];
+};
+
+const formatValue = (value) => {
+  if (!value) return '-';
+  if (typeof value === 'number') return value.toFixed(3);
+  return value.toString();
+};
 
 const RFIDLabel = () => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
-  
+  const { setLoading } = useLoading();
+
   // User Info
   const [userInfo, setUserInfo] = useState(null);
   const clientCode = userInfo?.ClientCode || '';
@@ -39,7 +76,7 @@ const RFIDLabel = () => {
 
   // Template Management
   const [templates, setTemplates] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [templateLoading, setTemplateLoading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateForm, setTemplateForm] = useState({
     TemplateName: '',
@@ -80,13 +117,70 @@ const RFIDLabel = () => {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [labelledStock, setLabelledStock] = useState([]);
   const [selectedItems, setSelectedItems] = useState([]);
+  const [selectedRows, setSelectedRows] = useState([]);
   const [generatedLabels, setGeneratedLabels] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [searchProduct, setSearchProduct] = useState('');
-  
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Pagination for products
   const [currentProductPage, setCurrentProductPage] = useState(1);
-  const [productsPerPage, setProductsPerPage] = useState(50);
+  const [productsPerPage, setProductsPerPage] = useState(DEFAULT_PAGE_SIZE);
+  const [showAllProducts, setShowAllProducts] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
+
+  // Filter states
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [filterValues, setFilterValues] = useState({
+    counterName: 'All',
+    productId: 'All',
+    categoryId: 'All',
+    designId: 'All',
+    purityId: 'All',
+    boxName: 'All',
+    vendor: 'All',
+    branch: 'All',
+    status: 'All',
+    dateFrom: '',
+    dateTo: ''
+  });
+  const [filterOptions, setFilterOptions] = useState({
+    counterNames: ['All'],
+    productNames: ['All'],
+    categories: ['All'],
+    designs: ['All'],
+    boxNames: ['All'],
+    vendors: ['All'],
+    branches: ['All'],
+    statuses: ['All', 'ApiActive', 'Sold']
+  });
+  const [apiFilterData, setApiFilterData] = useState({
+    products: [],
+    designs: [],
+    categories: [],
+    purities: [],
+    counters: [],
+    branches: []
+  });
+  const [dropdownStates, setDropdownStates] = useState({
+    branch: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    counterName: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    boxName: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    categoryId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    productId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    designId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    purityId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+    status: { isOpen: false, searchTerm: '', filteredOptions: [] }
+  });
+  const [isGridView, setIsGridView] = useState(false);
+  const [allFilteredData, setAllFilteredData] = useState([]);
+  const [loadingAllData, setLoadingAllData] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState({ title: '', message: '' });
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const isFetchingRef = useRef(false);
 
   // PRN Code Editor
   const [selectedText, setSelectedText] = useState(null);
@@ -119,8 +213,9 @@ const RFIDLabel = () => {
   useEffect(() => {
     if (clientCode) {
       fetchTemplates();
+      fetchFilterData();
       if (activeTab === 'generate') {
-        fetchLabelledStock();
+        fetchLabelledStock(1, productsPerPage, '', filterValues);
       }
     }
   }, [clientCode, activeTab]);
@@ -128,8 +223,8 @@ const RFIDLabel = () => {
   // Fetch Templates
   const fetchTemplates = async () => {
     if (!clientCode) return;
-    
-    setLoading(true);
+
+    setTemplateLoading(true);
     try {
       const data = await rfidLabelService.getAllTemplates(clientCode);
       setTemplates(Array.isArray(data) ? data : []);
@@ -137,22 +232,262 @@ const RFIDLabel = () => {
       console.error('Error fetching templates:', error);
       toast.error(error.response?.data?.Message || 'Failed to load templates');
     } finally {
-      setLoading(false);
+      setTemplateLoading(false);
     }
   };
 
-  // Fetch Labelled Stock
-  const fetchLabelledStock = async (search = '') => {
-    if (!clientCode) return;
-    
+  // Helper function to get filter value for API
+  const getFilterValueForAPI = (field, value) => {
+    if (value === 'All' || value === 0 || !value) return 0;
+
+    switch (field) {
+      case 'categoryId':
+        const category = apiFilterData.categories?.find(cat =>
+          cat.CategoryName === value ||
+          cat.Name === value ||
+          cat.categoryName === value ||
+          (cat.CategoryName && cat.CategoryName.toLowerCase() === value.toLowerCase()) ||
+          (cat.Name && cat.Name.toLowerCase() === value.toLowerCase())
+        );
+        return category ? (category.Id || category.id || 0) : 0;
+      case 'productId':
+        const product = apiFilterData.products?.find(prod =>
+          prod.ProductName === value ||
+          prod.Name === value ||
+          prod.productName === value ||
+          (prod.ProductName && prod.ProductName.toLowerCase() === value.toLowerCase()) ||
+          (prod.Name && prod.Name.toLowerCase() === value.toLowerCase())
+        );
+        return product ? (product.Id || product.id || 0) : 0;
+      case 'designId':
+        const design = apiFilterData.designs?.find(des =>
+          des.DesignName === value ||
+          des.Name === value ||
+          des.designName === value ||
+          (des.DesignName && des.DesignName.toLowerCase() === value.toLowerCase()) ||
+          (des.Name && des.Name.toLowerCase() === value.toLowerCase())
+        );
+        return design ? (design.Id || design.id || 0) : 0;
+      case 'purityId':
+        const purity = apiFilterData.purities?.find(pur =>
+          pur.PurityName === value ||
+          pur.Name === value ||
+          pur.Purity === value ||
+          pur.purityName === value ||
+          (pur.PurityName && pur.PurityName.toLowerCase() === value.toLowerCase()) ||
+          (pur.Name && pur.Name.toLowerCase() === value.toLowerCase())
+        );
+        return purity ? (purity.Id || purity.id || 0) : 0;
+      default:
+        return value;
+    }
+  };
+
+  // Fetch filter data from APIs
+  const fetchFilterData = async () => {
     try {
-      const data = await rfidLabelService.getLabelledStock(clientCode, 'ApiActive', search);
-      setLabelledStock(Array.isArray(data) ? data : []);
+      if (!clientCode) return;
+
+      const headers = {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      };
+      const requestBody = { ClientCode: clientCode };
+      const timeoutConfig = { timeout: 20000 };
+
+      const [
+        productsResult,
+        designsResult,
+        categoriesResult,
+        puritiesResult,
+        countersResult,
+        branchesResult
+      ] = await Promise.allSettled([
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllDesign', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllCategory', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllPurity', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllCounters', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllBranchMaster', requestBody, { headers, ...timeoutConfig })
+      ]);
+
+      const normalizeArray = (data) => {
+        if (!data) return [];
+        if (Array.isArray(data)) return data;
+        if (data && typeof data === 'object') {
+          return data.data || data.items || data.results || data.list || [];
+        }
+        return [];
+      };
+
+      setApiFilterData({
+        products: normalizeArray(productsResult.status === 'fulfilled' ? productsResult.value?.data : null),
+        designs: normalizeArray(designsResult.status === 'fulfilled' ? designsResult.value?.data : null),
+        categories: normalizeArray(categoriesResult.status === 'fulfilled' ? categoriesResult.value?.data : null),
+        purities: normalizeArray(puritiesResult.status === 'fulfilled' ? puritiesResult.value?.data : null),
+        counters: normalizeArray(countersResult.status === 'fulfilled' ? countersResult.value?.data : null),
+        branches: normalizeArray(branchesResult.status === 'fulfilled' ? branchesResult.value?.data : null)
+      });
+    } catch (error) {
+      console.error('Error fetching filter data:', error);
+    }
+  };
+
+  // Fetch Labelled Stock - Updated to match LabelStockList API structure
+  const fetchLabelledStock = async (page = currentProductPage, pageSize = productsPerPage, search = searchProduct, filters = filterValues, sort = sortConfig) => {
+    if (isFetchingRef.current) return;
+    if (!clientCode) return;
+
+    isFetchingRef.current = true;
+    try {
+      setLoading(true);
+
+      const safeFilters = filters || {
+        counterName: 'All',
+        productId: 'All',
+        categoryId: 'All',
+        designId: 'All',
+        purityId: 'All',
+        boxName: 'All',
+        vendor: 'All',
+        branch: 'All',
+        status: 'All',
+        dateFrom: '',
+        dateTo: ''
+      };
+
+      const payload = {
+        ClientCode: clientCode,
+        CategoryId: getFilterValueForAPI('categoryId', safeFilters.categoryId),
+        ProductId: getFilterValueForAPI('productId', safeFilters.productId),
+        DesignId: getFilterValueForAPI('designId', safeFilters.designId),
+        PurityId: getFilterValueForAPI('purityId', safeFilters.purityId),
+        FromDate: safeFilters.dateFrom && safeFilters.dateFrom.trim() !== '' ? safeFilters.dateFrom.trim() : null,
+        ToDate: safeFilters.dateTo && safeFilters.dateTo.trim() !== '' ? safeFilters.dateTo.trim() : null,
+        RFIDCode: "",
+        PageNumber: page,
+        PageSize: pageSize,
+        BranchId: safeFilters.branch !== 'All' && safeFilters.branch ? (() => {
+          const selectedBranch = apiFilterData.branches?.find(branch => {
+            const branchName = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
+            return branchName === safeFilters.branch || branchName.toLowerCase() === safeFilters.branch.toLowerCase();
+          });
+          return selectedBranch ? (selectedBranch.Id || selectedBranch.id || 0) : 0;
+        })() : 0,
+        Status: safeFilters.status !== 'All' ? safeFilters.status : "ApiActive",
+        SearchQuery: search && search.trim() !== '' ? search.trim() : "",
+        ListType: sort && sort.direction === 'desc' ? "descending" : "ascending",
+        SortColumn: sort && sort.key ? sort.key : null
+      };
+
+      if (safeFilters.counterName !== 'All' && safeFilters.counterName) {
+        const selectedCounter = apiFilterData.counters?.find(counter =>
+          counter.CounterName === safeFilters.counterName ||
+          counter.Name === safeFilters.counterName ||
+          counter.counterName === safeFilters.counterName
+        );
+        if (selectedCounter) {
+          payload.CounterId = selectedCounter.Id || selectedCounter.id;
+        }
+      }
+      if (safeFilters.boxName !== 'All' && safeFilters.boxName) {
+        payload.BoxName = safeFilters.boxName;
+      }
+      if (safeFilters.vendor !== 'All' && safeFilters.vendor) {
+        payload.Vendor = safeFilters.vendor;
+      }
+
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 20000
+        }
+      );
+
+      let dataArray = [];
+      let totalCount = 0;
+
+      if (response.data) {
+        if (Array.isArray(response.data)) {
+          dataArray = response.data;
+          if (dataArray.length > 0 && dataArray[0].TotalCount !== undefined) {
+            totalCount = dataArray[0].TotalCount;
+          } else if (dataArray.length > 0 && dataArray[0].TotalRecords !== undefined) {
+            totalCount = dataArray[0].TotalRecords;
+          }
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          dataArray = response.data.data;
+          totalCount = response.data.totalRecords || response.data.totalCount || response.data.total || dataArray.length;
+        } else if (response.data.success && response.data.data && Array.isArray(response.data.data)) {
+          dataArray = response.data.data;
+          totalCount = response.data.totalRecords || response.data.totalCount || response.data.total || dataArray.length;
+        } else if (response.data.totalRecords !== undefined) {
+          totalCount = response.data.totalRecords;
+        } else if (response.data.totalCount !== undefined) {
+          totalCount = response.data.totalCount;
+        } else if (response.data.total !== undefined) {
+          totalCount = response.data.total;
+        }
+      }
+
+      if (dataArray.length > 0 || (Array.isArray(response.data) && response.data.length > 0)) {
+        const stockData = dataArray.length > 0 ? dataArray : (Array.isArray(response.data) ? response.data : []);
+        const mappedData = stockData.map((item, index) => ({
+          ...item,
+          srNo: ((page - 1) * pageSize) + index + 1,
+          StoneWt: item.TotalStoneWeight !== undefined && item.TotalStoneWeight !== null ? item.TotalStoneWeight : (item.StoneWt || ''),
+          StonePcs: item.TotalStonePieces !== undefined && item.TotalStonePieces !== null ? item.TotalStonePieces : (item.StonePcs || ''),
+          StoneAmt: item.TotalStoneAmount !== undefined && item.TotalStoneAmount !== null ? item.TotalStoneAmount : (item.StoneAmt || ''),
+          DiamondWt: item.TotalDiamondWeight !== undefined && item.TotalDiamondWeight !== null ? item.TotalDiamondWeight : (item.DiamondWt || ''),
+          DiamondPcs: item.TotalDiamondPieces !== undefined && item.TotalDiamondPieces !== null ? item.TotalDiamondPieces : (item.DiamondPcs || ''),
+          DiamondAmount: item.TotalDiamondAmount !== undefined && item.TotalDiamondAmount !== null ? item.TotalDiamondAmount : (item.DiamondAmount || ''),
+          MakingFixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.MakingFixedAmt || ''),
+          FixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.FixedAmt || ''),
+          CounterName: item.CounterName || '',
+          BoxName: item.BoxName || '',
+          Vendor: item.VendorName || item.Vendor || '',
+          Branch: item.BranchName || item.Branch || '',
+          CategoryName: item.CategoryName || item.Category || '',
+          DesignName: item.DesignName || item.Design || '',
+          PurityName: item.PurityName || item.Purity || '',
+          CreatedDate: item.CreatedOn || item.CreatedDate || '',
+          PackingWeight: item.PackingWeight !== undefined && item.PackingWeight !== null ? item.PackingWeight : (item.PackingWeight || ''),
+          TotalWeight: item.TotalWeight !== undefined && item.TotalWeight !== null ? item.TotalWeight : (item.TotalWeight || '')
+        }));
+
+        setLabelledStock(mappedData);
+        if (totalCount > 0) {
+          setTotalRecords(totalCount);
+          setTotalPages(Math.ceil(totalCount / pageSize));
+        } else if (mappedData.length > 0) {
+          setTotalRecords(mappedData.length);
+          setTotalPages(Math.ceil(mappedData.length / pageSize));
+        } else {
+          setTotalRecords(0);
+          setTotalPages(0);
+        }
+      } else {
+        setLabelledStock([]);
+        setTotalRecords(0);
+        setTotalPages(0);
+      }
     } catch (error) {
       console.error('Error fetching labelled stock:', error);
       toast.error('Failed to load products');
+      setLabelledStock([]);
+      setTotalRecords(0);
+      setTotalPages(0);
+    } finally {
+      setLoading(false);
+      isFetchingRef.current = false;
     }
   };
+
 
   // Handle Template Form Changes
   const handleTemplateFormChange = (field, value) => {
@@ -198,7 +533,7 @@ const RFIDLabel = () => {
       return;
     }
 
-    setLoading(true);
+    setTemplateLoading(true);
     try {
       const payload = {
         ...templateForm,
@@ -224,7 +559,7 @@ const RFIDLabel = () => {
       console.error('Error saving template:', error);
       toast.error(error.response?.data?.Message || 'Failed to save template');
     } finally {
-      setLoading(false);
+      setTemplateLoading(false);
     }
   };
 
@@ -294,11 +629,11 @@ const RFIDLabel = () => {
       // Check if it's a quoted string
       const textBefore = textarea.value.substring(0, start);
       const textAfter = textarea.value.substring(end);
-      
+
       // Simple check for quoted strings
       const beforeQuoteCount = (textBefore.match(/"/g) || []).length;
       const afterQuoteCount = (textAfter.match(/"/g) || []).length;
-      
+
       if (beforeQuoteCount % 2 === 1) {
         setSelectedText({ start, end, text: selectedText });
         setShowFieldModal(true);
@@ -327,7 +662,7 @@ const RFIDLabel = () => {
 
     setSelectedText(null);
     setShowFieldModal(false);
-    
+
     // Restore focus and cursor position
     setTimeout(() => {
       textarea.focus();
@@ -343,7 +678,11 @@ const RFIDLabel = () => {
       return;
     }
 
-    if (selectedItems.length === 0) {
+    // Use selectedItems which contains full item data from all selections (across searches)
+    // This ensures we get ALL selected items, not just those in current labelledStock
+    const itemsToGenerate = selectedItems.length > 0 ? selectedItems : [];
+
+    if (itemsToGenerate.length === 0) {
       toast.error('Please select at least one product');
       return;
     }
@@ -355,8 +694,16 @@ const RFIDLabel = () => {
 
     setGenerating(true);
     try {
-      const itemCodes = selectedItems.map(item => item.ItemCode);
-      
+      const itemCodes = itemsToGenerate.map(item => item.ItemCode).filter(Boolean);
+
+      if (itemCodes.length === 0) {
+        toast.error('No valid item codes found in selected items');
+        setGenerating(false);
+        return;
+      }
+
+      console.log(`Generating labels for ${itemCodes.length} items:`, itemCodes);
+
       const response = await rfidLabelService.generateLabels({
         ClientCode: clientCode,
         TemplateId: parseInt(selectedTemplateId),
@@ -364,11 +711,11 @@ const RFIDLabel = () => {
       });
 
       setGeneratedLabels(response.Labels || []);
-      
+
       if (response.SuccessCount > 0) {
         toast.success(`Successfully generated ${response.SuccessCount} label(s)`);
       }
-      
+
       if (response.FailedCount > 0) {
         toast.warning(`${response.FailedCount} label(s) failed to generate`);
       }
@@ -396,14 +743,14 @@ const RFIDLabel = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
+
     toast.success('Label downloaded successfully');
   };
 
   // Download All PRN Files
   const handleDownloadAllPRN = () => {
     const successfulLabels = generatedLabels.filter(l => l.IsSuccess && l.GeneratedPrnCode);
-    
+
     if (successfulLabels.length === 0) {
       toast.error('No labels available to download');
       return;
@@ -430,33 +777,160 @@ const RFIDLabel = () => {
     });
   };
 
+  // Row selection for table (using IDs) - Also stores full item data
+  const handleRowSelection = (id) => {
+    // Find the item in current items
+    const item = currentItems.find(i => (i.Id || i.ItemCode) === id);
+    
+    setSelectedRows(prev => {
+      if (prev.includes(id)) {
+        // Remove from selectedRows
+        const newSelectedRows = prev.filter(rowId => rowId !== id);
+        // Also remove from selectedItems
+        setSelectedItems(prevItems => prevItems.filter(i => (i.Id || i.ItemCode) !== id));
+        return newSelectedRows;
+      } else {
+        // Add to selectedRows
+        const newSelectedRows = [...prev, id];
+        // Also add full item data to selectedItems if item exists
+        if (item) {
+          setSelectedItems(prevItems => {
+            const exists = prevItems.find(p => (p.Id || p.ItemCode) === id);
+            if (!exists) {
+              return [...prevItems, item];
+            }
+            return prevItems;
+          });
+        }
+        return newSelectedRows;
+      }
+    });
+  };
+
   // Select All Products
   const handleSelectAll = () => {
-    if (selectedItems.length === filteredProducts.length) {
-      setSelectedItems([]);
+    // Check if all current items are selected
+    const allCurrentIds = currentItems.map(item => item.Id || item.ItemCode);
+    const allCurrentSelected = allCurrentIds.every(id => selectedRows.includes(id));
+    
+    if (allCurrentSelected) {
+      // Deselect all current items
+      const newSelectedRows = selectedRows.filter(id => !allCurrentIds.includes(id));
+      const newSelectedItems = selectedItems.filter(item => !allCurrentIds.includes(item.Id || item.ItemCode));
+      setSelectedRows(newSelectedRows);
+      setSelectedItems(newSelectedItems);
     } else {
-      setSelectedItems([...filteredProducts]);
+      // Select all current items
+      const newSelectedRows = [...new Set([...selectedRows, ...allCurrentIds])];
+      const newSelectedItems = [...selectedItems];
+      
+      // Add items that aren't already in selectedItems
+      currentItems.forEach(item => {
+        const itemId = item.Id || item.ItemCode;
+        const exists = newSelectedItems.find(i => (i.Id || i.ItemCode) === itemId);
+        if (!exists) {
+          newSelectedItems.push(item);
+        }
+      });
+      
+      setSelectedRows(newSelectedRows);
+      setSelectedItems(newSelectedItems);
     }
   };
+
+  // Handle filter changes
+  const handleFilterChange = (field, value) => {
+    setFilterValues(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Apply filters
+  const handleApplyFilters = () => {
+    setCurrentProductPage(1);
+    setLoading(true);
+    fetchLabelledStock(1, productsPerPage, searchProduct, filterValues);
+    setShowFilterPanel(false);
+  };
+
+  // Reset filters
+  const handleResetFilters = () => {
+    const defaultFilters = {
+      counterName: 'All',
+      productId: 'All',
+      categoryId: 'All',
+      designId: 'All',
+      purityId: 'All',
+      boxName: 'All',
+      vendor: 'All',
+      branch: 'All',
+      status: 'All',
+      dateFrom: '',
+      dateTo: ''
+    };
+    setFilterValues(defaultFilters);
+    setCurrentProductPage(1);
+    setLoading(true);
+    fetchLabelledStock(1, productsPerPage, searchProduct, defaultFilters);
+  };
+
+  // Close all dropdowns
+  const closeAllDropdowns = () => {
+    setDropdownStates({
+      branch: { isOpen: false, searchTerm: '', filteredOptions: [] },
+      counterName: { isOpen: false, searchTerm: '', filteredOptions: [] },
+      boxName: { isOpen: false, searchTerm: '', filteredOptions: [] },
+      categoryId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+      productId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+      designId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+      purityId: { isOpen: false, searchTerm: '', filteredOptions: [] },
+      status: { isOpen: false, searchTerm: '', filteredOptions: [] }
+    });
+  };
+
+  // Columns definition matching LabelStockList
+  const columns = [
+    { key: 'srNo', label: 'Sr No', width: '60px' },
+    { key: 'CounterName', label: 'Counter Name', width: '150px' },
+    { key: 'ItemCode', label: 'Item Code', width: '120px' },
+    { key: 'RFIDCode', label: 'RFID Code', width: '120px' },
+    { key: 'ProductName', label: 'Product Name', width: '150px' },
+    { key: 'CategoryName', label: 'Category', width: '120px' },
+    { key: 'DesignName', label: 'Design', width: '120px' },
+    { key: 'PurityName', label: 'Purity', width: '100px' },
+    { key: 'GrossWt', label: 'Gross Wt', width: '100px' },
+    { key: 'StoneWt', label: 'Stone Wt', width: '100px' },
+    { key: 'DiamondWt', label: 'Diamond Wt', width: '100px' },
+    { key: 'NetWt', label: 'Net Wt', width: '100px' },
+    { key: 'StoneAmt', label: 'Stone Amt', width: '120px' },
+    { key: 'FixedAmt', label: 'Fixed Amt', width: '120px' },
+    { key: 'Vendor', label: 'Vendor', width: '120px' },
+    { key: 'Branch', label: 'Branch', width: '120px' },
+    { key: 'CreatedDate', label: 'Created Date', width: '150px' },
+    { key: 'PackingWeight', label: 'Packing Weight', width: '120px' },
+    { key: 'TotalWeight', label: 'Total Weight', width: '120px' }
+  ];
 
   // Filter Templates
   const filteredTemplates = templates.filter(template =>
     template.TemplateName?.toLowerCase().includes(searchTemplate.toLowerCase())
   );
 
-  // Filter Products (client-side filtering for now, can be enhanced with API)
+  // Filter Products - using server-side data, so filteredProducts is just the current page data
   const filteredProducts = useMemo(() => {
-    return labelledStock.filter(item =>
-      item.ItemCode?.toLowerCase().includes(searchProduct.toLowerCase()) ||
-      item.ProductName?.toLowerCase().includes(searchProduct.toLowerCase())
-    );
-  }, [labelledStock, searchProduct]);
+    return labelledStock; // Server-side filtering, so this is already filtered
+  }, [labelledStock]);
 
-  // Pagination for products
+  // Pagination for products - currentItems is the current page data
+  const currentItems = useMemo(() => {
+    if (showAllProducts && allFilteredData.length > 0) return allFilteredData;
+    return filteredProducts; // Already paginated from server
+  }, [filteredProducts, showAllProducts, allFilteredData]);
+
   const totalProductPages = Math.ceil(filteredProducts.length / productsPerPage);
   const startIndex = (currentProductPage - 1) * productsPerPage;
   const endIndex = startIndex + productsPerPage;
-  const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
 
   // Reset to page 1 when search changes
   useEffect(() => {
@@ -476,17 +950,138 @@ const RFIDLabel = () => {
     }, 500);
   };
 
+  // Download Client Specific PRN
+  const handleDownloadClientPrn = () => {
+    // Check if client code is supported
+    if (clientCode !== 'LS000428' && clientCode !== 'LS000443') {
+      toast.error('Your PRN is not set yet. Please set PRN.');
+      return;
+    }
+
+    // Use selectedItems which contains full item data from all selections (across searches)
+    const itemsToDownload = selectedItems.length > 0 ? selectedItems : [];
+
+    if (itemsToDownload.length === 0) {
+      toast.error('Please select items to download labels for');
+      return;
+    }
+
+    try {
+      // Generate all PRN contents and combine them into a single file
+      const allPrnContents = [];
+      
+      itemsToDownload.forEach((item, index) => {
+        try {
+          const prnContent = generateClientPrn(item, clientCode);
+          allPrnContents.push(prnContent);
+        } catch (err) {
+          console.error('Error generating PRN for item:', item, err);
+          toast.error(err.message || `Failed to generate label for ${item.ItemCode}`);
+        }
+      });
+
+      if (allPrnContents.length === 0) {
+        toast.error('No valid PRN content generated');
+        return;
+      }
+
+      // Combine all PRN contents into a single file
+      const combinedPrnContent = allPrnContents.join('\n\n');
+      
+      // Create and download single file
+      const blob = new Blob([combinedPrnContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      
+      // Generate filename with item codes or use generic name
+      const itemCodes = itemsToDownload
+        .map(item => item.ItemCode || 'label')
+        .slice(0, 3)
+        .join('_');
+      const filename = itemsToDownload.length === 1 
+        ? `${itemCodes}_OPJ.prn`
+        : `Multiple_Labels_${itemsToDownload.length}_${itemCodes}.prn`;
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup after a short delay
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+
+      toast.success(`Downloaded ${allPrnContents.length} label(s) in one file`);
+    } catch (err) {
+      console.error('Error downloading combined PRN:', err);
+      toast.error('Failed to download labels');
+    }
+  };
+
+  // Single Print Label
+  const handleSinglePrint = async (e, item) => {
+    e.stopPropagation(); // Prevent row selection
+
+    // Check if client code is supported
+    if (clientCode !== 'LS000428' && clientCode !== 'LS000443') {
+      toast.error('Your PRN is not set yet. Please set PRN.');
+      return;
+    }
+
+    if (!clientCode) {
+      toast.error('Client code not found');
+      return;
+    }
+
+    if (!item || !item.ItemCode) {
+      toast.error('Invalid item selected');
+      return;
+    }
+
+    setPreviewLoading(true);
+    try {
+      // Use client-specific PRN template directly
+      const prnContent = generateClientPrn(item, clientCode);
+      
+      // Create and trigger download
+      const blob = new Blob([prnContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `${item.ItemCode}_OPJ.prn`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup after a short delay
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+      
+      toast.success(`Label for ${item.ItemCode} downloaded successfully`);
+    } catch (error) {
+      console.error('Error printing label:', error);
+      toast.error(error.message || 'Failed to generate label');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   return (
-    <div style={{ 
-      padding: '16px', 
+    <div style={{
+      padding: '16px',
       fontFamily: 'Inter, system-ui, sans-serif',
       maxWidth: '100%',
       overflowX: 'hidden'
     }}>
       {/* Tabs */}
-      <div style={{ 
-        display: 'flex', 
-        gap: '8px', 
+      <div style={{
+        display: 'flex',
+        gap: '8px',
         marginBottom: '20px',
         borderBottom: '2px solid #e5e7eb',
         flexWrap: 'wrap'
@@ -674,13 +1269,13 @@ const RFIDLabel = () => {
           </div>
 
           {/* Templates List */}
-          {loading ? (
+          {templateLoading ? (
             <div style={{ textAlign: 'center', padding: '40px' }}>
               <FaSpinner className="fa-spin" style={{ fontSize: '32px', color: '#667eea' }} />
             </div>
           ) : filteredTemplates.length === 0 ? (
-            <div style={{ 
-              textAlign: 'center', 
+            <div style={{
+              textAlign: 'center',
               padding: '60px 20px',
               background: 'white',
               borderRadius: '12px',
@@ -692,8 +1287,8 @@ const RFIDLabel = () => {
               </p>
             </div>
           ) : (
-            <div style={{ 
-              display: 'grid', 
+            <div style={{
+              display: 'grid',
               gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
               gap: '16px',
               '@media (max-width: 768px)': {
@@ -733,7 +1328,7 @@ const RFIDLabel = () => {
                       {template.IsActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
-                  
+
                   <div style={{ marginBottom: '10px', fontSize: '12px', color: '#64748b' }}>
                     <div style={{ marginBottom: '4px' }}><strong style={{ fontSize: '10px' }}>Type:</strong> {template.TemplateType}</div>
                     <div style={{ marginBottom: '4px' }}><strong style={{ fontSize: '10px' }}>Version:</strong> {template.Version || '1.0'}</div>
@@ -834,23 +1429,34 @@ const RFIDLabel = () => {
       {/* Generate Labels Tab */}
       {activeTab === 'generate' && (
         <div>
-          {/* Unified Header & Action Section */}
+          <SuccessNotification
+            title={successMessage.title}
+            message={successMessage.message}
+            isVisible={showSuccess}
+            onClose={() => setShowSuccess(false)}
+          />
+
+          {/* Unified Header & Action Section - Matching LabelStockList */}
           <div style={{
             background: '#ffffff',
             borderRadius: '12px',
             padding: '16px 20px',
             marginBottom: '16px',
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            border: '1px solid #e5e7eb'
+            border: '1px solid #e5e7eb',
+            position: 'sticky',
+            top: '0',
+            zIndex: 100,
+            transition: 'box-shadow 0.2s'
           }}>
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               flexWrap: 'wrap',
-              gap: '12px',
-              marginBottom: '16px'
+              gap: '12px'
             }}>
+              {/* Left: Title */}
               <div>
                 <h2 style={{
                   margin: 0,
@@ -860,57 +1466,33 @@ const RFIDLabel = () => {
                   lineHeight: '1.2'
                 }}>Generate Labels</h2>
               </div>
+
+              {/* Right: Total Count */}
               <div style={{
                 fontSize: '12px',
                 color: '#64748b',
                 fontWeight: 600
               }}>
-                Total: {labelledStock.length} products
+                Total: {showAllProducts && allFilteredData.length > 0
+                  ? allFilteredData.length
+                  : totalRecords} records
               </div>
             </div>
+
+            {/* Action Buttons & Search Row - Single Line */}
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
               gap: '10px',
               alignItems: 'center',
+              marginTop: '16px',
               paddingTop: '16px',
               borderTop: '1px solid #e5e7eb'
             }}>
-              {/* Template Selection */}
-              <div style={{
-                minWidth: windowWidth <= 768 ? '100%' : '250px',
-                maxWidth: windowWidth <= 768 ? '100%' : '300px'
-              }}>
-                <select
-                  value={selectedTemplateId}
-                  onChange={(e) => setSelectedTemplateId(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    background: '#ffffff',
-                    outline: 'none',
-                    transition: 'all 0.2s',
-                    boxSizing: 'border-box',
-                    cursor: 'pointer'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                >
-                  <option value="">Choose a template...</option>
-                  {templates.filter(t => t.IsActive).map((template) => (
-                    <option key={template.Id} value={template.Id}>
-                      {template.TemplateName} (v{template.Version || '1.0'})
-                    </option>
-                  ))}
-                </select>
-              </div>
               {/* Search Input */}
               <div style={{
                 position: 'relative',
-                flex: '1',
+                flex: '0 1 auto',
                 minWidth: windowWidth <= 768 ? '100%' : '250px',
                 maxWidth: windowWidth <= 768 ? '100%' : '350px'
               }}>
@@ -925,9 +1507,30 @@ const RFIDLabel = () => {
                 }} />
                 <input
                   type="text"
-                  placeholder="Search by ItemCode or Product Name..."
+                  placeholder="Search by Product Name, Category, Item Code..."
                   value={searchProduct}
-                  onChange={(e) => handleSearchProductChange(e.target.value)}
+                  onChange={e => {
+                    const value = e.target.value;
+                    setSearchProduct(value);
+                    if (searchTimeoutRef.current) {
+                      clearTimeout(searchTimeoutRef.current);
+                    }
+                    // Debounce search - fetch after user stops typing (300ms)
+                    searchTimeoutRef.current = setTimeout(() => {
+                      setCurrentProductPage(1);
+                      fetchLabelledStock(1, productsPerPage, value.trim(), filterValues);
+                    }, 300);
+                  }}
+                  onKeyDown={e => {
+                    // Trigger search immediately on Enter key
+                    if (e.key === 'Enter') {
+                      if (searchTimeoutRef.current) {
+                        clearTimeout(searchTimeoutRef.current);
+                      }
+                      setCurrentProductPage(1);
+                      fetchLabelledStock(1, productsPerPage, searchProduct.trim(), filterValues);
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '8px 12px 8px 36px',
@@ -938,62 +1541,256 @@ const RFIDLabel = () => {
                     transition: 'all 0.2s',
                     boxSizing: 'border-box'
                   }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onFocus={(e) => e.target.style.borderColor = '#9ca3af'}
                   onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
-              {/* Generate Button - Moved Above */}
-              <button
-                onClick={handleGenerateLabels}
-                disabled={!selectedTemplateId || selectedItems.length === 0 || generating}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #10b981',
-                  background: (!selectedTemplateId || selectedItems.length === 0 || generating) ? '#f1f5f9' : '#ffffff',
-                  color: (!selectedTemplateId || selectedItems.length === 0 || generating) ? '#94a3b8' : '#10b981',
-                  cursor: (!selectedTemplateId || selectedItems.length === 0 || generating) ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!(!selectedTemplateId || selectedItems.length === 0 || generating)) {
-                    e.target.style.background = '#10b981';
-                    e.target.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!(!selectedTemplateId || selectedItems.length === 0 || generating)) {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.color = '#10b981';
-                  }
-                }}
-              >
-                {generating ? (
-                  <>
-                    <FaSpinner className="fa-spin" /> Generating...
-                  </>
-                ) : (
-                  <>
-                    <FaPrint /> Generate Labels ({selectedItems.length})
-                  </>
+
+              {/* Buttons Container - Aligned with Search */}
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '10px',
+                alignItems: 'center',
+                marginLeft: 'auto',
+                minWidth: 'fit-content'
+              }}>
+                {/* Export All Report Button */}
+                <button
+                  onClick={() => {
+                    // Export functionality
+                    toast.info('Export functionality coming soon');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #3b82f6',
+                    background: '#3b82f6',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
+                  }}
+                >
+                  <FaFileExport />
+                  <span>Export All Report</span>
+                </button>
+
+                {/* Delete Button */}
+                <button
+                  onClick={() => {
+                    if (selectedRows.length === 0) {
+                      toast.error('Please select items to delete');
+                      return;
+                    }
+                    if (window.confirm(`Are you sure you want to delete ${selectedRows.length} selected item(s)?`)) {
+                      toast.info('Delete functionality coming soon');
+                    }
+                  }}
+                  disabled={selectedRows.length === 0}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #ef4444',
+                    background: '#ffffff',
+                    color: '#ef4444',
+                    cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: selectedRows.length === 0 ? 0.5 : 1,
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <FaTrash />
+                  <span>Delete</span>
+                </button>
+
+                {/* Export Button */}
+                <button
+                  onClick={() => {
+                    toast.info('Export functionality coming soon');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #3b82f6',
+                    background: '#ffffff',
+                    color: '#3b82f6',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <FaFileExport />
+                  <span>Export</span>
+                </button>
+
+                {/* Report Button */}
+                <button
+                  onClick={() => {
+                    toast.info('Report functionality coming soon');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #f59e0b',
+                    background: '#ffffff',
+                    color: '#f59e0b',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <FaFilePdf />
+                  <span>Report</span>
+                </button>
+
+                {/* Filter Button */}
+                <button
+                  onClick={() => setShowFilterPanel(!showFilterPanel)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #10b981',
+                    background: showFilterPanel ? '#10b981' : '#ffffff',
+                    color: showFilterPanel ? '#ffffff' : '#10b981',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <FaFilter />
+                  <span>Filter</span>
+                </button>
+
+                {/* Print Multiple Labels Button - Disabled for LS000443 (use Download OPJ PRN instead) */}
+                {clientCode !== 'LS000443' && (
+                  <button
+                    onClick={() => {
+                      if (!selectedTemplateId) {
+                        toast.error('Please select a template first');
+                        return;
+                      }
+                      if (selectedItems.length === 0) {
+                        toast.error('Please select items to print labels');
+                        return;
+                      }
+                      handleGenerateLabels();
+                    }}
+                    disabled={selectedItems.length === 0 || !selectedTemplateId || generating}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      border: '1px solid #10b981',
+                      background: (selectedItems.length > 0 && selectedTemplateId && !generating) ? '#10b981' : '#f1f5f9',
+                      color: (selectedItems.length > 0 && selectedTemplateId && !generating) ? '#ffffff' : '#94a3b8',
+                      cursor: (selectedItems.length === 0 || !selectedTemplateId || generating) ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedItems.length > 0 && selectedTemplateId && !generating) {
+                        e.target.style.background = '#059669';
+                        e.target.style.borderColor = '#059669';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedItems.length > 0 && selectedTemplateId && !generating) {
+                        e.target.style.background = '#10b981';
+                        e.target.style.borderColor = '#10b981';
+                      }
+                    }}
+                  >
+                    {generating ? (
+                      <>
+                        <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+                        <span>Printing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FaPrint />
+                        <span>Print Multiple Labels ({selectedItems.length})</span>
+                      </>
+                    )}
+                  </button>
                 )}
-              </button>
+
+                {/* Download OPJ PRN Button - Show for LS000443 and LS000428 */}
+                {(clientCode === 'LS000443' || clientCode === 'LS000428') && (
+                  <button
+                    onClick={handleDownloadClientPrn}
+                    disabled={selectedItems.length === 0}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      border: '1px solid #6366f1',
+                      background: selectedItems.length > 0 ? '#6366f1' : '#f1f5f9',
+                      color: selectedItems.length > 0 ? '#ffffff' : '#94a3b8',
+                      cursor: selectedItems.length === 0 ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedItems.length > 0) {
+                        e.target.style.background = '#4f46e5';
+                        e.target.style.borderColor = '#4f46e5';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedItems.length > 0) {
+                        e.target.style.background = '#6366f1';
+                        e.target.style.borderColor = '#6366f1';
+                      }
+                    }}
+                  >
+                    <FaDownload />
+                    <span>Download OPJ PRN ({selectedItems.length})</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Product Selection Table */}
+          {/* Product Selection Table - Matching LabelStockList */}
           <div style={{
             background: '#ffffff',
             borderRadius: '12px',
             marginTop: '16px',
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
             border: '1px solid #e5e7eb',
-            overflow: 'hidden'
+            overflow: 'visible',
+            display: 'flex',
+            flexDirection: 'column',
+            height: 'calc(100vh - 280px)',
+            minHeight: '400px'
           }}>
             <div style={{
               padding: '16px 20px',
@@ -1009,7 +1806,7 @@ const RFIDLabel = () => {
                 color: '#64748b',
                 fontWeight: 600
               }}>
-                {selectedItems.length} selected of {filteredProducts.length} products
+                {selectedItems.length} selected of {showAllProducts && allFilteredData.length > 0 ? allFilteredData.length : totalRecords} products
               </div>
               <button
                 onClick={handleSelectAll}
@@ -1033,23 +1830,34 @@ const RFIDLabel = () => {
                   e.target.style.color = '#3b82f6';
                 }}
               >
-                {selectedItems.length === filteredProducts.length && filteredProducts.length > 0 ? 'Deselect All' : 'Select All'}
+                {currentItems.length > 0 && currentItems.every(item => selectedRows.includes(item.Id || item.ItemCode)) ? 'Deselect All' : 'Select All'}
               </button>
             </div>
 
-            <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
-              {filteredProducts.length === 0 ? (
+            <div style={{
+              overflowX: 'auto',
+              overflowY: 'scroll',
+              width: '100%',
+              maxWidth: '100%',
+              position: 'relative',
+              height: '100%',
+              flex: 1,
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#888 #f1f1f1'
+            }}>
+              {currentItems.length === 0 ? (
                 <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
                   No products found
                 </div>
               ) : (
-                <table style={{ 
+                <table style={{
                   width: '100%',
+                  minWidth: '1400px',
                   borderCollapse: 'collapse',
                   fontSize: '12px',
                   tableLayout: 'auto'
                 }}>
-                  <thead>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                     <tr style={{
                       background: '#f8fafc',
                       borderBottom: '2px solid #e5e7eb'
@@ -1064,8 +1872,10 @@ const RFIDLabel = () => {
                       }}>
                         <input
                           type="checkbox"
-                          checked={selectedItems.length === filteredProducts.length && filteredProducts.length > 0}
-                          onChange={handleSelectAll}
+                          onChange={(e) => {
+                            handleSelectAll();
+                          }}
+                          checked={currentItems.length > 0 && currentItems.every(item => selectedRows.includes(item.Id || item.ItemCode))}
                           style={{
                             cursor: 'pointer',
                             width: '16px',
@@ -1073,55 +1883,74 @@ const RFIDLabel = () => {
                           }}
                         />
                       </th>
+                      {columns.map((column) => {
+                        return (
+                          <th
+                            key={column.key}
+                            style={{
+                              padding: '12px',
+                              textAlign: 'left',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              color: '#475569',
+                              whiteSpace: 'nowrap',
+                              cursor: 'pointer',
+                              width: column.width,
+                              transition: 'background 0.2s'
+                            }}
+                            onClick={() => {
+                              const direction = sortConfig.key === column.key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
+                              const newSortConfig = { key: column.key, direction };
+                              setSortConfig(newSortConfig);
+                              setCurrentProductPage(1);
+                              fetchLabelledStock(1, productsPerPage, searchProduct, filterValues, newSortConfig);
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {column.label}
+                              {sortConfig.key === column.key && (
+                                <span>
+                                  {sortConfig.direction === 'asc' ? <FaSortAmountUp size={12} /> : <FaSortAmountDown size={12} />}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
                       <th style={{
                         padding: '12px',
-                        textAlign: 'left',
+                        textAlign: 'center',
                         fontSize: '12px',
                         fontWeight: 600,
                         color: '#475569',
-                        whiteSpace: 'nowrap'
-                      }}>ItemCode</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#475569',
-                        whiteSpace: 'nowrap'
-                      }}>Product Name</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#475569',
-                        whiteSpace: 'nowrap'
-                      }}>Gross Wt</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#475569',
-                        whiteSpace: 'nowrap'
-                      }}>Net Wt</th>
+                        whiteSpace: 'nowrap',
+                        position: 'sticky',
+                        right: 0,
+                        background: '#f8fafc',
+                        zIndex: 10,
+                        width: '120px',
+                        borderLeft: '1px solid #e5e7eb'
+                      }}>Print Label</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedProducts.map((item, index) => {
-                      const isSelected = selectedItems.some(p => p.ItemCode === item.ItemCode);
+                    {currentItems.map((item, index) => {
+                      const itemId = item.Id || item.ItemCode;
+                      const isSelected = selectedRows.includes(itemId);
                       return (
                         <tr
-                          key={item.ItemCode}
-                          onClick={() => handleToggleProduct(item)}
+                          key={itemId}
+                          onClick={() => handleRowSelection(itemId)}
                           style={{
                             cursor: 'pointer',
                             borderBottom: '1px solid #e5e7eb',
-                            background: isSelected 
-                              ? '#eff6ff' 
-                              : index % 2 === 0 
-                              ? '#ffffff' 
-                              : '#f8fafc',
+                            background: isSelected
+                              ? '#f3f4f6'
+                              : index % 2 === 0
+                                ? '#ffffff'
+                                : '#f8fafc',
                             transition: 'background 0.2s'
                           }}
                           onMouseEnter={(e) => {
@@ -1131,7 +1960,8 @@ const RFIDLabel = () => {
                           }}
                           onMouseLeave={(e) => {
                             if (!isSelected) {
-                              e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+                              const bgColor = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+                              e.currentTarget.style.background = bgColor;
                             }
                           }}
                         >
@@ -1143,7 +1973,7 @@ const RFIDLabel = () => {
                             <input
                               type="checkbox"
                               checked={isSelected}
-                              onChange={() => handleToggleProduct(item)}
+                              onChange={() => handleRowSelection(itemId)}
                               onClick={(e) => e.stopPropagation()}
                               style={{
                                 cursor: 'pointer',
@@ -1152,86 +1982,165 @@ const RFIDLabel = () => {
                               }}
                             />
                           </td>
+                          {columns.map(column => {
+                            return (
+                              <td key={column.key} style={{
+                                padding: '12px',
+                                fontSize: '12px',
+                                color: '#1e293b',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {column.key === 'srNo' ? ((currentProductPage - 1) * productsPerPage) + index + 1 : (() => {
+                                  const value = item[column.key];
+                                  if (value === undefined || value === null || value === '') return '-';
+                                  // Format numeric fields (weights)
+                                  if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt', 'PackingWeight', 'TotalWeight'].includes(column.key)) {
+                                    const numValue = parseFloat(value);
+                                    return isNaN(numValue) ? value : numValue.toFixed(3);
+                                  }
+                                  // Format amount fields
+                                  if (['StoneAmt', 'FixedAmt'].includes(column.key)) {
+                                    const numValue = parseFloat(value);
+                                    return isNaN(numValue) ? value : numValue.toString();
+                                  }
+                                  // Format date fields
+                                  if (column.key === 'CreatedDate' && value) {
+                                    try {
+                                      const date = new Date(value);
+                                      if (!isNaN(date.getTime())) {
+                                        return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                                      }
+                                    } catch (e) {
+                                      // If date parsing fails, return original value
+                                    }
+                                  }
+                                  return value;
+                                })()}
+                              </td>
+                            );
+                          })}
                           <td style={{
                             padding: '12px',
-                            fontSize: '12px',
-                            color: '#1e293b',
-                            whiteSpace: 'nowrap',
-                            fontWeight: 600
-                          }}>{item.ItemCode}</td>
-                          <td style={{
-                            padding: '12px',
-                            fontSize: '12px',
-                            color: '#1e293b',
-                            whiteSpace: 'nowrap'
-                          }}>{item.ProductName || '-'}</td>
-                          <td style={{
-                            padding: '12px',
-                            fontSize: '12px',
-                            color: '#1e293b',
-                            whiteSpace: 'nowrap'
-                          }}>{item.GrossWt || '-'}</td>
-                          <td style={{
-                            padding: '12px',
-                            fontSize: '12px',
-                            color: '#1e293b',
-                            whiteSpace: 'nowrap'
-                          }}>{item.NetWt || '-'}</td>
+                            textAlign: 'center',
+                            position: 'sticky',
+                            right: 0,
+                            background: isSelected
+                              ? '#f3f4f6'
+                              : index % 2 === 0
+                                ? '#ffffff'
+                                : '#f8fafc',
+                            zIndex: 5,
+                            borderLeft: '1px solid #e5e7eb'
+                          }}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSinglePrint(e, item);
+                              }}
+                              disabled={previewLoading}
+                              style={{
+                                padding: '8px 12px',
+                                fontSize: '14px',
+                                borderRadius: '6px',
+                                border: '1px solid #3b82f6',
+                                background: '#ffffff',
+                                color: '#3b82f6',
+                                cursor: previewLoading ? 'not-allowed' : 'pointer',
+                                opacity: previewLoading ? 0.5 : 1,
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                                margin: '0 auto'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!previewLoading) {
+                                  e.target.style.background = '#3b82f6';
+                                  e.target.style.color = '#ffffff';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!previewLoading) {
+                                  e.target.style.background = '#ffffff';
+                                  e.target.style.color = '#3b82f6';
+                                }
+                              }}
+                              title="Print Label"
+                            >
+                              {previewLoading ? (
+                                <FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={14} />
+                              ) : (
+                                <FaPrint size={14} />
+                              )}
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
-                </table>
-              )}
-            </div>
+                  </table>
+                )}
+              </div>
 
             {/* Pagination */}
-            {filteredProducts.length > productsPerPage && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 20px',
+              borderTop: '1px solid #e5e7eb',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
               <div style={{
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center',
-                padding: '16px 20px',
-                borderTop: '1px solid #e5e7eb',
+                gap: '12px',
                 flexWrap: 'wrap',
-                gap: '12px'
+                fontSize: '12px',
+                color: '#64748b'
               }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  flexWrap: 'wrap',
-                  fontSize: '12px',
-                  color: '#64748b'
-                }}>
+                {showAllProducts && allFilteredData.length > 0 ? (
                   <span>
-                    Showing {startIndex + 1} to {Math.min(endIndex, filteredProducts.length)} of {filteredProducts.length} products
+                    Showing all {allFilteredData.length} filtered records
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>Show:</span>
-                    <select
-                      value={productsPerPage}
-                      onChange={(e) => {
-                        setProductsPerPage(Number(e.target.value));
-                        setCurrentProductPage(1);
-                      }}
-                      style={{
-                        padding: '6px 10px',
-                        fontSize: '12px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
-                        outline: 'none',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                      <option value={200}>200</option>
-                    </select>
-                    <span>per page</span>
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <span>
+                      Showing {((currentProductPage - 1) * productsPerPage) + 1} to {Math.min(currentProductPage * productsPerPage, totalRecords)} of {totalRecords} entries
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>Show:</span>
+                      <select
+                        value={productsPerPage}
+                        onChange={(e) => {
+                          const newPageSize = parseInt(e.target.value);
+                          setProductsPerPage(newPageSize);
+                          setCurrentProductPage(1);
+                          setLoading(true);
+                          fetchLabelledStock(1, newPageSize, searchProduct, filterValues);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          outline: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {PAGE_SIZE_OPTIONS.map(size => (
+                          <option key={size} value={size}>{size}</option>
+                        ))}
+                      </select>
+                      <span>per page</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {!showAllProducts && (
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1239,7 +2148,12 @@ const RFIDLabel = () => {
                   flexWrap: 'wrap'
                 }}>
                   <button
-                    onClick={() => setCurrentProductPage(prev => Math.max(1, prev - 1))}
+                    onClick={() => {
+                      const newPage = Math.max(currentProductPage - 1, 1);
+                      setCurrentProductPage(newPage);
+                      setLoading(true);
+                      fetchLabelledStock(newPage, productsPerPage, searchProduct, filterValues);
+                    }}
                     disabled={currentProductPage === 1}
                     style={{
                       padding: '6px 12px',
@@ -1252,63 +2166,525 @@ const RFIDLabel = () => {
                       cursor: currentProductPage === 1 ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s'
                     }}
-                    onMouseEnter={(e) => {
-                      if (currentProductPage !== 1) {
-                        e.target.style.background = '#f8fafc';
-                        e.target.style.borderColor = '#cbd5e1';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (currentProductPage !== 1) {
-                        e.target.style.background = '#ffffff';
-                        e.target.style.borderColor = '#e2e8f0';
-                      }
-                    }}
                   >
                     Previous
                   </button>
-                  <span style={{ fontSize: '12px', color: '#64748b', padding: '0 8px' }}>
-                    Page {currentProductPage} of {totalProductPages}
-                  </span>
+                  {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => {
+                    const page = i + 1;
+                    if (totalPages > 10) {
+                      if (page === 1 || page === totalPages || (page >= currentProductPage - 1 && page <= currentProductPage + 1)) {
+                        return (
+                          <button
+                            key={page}
+                            onClick={() => {
+                              setCurrentProductPage(page);
+                              setLoading(true);
+                              fetchLabelledStock(page, productsPerPage, searchProduct, filterValues);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              borderRadius: '6px',
+                              border: '1px solid',
+                              background: currentProductPage === page ? '#9ca3af' : '#ffffff',
+                              color: currentProductPage === page ? '#ffffff' : '#475569',
+                              borderColor: currentProductPage === page ? '#9ca3af' : '#e2e8f0',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              minWidth: '36px'
+                            }}
+                          >
+                            {page}
+                          </button>
+                        );
+                      } else if (page === currentProductPage - 2 || page === currentProductPage + 2) {
+                        return <span key={`ellipsis-${page}`} style={{ padding: '6px 8px', fontSize: '12px', color: '#94a3b8' }}>...</span>;
+                      }
+                      return null;
+                    } else {
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => {
+                            setCurrentProductPage(page);
+                            setLoading(true);
+                            fetchLabelledStock(page, productsPerPage, searchProduct, filterValues);
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            borderRadius: '6px',
+                            border: '1px solid',
+                            background: currentProductPage === page ? '#9ca3af' : '#ffffff',
+                            color: currentProductPage === page ? '#ffffff' : '#475569',
+                            borderColor: currentProductPage === page ? '#9ca3af' : '#e2e8f0',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            minWidth: '36px'
+                          }}
+                        >
+                          {page}
+                        </button>
+                      );
+                    }
+                  })}
                   <button
-                    onClick={() => setCurrentProductPage(prev => Math.min(totalProductPages, prev + 1))}
-                    disabled={currentProductPage === totalProductPages}
+                    onClick={() => {
+                      const newPage = Math.min(currentProductPage + 1, totalPages);
+                      setCurrentProductPage(newPage);
+                      setLoading(true);
+                      fetchLabelledStock(newPage, productsPerPage, searchProduct, filterValues);
+                    }}
+                    disabled={currentProductPage === totalPages}
                     style={{
                       padding: '6px 12px',
                       fontSize: '12px',
                       fontWeight: 600,
                       borderRadius: '6px',
                       border: '1px solid #e2e8f0',
-                      background: currentProductPage === totalProductPages ? '#f1f5f9' : '#ffffff',
-                      color: currentProductPage === totalProductPages ? '#94a3b8' : '#475569',
-                      cursor: currentProductPage === totalProductPages ? 'not-allowed' : 'pointer',
+                      background: currentProductPage === totalPages ? '#f1f5f9' : '#ffffff',
+                      color: currentProductPage === totalPages ? '#94a3b8' : '#475569',
+                      cursor: currentProductPage === totalPages ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (currentProductPage !== totalProductPages) {
-                        e.target.style.background = '#f8fafc';
-                        e.target.style.borderColor = '#cbd5e1';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (currentProductPage !== totalProductPages) {
-                        e.target.style.background = '#ffffff';
-                        e.target.style.borderColor = '#e2e8f0';
-                      }
                     }}
                   >
                     Next
                   </button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
+
+          {/* Filter Slider - Right Side */}
+          {showFilterPanel && (
+            <>
+              {/* Overlay */}
+              <div
+                onClick={() => {
+                  closeAllDropdowns();
+                  setShowFilterPanel(false);
+                }}
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0, 0, 0, 0.5)',
+                  zIndex: 9998,
+                  animation: 'fadeIn 0.3s ease'
+                }}
+              />
+              {/* Filter Slider Panel */}
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                right: 0,
+                width: windowWidth <= 768 ? '100%' : '400px',
+                maxWidth: '90vw',
+                height: '100vh',
+                background: '#ffffff',
+                boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.1)',
+                zIndex: 9999,
+                display: 'flex',
+                flexDirection: 'column',
+                animation: 'slideInRight 0.3s ease',
+                overflowY: 'auto'
+              }}>
+                {/* Filter Header */}
+                <div style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  padding: '20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 10
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <FaFilter style={{ color: '#ffffff', fontSize: '16px' }} />
+                    <h6 style={{
+                      margin: 0,
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: '#ffffff'
+                    }}>Filter Options</h6>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowFilterPanel(false)}
+                    style={{
+                      background: 'rgba(255,255,255,0.2)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      width: '28px',
+                      height: '28px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      color: '#ffffff',
+                      fontSize: '16px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <FaTimes />
+                  </button>
+                </div>
+                {/* Filter Content */}
+                <div style={{ padding: '20px', flex: 1 }}>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '16px'
+                  }}>
+                    {/* Branch Filter */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>Branch</label>
+                      <select
+                        value={filterValues.branch}
+                        onChange={e => handleFilterChange('branch', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="All">All Branches</option>
+                        {apiFilterData.branches?.map((branch) => (
+                          <option key={branch.Id || branch.id} value={branch.BranchName || branch.Name || branch.branchName || branch.name}>
+                            {branch.BranchName || branch.Name || branch.branchName || branch.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Counter Name Filter */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>Counter Name</label>
+                      <select
+                        value={filterValues.counterName}
+                        onChange={e => handleFilterChange('counterName', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="All">All Counters</option>
+                        {apiFilterData.counters?.map((counter) => (
+                          <option key={counter.Id || counter.id} value={counter.CounterName || counter.Name || counter.counterName}>
+                            {counter.CounterName || counter.Name || counter.counterName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Category Filter */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>Category</label>
+                      <select
+                        value={filterValues.categoryId}
+                        onChange={e => handleFilterChange('categoryId', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="All">All Categories</option>
+                        {apiFilterData.categories?.map((category) => (
+                          <option key={category.Id || category.id} value={category.CategoryName || category.Name || category.categoryName}>
+                            {category.CategoryName || category.Name || category.categoryName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Product Filter */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>Product Name</label>
+                      <select
+                        value={filterValues.productId}
+                        onChange={e => handleFilterChange('productId', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="All">All Products</option>
+                        {apiFilterData.products?.map((product) => (
+                          <option key={product.Id || product.id} value={product.ProductName || product.Name || product.productName}>
+                            {product.ProductName || product.Name || product.productName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Design Filter */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>Design</label>
+                      <select
+                        value={filterValues.designId}
+                        onChange={e => handleFilterChange('designId', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="All">All Designs</option>
+                        {apiFilterData.designs?.map((design) => (
+                          <option key={design.Id || design.id} value={design.DesignName || design.Name || design.designName}>
+                            {design.DesignName || design.Name || design.designName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Purity Filter */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>Purity</label>
+                      <select
+                        value={filterValues.purityId}
+                        onChange={e => handleFilterChange('purityId', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="All">All Purities</option>
+                        {apiFilterData.purities?.map((purity) => (
+                          <option key={purity.Id || purity.id} value={purity.PurityName || purity.Name || purity.Purity || purity.purityName}>
+                            {purity.PurityName || purity.Name || purity.Purity || purity.purityName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Status Filter */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>Status</label>
+                      <select
+                        value={filterValues.status}
+                        onChange={e => handleFilterChange('status', e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        <option value="All">All</option>
+                        <option value="ApiActive">ApiActive</option>
+                        <option value="Sold">Sold</option>
+                      </select>
+                    </div>
+
+                    {/* From Date */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>From Date</label>
+                      <input
+                        type="date"
+                        value={filterValues.dateFrom}
+                        onChange={e => handleFilterChange('dateFrom', e.target.value)}
+                        max={filterValues.dateTo || undefined}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    {/* To Date */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        color: '#475569',
+                        marginBottom: '6px'
+                      }}>To Date</label>
+                      <input
+                        type="date"
+                        value={filterValues.dateTo}
+                        onChange={e => handleFilterChange('dateTo', e.target.value)}
+                        min={filterValues.dateFrom || undefined}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          background: '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: '10px',
+                    marginTop: '20px',
+                    paddingTop: '20px',
+                    borderTop: '1px solid #e5e7eb'
+                  }}>
+                    <button
+                      onClick={handleResetFilters}
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#64748b',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Reset
+                    </button>
+                    <button
+                      onClick={handleApplyFilters}
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: '#10b981',
+                        color: '#ffffff',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Apply Filters
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Generated Labels Results */}
           {generatedLabels.length > 0 && (
-            <div style={{ 
-              background: 'white', 
-              padding: '20px', 
+            <div style={{
+              background: 'white',
+              padding: '20px',
               borderRadius: '12px',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}>
@@ -1337,8 +2713,8 @@ const RFIDLabel = () => {
                 </button>
               </div>
 
-              <div style={{ 
-                maxHeight: '400px', 
+              <div style={{
+                maxHeight: '400px',
                 overflowY: 'auto',
                 border: '1px solid #e5e7eb',
                 borderRadius: '8px'
@@ -1425,7 +2801,7 @@ const RFIDLabel = () => {
       {/* Template Slider - Right Side */}
       {showTemplateModal && (
         <>
-          <div 
+          <div
             onClick={() => {
               setShowTemplateModal(false);
               resetTemplateForm();
@@ -1477,8 +2853,8 @@ const RFIDLabel = () => {
                   {isEditing ? 'Edit Template' : 'New Template'}
                 </h6>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => {
                   setShowTemplateModal(false);
                   resetTemplateForm();
@@ -1507,10 +2883,10 @@ const RFIDLabel = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Template Name */}
                 <div>
-                  <label style={{ 
-                    display: 'block', 
-                    marginBottom: '6px', 
-                    fontWeight: 600, 
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '6px',
+                    fontWeight: 600,
                     fontSize: '10px',
                     color: '#475569'
                   }}>
@@ -1538,10 +2914,10 @@ const RFIDLabel = () => {
 
                 {/* Template Type */}
                 <div>
-                  <label style={{ 
-                    display: 'block', 
-                    marginBottom: '6px', 
-                    fontWeight: 600, 
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '6px',
+                    fontWeight: 600,
                     fontSize: '10px',
                     color: '#475569'
                   }}>
@@ -1570,8 +2946,8 @@ const RFIDLabel = () => {
                 {/* PRN Code */}
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <label style={{ 
-                      fontWeight: 600, 
+                    <label style={{
+                      fontWeight: 600,
                       fontSize: '10px',
                       color: '#475569'
                     }}>
@@ -1635,18 +3011,18 @@ const RFIDLabel = () => {
 
                 {/* Dynamic Fields */}
                 <div>
-                  <label style={{ 
-                    display: 'block', 
-                    marginBottom: '6px', 
-                    fontWeight: 600, 
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '6px',
+                    fontWeight: 600,
                     fontSize: '10px',
                     color: '#475569'
                   }}>
                     Dynamic Fields
                   </label>
-                  <div style={{ 
-                    display: 'flex', 
-                    flexWrap: 'wrap', 
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
                     gap: '6px',
                     padding: '10px',
                     background: '#f9fafb',
@@ -1696,18 +3072,18 @@ const RFIDLabel = () => {
 
                 {/* Available Fields */}
                 <div>
-                  <label style={{ 
-                    display: 'block', 
-                    marginBottom: '6px', 
-                    fontWeight: 600, 
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '6px',
+                    fontWeight: 600,
                     fontSize: '10px',
                     color: '#475569'
                   }}>
                     Available Fields
                   </label>
-                  <div style={{ 
-                    display: 'flex', 
-                    flexWrap: 'wrap', 
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
                     gap: '6px',
                     padding: '10px',
                     background: '#f9fafb',
@@ -1752,10 +3128,10 @@ const RFIDLabel = () => {
 
                 {/* Save Option */}
                 <div>
-                  <label style={{ 
-                    display: 'block', 
-                    marginBottom: '6px', 
-                    fontWeight: 600, 
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '6px',
+                    fontWeight: 600,
                     fontSize: '10px',
                     color: '#475569'
                   }}>
@@ -1787,24 +3163,24 @@ const RFIDLabel = () => {
 
                 {/* Active Status */}
                 <div>
-                  <label style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '8px', 
-                    cursor: 'pointer' 
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
                   }}>
                     <input
                       type="checkbox"
                       checked={templateForm.IsActive}
                       onChange={(e) => handleTemplateFormChange('IsActive', e.target.checked)}
-                      style={{ 
+                      style={{
                         cursor: 'pointer',
                         width: '16px',
                         height: '16px'
                       }}
                     />
-                    <span style={{ 
-                      fontWeight: 600, 
+                    <span style={{
+                      fontWeight: 600,
                       fontSize: '12px',
                       color: '#475569'
                     }}>
@@ -1814,24 +3190,24 @@ const RFIDLabel = () => {
                 </div>
 
                 {/* Actions */}
-                <div style={{ 
-                  display: 'flex', 
-                  gap: '10px', 
+                <div style={{
+                  display: 'flex',
+                  gap: '10px',
                   marginTop: '20px',
                   paddingTop: '20px',
                   borderTop: '1px solid #e5e7eb'
                 }}>
                   <button
                     onClick={handleSaveTemplate}
-                    disabled={loading}
+                    disabled={templateLoading}
                     style={{
                       flex: 1,
                       padding: '8px 16px',
-                      background: loading ? '#f1f5f9' : '#ffffff',
-                      color: loading ? '#94a3b8' : '#10b981',
-                      border: `1px solid ${loading ? '#cbd5e1' : '#10b981'}`,
+                      background: templateLoading ? '#f1f5f9' : '#ffffff',
+                      color: templateLoading ? '#94a3b8' : '#10b981',
+                      border: `1px solid ${templateLoading ? '#cbd5e1' : '#10b981'}`,
                       borderRadius: '8px',
-                      cursor: loading ? 'not-allowed' : 'pointer',
+                      cursor: templateLoading ? 'not-allowed' : 'pointer',
                       fontWeight: 600,
                       fontSize: '12px',
                       display: 'flex',
@@ -1841,19 +3217,19 @@ const RFIDLabel = () => {
                       transition: 'all 0.2s'
                     }}
                     onMouseEnter={(e) => {
-                      if (!loading) {
+                      if (!templateLoading) {
                         e.target.style.background = '#10b981';
                         e.target.style.color = '#ffffff';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (!loading) {
+                      if (!templateLoading) {
                         e.target.style.background = '#ffffff';
                         e.target.style.color = '#10b981';
                       }
                     }}
                   >
-                    {loading ? (
+                    {templateLoading ? (
                       <>
                         <FaSpinner className="fa-spin" /> Saving...
                       </>
@@ -1946,8 +3322,8 @@ const RFIDLabel = () => {
             <p style={{ marginBottom: '16px', fontSize: '14px', color: '#6b7280' }}>
               Replace "{selectedText.text}" with:
             </p>
-            <div style={{ 
-              display: 'grid', 
+            <div style={{
+              display: 'grid',
               gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
               gap: '8px',
               maxHeight: '300px',

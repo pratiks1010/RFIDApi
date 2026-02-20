@@ -1,13 +1,13 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { 
-  FaHome, 
-  FaPlug, 
-  FaList, 
-  FaMicrochip, 
-  FaTags, 
-  FaTag, 
-  FaClipboard, 
+import {
+  FaHome,
+  FaPlug,
+  FaList,
+  FaMicrochip,
+  FaTags,
+  FaTag,
+  FaClipboard,
   FaUpload,
   FaUserCircle,
   FaBell,
@@ -24,11 +24,11 @@ import {
   FaPrint,
   FaExpand,
   FaCompress,
-  FaBook
+  FaBook,
+  FaSync
 } from 'react-icons/fa';
 import { useNotifications } from '../context/NotificationContext';
 import { useTranslation } from '../hooks/useTranslation';
-import LanguageSwitcher from './common/LanguageSwitcher';
 import axios from 'axios';
 import RFIDAppDownload from './RFIDAppDownload';
 import apkService from '../services/apkService';
@@ -178,21 +178,21 @@ const Header = () => {
     right: 0,
     background: '#ffffff',
     zIndex: 1000,
-    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.08)',
     display: 'flex',
     flexDirection: 'column',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    borderBottom: '1px solid #e5e7eb',
+    fontFamily: 'Inter, Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    borderBottom: '1px solid #e0e7ef',
   };
 
   const topBarStyles = {
-    borderBottom: '1px solid #f3f4f6',
-    padding: '8px 20px',
+    borderBottom: '1px solid #f1f5f9',
+    padding: '12px 24px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: 'transparent',
-    minHeight: '56px',
+    background: '#ffffff',
+    minHeight: '64px',
     flexWrap: 'wrap',
     gap: '16px',
   };
@@ -348,49 +348,51 @@ const Header = () => {
   return (
     <header className="header-ltr" style={headerStyles}>
       <div className="header-topbar" style={topBarStyles}>
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '16px',
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '20px',
           flexWrap: 'wrap',
           flex: '1',
           minWidth: 0
         }}>
-          <Link to="/analytics" style={{ display: 'flex', alignItems: 'center', flexShrink: 0, cursor: 'pointer' }}>
-            <img 
-              src="/Logo/Sparkle RFID svg.svg" 
-              alt="Sparkle RFID" 
-              style={{ height: '32px', width: 'auto' }}
+          <Link to="/analytics" style={{ display: 'flex', alignItems: 'center', flexShrink: 0, cursor: 'pointer', textDecoration: 'none' }}>
+            <img
+              src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
+              alt="Sparkle RFID"
+              onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
+              style={{ height: '36px', width: 'auto' }}
             />
           </Link>
-          {/* Modern Zoho-style app title */}
+          {/* Zoho-style app title */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            background: '#f8fafc',
-            borderRadius: '6px',
-            border: '1px solid #e5e7eb',
-            padding: '6px 10px',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            gap: '8px',
+            background: '#f1f5f9',
+            borderRadius: '8px',
+            border: '1px solid #e0e7ef',
+            padding: '8px 14px',
+            fontFamily: 'Inter, Poppins, sans-serif',
             fontWeight: 600,
             fontSize: '13px',
-            color: '#374151',
-            letterSpacing: '0.025em',
+            color: '#0077d4',
+            letterSpacing: '0.01em',
             flexShrink: 0,
+            transition: 'all 0.2s ease'
           }}>
             <div style={{
-              width: '12px',
-              height: '12px',
-              borderRadius: '2px',
-              background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+              width: '14px',
+              height: '14px',
+              borderRadius: '3px',
+              background: '#0077d4',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              <svg width="6" height="6" viewBox="0 0 24 24" fill="none">
-                <path d="M3 3h18v18H3V3zm2 2v14h14V5H5z" fill="white"/>
-                <path d="M7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" fill="white"/>
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
+                <path d="M3 3h18v18H3V3zm2 2v14h14V5H5z" fill="white" />
+                <path d="M7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h6v2H7v-2z" fill="white" />
               </svg>
             </div>
             <span style={{ whiteSpace: 'nowrap' }}>RFID Dashboard</span>
@@ -416,7 +418,7 @@ const Header = () => {
             <input
               type="text"
               placeholder={t('header.searchPlaceholder')}
-              style={{ 
+              style={{
                 border: 'none',
                 outline: 'none',
                 fontSize: '12px',
@@ -429,15 +431,12 @@ const Header = () => {
             />
           </div>
         </div>
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '12px',
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
           flexShrink: 0
         }}>
-          {/* Language Switcher */}
-          <LanguageSwitcher variant="header" />
-          
           {/* Fullscreen Toggle */}
           <button
             onClick={toggleFullscreen}
@@ -445,28 +444,31 @@ const Header = () => {
               background: 'transparent',
               border: 'none',
               padding: '8px',
-              borderRadius: '6px',
+              borderRadius: '8px',
               cursor: 'pointer',
-              transition: 'background-color 0.2s ease',
+              transition: 'all 0.2s ease',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              color: '#64748b'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = '#f1f5f9';
+              e.currentTarget.style.color = '#0077d4';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = '#64748b';
             }}
             title={isFullscreen ? 'Exit Fullscreen (Ctrl+F)' : 'Enter Fullscreen (Ctrl+F)'}
           >
             {isFullscreen ? (
-              <FaCompress style={{ fontSize: '20px', color: '#64748b' }} />
+              <FaCompress style={{ fontSize: '18px' }} />
             ) : (
-              <FaExpand style={{ fontSize: '20px', color: '#64748b' }} />
+              <FaExpand style={{ fontSize: '18px' }} />
             )}
           </button>
-          
+
           {/* Notifications */}
           <div ref={notificationsRef} style={{ position: 'relative' }}>
             <button
@@ -475,14 +477,23 @@ const Header = () => {
                 background: 'transparent',
                 border: 'none',
                 padding: '8px',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 cursor: 'pointer',
                 position: 'relative',
-                transition: 'background-color 0.2s ease',
-                boxShadow: notificationsOpen ? '0 0 0 2px rgba(59, 130, 246, 0.2)' : 'none',
+                transition: 'all 0.2s ease',
+                boxShadow: notificationsOpen ? '0 0 0 2px rgba(0, 119, 212, 0.2)' : 'none',
+                color: '#64748b'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#f1f5f9';
+                e.currentTarget.style.color = '#0077d4';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = '#64748b';
               }}
             >
-              <FaRegBell style={{ fontSize: '20px', color: '#64748b' }} />
+              <FaRegBell style={{ fontSize: '18px' }} />
               <span style={{
                 position: 'absolute',
                 top: '6px',
@@ -537,7 +548,7 @@ const Header = () => {
                   textAlign: 'center',
                 }}>
                   <button
-                    onClick={() => {}}
+                    onClick={() => { }}
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -560,26 +571,27 @@ const Header = () => {
               onClick={() => setDropdownOpen(!dropdownOpen)}
               style={{
                 background: '#ffffff',
-                border: '1px solid #e2e8f0',
-                padding: '6px 16px',
+                border: '1px solid #e0e7ef',
+                padding: '6px 12px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
+                gap: '10px',
                 cursor: 'pointer',
                 borderRadius: '8px',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
                 minWidth: 0,
                 transition: 'all 0.2s ease',
                 position: 'relative',
                 outline: 'none',
+                fontFamily: 'Inter, Poppins, sans-serif'
               }}
               onMouseOver={e => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
-                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(0, 119, 212, 0.15)';
+                e.currentTarget.style.borderColor = '#0077d4';
               }}
               onMouseOut={e => {
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05)';
-                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                e.currentTarget.style.borderColor = '#e0e7ef';
               }}
             >
               <div style={{
@@ -587,19 +599,20 @@ const Header = () => {
                 marginRight: 0,
               }}>
                 <div style={{
-                  width: '32px',
-                  height: '32px',
+                  width: '36px',
+                  height: '36px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                  background: '#0077d4',
                   color: '#ffffff',
-                  borderRadius: '6px',
-                  fontSize: '14px',
+                  borderRadius: '8px',
+                  fontSize: '15px',
                   fontWeight: '600',
                   border: '2px solid #fff',
                   position: 'relative',
                   zIndex: 2,
+                  boxShadow: '0 2px 4px rgba(0, 119, 212, 0.2)',
                 }}>
                   {avatarLetter}
                 </div>
@@ -607,13 +620,13 @@ const Header = () => {
                   position: 'absolute',
                   top: '-2px',
                   right: '-2px',
-                  width: '8px',
-                  height: '8px',
+                  width: '10px',
+                  height: '10px',
                   background: '#22c55e',
-                  border: '1.5px solid #fff',
+                  border: '2px solid #fff',
                   borderRadius: '50%',
                   display: 'inline-block',
-                  boxShadow: '0 0 0 1px #e2e8f0',
+                  boxShadow: '0 0 0 1px #e0e7ef',
                   zIndex: 3,
                 }}></span>
               </div>
@@ -628,32 +641,32 @@ const Header = () => {
               }}>
                 <span style={{
                   fontSize: '14px',
-                  fontWeight: 500,
-                  color: '#1e293b',
-                  lineHeight: '1.2',
-                  maxWidth: 100,
+                  fontWeight: 600,
+                  color: '#232a36',
+                  lineHeight: '1.3',
+                  maxWidth: 120,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
-                  fontFamily: 'Inter, system-ui, sans-serif',
+                  fontFamily: 'Inter, Poppins, sans-serif',
                 }}>{username}</span>
                 <span style={{
-                  fontSize: '12px',
-                  color: '#64748b',
-                  fontWeight: 400,
-                  marginTop: '1px',
+                  fontSize: '11px',
+                  color: '#0077d4',
+                  fontWeight: 500,
+                  marginTop: '2px',
                   letterSpacing: '0.01em',
-                  fontFamily: 'Inter, system-ui, sans-serif',
+                  fontFamily: 'Inter, Poppins, sans-serif',
                 }}>
-                  Client: <span style={{ color: '#3b82f6', fontWeight: 500 }}>{clientCode}</span>
-                  {tcode && <span style={{ color: '#3b82f6', fontWeight: 500, marginLeft: 6 }}>TCode: {tcode}</span>}
+                  {clientCode}
+                  {tcode && <span style={{ marginLeft: 6 }}>• {tcode}</span>}
                 </span>
               </div>
               <FaChevronDown style={{
                 marginLeft: 4,
-                fontSize: 12,
+                fontSize: 11,
                 color: '#64748b',
-                transition: 'transform 0.2s',
+                transition: 'transform 0.2s ease',
                 transform: dropdownOpen ? 'rotate(180deg)' : 'none',
               }} />
             </button>
@@ -665,28 +678,28 @@ const Header = () => {
                 background: '#ffffff',
                 borderRadius: '12px',
                 boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
-                border: '1px solid #e2e8f0',
-                width: '280px',
+                border: '1px solid #e0e7ef',
+                width: '300px',
                 zIndex: 1000,
                 animation: 'slideDown 0.2s ease',
-                padding: '8px',
-                fontFamily: 'Inter, system-ui, sans-serif',
+                padding: '12px',
+                fontFamily: 'Inter, Poppins, sans-serif',
               }}>
                 <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: '8px',
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                      width: 52,
+                      height: 52,
+                      borderRadius: '10px',
+                      background: '#0077d4',
                       color: '#ffffff',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: 20,
+                      fontSize: 22,
                       fontWeight: 600,
                       border: '2px solid #f1f5f9',
-                      boxShadow: '0 2px 8px rgba(59, 130, 246, 0.2)',
+                      boxShadow: '0 2px 8px rgba(0, 119, 212, 0.25)',
                       position: 'relative',
                     }}>
                       {avatarLetter}
@@ -694,24 +707,77 @@ const Header = () => {
                         position: 'absolute',
                         bottom: '4px',
                         right: '4px',
-                        width: '12px',
-                        height: '12px',
+                        width: '14px',
+                        height: '14px',
                         background: '#22c55e',
-                        border: '2px solid #fff',
+                        border: '2.5px solid #fff',
                         borderRadius: '50%',
                         display: 'inline-block',
                       }}></span>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: 16, color: '#1e293b', marginBottom: 2, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{username}</span>
-                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 400, marginBottom: 1 }}>Client Code: <span style={{ color: '#3b82f6', fontWeight: 500 }}>{clientCode}</span></span>
-                      {tcode && <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 500 }}>TCode: {tcode}</span>}
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                      <span style={{
+                        fontWeight: 600,
+                        fontSize: 16,
+                        color: '#232a36',
+                        marginBottom: 4,
+                        maxWidth: 180,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'Inter, Poppins, sans-serif'
+                      }}>
+                        {username}
+                      </span>
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2
+                      }}>
+                        <span style={{
+                          fontSize: 12,
+                          color: '#64748b',
+                          fontWeight: 500,
+                          fontFamily: 'Inter, Poppins, sans-serif'
+                        }}>
+                          Client Code
+                        </span>
+                        <span style={{
+                          fontSize: 13,
+                          color: '#0077d4',
+                          fontWeight: 600,
+                          fontFamily: 'Inter, Poppins, sans-serif'
+                        }}>
+                          {clientCode}
+                        </span>
+                        {tcode && (
+                          <>
+                            <span style={{
+                              fontSize: 12,
+                              color: '#64748b',
+                              fontWeight: 500,
+                              marginTop: 4,
+                              fontFamily: 'Inter, Poppins, sans-serif'
+                            }}>
+                              TCode
+                            </span>
+                            <span style={{
+                              fontSize: 13,
+                              color: '#0077d4',
+                              fontWeight: 600,
+                              fontFamily: 'Inter, Poppins, sans-serif'
+                            }}>
+                              {tcode}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
                 <div style={{ padding: '4px 0' }}>
                   <button
-                    onClick={() => {}}
+                    onClick={() => { }}
                     style={{
                       width: '100%',
                       padding: '10px 16px',
@@ -722,21 +788,28 @@ const Header = () => {
                       alignItems: 'center',
                       gap: '12px',
                       cursor: 'pointer',
-                      color: '#475569',
-                      fontSize: '14px',
+                      color: '#38414a',
+                      fontSize: '13px',
                       borderRadius: '8px',
                       marginBottom: 2,
                       fontWeight: 500,
-                      transition: 'background-color 0.2s',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
                     }}
-                    onMouseOver={e => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                    onMouseOver={e => {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.color = '#0077d4';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#38414a';
+                    }}
                   >
                     <FaUserCircle style={{ fontSize: '16px', color: '#64748b' }} />
                     <span>{t('header.profile')}</span>
                   </button>
                   <button
-                    onClick={() => {}}
+                    onClick={() => { }}
                     style={{
                       width: '100%',
                       padding: '10px 16px',
@@ -747,15 +820,22 @@ const Header = () => {
                       alignItems: 'center',
                       gap: '12px',
                       cursor: 'pointer',
-                      color: '#475569',
-                      fontSize: '14px',
+                      color: '#38414a',
+                      fontSize: '13px',
                       borderRadius: '8px',
                       marginBottom: 2,
                       fontWeight: 500,
-                      transition: 'background-color 0.2s',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
                     }}
-                    onMouseOver={e => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                    onMouseOver={e => {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.color = '#0077d4';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#38414a';
+                    }}
                   >
                     <FaCog style={{ fontSize: '16px', color: '#64748b' }} />
                     <span>{t('header.settings')}</span>
@@ -771,20 +851,21 @@ const Header = () => {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
-                      color: '#3b82f6',
+                      color: '#0077d4',
                       fontWeight: 600,
-                      fontSize: 14,
+                      fontSize: 13,
                       cursor: backupLoading ? 'not-allowed' : 'pointer',
                       opacity: backupLoading ? 0.6 : 1,
                       borderRadius: '8px',
                       marginBottom: 2,
-                      transition: 'background-color 0.2s',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
                     }}
                     disabled={backupLoading}
-                    onMouseOver={e => !backupLoading && (e.currentTarget.style.background = '#eff6ff')}
+                    onMouseOver={e => !backupLoading && (e.currentTarget.style.background = '#f1f5f9')}
                     onMouseOut={e => e.currentTarget.style.background = 'transparent'}
                   >
-                    <FaDatabase style={{ fontSize: 18, color: '#3b82f6' }} />
+                    <FaDatabase style={{ fontSize: 16, color: '#0077d4' }} />
                     {backupLoading ? t('header.backingUp') : t('header.backupData')}
                   </button>
                   <button
@@ -799,19 +880,136 @@ const Header = () => {
                       alignItems: 'center',
                       gap: '12px',
                       cursor: 'pointer',
-                      color: '#16a34a',
-                      fontSize: '14px',
+                      color: '#38414a',
+                      fontSize: '13px',
                       borderRadius: '8px',
                       marginBottom: 2,
-                      fontWeight: 600,
-                      transition: 'background-color 0.2s',
+                      fontWeight: 500,
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
                     }}
-                    onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                    onMouseOver={e => {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.color = '#0077d4';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#38414a';
+                    }}
                   >
-                    <FaMobileAlt style={{ fontSize: '16px', color: '#16a34a' }} />
+                    <FaMobileAlt style={{ fontSize: '16px', color: '#64748b' }} />
                     <span>{t('header.rfidAppDownload')}</span>
                   </button>
+                  <button
+                    onClick={() => {
+                      navigate('/local-database-migration');
+                      setDropdownOpen(false);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 16px',
+                      background: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      cursor: 'pointer',
+                      color: '#38414a',
+                      fontSize: '13px',
+                      borderRadius: '8px',
+                      marginBottom: 2,
+                      fontWeight: 500,
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
+                    }}
+                    onMouseOver={e => {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.color = '#0077d4';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#38414a';
+                    }}
+                  >
+                    <FaDatabase style={{ fontSize: '16px', color: '#64748b' }} />
+                    <span>Database Migration</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      navigate('/single-use-tags');
+                      setDropdownOpen(false);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 16px',
+                      background: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      cursor: 'pointer',
+                      color: '#38414a',
+                      fontSize: '13px',
+                      borderRadius: '8px',
+                      marginBottom: 2,
+                      fontWeight: 500,
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
+                    }}
+                    onMouseOver={e => {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.color = '#0077d4';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#38414a';
+                    }}
+                  >
+                    <FaTag style={{ fontSize: '16px', color: '#64748b' }} />
+                    <span>SingleUseTag</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      navigate('/automatic-datasync');
+                      setDropdownOpen(false);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 16px',
+                      background: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      cursor: 'pointer',
+                      color: '#38414a',
+                      fontSize: '13px',
+                      borderRadius: '8px',
+                      marginBottom: 2,
+                      fontWeight: 500,
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
+                    }}
+                    onMouseOver={e => {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.color = '#0077d4';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#38414a';
+                    }}
+                  >
+                    <FaSync style={{ fontSize: '16px', color: '#64748b' }} />
+                    <span>Automatic DataSync</span>
+                  </button>
+                  <div style={{
+                    height: '1px',
+                    background: '#f1f5f9',
+                    margin: '8px 0'
+                  }} />
                   <button
                     onClick={handleLogout}
                     style={{
@@ -825,14 +1023,21 @@ const Header = () => {
                       gap: '12px',
                       cursor: 'pointer',
                       color: '#dc2626',
-                      fontSize: '14px',
+                      fontSize: '13px',
                       borderRadius: '8px',
                       marginBottom: 2,
                       fontWeight: 600,
-                      transition: 'background-color 0.2s',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'Inter, Poppins, sans-serif'
                     }}
-                    onMouseOver={e => e.currentTarget.style.background = '#fef2f2'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                    onMouseOver={e => {
+                      e.currentTarget.style.background = '#fef2f2';
+                      e.currentTarget.style.color = '#b91c1c';
+                    }}
+                    onMouseOut={e => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#dc2626';
+                    }}
                   >
                     <FaSignOutAlt style={{ fontSize: '16px' }} />
                     <span>{t('header.logout')}</span>
@@ -863,7 +1068,7 @@ const Header = () => {
             <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
           </svg>
         </button>
-        
+
         <div className="zoho-nav-scroll">
           {navigationItems.map(({ path, icon: Icon, label, color }, idx) => (
             <Link
@@ -874,12 +1079,12 @@ const Header = () => {
               }}
 
             >
-              <Icon style={{ 
-                color: location.pathname === path ? '#1e40af' : color, 
+              <Icon style={{
+                color: location.pathname === path ? '#1e40af' : color,
                 fontSize: '16px',
                 flexShrink: 0
               }} />
-              <span style={{ 
+              <span style={{
                 whiteSpace: 'nowrap'
               }}>{label}</span>
             </Link>
@@ -888,7 +1093,7 @@ const Header = () => {
         <div className="zoho-nav-fade zoho-nav-fade-left" />
         <div className="zoho-nav-fade zoho-nav-fade-right" />
       </nav>
-      
+
       {/* Mobile Navigation Menu */}
       {mobileMenuOpen && (
         <div style={{
@@ -925,9 +1130,9 @@ const Header = () => {
                 }}
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <Icon style={{ 
-                  fontSize: '18px', 
-                  color: location.pathname === path ? '#1e40af' : color 
+                <Icon style={{
+                  fontSize: '18px',
+                  color: location.pathname === path ? '#1e40af' : color
                 }} />
                 <span>{label}</span>
               </Link>
@@ -1168,7 +1373,7 @@ const Header = () => {
   );
 };
 
-export default Header; 
+export default Header;
 
 function RFIDAppDownloadPopup() {
   const [latest, setLatest] = useState(null);

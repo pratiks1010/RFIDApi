@@ -1,5 +1,6 @@
 import React from 'react';
 import { FaSync, FaTag, FaPrint, FaBarcode, FaCheck, FaListAlt } from 'react-icons/fa';
+import BackToProfileMenu from './common/BackToProfileMenu';
 
 const RFIDIntegration = () => {
   return (
@@ -91,6 +92,8 @@ const RFIDIntegration = () => {
         color: '#2d3748',
         minHeight: 'calc(100vh - 64px)',
       }}>
+        <BackToProfileMenu style={{ marginBottom: 24 }} />
+
         {/* Header Section */}
         <div className="rfid-header" style={{
           textAlign: 'center',

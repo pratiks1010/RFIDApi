@@ -4,7 +4,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { FaCloudUploadAlt, FaFileExcel, FaTimes, FaCheckCircle, FaDownload, FaSpinner, FaTrash } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 
-const API_URL = 'https://rrgold.loyalstring.co.in/api/Device/ImportRFIDData';
+const API_URL = 'https://rrgold.loyalstring.co.in/api/Device/BulkUploadRFIDData';
 
 const UploadRFID = () => {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -19,6 +19,7 @@ const UploadRFID = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
   
   // Get clientCode and userInfo from localStorage
   useEffect(() => {
@@ -62,46 +63,38 @@ const UploadRFID = () => {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         
-        // Convert to JSON with header row
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        // Convert to JSON array (no headers, just raw data)
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
         
-        if (jsonData.length < 2) {
-          setError('Excel file must contain at least a header row and one data row');
+        if (jsonData.length < 1) {
+          setError('Excel file must contain at least one data row');
           setSelectedFile(null);
           return;
         }
 
-        // Get headers from first row
-        const headers = jsonData[0];
-        const dataRows = jsonData.slice(1);
-
-        // Validate required fields
-        const requiredFields = ['BarcodeNumber', 'TidValue'];
-        const missingFields = requiredFields.filter(field => 
-          !headers.some(header => 
-            header && header.toString().toLowerCase().includes(field.toLowerCase())
-          )
-        );
-
-        if (missingFields.length > 0) {
-          setError(`Missing required fields: ${missingFields.join(', ')}`);
-          setSelectedFile(null);
-          return;
-        }
-
-        // Process data rows
-        const processedRows = dataRows.map((row, index) => {
-          const rowData = {};
-          headers.forEach((header, colIndex) => {
-            if (header) {
-              rowData[header.toString().trim()] = row[colIndex] || '';
+        // Process data rows - Column 0: BarcodeNumber, Column 1: TidValue
+        const processedRows = jsonData
+          .map((row, index) => {
+            // Skip empty rows
+            if (!row || row.length === 0 || (!row[0] && !row[1])) {
+              return null;
             }
+            
+            return {
+              BarcodeNumber: row[0] ? String(row[0]).trim() : '',
+              TidValue: row[1] ? String(row[1]).trim() : ''
+            };
+          })
+          .filter(row => {
+            // Filter out null rows and rows with missing required data
+            return row && row.BarcodeNumber && row.TidValue;
           });
-          return rowData;
-        }).filter(row => {
-          // Filter out empty rows
-          return Object.values(row).some(value => value !== '' && value !== null && value !== undefined);
-        });
+
+        if (processedRows.length === 0) {
+          setError('No valid data found. Ensure Column 0 contains BarcodeNumber and Column 1 contains TidValue');
+          setSelectedFile(null);
+          return;
+        }
 
         setProcessedData(processedRows);
         setTotalRecords(processedRows.length);
@@ -153,6 +146,7 @@ const UploadRFID = () => {
     setProcessedData(null);
     setTotalRecords(0);
     setCurrentRecord(0);
+    setUploadResult(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -172,6 +166,7 @@ const UploadRFID = () => {
 
     try {
       // Create FormData to send file and ClientCode
+      // API expects: Form field: ClientCode, Form file: Excel file
       const formData = new FormData();
       formData.append('ClientCode', userInfo.ClientCode);
       formData.append('file', selectedFile);
@@ -191,19 +186,53 @@ const UploadRFID = () => {
 
       // Handle response
       xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
+        if (xhr.status === 200 || xhr.status === 201) {
           try {
             const result = JSON.parse(xhr.responseText);
-            setSuccess(`File uploaded successfully! ${totalRecords} records processed.`);
+            // API returns detailed response with statistics
+            const message = result.message || `File uploaded successfully!`;
+            const stats = result.statistics || {};
+            const inserted = stats.inserted || stats.insertedCount || 0;
+            const updated = stats.updated || stats.updatedCount || 0;
+            const total = stats.total || stats.totalCount || totalRecords;
+            
+            let successMessage = message;
+            if (inserted > 0 || updated > 0) {
+              successMessage += ` (${inserted} inserted, ${updated} updated)`;
+            } else if (total > 0) {
+              successMessage += ` (${total} records processed)`;
+            }
+            
+            // Store result for modal display
+            setUploadResult({
+              message: successMessage,
+              statistics: {
+                inserted,
+                updated,
+                total: total || totalRecords
+              },
+              fullResponse: result
+            });
+            
+            setSuccess(successMessage);
             setShowSuccessModal(true);
             handleRemoveFile();
           } catch (err) {
+            // If response is not JSON, still show success
             setSuccess(`File uploaded successfully! ${totalRecords} records processed.`);
             setShowSuccessModal(true);
             handleRemoveFile();
           }
         } else {
-          const errorMessage = xhr.responseText ? JSON.parse(xhr.responseText)?.message || `Upload failed with status: ${xhr.status}` : `Upload failed with status: ${xhr.status}`;
+          let errorMessage = `Upload failed with status: ${xhr.status}`;
+          try {
+            if (xhr.responseText) {
+              const errorData = JSON.parse(xhr.responseText);
+              errorMessage = errorData.message || errorData.error || errorMessage;
+            }
+          } catch (e) {
+            // If response is not JSON, use default message
+          }
           throw new Error(errorMessage);
         }
         setUploading(false);
@@ -227,29 +256,25 @@ const UploadRFID = () => {
   };
 
   // Download Excel Template Function
+  // Template format: Column 0 = BarcodeNumber, Column 1 = TidValue
   const downloadTemplate = () => {
+    // Create template data as array of arrays (no headers)
+    // Column 0: BarcodeNumber, Column 1: TidValue
     const templateData = [
-      { 
-        BarcodeNumber: 'RJ0001', 
-        TidValue: 'E280119120006013217D032D'
-      },
-      { 
-        BarcodeNumber: 'RJ0002', 
-        TidValue: 'E2801191200065A721B7032D'
-      },
-      { 
-        BarcodeNumber: 'RJ0003', 
-        TidValue: 'E280119120006013217D032E'
-      }
+      ['RJ0001', 'E280119120006013217D032D'],
+      ['RJ0002', 'E2801191200065A721B7032D'],
+      ['RJ0003', 'E280119120006013217D032E']
     ];
 
-    const worksheet = XLSX.utils.json_to_sheet(templateData);
+    // Create worksheet from array of arrays
+    const worksheet = XLSX.utils.aoa_to_sheet(templateData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'RFID Template');
     
+    // Set column widths
     const wscols = [
-      { wch: 15 }, // BarcodeNumber
-      { wch: 30 }  // TidValue
+      { wch: 15 }, // Column 0: BarcodeNumber
+      { wch: 30 }  // Column 1: TidValue
     ];
     worksheet['!cols'] = wscols;
 
@@ -259,478 +284,281 @@ const UploadRFID = () => {
 
   return (
     <div style={{
-      minHeight: 'calc(100vh - 64px)',
-      background: '#f8fafc',
-      padding: '24px',
-      fontFamily: 'Inter, system-ui, sans-serif'
+      minHeight: '100vh',
+      background: '#ffffff',
+      fontFamily: '"Plus Jakarta Sans", Inter, sans-serif',
+      padding: '32px 40px',
+      boxSizing: 'border-box'
     }}>
-      <div style={{
-        maxWidth: '1200px',
-        margin: '0 auto',
-      }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+      `}</style>
+      
+      <div style={{ maxWidth: 1000, margin: '0 auto' }}>
         {/* Header Section */}
         <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          border: '1px solid #e5e7eb'
+          marginBottom: 40,
+          textAlign: 'left'
         }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '16px'
+          <h1 style={{
+            fontSize: '32px',
+            fontWeight: 800,
+            color: '#0f172a',
+            margin: '0 0 12px 0',
+            letterSpacing: '-0.03em',
+            background: 'linear-gradient(to right, #0f172a, #334155)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent'
           }}>
-            <h1 style={{
-              fontSize: '24px',
-              fontWeight: 700,
-              color: '#1e293b',
-              margin: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px'
-            }}>
+            Bulk RFID Upload
+          </h1>
+          <p style={{
+            fontSize: '16px',
+            color: '#64748b',
+            margin: 0,
+            maxWidth: '600px',
+            lineHeight: 1.6
+          }}>
+            Upload your Excel file to quickly add multiple RFID records to your inventory. 
+            All data will be processed efficiently in a single batch.
+          </p>
+        </div>
+
+        {/* Template & Upload Container */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
+          
+          {/* Template Info Card */}
+          <div style={{
+            background: '#f8fafc',
+            borderRadius: '16px',
+            padding: '20px 24px',
+            border: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{
-                width: '40px',
-                height: '40px',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                borderRadius: '10px',
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                background: '#dcfce7',
+                color: '#16a34a',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
+                fontSize: '24px'
               }}>
-                <FaCloudUploadAlt style={{ fontSize: '20px', color: '#ffffff' }} />
+                <FaFileExcel />
               </div>
-              Upload Bulk Stock in RFID
-            </h1>
-            <div style={{
-              fontSize: '14px',
-              color: '#64748b',
-              fontWeight: 500
-            }}>
-              {totalRecords > 0 && `Total: ${totalRecords} records`}
-            </div>
-          </div>
-          <p style={{
-            fontSize: '14px',
-            color: '#64748b',
-            margin: 0,
-            lineHeight: 1.6,
-            marginBottom: '16px'
-          }}>
-            Upload your Excel file to quickly add multiple RFID records to your inventory. All data will be processed and sent in a single request for maximum efficiency.
-          </p>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '12px 16px',
-            background: '#f0fdf4',
-            borderRadius: '8px',
-            border: '1px solid #bbf7d0'
-          }}>
-            <FaFileExcel style={{ fontSize: '18px', color: '#10b981' }} />
-            <div style={{ flex: 1 }}>
-              <div style={{
-                fontSize: '13px',
-                fontWeight: 600,
-                color: '#1e293b',
-                marginBottom: '2px'
-              }}>
-                Need a template?
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#64748b'
-              }}>
-                Download our Excel template with sample data to get started
+              <div>
+                <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>Need a template?</h3>
+                <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>Download our sample Excel file to get started correctly.</p>
               </div>
             </div>
+            
             <button
               onClick={downloadTemplate}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '8px 16px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #10b981',
+                gap: '8px',
+                padding: '10px 20px',
                 background: '#ffffff',
-                color: '#10b981',
+                border: '1px solid #cbd5e1',
+                borderRadius: '10px',
+                color: '#475569',
+                fontWeight: 600,
+                fontSize: '14px',
                 cursor: 'pointer',
-                transition: 'all 0.2s',
-                whiteSpace: 'nowrap'
+                transition: 'all 0.2s ease',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
               }}
               onMouseEnter={(e) => {
-                e.target.style.background = '#10b981';
-                e.target.style.color = '#ffffff';
+                e.currentTarget.style.borderColor = '#16a34a';
+                e.currentTarget.style.color = '#16a34a';
+                e.currentTarget.style.background = '#f0fdf4';
               }}
               onMouseLeave={(e) => {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#10b981';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.color = '#475569';
+                e.currentTarget.style.background = '#ffffff';
               }}
             >
-              <FaDownload />
-              <span>Download Template</span>
+              <FaDownload size={14} /> Download Template
             </button>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div style={{
-          display: 'flex',
-          gap: '10px',
-          marginBottom: '24px',
-          flexWrap: 'wrap'
-        }}>
-          {/* Remove File Button */}
-          {selectedFile && (
-            <button
-              onClick={handleRemoveFile}
-              disabled={uploading}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #ef4444',
-                background: '#ffffff',
-                color: '#ef4444',
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                opacity: uploading ? 0.5 : 1,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!uploading) {
-                  e.target.style.background = '#ef4444';
-                  e.target.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!uploading) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#ef4444';
-                }
-              }}
-            >
-              <FaTrash />
-              <span>Remove File</span>
-            </button>
-          )}
-        </div>
-
-        {/* File Uploader Section */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          padding: '24px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          border: '1px solid #e5e7eb'
-        }}>
+          {/* File Uploader Area */}
           <div style={{
+            background: '#ffffff',
+            borderRadius: '24px',
+            padding: '40px',
+            border: `2px dashed ${dragActive ? '#3b82f6' : '#e2e8f0'}`,
+            transition: 'all 0.3s ease',
+            backgroundColor: dragActive ? '#eff6ff' : '#ffffff',
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            marginBottom: '20px',
-            gap: '10px',
-          }}>
-            <div style={{
-              width: '32px',
-              height: '32px',
-              background: '#EFF6FF',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <FaFileExcel style={{ fontSize: '16px', color: '#2563EB' }} />
-            </div>
-            <h2 style={{
-              fontSize: '18px',
-              fontWeight: '600',
-              color: '#1E293B',
-              margin: 0,
-            }}>
-              File Uploader
-            </h2>
-          </div>
-
-          {/* Upload Area */}
-          <div
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            style={{
-              border: `2px dashed ${dragActive ? '#3b82f6' : '#e2e8f0'}`,
-              borderRadius: '12px',
-              padding: '60px 20px',
-              transition: 'all 0.3s ease',
-              background: dragActive ? '#f8fafc' : '#ffffff',
-              cursor: 'pointer',
-              position: 'relative',
-            }}
+            justifyContent: 'center',
+            minHeight: '300px',
+            position: 'relative'
+          }}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
           >
             {selectedFile ? (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '20px',
-              }}>
+              <div style={{ width: '100%', maxWidth: '400px', textAlign: 'center' }}>
                 <div style={{
-                  width: '60px',
-                  height: '60px',
-                  background: '#10B981',
-                  borderRadius: '50%',
+                  width: '80px',
+                  height: '80px',
+                  borderRadius: '20px',
+                  background: '#dbeafe',
+                  color: '#2563eb',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  position: 'relative',
+                  fontSize: '32px',
+                  margin: '0 auto 24px'
                 }}>
-                  <FaFileExcel style={{ fontSize: '24px', color: 'white' }} />
+                  <FaFileExcel />
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    color: '#1E293B',
-                    margin: '0 0 4px 0',
-                  }}>
-                    {selectedFile.name}
-                  </p>
-                  <p style={{
-                    fontSize: '14px',
-                    color: '#64748B',
-                    margin: '0 0 8px 0',
-                  }}>
-                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                  {processedData && (
-                    <p style={{
-                      fontSize: '14px',
-                      color: '#10B981',
-                      fontWeight: '600',
-                      margin: 0,
-                    }}>
-                      {totalRecords} records processed
-                    </p>
-                  )}
-                </div>
+                
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>
+                  {selectedFile.name}
+                </h3>
+                <p style={{ margin: '0 0 24px 0', fontSize: '14px', color: '#64748b' }}>
+                  {(selectedFile.size / 1024 / 1024).toFixed(2)} MB • {totalRecords} records found
+                </p>
 
-                {/* Upload Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    uploadFile();
-                  }}
-                  disabled={uploading || !processedData}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '10px 24px',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: '1px solid #3b82f6',
-                    background: uploading || !processedData ? '#94A3B8' : '#ffffff',
-                    color: uploading || !processedData ? '#ffffff' : '#3b82f6',
-                    cursor: uploading || !processedData ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    opacity: uploading || !processedData ? 0.6 : 1
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!uploading && processedData) {
-                      e.target.style.background = '#3b82f6';
-                      e.target.style.color = '#ffffff';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!uploading && processedData) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.color = '#3b82f6';
-                    }
-                  }}
-                >
-                  {uploading ? (
-                    <>
-                      <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-                      <span>Uploading...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FaCloudUploadAlt />
-                      <span>Upload RFID Sheet</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Progress Bar */}
-                {uploading && (
-                  <div style={{
-                    width: '100%',
-                    maxWidth: '500px',
-                    marginTop: '20px'
-                  }}>
-                    <div style={{
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                  <button
+                    onClick={uploadFile}
+                    disabled={uploading || !processedData}
+                    style={{
+                      flex: 1,
                       display: 'flex',
-                      justifyContent: 'space-between',
                       alignItems: 'center',
-                      marginBottom: '8px'
-                    }}>
-                      <span style={{
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        color: '#1e293b'
-                      }}>
-                        Upload Progress
-                      </span>
-                      <span style={{
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        color: '#3b82f6'
-                      }}>
-                        {uploadProgress}%
-                      </span>
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 24px',
+                      background: uploading ? '#94a3b8' : '#2563eb',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '12px',
+                      fontWeight: 600,
+                      fontSize: '14px',
+                      cursor: uploading ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s ease',
+                      boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)'
+                    }}
+                  >
+                    {uploading ? (
+                      <>
+                        <FaSpinner className="fa-spin" /> Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <FaCloudUploadAlt size={16} /> Upload File
+                      </>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={handleRemoveFile}
+                    disabled={uploading}
+                    style={{
+                      padding: '12px',
+                      background: '#fee2e2',
+                      color: '#ef4444',
+                      border: 'none',
+                      borderRadius: '12px',
+                      cursor: uploading ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title="Remove file"
+                  >
+                    <FaTrash size={16} />
+                  </button>
+                </div>
+
+                {uploading && (
+                  <div style={{ marginTop: '24px', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px', fontWeight: 600 }}>
+                      <span style={{ color: '#64748b' }}>Progress</span>
+                      <span style={{ color: '#2563eb' }}>{uploadProgress}%</span>
                     </div>
-                    <div style={{
-                      width: '100%',
-                      height: '10px',
-                      background: '#e2e8f0',
-                      borderRadius: '5px',
-                      overflow: 'hidden',
-                      position: 'relative'
-                    }}>
-                      <div
-                        style={{
-                          width: `${uploadProgress}%`,
-                          height: '100%',
-                          background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
-                          transition: 'width 0.3s ease',
-                          borderRadius: '5px',
-                          position: 'relative',
-                          boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
-                        }}
-                      >
-                        <div style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-                          animation: 'shimmer 1.5s infinite'
-                        }} />
-                      </div>
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#64748B',
-                      marginTop: '8px',
-                      textAlign: 'center'
-                    }}>
-                      {uploadProgress < 100 ? 'Uploading file to server...' : 'Processing data...'}
+                    <div style={{ width: '100%', height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#2563eb', transition: 'width 0.3s ease' }} />
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <div style={{
-                position: 'relative',
-                zIndex: 1,
-              }}>
+              <>
                 <div style={{
-                  width: '60px',
-                  height: '60px',
-                  background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
+                  width: '80px',
+                  height: '80px',
                   borderRadius: '50%',
+                  background: '#f1f5f9',
+                  color: '#94a3b8',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  margin: '0 auto 16px',
-                  boxShadow: '0 8px 16px rgba(37, 99, 235, 0.2)',
-                  transition: 'transform 0.3s ease',
-                  transform: dragActive ? 'scale(1.1)' : 'scale(1)',
+                  fontSize: '32px',
+                  marginBottom: '24px'
                 }}>
-                  <FaCloudUploadAlt style={{ fontSize: '28px', color: 'white' }} />
+                  <FaCloudUploadAlt />
                 </div>
-
-                <h3 style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#1E293B',
-                  marginBottom: '8px',
-                  textAlign: 'center',
-                }}>
-                  Drag and drop your files here
+                
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>
+                  Drag & Drop file here
                 </h3>
-
-                <p style={{
-                  color: '#64748B',
-                  marginBottom: '16px',
-                  fontSize: '14px',
-                  textAlign: 'center',
-                }}>
-                  OR
+                <p style={{ margin: '0 0 24px 0', fontSize: '15px', color: '#64748b' }}>
+                  or click below to browse your files
                 </p>
-
+                
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleBrowseClick();
-                  }}
+                  onClick={handleBrowseClick}
                   style={{
-                    background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
-                    color: 'white',
-                    border: 'none',
-                    padding: '10px 24px',
-                    borderRadius: '8px',
+                    padding: '12px 32px',
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '12px',
+                    color: '#334155',
+                    fontWeight: 600,
                     fontSize: '14px',
-                    fontWeight: '600',
                     cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    margin: '0 auto',
-                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
                   }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(37, 99, 235, 0.3)';
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.color = '#3b82f6';
+                    e.currentTarget.style.background = '#eff6ff';
                   }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.2)';
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                    e.currentTarget.style.color = '#334155';
+                    e.currentTarget.style.background = '#ffffff';
                   }}
                 >
-                  <FaFileExcel style={{ fontSize: '16px' }} />
-                  Browse files
+                  Browse Files
                 </button>
-
-                <p style={{
-                  fontSize: '13px',
-                  color: '#64748B',
-                  marginTop: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                }}>
-                  <FaFileExcel style={{ color: '#2563EB' }} />
-                  Only .xlsx or .xls files are supported.
+                
+                <p style={{ marginTop: '24px', fontSize: '13px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <FaFileExcel /> Supports .xlsx and .xls files
                 </p>
-              </div>
+              </>
             )}
-            {/* Place the file input here, always present and accessible by ref */}
+            
             <input
               ref={fileInputRef}
               type="file"
@@ -740,41 +568,36 @@ const UploadRFID = () => {
             />
           </div>
 
-          {/* Error Message */}
+          {/* Messages Area */}
           {error && (
             <div style={{
-              background: '#FEF2F2',
-              color: '#DC2626',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginTop: '16px',
-              fontSize: '14px',
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '12px',
+              padding: '16px 20px',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              border: '1px solid #FECACA'
+              gap: '12px',
+              color: '#ef4444'
             }}>
-              <FaTimes style={{ fontSize: '16px' }} />
-              {error}
+              <FaTimes size={18} />
+              <span style={{ fontSize: '14px', fontWeight: 500 }}>{error}</span>
             </div>
           )}
 
-          {/* Success Message */}
           {success && !showSuccessModal && (
             <div style={{
-              background: '#F0FDF4',
-              color: '#10B981',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginTop: '16px',
-              fontSize: '14px',
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '12px',
+              padding: '16px 20px',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              border: '1px solid #BBF7D0'
+              gap: '12px',
+              color: '#16a34a'
             }}>
-              <FaCheckCircle style={{ fontSize: '16px' }} />
-              {success}
+              <FaCheckCircle size={18} />
+              <span style={{ fontSize: '14px', fontWeight: 500 }}>{success}</span>
             </div>
           )}
         </div>
@@ -788,102 +611,101 @@ const UploadRFID = () => {
           left: 0,
           width: '100vw',
           height: '100vh',
-          background: 'rgba(0,0,0,0.5)',
+          background: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)',
           zIndex: 9999,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontFamily: 'Inter, sans-serif'
+          fontFamily: '"Plus Jakarta Sans", sans-serif'
         }}>
           <div style={{
             background: '#ffffff',
-            borderRadius: '16px',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-            padding: '32px',
-            minWidth: '320px',
-            maxWidth: '400px',
+            borderRadius: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            padding: '40px',
+            width: '100%',
+            maxWidth: '420px',
             textAlign: 'center',
-            fontFamily: 'Inter, sans-serif',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '20px',
-            border: '1px solid #e5e7eb'
+            animation: 'popIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
           }}>
             <div style={{
-              width: '70px',
-              height: '70px',
+              width: '80px',
+              height: '80px',
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              background: '#dcfce7',
+              color: '#16a34a',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              marginBottom: '8px',
-              boxShadow: '0 4px 18px rgba(16, 185, 129, 0.3)',
-              animation: 'popIn 0.5s cubic-bezier(.68,-0.55,.27,1.55)'
+              fontSize: '40px',
+              margin: '0 auto 24px'
             }}>
-              <FaCheckCircle style={{ fontSize: '36px', color: '#ffffff' }} />
+              <FaCheckCircle />
             </div>
-            <div style={{
-              fontWeight: 700,
-              fontSize: '22px',
-              color: '#1e293b',
-              marginBottom: '4px',
-              fontFamily: 'Inter, sans-serif',
-            }}>
+            
+            <h2 style={{ margin: '0 0 12px 0', fontSize: '24px', fontWeight: 800, color: '#0f172a' }}>
               Upload Successful!
-            </div>
-            <div style={{
-              fontSize: '14px',
-              color: '#64748b',
-              marginBottom: '8px',
-              lineHeight: 1.6
-            }}>
-              Your Excel file has been processed and uploaded successfully. {totalRecords} records have been added to the system.
-            </div>
+            </h2>
+            
+            <p style={{ margin: '0 0 24px 0', fontSize: '15px', color: '#64748b', lineHeight: 1.6 }}>
+              {uploadResult?.message || `Your Excel file has been processed successfully. ${totalRecords} records were handled.`}
+            </p>
+
+            {uploadResult?.statistics && (uploadResult.statistics.inserted > 0 || uploadResult.statistics.updated > 0) && (
+              <div style={{
+                background: '#f8fafc',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '24px',
+                textAlign: 'left'
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Statistics
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {uploadResult.statistics.inserted > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                      <span style={{ color: '#334155' }}>New Records</span>
+                      <span style={{ fontWeight: 600, color: '#16a34a' }}>+{uploadResult.statistics.inserted}</span>
+                    </div>
+                  )}
+                  {uploadResult.statistics.updated > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                      <span style={{ color: '#334155' }}>Updated Records</span>
+                      <span style={{ fontWeight: 600, color: '#3b82f6' }}>{uploadResult.statistics.updated}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <button
               onClick={() => setShowSuccessModal(false)}
               style={{
-                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                color: '#fff',
+                width: '100%',
+                padding: '14px',
+                background: '#0f172a',
+                color: '#ffffff',
                 border: 'none',
-                borderRadius: '8px',
-                padding: '12px 32px',
+                borderRadius: '12px',
                 fontWeight: 600,
-                fontSize: '14px',
+                fontSize: '15px',
                 cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                marginTop: '8px',
-                fontFamily: 'Inter, sans-serif',
-                transition: 'all 0.2s',
+                transition: 'transform 0.1s ease'
               }}
-              onMouseOver={e => {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseOut={e => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
+              onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'}
+              onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
             >
-              Close
+              Done
             </button>
-            <style>{`
-              @keyframes popIn {
-                0% { transform: scale(0.7); opacity: 0; }
-                80% { transform: scale(1.1); opacity: 1; }
-                100% { transform: scale(1); opacity: 1; }
-              }
-              @keyframes spin {
-                from { transform: rotate(0deg); }
-                to { transform: rotate(360deg); }
-              }
-              @keyframes shimmer {
-                0% { transform: translateX(-100%); }
-                100% { transform: translateX(100%); }
-              }
-            `}</style>
           </div>
+          <style>{`
+            @keyframes popIn {
+              from { opacity: 0; transform: scale(0.95) translateY(10px); }
+              to { opacity: 1; transform: scale(1) translateY(0); }
+            }
+          `}</style>
         </div>
       )}
     </div>

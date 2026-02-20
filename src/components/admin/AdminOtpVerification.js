@@ -189,9 +189,10 @@ const AdminOtpVerification = ({ username, onVerificationSuccess, onBackToLogin }
           {/* Logo and Title */}
           <div style={{ marginBottom: '0.5rem' }}>
             <img
-              src="/Logo/Sparkle RFID svg.svg"
+              src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
               alt="Sparkle RFID"
               style={{ height: 32, marginRight: 6, verticalAlign: 'middle' }}
+              onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
             />
           </div>
           <h1 style={{

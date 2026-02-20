@@ -8,21 +8,34 @@ const LabelPropertiesPanel = ({
   layout,
   onLayoutChange
 }) => {
-  // Available binding fields
+  // Available binding fields - All fields from Add Stock form
   const availableBindings = [
     { value: 'ItemCode', label: 'Item Code' },
+    { value: 'RFIDNumber', label: 'RFID Number' },
+    { value: 'RFIDCode', label: 'RFID Code' },
     { value: 'ProductTitle', label: 'Product Title' },
+    { value: 'ProductName', label: 'Product Name' },
+    { value: 'CategoryName', label: 'Category Name' },
+    { value: 'BranchName', label: 'Branch Name' },
+    { value: 'CounterName', label: 'Counter Name' },
+    { value: 'DesignName', label: 'Design Name' },
+    { value: 'PurityName', label: 'Purity Name' },
     { value: 'GrossWt', label: 'Gross Weight' },
     { value: 'NetWt', label: 'Net Weight' },
     { value: 'TotalStoneWeight', label: 'Stone Weight' },
+    { value: 'StoneWeight', label: 'Stone Weight (Alt)' },
+    { value: 'DiamondWeight', label: 'Diamond Weight' },
     { value: 'Size', label: 'Size' },
-    { value: 'RFIDCode', label: 'RFID Code' },
-    { value: 'ProductName', label: 'Product Name' },
-    { value: 'CategoryName', label: 'Category Name' },
-    { value: 'PurityName', label: 'Purity Name' },
-    { value: 'DesignName', label: 'Design Name' },
-    { value: 'BranchName', label: 'Branch Name' },
-    { value: 'MRP', label: 'MRP' }
+    { value: 'BoxDetails', label: 'Box Details' },
+    { value: 'StoneAmount', label: 'Stone Amount' },
+    { value: 'DiamondAmount', label: 'Diamond Amount' },
+    { value: 'HallmarkAmount', label: 'Hallmark Amount' },
+    { value: 'MakingPerGram', label: 'Making Per Gram' },
+    { value: 'MakingPercentage', label: 'Making Percentage' },
+    { value: 'MakingFixedAmt', label: 'Making Fixed Amount' },
+    { value: 'MRP', label: 'MRP' },
+    { value: 'ImageURL', label: 'Image URL' },
+    { value: 'Status', label: 'Status' }
   ];
 
   if (!selectedElement) {
@@ -474,10 +487,18 @@ const LabelPropertiesPanel = ({
           }}>
             Preview Data
           </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
-            {availableBindings.slice(0, 6).map((binding) => (
-              <div key={binding.value} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>{binding.label}:</span>
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '6px', 
+            fontSize: '11px',
+            maxHeight: '300px',
+            overflowY: 'auto',
+            paddingRight: '4px'
+          }}>
+            {availableBindings.map((binding) => (
+              <div key={binding.value} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#64748b', flexShrink: 0, minWidth: '120px' }}>{binding.label}:</span>
                 <input
                   type="text"
                   value={labelData[binding.value] || ''}

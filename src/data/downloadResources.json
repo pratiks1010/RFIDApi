@@ -1,0 +1,62 @@
+{
+  "sparkleResources": [
+    {
+      "id": "sparkle-pos-app",
+      "title": "Sparkle POS App Download",
+      "description": "Complete point of sale solution for retail operations with inventory management, billing, and customer management features.",
+      "driveLink": "",
+      "icon": "FaMobileAlt",
+      "color": "#16a34a"
+    },
+    {
+      "id": "sparkle-rfid-app",
+      "title": "Sparkle RFID App Download",
+      "description": "Mobile application for RFID tag scanning, inventory tracking, and real-time stock management on Android devices.",
+      "driveLink": "",
+      "icon": "FaMobileAlt",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "sparkle-local-database",
+      "title": "Sparkle LocalDatabase DataPush Exe Installation",
+      "description": "Desktop utility to synchronize local database records with the central server. Ensures data consistency across systems.",
+      "driveLink": "",
+      "icon": "FaDatabase",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "sparkle-autopush",
+      "title": "Sparkle AutoPush Data to Server EXE Installation",
+      "description": "Automated background service that pushes local data to the server at scheduled intervals without manual intervention.",
+      "driveLink": "",
+      "icon": "FaCloudUploadAlt",
+      "color": "#8b5cf6"
+    }
+  ],
+  "printerDriverResources": [
+    {
+      "id": "bartender-app",
+      "title": "Bartender App Installation",
+      "description": "Professional label design and printing software. Create, design, and print barcode labels, RFID tags, and product labels.",
+      "driveLink": "https://drive.google.com/file/d/1yuDHBYRHofJU3fbchoX3z8u_V7wzsQ6d/view?usp=sharing",
+      "icon": "FaPrint",
+      "color": "#2563eb"
+    },
+    {
+      "id": "tsc-print-driver",
+      "title": "tsc Print Driver installation",
+      "description": "Official TSC printer driver for TSC TTP series printers. Required for printing labels and RFID tags on TSC devices.",
+      "driveLink": "https://drive.google.com/file/d/1x7HS77p2xa2rLfKqtu6ALTd80-pVSX_E/view?usp=sharing",
+      "icon": "FaPrint",
+      "color": "#7c3aed"
+    },
+    {
+      "id": "printonix-rfid-driver",
+      "title": "Printonix RFID printer Driver Installation",
+      "description": "Driver for Printonix RFID printers. Enables printing of RFID-enabled labels with proper encoding and formatting.",
+      "driveLink": "https://drive.google.com/file/d/1GjZkg-bvYGi81eqlxvC037upFg5JEbDv/view?usp=sharing",
+      "icon": "FaPrint",
+      "color": "#dc2626"
+    }
+  ]
+}

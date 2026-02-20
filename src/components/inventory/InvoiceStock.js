@@ -16,7 +16,8 @@ import {
   FaEye,
   FaEdit,
   FaDownload,
-  FaTimes
+  FaTimes,
+  FaChevronDown
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -41,6 +42,8 @@ const InvoiceStock = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const exportDropdownRef = useRef(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
@@ -434,6 +437,7 @@ const InvoiceStock = () => {
 
       doc.save(`invoice_stock_${new Date().toISOString().split('T')[0]}.pdf`);
       setShowExportModal(false);
+      setShowExportDropdown(false);
     } catch (error) {
       console.error('Error exporting to PDF:', error);
     }
@@ -648,33 +652,115 @@ const InvoiceStock = () => {
           >
             <FaTrash /> Delete
           </button>
-          <button
-            onClick={() => setShowExportModal(true)}
-            style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid #3b82f6',
-              background: '#ffffff',
-              color: '#3b82f6',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = '#3b82f6';
-              e.target.style.color = '#ffffff';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = '#ffffff';
-              e.target.style.color = '#3b82f6';
-            }}
-          >
-            <FaFileExport /> Export
-          </button>
+          <div ref={exportDropdownRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowExportDropdown(!showExportDropdown)}
+              disabled={currentItems.length === 0}
+              style={{
+                padding: '8px 16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '8px',
+                border: '1px solid #3b82f6',
+                background: '#ffffff',
+                color: '#3b82f6',
+                cursor: currentItems.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: currentItems.length === 0 ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                if (currentItems.length > 0) {
+                  e.target.style.background = '#3b82f6';
+                  e.target.style.color = '#ffffff';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (currentItems.length > 0) {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.color = '#3b82f6';
+                }
+              }}
+            >
+              <FaFileExcel />
+              Export
+              <FaChevronDown style={{ fontSize: '10px' }} />
+            </button>
+
+            {showExportDropdown && currentItems.length > 0 && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: '8px',
+                background: '#ffffff',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
+                zIndex: 1000,
+                minWidth: '180px',
+                overflow: 'hidden'
+              }}>
+                <button
+                  onClick={handleExportToExcel}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 16px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    border: 'none',
+                    background: '#ffffff',
+                    color: '#10b981',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    textAlign: 'left',
+                    borderBottom: '1px solid #f1f5f9'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f0fdf4';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#ffffff';
+                  }}
+                >
+                  <FaFileExcel style={{ fontSize: '16px' }} />
+                  Export to Excel
+                </button>
+                <button
+                  onClick={handleExportToPDF}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px 16px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    border: 'none',
+                    background: '#ffffff',
+                    color: '#ef4444',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    textAlign: 'left'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#fef2f2';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#ffffff';
+                  }}
+                >
+                  <FaFilePdf style={{ fontSize: '16px' }} />
+                  Export to PDF
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setShowFilterPanel(true)}
             style={{

@@ -8,8 +8,14 @@ import {
   FaTrash,
   FaCheckCircle,
   FaList,
-  FaTimes
+  FaTimes,
+  FaFileExcel,
+  FaFilePdf,
+  FaChevronDown
 } from 'react-icons/fa';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
@@ -70,6 +76,8 @@ const SampleIn = () => {
   const customerDropdownRef = useRef(null);
   const sampleOutDropdownRef = useRef(null);
   const itemCodeSearchRef = useRef(null);
+  const exportDropdownRef = useRef(null);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
 
   // Helper function to normalize array responses
   const normalizeArray = (data) => {
@@ -97,7 +105,6 @@ const SampleIn = () => {
   useEffect(() => {
     if (userInfo?.ClientCode) {
       fetchCustomers();
-      fetchSampleOuts();
     }
   }, [userInfo]);
 
@@ -131,9 +138,12 @@ const SampleIn = () => {
     }
   };
 
-  // Fetch sample outs for selection
-  const fetchSampleOuts = async () => {
-    if (!userInfo?.ClientCode) return;
+  // Fetch sample outs for selected customer
+  const fetchSampleOuts = async (customerId) => {
+    if (!userInfo?.ClientCode || !customerId) {
+      setSampleOutList([]);
+      return;
+    }
     
     setLoadingSampleOuts(true);
     try {
@@ -142,21 +152,29 @@ const SampleIn = () => {
         'Content-Type': 'application/json'
       };
       
+      const payload = {
+        ClientCode: userInfo.ClientCode,
+        CustomerId: parseInt(customerId),
+        SampleStatus: 'SampleOut'
+      };
+      
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/Transaction/GetAllCustomerIssue',
-        { ClientCode: userInfo.ClientCode },
+        'https://rrgold.loyalstring.co.in/api/Transaction/GetAllCustSampleOutNo',
+        payload,
         { headers }
       );
       
-      const sampleOuts = normalizeArray(response.data);
-      setSampleOutList(sampleOuts);
+      // Response is an array of strings like ["C12", "C8"]
+      const sampleOutNumbers = Array.isArray(response.data) ? response.data : [];
+      setSampleOutList(sampleOutNumbers);
     } catch (error) {
       console.error('Error fetching sample outs:', error);
       addNotification({
         type: 'error',
         title: 'Error',
-        message: 'Failed to load sample outs. Please refresh the page.'
+        message: 'Failed to load sample outs. Please try again.'
       });
+      setSampleOutList([]);
     } finally {
       setLoadingSampleOuts(false);
     }
@@ -191,25 +209,32 @@ const SampleIn = () => {
 
   // Filter sample outs based on search input
   useEffect(() => {
-    if (sampleOutSearch.trim() === '') {
-      setFilteredSampleOuts([]);
-      setShowSampleOutDropdown(false);
+    const searchTerm = sampleOutSearch.trim().toLowerCase();
+    
+    // If search is empty, show all sample outs (will be controlled by dropdown visibility)
+    if (searchTerm === '') {
+      setFilteredSampleOuts(sampleOutList);
       return;
     }
 
-    const searchTerm = sampleOutSearch.toLowerCase();
-    const filtered = sampleOutList.filter(sampleOut => {
-      const sampleOutNo = (sampleOut.SampleOutNo || sampleOut.SampleOutNumber || '').toLowerCase();
-      const customerName = (sampleOut.CustomerName || sampleOut.Customer?.FirstName || '').toLowerCase();
-      const description = (sampleOut.Description || '').toLowerCase();
-      
-      return sampleOutNo.includes(searchTerm) || 
-             customerName.includes(searchTerm) ||
-             description.includes(searchTerm);
+    // sampleOutList is an array of strings like ["C12", "C8"]
+    const filtered = sampleOutList.filter(sampleOutNo => {
+      // Handle both string and object formats
+      if (typeof sampleOutNo === 'string') {
+        return sampleOutNo.toLowerCase().includes(searchTerm);
+      } else {
+        // Fallback for object format if needed
+        const sampleOutNoStr = (sampleOutNo.SampleOutNo || sampleOutNo.SampleOutNumber || '').toLowerCase();
+        const customerName = (sampleOutNo.CustomerName || sampleOutNo.Customer?.FirstName || '').toLowerCase();
+        const description = (sampleOutNo.Description || '').toLowerCase();
+        
+        return sampleOutNoStr.includes(searchTerm) || 
+               customerName.includes(searchTerm) ||
+               description.includes(searchTerm);
+      }
     });
 
     setFilteredSampleOuts(filtered);
-    setShowSampleOutDropdown(filtered.length > 0);
   }, [sampleOutSearch, sampleOutList]);
 
   // Update customer details when customer is selected
@@ -233,6 +258,8 @@ const SampleIn = () => {
           setFinePercent('0.00');
         }
       }
+      // Fetch sample outs when customer is selected
+      fetchSampleOuts(selectedCustomerId);
     } else if (!selectedCustomerId) {
       setCustomerName('');
       setCustomerSearch('');
@@ -241,32 +268,47 @@ const SampleIn = () => {
       setAdvanceAmount('0.00');
       setBalanceAmount('0.000');
       setFinePercent('0.00');
+      // Clear sample outs when no customer is selected
+      setSampleOutList([]);
+      setSampleOutSearch('');
+      setSelectedSampleOutId(null);
+      setSelectedSampleOutData(null);
     }
   }, [selectedCustomerId, customerList]);
 
   // Handle sample out selection - populate return date and description
   const handleSampleOutSelect = (sampleOut) => {
-    setSelectedSampleOutId(sampleOut.Id || sampleOut.CustomerIssueId);
-    setSelectedSampleOutData(sampleOut);
-    setSampleOutSearch(sampleOut.SampleOutNo || sampleOut.SampleOutNumber || '');
-    setShowSampleOutDropdown(false);
-    
-    // Auto-populate return date and description
-    if (sampleOut.ReturnDate) {
-      // Format date to YYYY-MM-DD
-      const date = new Date(sampleOut.ReturnDate);
-      if (!isNaN(date.getTime())) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        setReturnDate(`${year}-${month}-${day}`);
+    // Handle both string and object formats
+    if (typeof sampleOut === 'string') {
+      // If it's a string (sample out number like "C12")
+      setSelectedSampleOutId(sampleOut);
+      setSelectedSampleOutData(sampleOut);
+      setSampleOutSearch(sampleOut);
+      setShowSampleOutDropdown(false);
+    } else {
+      // If it's an object (fallback for compatibility)
+      setSelectedSampleOutId(sampleOut.Id || sampleOut.CustomerIssueId || sampleOut);
+      setSelectedSampleOutData(sampleOut);
+      setSampleOutSearch(sampleOut.SampleOutNo || sampleOut.SampleOutNumber || '');
+      setShowSampleOutDropdown(false);
+      
+      // Auto-populate return date and description
+      if (sampleOut.ReturnDate) {
+        // Format date to YYYY-MM-DD
+        const date = new Date(sampleOut.ReturnDate);
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          setReturnDate(`${year}-${month}-${day}`);
+        }
       }
-    }
-    setDescription(sampleOut.Description || '');
-    
-    // Also set customer if available
-    if (sampleOut.CustomerId) {
-      setSelectedCustomerId(sampleOut.CustomerId);
+      setDescription(sampleOut.Description || '');
+      
+      // Also set customer if available
+      if (sampleOut.CustomerId) {
+        setSelectedCustomerId(sampleOut.CustomerId);
+      }
     }
   };
 
@@ -281,6 +323,9 @@ const SampleIn = () => {
       }
       if (itemCodeSearchRef.current && !itemCodeSearchRef.current.contains(event.target)) {
         setShowSearchResults(false);
+      }
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target)) {
+        setShowExportDropdown(false);
       }
     };
 
@@ -314,10 +359,29 @@ const SampleIn = () => {
       );
       
       if (response.data) {
-        const lastNumber = response.data?.LastSampleOutNo || response.data?.SampleOutNo || response.data || '0';
-        const nextNumber = (parseInt(lastNumber) + 1).toString();
-        setSampleInNumber(nextNumber);
+        // Get the value from response (could be in different formats)
+        let lastNumberValue = response.data?.LastSampleOutNo || response.data?.SampleOutNo || response.data?.LastSampleInNo || response.data?.SampleInNo || response.data;
+        
+        // Convert to string if it's not already
+        let lastNumberStr = String(lastNumberValue || '0');
+        
+        // Extract numeric part from string (handles cases like "C22" -> "22")
+        // This regex extracts all digits from the string
+        const numericMatch = lastNumberStr.match(/\d+/);
+        let lastNumber = numericMatch ? numericMatch[0] : '0';
+        
+        // Parse and validate
+        const parsedNumber = parseInt(lastNumber, 10);
+        if (isNaN(parsedNumber) || parsedNumber < 0) {
+          console.warn('Invalid sample in number from API, defaulting to 1. Response:', response.data, 'Extracted:', lastNumber);
+          setSampleInNumber('1');
+        } else {
+          const nextNumber = (parsedNumber + 1).toString();
+          console.log('Sample In Number - API Response:', response.data, 'Extracted Number:', lastNumber, 'Next Number:', nextNumber);
+          setSampleInNumber(nextNumber);
+        }
       } else {
+        console.warn('No data in API response, defaulting to 1');
         setSampleInNumber('1');
       }
     } catch (error) {
@@ -652,6 +716,216 @@ const SampleIn = () => {
 
   const isSmallScreen = windowWidth <= 768;
 
+  // Calculate totals for export
+  const calculateTotals = () => {
+    const totals = {
+      Qty: 0,
+      TotalWt: 0,
+      GrossWt: 0,
+      NetWt: 0,
+      StoneWt: 0,
+      DiamondWt: 0
+    };
+
+    sampleInItems.forEach(item => {
+      totals.Qty += parseInt(item.Qty || 1);
+      totals.TotalWt += parseFloat(item.TotalWt || 0);
+      totals.GrossWt += parseFloat(item.grosswt || 0);
+      totals.NetWt += parseFloat(item.netwt || 0);
+      totals.StoneWt += parseFloat(item.stonewt || 0);
+      totals.DiamondWt += parseFloat(item.diamondweight || 0);
+    });
+
+    return totals;
+  };
+
+  // Export to Excel
+  const handleExportToExcel = () => {
+    try {
+      if (sampleInItems.length === 0) {
+        addNotification({
+          type: 'error',
+          message: 'No items to export',
+          duration: 3000
+        });
+        return;
+      }
+
+      const totals = calculateTotals();
+      const exportData = sampleInItems.map((item, index) => ({
+        'Sr No': index + 1,
+        'Item Code': item.Itemcode || '-',
+        'RFID Code': item.RFIDNumber || '-',
+        'Category': item.category_id || '-',
+        'Product Name': item.product_id || '-',
+        'Design Name': item.design_id || '-',
+        'Total Wt': parseFloat(item.TotalWt || 0),
+        'Gross Wt': parseFloat(item.grosswt || 0),
+        'Net Wt': parseFloat(item.netwt || 0),
+        'Stone Wt': parseFloat(item.stonewt || 0),
+        'Diamond Wt': parseFloat(item.diamondweight || 0),
+        'Fine%': item.FinePercent || '0.00',
+        'Wastage%': item.WastagePercent || '0.00',
+        'Qty': parseInt(item.Qty || 1),
+        'Pcs': parseInt(item.Pieces || 1)
+      }));
+
+      // Add summary row
+      exportData.push({
+        'Sr No': '',
+        'Item Code': '',
+        'RFID Code': '',
+        'Category': '',
+        'Product Name': '',
+        'Design Name': 'TOTAL',
+        'Total Wt': totals.TotalWt,
+        'Gross Wt': totals.GrossWt,
+        'Net Wt': totals.NetWt,
+        'Stone Wt': totals.StoneWt,
+        'Diamond Wt': totals.DiamondWt,
+        'Fine%': '',
+        'Wastage%': '',
+        'Qty': totals.Qty,
+        'Pcs': ''
+      });
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sample In Items');
+      
+      const fileName = `SampleIn_${sampleInNumber || 'Items'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      addNotification({
+        type: 'success',
+        message: `Sample In items exported to ${fileName} successfully`,
+        duration: 3000
+      });
+      setShowExportDropdown(false);
+    } catch (err) {
+      console.error('Error exporting to Excel:', err);
+      addNotification({
+        type: 'error',
+        message: 'Failed to export. Please try again.',
+        duration: 3000
+      });
+    }
+  };
+
+  // Export to PDF
+  const handleExportToPDF = () => {
+    try {
+      if (sampleInItems.length === 0) {
+        addNotification({
+          type: 'error',
+          message: 'No items to export',
+          duration: 3000
+        });
+        return;
+      }
+
+      const totals = calculateTotals();
+      const doc = new jsPDF('landscape');
+      
+      doc.setFontSize(16);
+      doc.text('Sample In Items', 15, 20);
+      doc.setFontSize(10);
+      doc.text(`Sample In No: ${sampleInNumber || 'N/A'}`, 15, 28);
+      doc.text(`Date: ${sampleInDate}`, 15, 34);
+      doc.text(`Customer: ${customerName || 'N/A'}`, 15, 40);
+      doc.text(`Total Items: ${sampleInItems.length}`, 15, 46);
+
+      const tableHeaders = [
+        'Sr No',
+        'Item Code',
+        'RFID Code',
+        'Category',
+        'Product',
+        'Design',
+        'Total Wt',
+        'Gross Wt',
+        'Net Wt',
+        'Stone Wt',
+        'Diamond Wt',
+        'Fine%',
+        'Wastage%',
+        'Qty',
+        'Pcs'
+      ];
+
+      const tableData = sampleInItems.map((item, index) => [
+        index + 1,
+        item.Itemcode || '-',
+        item.RFIDNumber || '-',
+        item.category_id || '-',
+        item.product_id || '-',
+        item.design_id || '-',
+        parseFloat(item.TotalWt || 0).toFixed(3),
+        parseFloat(item.grosswt || 0).toFixed(3),
+        parseFloat(item.netwt || 0).toFixed(3),
+        parseFloat(item.stonewt || 0).toFixed(3),
+        parseFloat(item.diamondweight || 0).toFixed(3),
+        item.FinePercent || '0.00',
+        item.WastagePercent || '0.00',
+        item.Qty || 1,
+        item.Pieces || 1
+      ]);
+
+      // Add summary row
+      tableData.push([
+        '',
+        '',
+        '',
+        '',
+        '',
+        'TOTAL',
+        totals.TotalWt.toFixed(3),
+        totals.GrossWt.toFixed(3),
+        totals.NetWt.toFixed(3),
+        totals.StoneWt.toFixed(3),
+        totals.DiamondWt.toFixed(3),
+        '',
+        '',
+        totals.Qty,
+        ''
+      ]);
+
+      doc.autoTable({
+        head: [tableHeaders],
+        body: tableData,
+        startY: 52,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [69, 73, 232], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        margin: { left: 8, right: 8 },
+        tableWidth: 'auto',
+        didParseCell: function(data) {
+          if (data.row.index === tableData.length - 1) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [241, 245, 249];
+          }
+        }
+      });
+
+      const fileName = `SampleIn_${sampleInNumber || 'Items'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      
+      addNotification({
+        type: 'success',
+        message: `Sample In items exported to ${fileName} successfully`,
+        duration: 3000
+      });
+      setShowExportDropdown(false);
+    } catch (err) {
+      console.error('Error exporting to PDF:', err);
+      addNotification({
+        type: 'error',
+        message: 'Failed to export. Please try again.',
+        duration: 3000
+      });
+    }
+  };
+
   return (
     <div style={{ 
       padding: isSmallScreen ? '8px' : '20px', 
@@ -732,6 +1006,112 @@ const SampleIn = () => {
               />
             </div>
           </div>
+          {/* Export Button with Dropdown */}
+          {sampleInItems.length > 0 && (
+            <div ref={exportDropdownRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowExportDropdown(!showExportDropdown)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #10b981',
+                  background: '#ffffff',
+                  color: '#10b981',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#10b981';
+                  e.target.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.color = '#10b981';
+                }}
+              >
+                <FaFileExcel />
+                <span>Export</span>
+                <FaChevronDown style={{ fontSize: '10px' }} />
+              </button>
+
+              {showExportDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '8px',
+                  background: '#ffffff',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
+                  zIndex: 1000,
+                  minWidth: '180px',
+                  overflow: 'hidden'
+                }}>
+                  <button
+                    onClick={handleExportToExcel}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '12px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      background: '#ffffff',
+                      color: '#10b981',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'left',
+                      borderBottom: '1px solid #f1f5f9'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#f0fdf4';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                    }}
+                  >
+                    <FaFileExcel style={{ fontSize: '16px' }} />
+                    Export to Excel
+                  </button>
+                  <button
+                    onClick={handleExportToPDF}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '12px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      background: '#ffffff',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#fef2f2';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                    }}
+                  >
+                    <FaFilePdf style={{ fontSize: '16px' }} />
+                    Export to PDF
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -826,7 +1206,11 @@ const SampleIn = () => {
                          return (
                            <div
                              key={customer.Id}
-                             onClick={() => handleCustomerSelect(customer)}
+                             data-dropdown-item="true"
+                             onMouseDown={(e) => {
+                               e.preventDefault(); // Prevent input blur from firing before selection
+                               handleCustomerSelect(customer);
+                             }}
                              style={{
                                padding: '12px 14px',
                                cursor: 'pointer',
@@ -1066,7 +1450,7 @@ const SampleIn = () => {
                 }} />
                 <input
                   type="text"
-                  placeholder="Type Sample Out No to search..."
+                  placeholder={!selectedCustomerId ? "Select customer first..." : "Type Sample Out No to search..."}
                   value={sampleOutSearch}
                   onChange={(e) => {
                     setSampleOutSearch(e.target.value);
@@ -1077,7 +1461,8 @@ const SampleIn = () => {
                   onFocus={(e) => {
                     e.target.style.borderColor = '#3b82f6';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                    if (sampleOutSearch.trim() && filteredSampleOuts.length > 0) {
+                    // Show dropdown if there are sample outs available
+                    if (sampleOutList.length > 0) {
                       setShowSampleOutDropdown(true);
                     }
                   }}
@@ -1085,7 +1470,7 @@ const SampleIn = () => {
                     e.target.style.borderColor = '#d1d5db';
                     e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
                   }}
-                  disabled={loadingSampleOuts}
+                  disabled={loadingSampleOuts || !selectedCustomerId}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 38px',
@@ -1093,13 +1478,25 @@ const SampleIn = () => {
                     border: '1px solid #d1d5db',
                     borderRadius: '8px',
                     outline: 'none',
-                    background: loadingSampleOuts ? '#f9fafb' : '#ffffff',
+                    background: loadingSampleOuts || !selectedCustomerId ? '#f9fafb' : '#ffffff',
                     boxSizing: 'border-box',
                     transition: 'all 0.2s ease',
                     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                   }}
                 />
-                {showSampleOutDropdown && filteredSampleOuts.length > 0 && (
+                {loadingSampleOuts && (
+                  <FaSpinner style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#3b82f6',
+                    fontSize: '14px',
+                    animation: 'spin 1s linear infinite'
+                  }} />
+                )}
+                {showSampleOutDropdown && !loadingSampleOuts && (
+                  filteredSampleOuts.length > 0 ? (
                   <div style={{
                     position: 'absolute',
                     top: '100%',
@@ -1116,14 +1513,22 @@ const SampleIn = () => {
                     borderTop: '2px solid #10b981'
                   }}>
                     {filteredSampleOuts.map((sampleOut, idx) => {
-                      const sampleOutNo = sampleOut.SampleOutNo || sampleOut.SampleOutNumber || 'N/A';
-                      const customerName = sampleOut.CustomerName || 
-                        (sampleOut.Customer?.FirstName 
-                          ? `${sampleOut.Customer.FirstName}${sampleOut.Customer.LastName ? ' ' + sampleOut.Customer.LastName : ''}`
-                          : 'Unknown');
+                      // Handle both string and object formats
+                      let sampleOutNo, customerNameDisplay;
+                      if (typeof sampleOut === 'string') {
+                        sampleOutNo = sampleOut;
+                        customerNameDisplay = customerName || 'Customer';
+                      } else {
+                        sampleOutNo = sampleOut.SampleOutNo || sampleOut.SampleOutNumber || 'N/A';
+                        customerNameDisplay = sampleOut.CustomerName || 
+                          (sampleOut.Customer?.FirstName 
+                            ? `${sampleOut.Customer.FirstName}${sampleOut.Customer.LastName ? ' ' + sampleOut.Customer.LastName : ''}`
+                            : customerName || 'Unknown');
+                      }
+                      
                       return (
                         <div
-                          key={sampleOut.Id || sampleOut.CustomerIssueId}
+                          key={typeof sampleOut === 'string' ? sampleOut : (sampleOut.Id || sampleOut.CustomerIssueId || idx)}
                           onClick={() => handleSampleOutSelect(sampleOut)}
                           style={{
                             padding: '12px 14px',
@@ -1145,23 +1550,50 @@ const SampleIn = () => {
                           <div style={{ 
                             fontWeight: 600, 
                             color: '#1e293b',
-                            marginBottom: '4px',
+                            marginBottom: typeof sampleOut === 'string' ? '0' : '4px',
                             fontSize: '13px',
                             lineHeight: '1.4'
                           }}>
                             {sampleOutNo}
                           </div>
-                          <div style={{ 
-                            color: '#64748b', 
-                            fontSize: '11px',
-                            fontWeight: 400
-                          }}>
-                            Customer: {customerName}
-                          </div>
+                          {typeof sampleOut !== 'string' && (
+                            <div style={{ 
+                              color: '#64748b', 
+                              fontSize: '11px',
+                              fontWeight: 400
+                            }}>
+                              Customer: {customerNameDisplay}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
+                  ) : (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      background: '#ffffff',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
+                      marginTop: '6px',
+                      padding: '16px',
+                      zIndex: 1000,
+                      borderTop: '2px solid #10b981',
+                      textAlign: 'center',
+                      color: '#64748b',
+                      fontSize: '12px'
+                    }}>
+                      {!selectedCustomerId 
+                        ? 'Please select a customer first' 
+                        : sampleOutList.length === 0 
+                          ? 'No sample outs found for this customer' 
+                          : 'No matching sample outs found'}
+                    </div>
+                  )
                 )}
               </div>
             </div>

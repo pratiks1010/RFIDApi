@@ -6,10 +6,14 @@ import {
   FaExclamationTriangle,
   FaSync,
   FaFileExcel,
+  FaFilePdf,
+  FaChevronDown,
   FaThLarge,
   FaThList
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 
@@ -31,7 +35,9 @@ const OrderList = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'card'
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
   const isFetchingRef = useRef(false);
+  const exportDropdownRef = useRef(null);
   
   const { addNotification } = useNotifications();
 
@@ -39,6 +45,20 @@ const OrderList = () => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Close export dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target)) {
+        setShowExportDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   useEffect(() => {
@@ -151,7 +171,14 @@ const OrderList = () => {
 
       if (response.data && response.data.Data) {
         const ordersData = Array.isArray(response.data.Data) ? response.data.Data : [];
-        setOrders(ordersData);
+        // Sort so last (newest) order is at top - by OrderDate descending, then by Id
+        const sorted = [...ordersData].sort((a, b) => {
+          const dateA = new Date(a.OrderDate || a.CreatedDate || 0).getTime();
+          const dateB = new Date(b.OrderDate || b.CreatedDate || 0).getTime();
+          if (dateB !== dateA) return dateB - dateA;
+          return (b.Id || b.id || 0) - (a.Id || a.id || 0);
+        });
+        setOrders(sorted);
         
         // Set pagination info if available
         if (response.data.TotalRecords !== undefined) {
@@ -164,7 +191,13 @@ const OrderList = () => {
           setTotalPages(1);
         }
       } else if (Array.isArray(response.data)) {
-        setOrders(response.data);
+        const sorted = [...response.data].sort((a, b) => {
+          const dateA = new Date(a.OrderDate || a.CreatedDate || 0).getTime();
+          const dateB = new Date(b.OrderDate || b.CreatedDate || 0).getTime();
+          if (dateB !== dateA) return dateB - dateA;
+          return (b.Id || b.id || 0) - (a.Id || a.id || 0);
+        });
+        setOrders(sorted);
         setTotalRecords(response.data.length);
         setTotalPages(Math.ceil(response.data.length / pageSize) || 1);
       } else {
@@ -523,6 +556,119 @@ const OrderList = () => {
     }
   };
 
+  // Export to PDF
+  const handleExportToPDF = () => {
+    try {
+      if (orders.length === 0) {
+        addNotification({
+          type: 'error',
+          message: 'No orders to export',
+          duration: 3000
+        });
+        return;
+      }
+
+      const doc = new jsPDF('landscape');
+      
+      // Title
+      doc.setFontSize(16);
+      doc.text('Order List', 15, 20);
+      
+      // Subtitle
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 15, 28);
+      doc.text(`Total Records: ${orders.length}`, 15, 34);
+
+      // Table headers
+      const tableHeaders = [
+        'Sr No',
+        'Order No',
+        'Customer Name',
+        'Contact',
+        'Product',
+        'Items',
+        'Gross Wt',
+        'Fine Metal',
+        'Total Amount',
+        'Paid Amount',
+        'Balance Amount',
+        'Status',
+        'Order Date',
+        'Delivery Date'
+      ];
+
+      // Table data
+      const tableData = orders.map((order, index) => [
+        index + 1,
+        getOrderValue(order, 'OrderNo') || '-',
+        getOrderValue(order, 'CustomerName') || '-',
+        getOrderValue(order, 'Contact') || '-',
+        getOrderValue(order, 'Product') || '-',
+        getOrderValue(order, 'NumberOfItems') || '0',
+        formatNumber(getOrderValue(order, 'GrossWt')),
+        formatNumber(getOrderValue(order, 'FineMetal')),
+        formatCurrency(getOrderValue(order, 'TotalAmount')),
+        formatCurrency(getOrderValue(order, 'PaidAmount')),
+        formatCurrency(getOrderValue(order, 'BalanceAmount')),
+        getOrderValue(order, 'OrderStatus') || '-',
+        formatDate(getOrderValue(order, 'OrderDate')),
+        formatDate(getOrderValue(order, 'DeliveryDate'))
+      ]);
+
+      // Add summary row
+      tableData.push([
+        '',
+        '',
+        '',
+        '',
+        'TOTAL',
+        totals.NumberOfItems.toString(),
+        formatNumber(totals.GrossWt),
+        formatNumber(totals.FineMetal),
+        formatCurrency(totals.TotalAmount),
+        formatCurrency(totals.PaidAmount),
+        formatCurrency(totals.BalanceAmount),
+        '',
+        '',
+        ''
+      ]);
+
+      doc.autoTable({
+        head: [tableHeaders],
+        body: tableData,
+        startY: 40,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [69, 73, 232], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        margin: { left: 8, right: 8 },
+        tableWidth: 'auto',
+        didParseCell: function(data) {
+          if (data.row.index === tableData.length - 1) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [241, 245, 249];
+          }
+        }
+      });
+
+      const fileName = `OrderList_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      
+      addNotification({
+        type: 'success',
+        message: `Order list exported to ${fileName} successfully`,
+        duration: 3000
+      });
+      setShowExportDropdown(false);
+    } catch (err) {
+      console.error('Error exporting to PDF:', err);
+      addNotification({
+        type: 'error',
+        message: 'Failed to export order list. Please try again.',
+        duration: 3000
+      });
+    }
+  };
+
   return (
     <div style={{
       padding: '20px',
@@ -701,41 +847,116 @@ const OrderList = () => {
                 <span>Refresh</span>
               </button>
 
-              {/* Export Button */}
-              <button
-                onClick={handleExportToExcel}
-                disabled={orders.length === 0}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #3b82f6',
-                  background: '#ffffff',
-                  color: '#3b82f6',
-                  cursor: orders.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: orders.length === 0 ? 0.5 : 1,
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (orders.length > 0) {
-                    e.target.style.background = '#3b82f6';
-                    e.target.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (orders.length > 0) {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.color = '#3b82f6';
-                  }
-                }}
-              >
-                <FaFileExcel />
-                <span>Export</span>
-              </button>
+              {/* Export Button with Dropdown */}
+              <div ref={exportDropdownRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowExportDropdown(!showExportDropdown)}
+                  disabled={orders.length === 0}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #3b82f6',
+                    background: '#ffffff',
+                    color: '#3b82f6',
+                    cursor: orders.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: orders.length === 0 ? 0.5 : 1,
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (orders.length > 0) {
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.color = '#ffffff';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (orders.length > 0) {
+                      e.target.style.background = '#ffffff';
+                      e.target.style.color = '#3b82f6';
+                    }
+                  }}
+                >
+                  <FaFileExcel />
+                  <span>Export</span>
+                  <FaChevronDown style={{ fontSize: '10px' }} />
+                </button>
+
+                {showExportDropdown && orders.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: '8px',
+                    background: '#ffffff',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
+                    zIndex: 1000,
+                    minWidth: '180px',
+                    overflow: 'hidden'
+                  }}>
+                    <button
+                      onClick={handleExportToExcel}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        border: 'none',
+                        background: '#ffffff',
+                        color: '#10b981',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        textAlign: 'left',
+                        borderBottom: '1px solid #f1f5f9'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#f0fdf4';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = '#ffffff';
+                      }}
+                    >
+                      <FaFileExcel style={{ fontSize: '16px' }} />
+                      Export to Excel
+                    </button>
+                    <button
+                      onClick={handleExportToPDF}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '12px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        border: 'none',
+                        background: '#ffffff',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#fef2f2';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = '#ffffff';
+                      }}
+                    >
+                      <FaFilePdf style={{ fontSize: '16px' }} />
+                      Export to PDF
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -769,7 +990,7 @@ const OrderList = () => {
         overflow: 'hidden'
       }}>
         {viewMode === 'card' ? (
-          /* Card Grid View */
+          /* Card Grid View - vertical scroll */
           <div style={{
             padding: '16px',
             display: 'grid',
@@ -778,7 +999,10 @@ const OrderList = () => {
               : windowWidth <= 1024 
               ? 'repeat(2, 1fr)' 
               : 'repeat(5, 1fr)',
-            gap: '12px'
+            gap: '12px',
+            maxHeight: 'calc(100vh - 280px)',
+            overflowY: 'auto',
+            overflowX: 'hidden'
           }}>
             {currentItems.length === 0 ? (
               <div style={{
@@ -997,8 +1221,15 @@ const OrderList = () => {
             )}
           </div>
         ) : (
-          /* Table View */
-          <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
+          /* Table View - vertical and horizontal scroll */
+          <div style={{
+            overflowX: 'auto',
+            overflowY: 'auto',
+            width: '100%',
+            maxWidth: '100%',
+            maxHeight: 'calc(100vh - 280px)',
+            minHeight: '200px'
+          }}>
             <table style={{ 
             width: '100%',
             borderCollapse: 'collapse',
@@ -1008,7 +1239,11 @@ const OrderList = () => {
             <thead>
               <tr style={{
                 background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb'
+                borderBottom: '2px solid #e5e7eb',
+                position: 'sticky',
+                top: 0,
+                zIndex: 1,
+                boxShadow: '0 1px 0 #e5e7eb'
               }}>
                 <th style={{
                   padding: '12px',
@@ -1017,7 +1252,8 @@ const OrderList = () => {
                   fontWeight: 600,
                   color: '#475569',
                   whiteSpace: 'nowrap',
-                  width: '60px'
+                  width: '60px',
+                  background: '#f8fafc'
                 }}>
                   Sr No
                 </th>
@@ -1031,7 +1267,8 @@ const OrderList = () => {
                       fontWeight: 600,
                       color: '#475569',
                       whiteSpace: 'nowrap',
-                      width: column.width
+                      width: column.width,
+                      background: '#f8fafc'
                     }}
                   >
                     {column.label}

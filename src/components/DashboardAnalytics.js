@@ -22,7 +22,8 @@ import {
   FaUsers,
   FaArrowUp,
   FaArrowDown,
-  FaEye
+  FaEye,
+  FaTags
 } from 'react-icons/fa';
 import { 
   Chart as ChartJS,
@@ -251,11 +252,11 @@ const DashboardAnalytics = () => {
       return acc;
     }, {});
     const statusColors = {
-      'Active': '#22c55e', // green
-      'ApiActive': '#3b82f6', // blue
-      'Sold': '#ef4444',   // red
+      'Active': '#0d9488',
+      'ApiActive': '#6366f1',
+      'Sold': '#dc2626',
       'Inactive': '#64748b',
-      'Pending': '#f59e0b', // orange
+      'Pending': '#ea580c',
     };
     const labels = Object.keys(statusCounts);
     return {
@@ -289,12 +290,12 @@ const DashboardAnalytics = () => {
     };
   };
 
-  // 1. Define color palettes for categories and branches
+  // 1. Define color palettes for categories and branches (modern palette)
   const categoryColorPalette = [
-    '#0077d4', '#22c55e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444', '#f472b6', '#a3e635', '#fbbf24', '#6366f1', '#0ea5e9', '#b3b3cc', '#60a5fa', '#c0c0c0', '#FFD700', '#bfa100', '#475569', '#10b981', '#fcd34d', '#a21caf'
+    '#6366f1', '#0d9488', '#ea580c', '#7c3aed', '#0891b2', '#dc2626', '#a855f7', '#2563eb', '#64748b', '#0f172a', '#14b8a6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444', '#22c55e', '#475569', '#ec4899', '#f472b6', '#1e293b'
   ];
   const branchColorPalette = [
-    '#2563eb', '#16a34a', '#fbbf24', '#a21caf', '#f87171', '#0ea5e9', '#f59e0b', '#818cf8', '#f472b6', '#65a30d', '#fcd34d', '#0891b2', '#b3b3cc', '#64748b', '#bbf7d0', '#fef9c3', '#f1f5f9', '#fca5a5', '#a3e635', '#f59e42'
+    '#6366f1', '#0d9488', '#ea580c', '#7c3aed', '#0891b2', '#dc2626', '#2563eb', '#14b8a6', '#64748b', '#0f172a', '#a855f7', '#f59e0b', '#06b6d4', '#22c55e', '#475569', '#ec4899', '#1e293b', '#f472b6', '#8b5cf6', '#0ea5e9'
   ];
 
   const getCategoryDistribution = () => {
@@ -546,57 +547,44 @@ const DashboardAnalytics = () => {
     }
   }, [loading]);
 
-  // Get tag usage distribution data
+  // Get tag usage distribution data - 3 bars: Total RFID Tags, Used Tags, Unused Tags
   const getTagUsageDistribution = () => {
     if (!tagUsageData) {
-      // Show dummy data during loading
       const dummyUsed = loading ? dummyTagUsage.used : 0;
       const dummyUnused = loading ? dummyTagUsage.unused : 0;
+      const dummyTotal = dummyUsed + dummyUnused;
       return {
-        labels: [t('analytics.usedTags'), t('analytics.unusedTags')],
+        labels: ['Total RFID Tags', 'Used Tags', 'Unused Tags'],
         datasets: [{
           label: t('analytics.tagCount'),
-          data: [dummyUsed, dummyUnused],
-          backgroundColor: ['#22c55e', '#64748b'],
-          borderColor: ['#22c55e', '#64748b'],
+          data: [dummyTotal, dummyUsed, dummyUnused],
+          backgroundColor: ['#15803d', '#22c55e', '#64748b'],
+          borderColor: ['#15803d', '#22c55e', '#64748b'],
           borderWidth: 1,
-          borderRadius: {
-            topLeft: 8,
-            topRight: 8,
-            bottomLeft: 4,
-            bottomRight: 4
-          },
+          borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 4, bottomRight: 4 },
           borderSkipped: false,
-          hoverBackgroundColor: ['#16a34a', '#475569'],
+          hoverBackgroundColor: ['#166534', '#16a34a', '#475569'],
           hoverBorderWidth: 2,
           hoverBorderColor: '#ffffff',
         }]
       };
     }
 
-    // Extract used and unused counts from the API response
-    // Based on the actual API response structure: UsedCount and UnusedCount
     const usedCount = tagUsageData.UsedCount || 0;
     const unusedCount = tagUsageData.UnusedCount || 0;
-
-    console.log('Tag usage data for chart:', { usedCount, unusedCount }); // Debug log
+    const totalTags = usedCount + unusedCount;
 
     return {
-      labels: [t('analytics.usedTags'), t('analytics.unusedTags')],
+      labels: ['Total RFID Tags', 'Used Tags', 'Unused Tags'],
       datasets: [{
         label: t('analytics.tagCount'),
-        data: [usedCount, unusedCount],
-        backgroundColor: ['#22c55e', '#64748b'],
-        borderColor: ['#22c55e', '#64748b'],
+        data: [totalTags, usedCount, unusedCount],
+        backgroundColor: ['#15803d', '#22c55e', '#64748b'],
+        borderColor: ['#15803d', '#22c55e', '#64748b'],
         borderWidth: 1,
-        borderRadius: {
-          topLeft: 8,
-          topRight: 8,
-          bottomLeft: 4,
-          bottomRight: 4
-        },
+        borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 4, bottomRight: 4 },
         borderSkipped: false,
-        hoverBackgroundColor: ['#16a34a', '#475569'],
+        hoverBackgroundColor: ['#166534', '#16a34a', '#475569'],
         hoverBorderWidth: 2,
         hoverBorderColor: '#ffffff',
       }]
@@ -606,7 +594,7 @@ const DashboardAnalytics = () => {
   // Calculate summary statistics
   const totalItems = filteredData.length;
   const totalWeight = filteredData.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0);
-  const totalValue = filteredData.reduce((sum, item) => sum + (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt) || 0), 0);
+  const totalRfidNew = (tagUsageData && (tagUsageData.UnusedCount != null)) ? (tagUsageData.UnusedCount || 0) : 0;
   const soldItems = filteredData.filter(item => item.Status === 'Sold').length;
   const availableItems = filteredData.filter(item => item.Status !== 'Sold').length;
   const uniqueCounters = [...new Set(filteredData.map(item => item.CounterName || item.Counter || 'Unassigned'))].length;
@@ -675,7 +663,7 @@ const DashboardAnalytics = () => {
     let y = 40;
 
     // Logo (as before)
-    const logoUrl = '/Logo/Sparkle RFID svg.svg';
+    const logoUrl = `${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`;
     const svgToPngDataUrl = async (svgUrl, width = 240, height = 80) => {
       return new Promise((resolve) => {
         const img = new window.Image();
@@ -1392,6 +1380,26 @@ const DashboardAnalytics = () => {
         }
       }
     },
+    scales: {
+      ...chartOptions.scales,
+      x: {
+        ...chartOptions.scales.x,
+        grid: { color: 'rgba(0, 0, 0, 0.1)' },
+        ticks: {
+          maxRotation: 45,
+          minRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 10,
+          font: { size: 10, family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif' },
+          callback: function(value) {
+            const label = typeof value === 'string' ? value : String(value);
+            if (label.length > 18) return label.substring(0, 16) + '…';
+            return label;
+          }
+        }
+      },
+      y: chartOptions.scales.y
+    },
     elements: {
       bar: {
         hoverBorderWidth: 3,
@@ -1522,15 +1530,47 @@ const DashboardAnalytics = () => {
   }
 
   return (
-    <div style={{
-      padding: '16px',
-      background: '#ffffff',
-      minHeight: '100vh',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      position: 'relative',
-      opacity: loading ? 0.85 : 1,
-      transition: 'opacity 0.3s ease'
-    }}>
+    <div 
+      className="dashboard-container dashboard-analytics-responsive"
+      style={{
+        padding: '16px',
+        background: '#ffffff',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        position: 'relative',
+        opacity: loading ? 0.85 : 1,
+        transition: 'opacity 0.3s ease',
+        overflowX: 'hidden',
+        boxSizing: 'border-box',
+        width: '100%'
+      }}
+    >
+      <style>{`
+        .dashboard-analytics-responsive { box-sizing: border-box; }
+        @media (max-width: 1400px) {
+          .metrics-cards-grid { grid-template-columns: repeat(3, 1fr) !important; }
+          .charts-grid-responsive { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+        @media (max-width: 992px) {
+          .dashboard-analytics-responsive { padding: 12px !important; }
+          .metrics-cards-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
+          .charts-grid-responsive { grid-template-columns: 1fr !important; gap: 12px !important; }
+        }
+        @media (max-width: 576px) {
+          .dashboard-analytics-responsive { padding: 8px !important; }
+          .metrics-cards-grid { grid-template-columns: 1fr !important; gap: 10px !important; }
+          .charts-grid-responsive { grid-template-columns: 1fr !important; gap: 10px !important; }
+        }
+        .charts-grid-responsive > div { min-width: 0; }
+        .metrics-cards-grid > div { min-width: 0; }
+        .dashboard-analytics-responsive { padding-bottom: 24px !important; }
+        @media (max-width: 992px) {
+          .bottom-tables-grid { grid-template-columns: 1fr !important; gap: 12px !important; margin-bottom: 16px !important; }
+        }
+        @media (max-width: 576px) {
+          .bottom-tables-grid { gap: 10px !important; margin-bottom: 12px !important; }
+        }
+      `}</style>
       {/* Loading Progress Indicator */}
       {loading && (
         <div style={{
@@ -1623,7 +1663,7 @@ const DashboardAnalytics = () => {
             value: totalItems,
             suffix: '',
             decimals: 0,
-            color: '#3b82f6'
+            color: '#6366f1'
           },
           { 
             icon: FaWeight, 
@@ -1631,17 +1671,15 @@ const DashboardAnalytics = () => {
             value: totalWeight,
             suffix: 'g',
             decimals: 2,
-            color: '#10b981'
+            color: '#0d9488'
           },
           { 
-            icon: null, // Custom rupee icon
-            label: t('analytics.modal.totalValue'), 
-            value: totalValue,
+            icon: FaTags,
+            label: 'Total RFID New',
+            value: totalRfidNew,
             suffix: '',
             decimals: 0,
-            prefix: '₹',
-            color: '#f59e0b',
-            isRupee: true
+            color: '#7c3aed'
           },
           { 
             icon: FaShoppingCart, 
@@ -1649,7 +1687,7 @@ const DashboardAnalytics = () => {
             value: soldItems,
             suffix: '',
             decimals: 0,
-            color: '#ef4444'
+            color: '#dc2626'
           },
           { 
             icon: FaBoxes, 
@@ -1657,7 +1695,7 @@ const DashboardAnalytics = () => {
             value: availableItems,
             suffix: '',
             decimals: 0,
-            color: '#8b5cf6'
+            color: '#2563eb'
           },
           { 
             icon: FaBuilding, 
@@ -1665,14 +1703,14 @@ const DashboardAnalytics = () => {
             value: uniqueCounters,
             suffix: '',
             decimals: 0,
-            color: '#06b6d4'
+            color: '#0891b2'
           }
         ].map((card, index) => (
           <div key={index} style={{
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-            borderRadius: '12px',
-            padding: '16px',
-            border: `2px solid ${card.color}25`,
+            background: '#ffffff',
+            borderRadius: '16px',
+            padding: '18px',
+            border: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
             gap: '14px',
@@ -1680,21 +1718,19 @@ const DashboardAnalytics = () => {
             overflow: 'hidden',
             minWidth: 0,
             width: '100%',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            transition: 'all 0.25s ease',
             cursor: 'pointer'
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = `0 8px 20px ${card.color}40`;
-            e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)';
-            e.currentTarget.style.borderColor = `${card.color}60`;
-            e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #ffffff 100%)';
+            e.currentTarget.style.boxShadow = `0 12px 24px ${card.color}20`;
+            e.currentTarget.style.transform = 'translateY(-2px)';
+            e.currentTarget.style.borderColor = `${card.color}40`;
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.08)';
-            e.currentTarget.style.transform = 'translateY(0) scale(1)';
-            e.currentTarget.style.borderColor = `${card.color}25`;
-            e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)';
+            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.borderColor = '#e2e8f0';
           }}
           >
             {loading && (
@@ -1704,44 +1740,24 @@ const DashboardAnalytics = () => {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
                 animation: 'shimmer 2s infinite',
                 pointerEvents: 'none'
               }} />
             )}
             <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '10px',
-              background: `linear-gradient(135deg, ${card.color} 0%, ${card.color}dd 100%)`,
+              width: '52px',
+              height: '52px',
+              borderRadius: '14px',
+              background: `${card.color}14`,
+              color: card.color,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
-              boxShadow: `0 4px 12px ${card.color}50`,
-              position: 'relative',
-              overflow: 'hidden'
+              border: `1px solid ${card.color}30`
             }}>
-              {card.isRupee ? (
-                <span style={{
-                  color: 'white',
-                  fontSize: '20px',
-                  fontWeight: '700',
-                  fontFamily: 'Arial, sans-serif',
-                  lineHeight: '1'
-                }}>₹</span>
-              ) : card.icon ? (
-                <card.icon style={{ color: 'white', fontSize: '18px' }} />
-              ) : null}
-              <div style={{
-                position: 'absolute',
-                top: '-50%',
-                right: '-50%',
-                width: '100%',
-                height: '100%',
-                background: `radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)`,
-                pointerEvents: 'none'
-              }} />
+              {card.icon ? <card.icon style={{ fontSize: '22px' }} /> : null}
           </div>
             
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -1781,33 +1797,34 @@ const DashboardAnalytics = () => {
         ))}
       </div>
 
-      {/* Compact Charts Grid */}
+      {/* Compact Charts Grid - Status, Category, Branch, Tag Usage */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(4, 1fr)',
         gap: '16px',
-        marginBottom: '20px',
-        width: '100%'
+        marginBottom: '16px',
+        width: '100%',
+        minHeight: '360px'
       }}
       className="charts-grid-responsive"
       >
         {/* Status Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          borderRadius: '12px',
+          background: '#ffffff',
+          borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-          transition: 'all 0.3s ease',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(99, 102, 241, 0.12)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
           e.currentTarget.style.transform = 'translateY(0)';
         }}
         >
@@ -1821,53 +1838,55 @@ const DashboardAnalytics = () => {
               <h3 style={{
                 fontSize: '14px',
                 fontWeight: '600',
-                color: '#111827',
+                color: '#0f172a',
                 margin: '0 0 2px 0'
               }}>
                 {t('analytics.statusDistribution')}
               </h3>
               <p style={{
                 fontSize: '11px',
-                color: '#6b7280',
+                color: '#64748b',
                 margin: 0
               }}>
                 Overview of item status across inventory
               </p>
           </div>
             <div style={{
-              width: '24px',
-              height: '24px',
-              borderRadius: '4px',
-              background: '#3b82f6',
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: '#6366f118',
+              color: '#6366f1',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              border: '1px solid #6366f130'
             }}>
-              <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
+              <FaChartBar style={{ fontSize: '14px' }} />
           </div>
         </div>
-          <div style={{ height: '240px', position: 'relative' }}>
+          <div style={{ height: '260px', position: 'relative', minHeight: '260px' }}>
             <Bar data={getStatusDistribution()} options={chartOptionsWithClick} />
           </div>
           </div>
 
         {/* Category Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          borderRadius: '12px',
+          background: '#ffffff',
+          borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-          transition: 'all 0.3s ease',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(13, 148, 136, 0.12)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
           e.currentTarget.style.transform = 'translateY(0)';
         }}
         >
@@ -1881,53 +1900,55 @@ const DashboardAnalytics = () => {
               <h3 style={{
                 fontSize: '14px',
                 fontWeight: '600',
-                color: '#111827',
+                color: '#0f172a',
                 margin: '0 0 2px 0'
               }}>
                 {t('analytics.categoryDistribution')}
               </h3>
               <p style={{
                 fontSize: '11px',
-                color: '#6b7280',
+                color: '#64748b',
                 margin: 0
               }}>
                 {t('analytics.modal.breakdown')}
               </p>
         </div>
             <div style={{
-              width: '24px',
-              height: '24px',
-              borderRadius: '4px',
-              background: '#10b981',
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: '#0d948818',
+              color: '#0d9488',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              border: '1px solid #0d948830'
             }}>
-              <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
+              <FaChartBar style={{ fontSize: '14px' }} />
           </div>
           </div>
-          <div style={{ height: '240px', position: 'relative' }}>
+          <div style={{ height: '260px', position: 'relative', minHeight: '260px' }}>
             <Pie data={getCategoryDistribution()} options={pieChartOptions} />
         </div>
       </div>
 
         {/* Branch Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          borderRadius: '12px',
+          background: '#ffffff',
+          borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-          transition: 'all 0.3s ease',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(234, 88, 12, 0.12)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
           e.currentTarget.style.transform = 'translateY(0)';
         }}
         >
@@ -1941,53 +1962,55 @@ const DashboardAnalytics = () => {
               <h3 style={{
                 fontSize: '14px',
                 fontWeight: '600',
-                color: '#111827',
+                color: '#0f172a',
                 margin: '0 0 2px 0'
               }}>
                 {t('analytics.branchDistribution')}
               </h3>
               <p style={{
                 fontSize: '11px',
-                color: '#6b7280',
+                color: '#64748b',
                 margin: 0
               }}>
                 {t('analytics.chart.branchDistribution')}
               </p>
               </div>
             <div style={{
-              width: '24px',
-              height: '24px',
-              borderRadius: '4px',
-              background: '#f59e0b',
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: '#ea580c18',
+              color: '#ea580c',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              border: '1px solid #ea580c30'
             }}>
-              <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
+              <FaChartBar style={{ fontSize: '14px' }} />
               </div>
             </div>
-          <div style={{ height: '240px', position: 'relative' }}>
+          <div style={{ height: '260px', position: 'relative', minHeight: '260px' }}>
                 <Bar data={getBranchDistribution()} options={branchChartOptions} />
             </div>
           </div>
 
         {/* Tag Usage Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          borderRadius: '12px',
+          background: '#ffffff',
+          borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-          transition: 'all 0.3s ease',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(124, 58, 237, 0.12)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.06)';
+          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
           e.currentTarget.style.transform = 'translateY(0)';
         }}
         >
@@ -2001,32 +2024,34 @@ const DashboardAnalytics = () => {
               <h3 style={{
                 fontSize: '14px',
                 fontWeight: '600',
-                color: '#111827',
+                color: '#0f172a',
                 margin: '0 0 2px 0'
               }}>
                 {t('analytics.tagUsageDistribution')}
               </h3>
               <p style={{
                 fontSize: '11px',
-                color: '#6b7280',
+                color: '#64748b',
                 margin: 0
               }}>
                 {t('analytics.chart.tagUsageDistribution')}
               </p>
         </div>
             <div style={{
-              width: '24px',
-              height: '24px',
-              borderRadius: '4px',
-              background: '#8b5cf6',
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: '#7c3aed18',
+              color: '#7c3aed',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              border: '1px solid #7c3aed30'
             }}>
-              <FaChartBar style={{ color: 'white', fontSize: '12px' }} />
+              <FaChartBar style={{ fontSize: '14px' }} />
             </div>
           </div>
-          <div style={{ height: '240px', position: 'relative' }}>
+          <div style={{ height: '260px', position: 'relative', minHeight: '260px' }}>
               {tagUsageLoading && !loading && (
               <div style={{
                 position: 'absolute',
@@ -2076,41 +2101,37 @@ const DashboardAnalytics = () => {
                         backgroundColor: 'rgba(0, 0, 0, 0.8)',
                         titleColor: 'white',
                         bodyColor: 'white',
-                      borderColor: '#3b82f6',
+                        borderColor: '#3b82f6',
                         borderWidth: 1,
-                      cornerRadius: 6,
+                        cornerRadius: 6,
                         titleFont: {
-                        size: 11,
-                        family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                          size: 11,
+                          family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                         },
                         bodyFont: {
-                        size: 10,
-                        family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                          size: 10,
+                          family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                        },
+                        callbacks: {
+                          label: (ctx) => `${ctx.label}: ${(ctx.raw || 0).toLocaleString()}`
                         }
                       }
                     },
                     scales: {
                       y: {
                         beginAtZero: true,
-                        grid: {
-                          color: 'rgba(0, 0, 0, 0.1)'
-                        },
+                        grid: { color: 'rgba(0, 0, 0, 0.1)' },
                         ticks: {
                           font: {
-                          size: 9,
+                            size: 9,
                             family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif'
                           }
                         }
                       },
                       x: {
-                        grid: {
-                          color: 'rgba(0, 0, 0, 0.1)'
-                        },
+                        grid: { color: 'rgba(0, 0, 0, 0.1)' },
                         ticks: {
-                          font: {
-                            size: 10,
-                            family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif'
-                          }
+                          display: false
                         }
                       }
                     }
@@ -2120,18 +2141,23 @@ const DashboardAnalytics = () => {
           </div>
       </div>
 
-      {/* Compact Bottom Sections */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '16px'
-      }}>
+      {/* Compact Bottom Sections - Top Items, Counter Wise, Category */}
+      <div 
+        className="bottom-tables-grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: '16px',
+          marginBottom: '24px'
+        }}
+      >
         {/* Top Products */}
         <div style={{
-          background: 'white',
-          borderRadius: '6px',
+          background: '#ffffff',
+          borderRadius: '16px',
           padding: '16px',
-          border: '1px solid #e5e7eb'
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
         }}>
           <div style={{
             display: 'flex',
@@ -2145,35 +2171,37 @@ const DashboardAnalytics = () => {
               gap: '8px'
             }}>
               <div style={{
-                width: '20px',
-                height: '20px',
-                borderRadius: '3px',
-                background: '#f59e0b',
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                background: '#ea580c18',
+                color: '#ea580c',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                border: '1px solid #ea580c30'
               }}>
-                <span style={{ color: 'white', fontSize: '10px' }}>🏆</span>
+                <FaChartBar style={{ fontSize: '14px' }} />
               </div>
               <h3 style={{
                 fontSize: '14px',
                 fontWeight: '600',
-                color: '#111827',
+                color: '#0f172a',
                 margin: 0
               }}>
                 {t('analytics.modal.topItems')}
               </h3>
             </div>
             <div style={{
-              background: '#f9fafb',
-              border: '1px solid #e5e7eb',
-              borderRadius: '4px',
-              padding: '4px 8px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '6px 10px',
               display: 'flex',
               alignItems: 'center',
-              gap: '4px'
+              gap: '6px'
             }}>
-              <FaSearch style={{ color: '#9ca3af', fontSize: '10px' }} />
+              <FaSearch style={{ color: '#64748b', fontSize: '11px' }} />
                 <input
                   type="text"
                   placeholder={t('analytics.searchProducts')}
@@ -2191,53 +2219,55 @@ const DashboardAnalytics = () => {
               </div>
             </div>
           
-          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-            <table style={{
+          <div className="analytics-table-scroll" style={{ maxHeight: '300px', overflowY: 'auto', overflowX: 'auto', minWidth: 0 }}>
+            <table className="analytics-bottom-table" style={{
               width: '100%',
+              minWidth: '320px',
               borderCollapse: 'collapse',
-              fontSize: '10px',
-              tableLayout: 'fixed'
+              fontSize: '12px',
+              tableLayout: 'auto',
+              fontFamily: "'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
             }}>
                 <thead>
                 <tr style={{
-                  borderBottom: '1px solid #e5e7eb',
-                  background: '#f9fafb'
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#f8fafc'
                 }}>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '10px',
-                    width: '50px',
-                    minWidth: '50px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '44px'
                   }}>{t('analytics.rank')}</th>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '10px',
-                    width: '200px',
-                    minWidth: '200px'
-                  }}>Product Name</th>
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '100px'
+                  }}>{t('analytics.productName')}</th>
                   <th style={{
-                    padding: '8px 6px',
-                    textAlign: 'left',
+                    padding: '10px 8px',
+                    textAlign: 'right',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '10px',
-                    width: '80px',
-                    minWidth: '80px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '56px'
                   }}>{t('analytics.count')}</th>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '10px',
-                    width: 'auto',
-                    minWidth: '150px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '80px'
                   }}>{t('analytics.share')}</th>
                   </tr>
                 </thead>
@@ -2265,32 +2295,26 @@ const DashboardAnalytics = () => {
                           borderBottom: '1px solid #f3f4f6'
                         }}>
                           <td style={{
-                            padding: '6px',
+                            padding: '8px',
                             color: '#6b7280',
-                            fontSize: '10px',
-                            width: '50px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
+                            fontSize: '11px'
                           }}>{startIndex + index + 1}</td>
                           <td style={{
-                            padding: '6px',
-                            width: '200px',
+                            padding: '8px',
                             overflow: 'hidden'
                           }}>
                             <div>
                               <div style={{
-                                fontSize: '10px',
+                                fontSize: '11px',
                                 fontWeight: '500',
                                 color: '#111827',
                                 overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
+                                textOverflow: 'ellipsis'
                               }}>
                                 {name}
                               </div>
                               <div style={{
-                                fontSize: '9px',
+                                fontSize: '10px',
                                 color: '#6b7280'
                               }}>
                                 Product Item
@@ -2298,19 +2322,16 @@ const DashboardAnalytics = () => {
                               </div>
                             </td>
                           <td style={{
-                            padding: '6px',
-                            fontSize: '10px',
+                            padding: '8px',
+                            fontSize: '11px',
                             fontWeight: '600',
                             color: '#111827',
-                            width: '80px',
                             textAlign: 'right'
                           }}>
                             {count.toLocaleString()}
-                            </td>
+                          </td>
                           <td style={{
-                            padding: '6px',
-                            width: 'auto',
-                            minWidth: '150px'
+                            padding: '8px'
                           }}>
                             <div style={{
                               display: 'flex',
@@ -2318,9 +2339,9 @@ const DashboardAnalytics = () => {
                               gap: '6px'
                             }}>
                               <span style={{
-                                fontSize: '10px',
+                                fontSize: '11px',
                                 color: '#6b7280',
-                                minWidth: '30px'
+                                minWidth: '32px'
                               }}>
                                 {((count / total) * 100).toFixed(1)}%
                               </span>
@@ -2333,7 +2354,7 @@ const DashboardAnalytics = () => {
                               }}>
                                 <div style={{
                                   height: '100%',
-                                  background: '#3b82f6',
+                                  background: '#6366f1',
                                   width: `${(count / total) * 100}%`
                                 }} />
                                 </div>
@@ -2349,12 +2370,13 @@ const DashboardAnalytics = () => {
           </div>
         </div>
 
-        {/* Top Vendors */}
+        {/* Counter Wise Stock */}
         <div style={{
-          background: 'white',
-          borderRadius: '6px',
+          background: '#ffffff',
+          borderRadius: '16px',
           padding: '16px',
-          border: '1px solid #e5e7eb'
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
         }}>
           <div style={{
             display: 'flex',
@@ -2368,38 +2390,40 @@ const DashboardAnalytics = () => {
               gap: '8px'
             }}>
               <div style={{
-                width: '20px',
-                height: '20px',
-                borderRadius: '3px',
-                background: '#10b981',
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                background: '#0d948818',
+                color: '#0d9488',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                border: '1px solid #0d948830'
               }}>
-                <FaUsers style={{ color: 'white', fontSize: '10px' }} />
+                <FaUsers style={{ fontSize: '14px' }} />
               </div>
               <h3 style={{
                 fontSize: '14px',
                 fontWeight: '600',
-                color: '#111827',
+                color: '#0f172a',
                 margin: 0
               }}>
                 Counter Wise Stock 
               </h3>
             </div>
             <div style={{
-              background: '#f9fafb',
-              border: '1px solid #e5e7eb',
-              borderRadius: '4px',
-              padding: '4px 8px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '6px 10px',
               display: 'flex',
               alignItems: 'center',
-              gap: '4px'
+              gap: '6px'
             }}>
-              <FaSearch style={{ color: '#9ca3af', fontSize: '10px' }} />
+              <FaSearch style={{ color: '#64748b', fontSize: '11px' }} />
                 <input
                   type="text"
-                  placeholder="Search Counters..."
+                  placeholder={t('analytics.searchCounters')}
                   value={counterSearch}
                   onChange={(e) => setCounterSearch(e.target.value)}
                 style={{
@@ -2414,53 +2438,55 @@ const DashboardAnalytics = () => {
               </div>
             </div>
           
-          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-            <table style={{
+          <div className="analytics-table-scroll" style={{ maxHeight: '300px', overflowY: 'auto', overflowX: 'auto', minWidth: 0 }}>
+            <table className="analytics-bottom-table" style={{
               width: '100%',
+              minWidth: '320px',
               borderCollapse: 'collapse',
-              fontSize: '10px',
-              tableLayout: 'fixed'
+              fontSize: '12px',
+              tableLayout: 'auto',
+              fontFamily: "'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
             }}>
                 <thead>
                 <tr style={{
-                  borderBottom: '1px solid #e5e7eb',
-                  background: '#f9fafb'
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#f8fafc'
                 }}>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: '50px',
-                    minWidth: '50px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '44px'
                   }}>{t('analytics.rank')}</th>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: '180px',
-                    minWidth: '180px'
-                  }}>Counter Name</th>
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '100px'
+                  }}>{t('analytics.counterName')}</th>
                   <th style={{
-                    padding: '8px 6px',
-                    textAlign: 'left',
+                    padding: '10px 8px',
+                    textAlign: 'right',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: '80px',
-                    minWidth: '80px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '56px'
                   }}>{t('analytics.items')}</th>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: 'auto',
-                    minWidth: '150px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '90px'
                   }}>{t('analytics.performance')}</th>
                   </tr>
                 </thead>
@@ -2489,17 +2515,12 @@ const DashboardAnalytics = () => {
                           borderBottom: '1px solid #f3f4f6'
                         }}>
                           <td style={{
-                            padding: '6px',
+                            padding: '8px',
                             color: '#6b7280',
-                            fontSize: '11px',
-                            width: '50px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
+                            fontSize: '11px'
                           }}>{startIndex + index + 1}</td>
                           <td style={{
-                            padding: '6px',
-                            width: '180px',
+                            padding: '8px',
                             overflow: 'hidden'
                           }}>
                             <div>
@@ -2508,8 +2529,7 @@ const DashboardAnalytics = () => {
                                 fontWeight: '500',
                                 color: '#111827',
                                 overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
+                                textOverflow: 'ellipsis'
                               }}>
                                 {name || 'Unknown'}
                               </div>
@@ -2522,19 +2542,16 @@ const DashboardAnalytics = () => {
                               </div>
                             </td>
                           <td style={{
-                            padding: '6px',
+                            padding: '8px',
                             fontSize: '11px',
                             fontWeight: '600',
                             color: '#111827',
-                            width: '80px',
                             textAlign: 'right'
                           }}>
                             {count.toLocaleString()}
                             </td>
                           <td style={{
-                            padding: '6px',
-                            width: 'auto',
-                            minWidth: '150px'
+                            padding: '8px'
                           }}>
                             <div style={{
                               display: 'flex',
@@ -2542,9 +2559,9 @@ const DashboardAnalytics = () => {
                               gap: '6px'
                             }}>
                               <span style={{
-                                fontSize: '10px',
+                                fontSize: '11px',
                                 color: '#6b7280',
-                                minWidth: '30px'
+                                minWidth: '32px'
                               }}>
                                 {((count / maxCount) * 100).toFixed(0)}%
                               </span>
@@ -2575,10 +2592,11 @@ const DashboardAnalytics = () => {
 
         {/* Category Performance Analysis */}
         <div style={{
-          background: 'white',
-          borderRadius: '6px',
+          background: '#ffffff',
+          borderRadius: '16px',
           padding: '16px',
-          border: '1px solid #e5e7eb'
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
         }}>
           <div style={{
             display: 'flex',
@@ -2587,82 +2605,86 @@ const DashboardAnalytics = () => {
             marginBottom: '12px'
           }}>
             <div style={{
-              width: '20px',
-              height: '20px',
-              borderRadius: '3px',
-              background: '#3b82f6',
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: '#6366f118',
+              color: '#6366f1',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              border: '1px solid #6366f130'
             }}>
-              <FaChartLine style={{ color: 'white', fontSize: '10px' }} />
+              <FaChartLine style={{ fontSize: '14px' }} />
           </div>
             <h3 style={{
               fontSize: '14px',
               fontWeight: '600',
-              color: '#111827',
+              color: '#0f172a',
               margin: 0
             }}>
               {t('analytics.chart.categoryDistribution')}
             </h3>
           </div>
           
-          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-            <table style={{
+          <div className="analytics-table-scroll" style={{ maxHeight: '300px', overflowY: 'auto', overflowX: 'auto', minWidth: 0 }}>
+            <table className="analytics-bottom-table" style={{
               width: '100%',
+              minWidth: '380px',
               borderCollapse: 'collapse',
-              fontSize: '10px',
-              tableLayout: 'fixed'
+              fontSize: '12px',
+              tableLayout: 'auto',
+              fontFamily: "'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
             }}>
                 <thead>
                 <tr style={{
-                  borderBottom: '1px solid #e5e7eb',
-                  background: '#f9fafb'
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#f8fafc'
                 }}>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: '150px',
-                    minWidth: '150px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '90px'
                   }}>{t('analytics.categoryName')}</th>
                   <th style={{
-                    padding: '8px 6px',
-                    textAlign: 'left',
+                    padding: '10px 8px',
+                    textAlign: 'right',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: '80px',
-                    minWidth: '80px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '56px'
                   }}>{t('analytics.items')}</th>
                   <th style={{
-                    padding: '8px 6px',
-                    textAlign: 'left',
+                    padding: '10px 8px',
+                    textAlign: 'right',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: '120px',
-                    minWidth: '120px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '85px'
                   }}>Weight (G)</th>
                   <th style={{
-                    padding: '8px 6px',
-                    textAlign: 'left',
+                    padding: '10px 8px',
+                    textAlign: 'right',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: '120px',
-                    minWidth: '120px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '75px'
                   }}>{t('analytics.avgValue')}</th>
                   <th style={{
-                    padding: '8px 6px',
+                    padding: '10px 8px',
                     textAlign: 'left',
                     fontWeight: '600',
-                    color: '#374151',
-                    fontSize: '11px',
-                    width: 'auto',
-                    minWidth: '150px'
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '90px'
                   }}>{t('analytics.topProduct')}</th>
                   </tr>
                 </thead>
@@ -2677,7 +2699,7 @@ const DashboardAnalytics = () => {
                       borderBottom: '1px solid #f3f4f6'
                     }}>
                       <td style={{
-                        padding: '6px'
+                        padding: '8px'
                       }}>
                         <div>
                           <div style={{
@@ -2696,33 +2718,39 @@ const DashboardAnalytics = () => {
                           </div>
                         </td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         fontSize: '11px',
                         fontWeight: '600',
-                        color: '#111827'
+                        color: '#111827',
+                        textAlign: 'right'
                       }}>
                         {item.totalItems.toLocaleString()}
                         </td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         fontSize: '11px',
-                        color: '#111827'
+                        color: '#111827',
+                        textAlign: 'right'
                       }}>
                         {item.totalWeight}g
                         </td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         fontSize: '11px',
-                        color: '#111827'
+                        color: '#111827',
+                        textAlign: 'right'
                       }}>
                         {item.avgValue}
                         </td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         fontSize: '11px',
-                        color: '#111827'
+                        color: '#111827',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: '140px'
                       }}>
-                        {item.topProduct.length > 12 ? item.topProduct.substring(0, 12) + '...' : item.topProduct}
+                        {item.topProduct.length > 16 ? item.topProduct.substring(0, 16) + '…' : item.topProduct}
                         </td>
                       </tr>
                     ));
@@ -2733,7 +2761,7 @@ const DashboardAnalytics = () => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .analytics-container {
           padding: 15px;
           background: #f8fafc;
@@ -4455,7 +4483,7 @@ const DashboardAnalytics = () => {
       )}
 
       {/* Add modal styles */}
-      <style jsx>{`
+      <style>{`
         .analytics-modal-overlay {
           position: fixed;
           top: 0;
@@ -4707,8 +4735,8 @@ const DashboardAnalytics = () => {
         }
       `}</style>
       
-      {/* CSS Animations */}
-      <style jsx>{`
+      {/* CSS Animations & Responsive Styles */}
+      <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
@@ -4736,6 +4764,12 @@ const DashboardAnalytics = () => {
           90% { transform: translate3d(0,-2px,0); }
         }
         
+        /* Base Dashboard Container */
+        .dashboard-container {
+          padding: 16px;
+          min-height: 100vh;
+        }
+        
         /* Metrics Cards Grid Responsive */
         .metrics-cards-grid {
           display: grid;
@@ -4743,73 +4777,124 @@ const DashboardAnalytics = () => {
           gap: 16px;
         }
         
-        @media (max-width: 1600px) {
-          .metrics-cards-grid {
-            grid-template-columns: repeat(3, 1fr);
-            gap: 14px;
-          }
-        }
-        
-        @media (max-width: 1200px) {
+        @media (max-width: 1400px) {
           .metrics-cards-grid {
             grid-template-columns: repeat(3, 1fr);
             gap: 12px;
           }
-          
-          .metrics-cards-grid > div {
-            padding: 16px !important;
-          }
-          
-          .metrics-cards-grid > div > div[style*="width: 48px"] {
-            width: 44px !important;
-            height: 44px !important;
-          }
-          
-          .metrics-cards-grid > div h3 {
-            font-size: 16px !important;
-          }
-          
-          .metrics-cards-grid > div p {
-            font-size: 10px !important;
-          }
         }
         
-        @media (max-width: 768px) {
+        @media (max-width: 992px) {
           .metrics-cards-grid {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-          }
-          
-          .metrics-cards-grid > div {
-            padding: 14px !important;
-          }
-          
-          .metrics-cards-grid > div > div[style*="width: 48px"] {
-            width: 40px !important;
-            height: 40px !important;
-          }
-          
-          .metrics-cards-grid > div h3 {
-            font-size: 16px !important;
-          }
-          
-          .metrics-cards-grid > div p {
-            font-size: 10px !important;
-          }
-        }
-        
-        @media (max-width: 480px) {
-          .metrics-cards-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(3, 1fr);
             gap: 10px;
           }
           
           .metrics-cards-grid > div {
             padding: 12px !important;
+            gap: 10px !important;
+          }
+          
+          .metrics-cards-grid > div > div:first-child {
+            width: 40px !important;
+            height: 40px !important;
+            min-width: 40px !important;
+          }
+          
+          .metrics-cards-grid > div h3 {
+            font-size: 16px !important;
+          }
+          
+          .metrics-cards-grid > div p {
+            font-size: 9px !important;
           }
         }
         
-        /* Responsive Design */
+        @media (max-width: 768px) {
+          .dashboard-container {
+            padding: 12px;
+          }
+          
+          .metrics-cards-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+          
+          .metrics-cards-grid > div {
+            padding: 12px !important;
+            gap: 10px !important;
+            flex-direction: row !important;
+          }
+          
+          .metrics-cards-grid > div > div:first-child {
+            width: 36px !important;
+            height: 36px !important;
+            min-width: 36px !important;
+            border-radius: 8px !important;
+          }
+          
+          .metrics-cards-grid > div > div:first-child svg {
+            font-size: 14px !important;
+          }
+          
+          .metrics-cards-grid > div h3 {
+            font-size: 15px !important;
+            margin-bottom: 2px !important;
+          }
+          
+          .metrics-cards-grid > div p {
+            font-size: 9px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .dashboard-container {
+            padding: 8px;
+          }
+          
+          .metrics-cards-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+          }
+          
+          .metrics-cards-grid > div {
+            padding: 10px !important;
+            gap: 8px !important;
+            border-radius: 10px !important;
+          }
+          
+          .metrics-cards-grid > div > div:first-child {
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+          }
+          
+          .metrics-cards-grid > div h3 {
+            font-size: 14px !important;
+          }
+          
+          .metrics-cards-grid > div p {
+            font-size: 8px !important;
+            letter-spacing: 0 !important;
+          }
+        }
+        
+        @media (max-width: 360px) {
+          .metrics-cards-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+          }
+          
+          .metrics-cards-grid > div {
+            padding: 8px !important;
+          }
+          
+          .metrics-cards-grid > div h3 {
+            font-size: 13px !important;
+          }
+        }
+        
+        /* Charts Grid Responsive */
         .charts-grid-responsive {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -4818,69 +4903,229 @@ const DashboardAnalytics = () => {
         
         @media (max-width: 1400px) {
           .charts-grid-responsive {
-            grid-template-columns: repeat(4, 1fr);
-            gap: 12px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
           }
         }
         
-        @media (max-width: 1200px) {
+        @media (max-width: 992px) {
           .charts-grid-responsive {
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
           }
           
           .charts-grid-responsive > div {
-            padding: 16px;
+            padding: 14px !important;
           }
           
-          .charts-grid-responsive > div > div[style*="height: 240px"] {
+          .charts-grid-responsive > div > div[style*="height: 260px"],
+          .charts-grid-responsive > div > div[style*="height:260px"] {
             height: 200px !important;
-          }
-          
-          .charts-grid {
-            grid-template-columns: repeat(2, 1fr);
           }
         }
         
         @media (max-width: 768px) {
           .charts-grid-responsive {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: 1fr 1fr;
             gap: 10px;
           }
           
           .charts-grid-responsive > div {
-            padding: 14px;
+            padding: 12px !important;
+            border-radius: 10px !important;
           }
           
-          .charts-grid-responsive > div > div[style*="height: 240px"] {
+          .charts-grid-responsive > div h3 {
+            font-size: 12px !important;
+          }
+          
+          .charts-grid-responsive > div p {
+            font-size: 10px !important;
+          }
+          
+          .charts-grid-responsive > div > div[style*="height: 260px"],
+          .charts-grid-responsive > div > div[style*="height:260px"] {
             height: 180px !important;
-          }
-          
-          .charts-grid {
-            grid-template-columns: 1fr;
-          }
-          
-          .summary-cards {
-            grid-template-columns: repeat(2, 1fr);
           }
         }
         
-        @media (max-width: 480px) {
+        @media (max-width: 576px) {
           .charts-grid-responsive {
             grid-template-columns: 1fr;
             gap: 10px;
           }
           
           .charts-grid-responsive > div {
-            padding: 12px;
+            padding: 14px !important;
           }
           
-          .charts-grid-responsive > div > div[style*="height: 240px"] {
-            height: 200px !important;
+          .charts-grid-responsive > div > div[style*="height: 260px"],
+          .charts-grid-responsive > div > div[style*="height:260px"] {
+            height: 220px !important;
           }
-          
-          .summary-cards {
+        }
+        
+        /* Bottom Tables Section Responsive */
+        .bottom-tables-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+        }
+        
+        .analytics-table-scroll {
+          -webkit-overflow-scrolling: touch;
+        }
+        
+        .analytics-bottom-table {
+          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        .analytics-bottom-table th,
+        .analytics-bottom-table td {
+          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        @media (max-width: 1200px) {
+          .bottom-tables-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .bottom-tables-grid {
             grid-template-columns: 1fr;
+            gap: 12px;
+          }
+          
+          .bottom-tables-grid > div {
+            padding: 12px !important;
+          }
+          
+          .bottom-tables-grid .analytics-bottom-table {
+            font-size: 11px !important;
+          }
+          
+          .bottom-tables-grid .analytics-bottom-table th {
+            font-size: 11px !important;
+            padding: 8px 6px !important;
+          }
+          
+          .bottom-tables-grid .analytics-bottom-table td {
+            font-size: 11px !important;
+            padding: 6px 4px !important;
+          }
+          
+          .bottom-tables-grid input[type="text"] {
+            min-width: 90px !important;
+            font-size: 11px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .bottom-tables-grid > div {
+            padding: 10px !important;
+          }
+          
+          .bottom-tables-grid > div > div:first-child {
+            flex-wrap: wrap;
+            gap: 8px !important;
+          }
+          
+          .bottom-tables-grid h3 {
+            font-size: 13px !important;
+          }
+          
+          .bottom-tables-grid .analytics-bottom-table {
+            font-size: 10px !important;
+            min-width: 280px !important;
+          }
+          
+          .bottom-tables-grid .analytics-bottom-table th {
+            font-size: 10px !important;
+            padding: 6px 4px !important;
+          }
+          
+          .bottom-tables-grid .analytics-bottom-table td {
+            font-size: 10px !important;
+            padding: 5px 3px !important;
+          }
+        }
+        
+        /* Loading Progress Bar Responsive */
+        @media (max-width: 480px) {
+          .loading-progress-bar {
+            padding: 10px 12px !important;
+          }
+          
+          .loading-progress-bar span {
+            font-size: 12px !important;
+          }
+        }
+        
+        /* General Table Responsive */
+        @media (max-width: 768px) {
+          table {
+            font-size: 11px !important;
+          }
+          
+          th, td {
+            padding: 8px 6px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          table {
+            font-size: 10px !important;
+          }
+          
+          th, td {
+            padding: 6px 4px !important;
+          }
+        }
+        
+        /* Search Input Responsive */
+        @media (max-width: 480px) {
+          input[type="text"][placeholder*="Search"] {
+            width: 70px !important;
+            font-size: 10px !important;
+          }
+        }
+        
+        /* Pagination Responsive */
+        .pagination-container {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        
+        @media (max-width: 480px) {
+          .pagination-container {
+            justify-content: center;
+          }
+          
+          .pagination-container button {
+            padding: 4px 8px !important;
+            font-size: 10px !important;
+          }
+        }
+        
+        /* Chart Title Responsive */
+        @media (max-width: 576px) {
+          .chart-title-container h3 {
+            font-size: 13px !important;
+          }
+          
+          .chart-title-container p {
+            font-size: 10px !important;
+          }
+          
+          .chart-icon-badge {
+            width: 20px !important;
+            height: 20px !important;
+          }
+          
+          .chart-icon-badge svg {
+            font-size: 10px !important;
           }
         }
       `}</style>

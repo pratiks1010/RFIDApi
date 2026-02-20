@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { 
-  FaSearch, 
-  FaSpinner, 
-  FaExclamationTriangle, 
-  FaFileExcel, 
-  FaTrash, 
+import {
+  FaSearch,
+  FaSpinner,
+  FaExclamationTriangle,
+  FaFileExcel,
+  FaTrash,
   FaFilter,
   FaSortAmountDown,
   FaSortAmountUp,
@@ -21,7 +21,14 @@ import {
   FaEdit,
   FaTimes,
   FaSave,
-  FaPrint
+  FaPrint,
+  FaEye,
+  FaArrowLeft,
+  FaImage,
+  FaWeightHanging,
+  FaRupeeSign,
+  FaMapMarkerAlt,
+  FaCamera
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -36,18 +43,45 @@ import IconButton from '@mui/material/IconButton';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 
+// Separate axios instance for FormData uploads so global interceptor does not set Content-Type: application/json
+const formDataAxios = axios.create();
+formDataAxios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) config.headers['Authorization'] = `Bearer ${token}`;
+    if (config.data instanceof FormData) delete config.headers['Content-Type'];
+    return config;
+  },
+  (err) => Promise.reject(err)
+);
+
 const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
 const DEFAULT_PAGE_SIZE = 500;
+const IMAGE_BASE_URL = 'https://rrgold.loyalstring.co.in/';
+
+/** Get display image URL for an item: from API "Images" (comma-separated paths) or Image1/imageurl/ImageUrl */
+const getItemImageUrl = (item) => {
+  if (!item) return null;
+  if (item.Images && typeof item.Images === 'string') {
+    const firstPath = item.Images.split(',')[0]?.trim();
+    if (firstPath) {
+      const base = IMAGE_BASE_URL.replace(/\/$/, '');
+      const path = firstPath.replace(/^\//, '');
+      return `${base}/${path}`;
+    }
+  }
+  return item.Image1 || item.imageurl || item.ImageUrl || null;
+};
 
 const getUniqueOptions = (data, field) => {
   if (!data || !Array.isArray(data)) return ['All'];
-  
+
   const options = data
     .map(item => item[field])
     .filter(Boolean)
     .filter((value, index, self) => self.indexOf(value) === index)
     .sort((a, b) => a?.toString().localeCompare(b?.toString()));
-  
+
   return ['All', ...options];
 };
 
@@ -60,7 +94,7 @@ const formatValue = (value) => {
 const LabelStockList = () => {
   // Global loader
   const { loading, setLoading } = useLoading();
-  
+
   // State variables
   const [labeledStock, setLabeledStock] = useState([]);
   const [error, setError] = useState(null);
@@ -98,8 +132,10 @@ const LabelStockList = () => {
   const [activeFilters, setActiveFilters] = useState([]);
   const [originalStock, setOriginalStock] = useState([]);
   const [showAllData, setShowAllData] = useState(false);
+  const [isGridView, setIsGridView] = useState(false);
   const [allFilteredData, setAllFilteredData] = useState([]);
   const [loadingAllData, setLoadingAllData] = useState(false);
+  const [showActiveOnly, setShowActiveOnly] = useState(false);
 
   // Add these state variables for filter options
   const [filterOptions, setFilterOptions] = useState({
@@ -147,26 +183,37 @@ const LabelStockList = () => {
   // Label preview modal state
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // Product details view state
+  const [showProductDetails, setShowProductDetails] = useState(false);
+  const [selectedProductForDetails, setSelectedProductForDetails] = useState(null);
+  const [productDetailsImageOverride, setProductDetailsImageOverride] = useState(null);
+  const [productDetailsImageUploading, setProductDetailsImageUploading] = useState(false);
+
   // Add state for status change popup
   const [showStatusPopup, setShowStatusPopup] = useState(false);
   const [selectedItemForStatus, setSelectedItemForStatus] = useState(null);
   const [statusChangeLoading, setStatusChangeLoading] = useState(false);
   const [availableStatuses] = useState(['ApiActive', 'Sold']);
   const isFetchingRef = useRef(false);
-  
+
   // Window width state for responsive design
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  
+
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Clear product details image override when viewing a different product
+  useEffect(() => {
+    if (!selectedProductForDetails) setProductDetailsImageOverride(null);
+  }, [selectedProductForDetails?.ItemCode, selectedProductForDetails?.RFIDCode]);
+
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('userInfo');
     console.log('Stored userInfo from localStorage:', storedUserInfo);
-    
+
     if (storedUserInfo) {
       try {
         const parsedUserInfo = JSON.parse(storedUserInfo);
@@ -206,23 +253,35 @@ const LabelStockList = () => {
           };
           setFilterValues(defaultFilters);
           setCurrentPage(1);
-          
-          // Fetch filter data, stock data, and templates in parallel
-          const [filterDataResult] = await Promise.allSettled([
-            fetchFilterData(),
-            fetchLabeledStock(1, itemsPerPage, '', defaultFilters),
-            fetchSavedTemplates()
-          ]);
-          
-          // If filter data failed, still allow stock to display
-          if (filterDataResult.status === 'rejected') {
-            console.warn('Filter data fetch failed, but continuing with stock data');
+
+          // Fetch stock data first (most important) - await this to show data quickly
+          // Filters and templates can load in background without blocking
+          try {
+            await fetchLabeledStock(1, itemsPerPage, '', defaultFilters);
+          } catch (err) {
+            console.error('Stock data fetch failed:', err);
+            setError('Failed to load stock data. Please try again.');
           }
+
+          // Fetch filter data and templates in parallel (non-blocking, don't await)
+          // These can load in background - page will work even if they fail
+          Promise.allSettled([
+            fetchFilterData(),
+            fetchSavedTemplates()
+          ]).then(([filterDataResult, templatesResult]) => {
+            // Log results but don't block - each function handles its own errors
+            if (filterDataResult.status === 'rejected') {
+              console.warn('Filter data fetch failed, but continuing with stock data:', filterDataResult.reason);
+            }
+            if (templatesResult.status === 'rejected') {
+              console.warn('Templates fetch failed, but continuing:', templatesResult.reason);
+            }
+          });
         } catch (error) {
           console.error('Error in initial data fetch:', error);
           setError('Failed to load data. Please refresh the page.');
-          setLoading(false);
         } finally {
+          setLoading(false);
           isFetchingRef.current = false;
         }
       };
@@ -234,7 +293,7 @@ const LabelStockList = () => {
   const fetchAllFilteredData = async () => {
     try {
       setLoadingAllData(true);
-      
+
       let clientCode = null;
       if (userInfo && userInfo.ClientCode) {
         clientCode = userInfo.ClientCode;
@@ -251,7 +310,7 @@ const LabelStockList = () => {
           console.error('Error in fallback userInfo retrieval:', err);
         }
       }
-      
+
       if (!clientCode) {
         console.log('ClientCode not found in userInfo or localStorage');
         setError('Client code not found. Please login again.');
@@ -259,49 +318,44 @@ const LabelStockList = () => {
         return;
       }
 
-      // Build payload for all data (no pagination)
+      // Build payload for all data: BranchId, CounterId, CategoryId, ProductId, PurityId as IDs
+      const allBranchId = filterValues.branch !== 'All' && filterValues.branch && apiFilterData.branches?.length
+        ? (() => {
+            const selectedBranch = apiFilterData.branches.find(branch => {
+              const n = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
+              return n === filterValues.branch || n.toLowerCase() === filterValues.branch.toLowerCase();
+            });
+            return selectedBranch ? Number(selectedBranch.Id ?? selectedBranch.id ?? 0) : 0;
+          })()
+        : 0;
       const payload = {
         ClientCode: clientCode,
-        CategoryId: getFilterValueForAPI('categoryId', filterValues.categoryId),
-        ProductId: getFilterValueForAPI('productId', filterValues.productId),
-        DesignId: getFilterValueForAPI('designId', filterValues.designId),
-        PurityId: getFilterValueForAPI('purityId', filterValues.purityId),
+        CategoryId: Number(getFilterValueForAPI('categoryId', filterValues.categoryId)) || 0,
+        ProductId: Number(getFilterValueForAPI('productId', filterValues.productId)) || 0,
+        DesignId: Number(getFilterValueForAPI('designId', filterValues.designId)) || 0,
+        PurityId: Number(getFilterValueForAPI('purityId', filterValues.purityId)) || 0,
+        FromDate: filterValues.dateFrom && filterValues.dateFrom.trim() !== '' ? filterValues.dateFrom.trim() : null,
+        ToDate: filterValues.dateTo && filterValues.dateTo.trim() !== '' ? filterValues.dateTo.trim() : null,
+        RFIDCode: "",
         PageNumber: 1,
-        PageSize: 999999, // Large number to get all data
-        BranchId: filterValues.branch !== 'All' ? (() => {
-          // Find the branch ID from the selected branch name
-          const selectedBranch = apiFilterData.branches.find(branch => 
-            branch.BranchName === filterValues.branch || 
-            branch.Name === filterValues.branch || 
-            branch.branchName === filterValues.branch ||
-            branch.name === filterValues.branch
-          );
-          return selectedBranch ? (selectedBranch.Id || selectedBranch.id || 0) : 0;
-        })() : 0,
-        Status: filterValues.status !== 'All' ? filterValues.status : "ApiActive",
+        PageSize: 999999,
+        BranchId: allBranchId,
+        Status: showActiveOnly ? "Active" : (filterValues.status !== 'All' ? filterValues.status : "ApiActive"),
         SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : "",
-        ListType: "ascending"
+        ListType: "ascending",
+        SortColumn: sortConfig.key || null
       };
 
-      // Add date filters if provided (format: YYYY-MM-DD)
-      if (filterValues.dateFrom && filterValues.dateFrom.trim() !== '') {
-        payload.FromDate = filterValues.dateFrom.trim();
-      }
-      if (filterValues.dateTo && filterValues.dateTo.trim() !== '') {
-        payload.ToDate = filterValues.dateTo.trim();
-      }
-
-      // Add additional filter parameters if not 'All'
       if (filterValues.counterName !== 'All' && filterValues.counterName) {
-        const selectedCounter = apiFilterData.counters?.find(counter => 
-          counter.CounterName === filterValues.counterName || 
-          counter.Name === filterValues.counterName || 
+        const selectedCounter = apiFilterData.counters?.find(counter =>
+          counter.CounterName === filterValues.counterName ||
+          counter.Name === filterValues.counterName ||
           counter.counterName === filterValues.counterName ||
           (counter.CounterName && counter.CounterName.toLowerCase() === filterValues.counterName.toLowerCase()) ||
           (counter.Name && counter.Name.toLowerCase() === filterValues.counterName.toLowerCase())
         );
         if (selectedCounter) {
-          payload.CounterId = selectedCounter.Id || selectedCounter.id;
+          payload.CounterId = Number(selectedCounter.Id ?? selectedCounter.id ?? 0);
         } else {
           console.warn('Counter not found in API data (all data fetch):', filterValues.counterName);
         }
@@ -361,7 +415,7 @@ const LabelStockList = () => {
         }));
         setAllFilteredData(allDataWithSerialNumbers);
         console.log(`Fetched ALL data: ${response.data.length} items`);
-        
+
         // Debug: Log first item to verify field mapping
         if (allDataWithSerialNumbers.length > 0) {
           console.log('Sample mapped item (all data):', {
@@ -413,33 +467,72 @@ const LabelStockList = () => {
       };
       const requestBody = { ClientCode: clientCode };
 
+      // Add timeout to prevent hanging requests (20 seconds)
+      const timeoutConfig = { timeout: 20000 };
+
+      // Use Promise.allSettled to handle individual API failures gracefully
       const [
-        productsResponse,
-        designsResponse,
-        categoriesResponse,
-        puritiesResponse,
-        countersResponse,
-        branchesResponse
-      ] = await Promise.all([
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllDesign', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllCategory', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllPurity', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllCounters', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllBranchMaster', requestBody, { headers })
+        productsResult,
+        designsResult,
+        categoriesResult,
+        puritiesResult,
+        countersResult,
+        branchesResult
+      ] = await Promise.allSettled([
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllDesign', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllCategory', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllPurity', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllCounters', requestBody, { headers, ...timeoutConfig }),
+        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllBranchMaster', requestBody, { headers, ...timeoutConfig })
       ]);
 
-      console.log('Counters API Response:', countersResponse.data);
-      console.log('Branches API Response:', branchesResponse.data);
-      console.log('Counters data structure:', {
-        isArray: Array.isArray(countersResponse.data),
-        length: countersResponse.data?.length,
-        sampleItem: countersResponse.data?.[0],
-        allKeys: countersResponse.data?.[0] ? Object.keys(countersResponse.data[0]) : []
-      });
+      // Extract responses from settled promises, handling failures
+      const productsResponse = productsResult.status === 'fulfilled' ? productsResult.value : null;
+      const designsResponse = designsResult.status === 'fulfilled' ? designsResult.value : null;
+      const categoriesResponse = categoriesResult.status === 'fulfilled' ? categoriesResult.value : null;
+      const puritiesResponse = puritiesResult.status === 'fulfilled' ? puritiesResult.value : null;
+      const countersResponse = countersResult.status === 'fulfilled' ? countersResult.value : null;
+      const branchesResponse = branchesResult.status === 'fulfilled' ? branchesResult.value : null;
+
+      // Log any failures
+      if (productsResult.status === 'rejected') {
+        console.warn('GetAllProductMaster failed:', productsResult.reason?.message || 'Unknown error');
+      }
+      if (designsResult.status === 'rejected') {
+        console.warn('GetAllDesign failed:', designsResult.reason?.message || 'Unknown error');
+      }
+      if (categoriesResult.status === 'rejected') {
+        console.warn('GetAllCategory failed:', categoriesResult.reason?.message || 'Unknown error');
+      }
+      if (puritiesResult.status === 'rejected') {
+        console.warn('GetAllPurity failed:', puritiesResult.reason?.message || 'Unknown error');
+      }
+      if (countersResult.status === 'rejected') {
+        console.warn('GetAllCounters failed:', countersResult.reason?.message || 'Unknown error');
+      }
+      if (branchesResult.status === 'rejected') {
+        console.warn('GetAllBranchMaster failed:', branchesResult.reason?.message || 'Unknown error');
+      }
+
+      if (countersResponse) {
+        console.log('Counters API Response:', countersResponse.data);
+      }
+      if (branchesResponse) {
+        console.log('Branches API Response:', branchesResponse.data);
+      }
+      if (countersResponse) {
+        console.log('Counters data structure:', {
+          isArray: Array.isArray(countersResponse.data),
+          length: countersResponse.data?.length,
+          sampleItem: countersResponse.data?.[0],
+          allKeys: countersResponse.data?.[0] ? Object.keys(countersResponse.data[0]) : []
+        });
+      }
 
       // Handle different response structures - some APIs might return objects or arrays
       const normalizeArray = (data) => {
+        if (!data) return [];
         if (Array.isArray(data)) return data;
         if (data && typeof data === 'object') {
           // If it's an object, try to extract array from common properties
@@ -449,12 +542,12 @@ const LabelStockList = () => {
       };
 
       const normalizedData = {
-        products: normalizeArray(productsResponse.data),
-        designs: normalizeArray(designsResponse.data),
-        categories: normalizeArray(categoriesResponse.data),
-        purities: normalizeArray(puritiesResponse.data),
-        counters: normalizeArray(countersResponse.data),
-        branches: normalizeArray(branchesResponse.data)
+        products: normalizeArray(productsResponse?.data),
+        designs: normalizeArray(designsResponse?.data),
+        categories: normalizeArray(categoriesResponse?.data),
+        purities: normalizeArray(puritiesResponse?.data),
+        counters: normalizeArray(countersResponse?.data),
+        branches: normalizeArray(branchesResponse?.data)
       };
 
       setApiFilterData(normalizedData);
@@ -469,34 +562,34 @@ const LabelStockList = () => {
       });
 
     } catch (error) {
-      console.error('Error fetching filter data:', error);
+      console.error('Error in fetchFilterData:', error);
       console.error('Error details:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
         url: error.config?.url
       });
-      
+
       // Set empty arrays for failed API calls to prevent errors
       // Don't overwrite existing data if we have it
       setApiFilterData(prev => ({
-        products: prev.products.length > 0 ? prev.products : [],
-        designs: prev.designs.length > 0 ? prev.designs : [],
-        categories: prev.categories.length > 0 ? prev.categories : [],
-        purities: prev.purities.length > 0 ? prev.purities : [],
-        counters: prev.counters.length > 0 ? prev.counters : [],
-        branches: prev.branches.length > 0 ? prev.branches : []
+        products: prev?.products?.length > 0 ? prev.products : [],
+        designs: prev?.designs?.length > 0 ? prev.designs : [],
+        categories: prev?.categories?.length > 0 ? prev.categories : [],
+        purities: prev?.purities?.length > 0 ? prev.purities : [],
+        counters: prev?.counters?.length > 0 ? prev.counters : [],
+        branches: prev?.branches?.length > 0 ? prev.branches : []
       }));
     }
   };
 
-  const fetchLabeledStock = async (page = currentPage, pageSize = itemsPerPage, search = searchQuery, filters = filterValues) => {
+  const fetchLabeledStock = async (page = currentPage, pageSize = itemsPerPage, search = searchQuery, filters = filterValues, sort = sortConfig) => {
     // Prevent duplicate loading if already fetching
     if (isFetchingRef.current) {
       console.log('Already fetching, skipping duplicate fetch');
       return;
     }
-    
+
     // Ensure we have valid filters
     const safeFilters = filters || {
       counterName: 'All',
@@ -509,11 +602,11 @@ const LabelStockList = () => {
       branch: 'All',
       status: 'All'
     };
-    
+
     isFetchingRef.current = true;
     try {
       setLoading(true);
-      
+
       // Try to get ClientCode from userInfo or fallback to localStorage
       let clientCode = null;
       if (userInfo && userInfo.ClientCode) {
@@ -534,81 +627,60 @@ const LabelStockList = () => {
           console.error('Error in fallback userInfo retrieval:', err);
         }
       }
-      
+
       if (!clientCode) {
         console.log('ClientCode not found in userInfo or localStorage');
         setError('Client code not found. Please login again.');
         setLoading(false);
         return;
       }
-      
+
       setError(null); // Clear any existing errors
 
-      // Build the payload following the reference pattern
+      // Build the payload: BranchId, CounterId, CategoryId, ProductId, PurityId as IDs for GetAllLabeledStock API
+      const resolvedBranchId = safeFilters.branch !== 'All' && safeFilters.branch && apiFilterData.branches?.length
+        ? (() => {
+            const selectedBranch = apiFilterData.branches.find(branch => {
+              const branchName = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
+              return branchName === safeFilters.branch || branchName.toLowerCase() === safeFilters.branch.toLowerCase();
+            });
+            return selectedBranch ? Number(selectedBranch.Id ?? selectedBranch.id ?? 0) : 0;
+          })()
+        : 0;
+      const resolvedCategoryId = Number(getFilterValueForAPI('categoryId', safeFilters.categoryId)) || 0;
+      const resolvedProductId = Number(getFilterValueForAPI('productId', safeFilters.productId)) || 0;
+      const resolvedPurityId = Number(getFilterValueForAPI('purityId', safeFilters.purityId)) || 0;
+      const resolvedDesignId = Number(getFilterValueForAPI('designId', safeFilters.designId)) || 0;
+
       const payload = {
         ClientCode: clientCode,
-        CategoryId: getFilterValueForAPI('categoryId', safeFilters.categoryId),
-        ProductId: getFilterValueForAPI('productId', safeFilters.productId),
-        DesignId: getFilterValueForAPI('designId', safeFilters.designId),
-        PurityId: getFilterValueForAPI('purityId', safeFilters.purityId),
+        CategoryId: resolvedCategoryId,
+        ProductId: resolvedProductId,
+        DesignId: resolvedDesignId,
+        PurityId: resolvedPurityId,
+        FromDate: safeFilters.dateFrom && safeFilters.dateFrom.trim() !== '' ? safeFilters.dateFrom.trim() : null,
+        ToDate: safeFilters.dateTo && safeFilters.dateTo.trim() !== '' ? safeFilters.dateTo.trim() : null,
+        RFIDCode: "", // Always include RFIDCode as empty string
         PageNumber: page,
         PageSize: pageSize,
-        BranchId: safeFilters.branch !== 'All' && safeFilters.branch ? (() => {
-          // Find the branch ID from the selected branch name
-          if (!apiFilterData.branches || apiFilterData.branches.length === 0) {
-            console.warn('No branches data available for filter mapping');
-            return 0;
-          }
-          
-          const selectedBranch = apiFilterData.branches.find(branch => {
-            const branchName = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
-            return branchName === safeFilters.branch || 
-                   branchName.toLowerCase() === safeFilters.branch.toLowerCase();
-          });
-          
-          const branchId = selectedBranch ? (selectedBranch.Id || selectedBranch.id || 0) : 0;
-          console.log('Branch filter mapping:', {
-            selectedBranchName: safeFilters.branch,
-            selectedBranch: selectedBranch,
-            branchId: branchId,
-            availableBranches: apiFilterData.branches.length,
-            firstBranchSample: apiFilterData.branches[0]
-          });
-          if (!selectedBranch && safeFilters.branch !== 'All') {
-            console.warn('Branch not found in API data:', safeFilters.branch, 'Available branches:', apiFilterData.branches.map(b => b.BranchName || b.Name || b.branchName || b.name));
-          }
-          return branchId;
-        })() : 0,
-        Status: safeFilters.status !== 'All' ? safeFilters.status : "ApiActive",
+        BranchId: resolvedBranchId,
+        Status: showActiveOnly ? "Active" : (safeFilters.status !== 'All' ? safeFilters.status : "ApiActive"),
         SearchQuery: search && search.trim() !== '' ? search.trim() : "",
-        ListType: "ascending"
+        ListType: sort && sort.direction === 'desc' ? "descending" : "ascending",
+        SortColumn: sort && sort.key ? sort.key : null // Include SortColumn based on current sort configuration
       };
 
-      // Add date filters if provided (format: YYYY-MM-DD)
-      if (safeFilters.dateFrom && safeFilters.dateFrom.trim() !== '') {
-        payload.FromDate = safeFilters.dateFrom.trim();
-      }
-      if (safeFilters.dateTo && safeFilters.dateTo.trim() !== '') {
-        payload.ToDate = safeFilters.dateTo.trim();
-      }
-
-      // Add additional filter parameters if not 'All'
+      // Counter: send CounterId in payload when user selects a counter
       if (safeFilters.counterName !== 'All' && safeFilters.counterName) {
-        // Find the counter ID from the selected counter name
-        const selectedCounter = apiFilterData.counters?.find(counter => 
-          counter.CounterName === safeFilters.counterName || 
-          counter.Name === safeFilters.counterName || 
+        const selectedCounter = apiFilterData.counters?.find(counter =>
+          counter.CounterName === safeFilters.counterName ||
+          counter.Name === safeFilters.counterName ||
           counter.counterName === safeFilters.counterName ||
           (counter.CounterName && counter.CounterName.toLowerCase() === safeFilters.counterName.toLowerCase()) ||
           (counter.Name && counter.Name.toLowerCase() === safeFilters.counterName.toLowerCase())
         );
         if (selectedCounter) {
-          payload.CounterId = selectedCounter.Id || selectedCounter.id;
-          console.log('Counter filter mapping:', {
-            selectedCounterName: safeFilters.counterName,
-            selectedCounter: selectedCounter,
-            counterId: payload.CounterId
-          });
+          payload.CounterId = Number(selectedCounter.Id ?? selectedCounter.id ?? 0);
         } else {
           console.warn('Counter not found in API data:', safeFilters.counterName, 'Available counters:', apiFilterData.counters);
         }
@@ -621,24 +693,15 @@ const LabelStockList = () => {
       }
 
       console.log(`API Request - Page ${page}:`, payload);
-      console.log('Filter Values:', {
-        categoryId: safeFilters.categoryId,
-        productId: safeFilters.productId,
-        designId: safeFilters.designId,
-        counterName: safeFilters.counterName,
+      console.log('Filter → API IDs:', {
         branch: safeFilters.branch,
-        boxName: safeFilters.boxName,
-        vendor: safeFilters.vendor,
-        status: safeFilters.status,
-        dateFrom: safeFilters.dateFrom || 'Not set',
-        dateTo: safeFilters.dateTo || 'Not set',
-        resolvedCategoryId: getFilterValueForAPI('categoryId', safeFilters.categoryId),
-        resolvedProductId: getFilterValueForAPI('productId', safeFilters.productId),
-        resolvedDesignId: getFilterValueForAPI('designId', safeFilters.designId),
-        counterId: payload.CounterId || 'Not selected',
-        branchId: payload.BranchId || 'Not selected',
-        fromDate: payload.FromDate || 'Not set',
-        toDate: payload.ToDate || 'Not set'
+        branchId: payload.BranchId,
+        counterName: safeFilters.counterName,
+        counterId: payload.CounterId,
+        categoryId: payload.CategoryId,
+        productId: payload.ProductId,
+        purityId: payload.PurityId,
+        designId: payload.DesignId
       });
 
       const response = await axios.post(
@@ -649,14 +712,14 @@ const LabelStockList = () => {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'application/json'
           },
-          timeout: 30000 // 30 seconds timeout
+          timeout: 20000 // 20 seconds timeout to prevent hanging
         }
       );
 
       // Handle different response structures
       let dataArray = [];
       let totalCount = 0;
-      
+
       if (response.data) {
         // Case 1: Direct array
         if (Array.isArray(response.data)) {
@@ -671,17 +734,25 @@ const LabelStockList = () => {
         // Case 2: Nested in data property
         else if (response.data.data && Array.isArray(response.data.data)) {
           dataArray = response.data.data;
-          totalCount = response.data.totalRecords || response.data.totalCount || dataArray.length;
+          totalCount = response.data.totalRecords || response.data.totalCount || response.data.total || dataArray.length;
         }
         // Case 3: Success wrapper
         else if (response.data.success && response.data.data && Array.isArray(response.data.data)) {
           dataArray = response.data.data;
-          totalCount = response.data.totalRecords || response.data.totalCount || dataArray.length;
+          totalCount = response.data.totalRecords || response.data.totalCount || response.data.total || dataArray.length;
         }
         // Case 4: Deeply nested
         else if (response.data.data && response.data.data.data && Array.isArray(response.data.data.data)) {
           dataArray = response.data.data.data;
-          totalCount = response.data.data.totalRecords || response.data.data.totalCount || dataArray.length;
+          totalCount = response.data.data.totalRecords || response.data.data.totalCount || response.data.data.total || dataArray.length;
+        }
+        // Case 5: Check root level for total count (even if data structure is different)
+        else if (response.data.totalRecords !== undefined) {
+          totalCount = response.data.totalRecords;
+        } else if (response.data.totalCount !== undefined) {
+          totalCount = response.data.totalCount;
+        } else if (response.data.total !== undefined) {
+          totalCount = response.data.total;
         }
       }
 
@@ -719,7 +790,7 @@ const LabelStockList = () => {
           TotalWeight: item.TotalWeight !== undefined && item.TotalWeight !== null ? item.TotalWeight : (item.TotalWeight || '')
         }));
         setLabeledStock(stockWithSerialNumbers);
-        
+
         // Set pagination info
         if (totalCount > 0) {
           setTotalRecords(totalCount);
@@ -745,13 +816,16 @@ const LabelStockList = () => {
       }
     } catch (err) {
       console.error('Error fetching data:', err);
-      
+
       // Handle different error types
-      if (err.response) {
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        // Timeout error
+        setError('Request timed out. The server is taking too long to respond. Please try again.');
+      } else if (err.response) {
         // Server responded with error status
         const status = err.response.status;
         const message = err.response.data?.message || err.response.data?.error || 'Server error occurred';
-        
+
         if (status === 401) {
           setError('Unauthorized. Please login again.');
         } else if (status === 403) {
@@ -770,7 +844,7 @@ const LabelStockList = () => {
         // Something else happened
         setError(err.message || 'Failed to fetch labeled stock data');
       }
-      
+
       // Clear data on error
       setLabeledStock([]);
       setTotalRecords(0);
@@ -786,7 +860,12 @@ const LabelStockList = () => {
     // Since we're using server-side pagination, we only filter the current page data
     // For full search/filter functionality, we would need to implement server-side filtering
     let filtered = labeledStock;
-    
+
+    // Filter by RFIDCode when showActiveOnly is true - only show items where RFIDCode is not null
+    if (showActiveOnly) {
+      filtered = filtered.filter(item => item.RFIDCode && item.RFIDCode.trim() !== '');
+    }
+
     // Apply search query to current page data only
     if (searchQuery.trim() !== '') {
       const q = searchQuery.trim().toLowerCase();
@@ -796,9 +875,9 @@ const LabelStockList = () => {
         )
       );
     }
-    
+
     return filtered;
-  }, [labeledStock, searchQuery]);
+  }, [labeledStock, searchQuery, showActiveOnly]);
 
   // Pagination - now using server-side pagination
   const currentItems = filteredStock; // filteredStock now contains only the current page data
@@ -829,7 +908,7 @@ const LabelStockList = () => {
   // Fetch saved label templates
   const fetchSavedTemplates = async () => {
     if (!userInfo?.ClientCode) return;
-    
+
     try {
       setTemplatesLoading(true);
       const headers = {
@@ -838,11 +917,14 @@ const LabelStockList = () => {
       };
       const requestBody = { ClientCode: userInfo.ClientCode };
 
-      // Use LabelTemplates API (matching backend)
+      // Use LabelTemplates API (matching backend) with timeout
       const response = await axios.post(
         'https://rrgold.loyalstring.co.in/api/LabelTemplates/GetAllLabelTemplates',
         requestBody,
-        { headers }
+        {
+          headers,
+          timeout: 10000 // 10 seconds timeout
+        }
       );
 
       const normalizeArray = (data) => {
@@ -856,12 +938,19 @@ const LabelStockList = () => {
       setSavedTemplates(normalizeArray(response.data));
     } catch (error) {
       console.error('Error fetching saved templates:', error);
-      setSavedTemplates([]);
-      addNotification({
-        type: 'error',
-        title: 'Error',
-        message: error.response?.data?.message || 'Failed to load saved templates.'
-      });
+      // Don't show error notification for 500 errors - just log and continue
+      if (error.response?.status !== 500) {
+        setSavedTemplates([]);
+        addNotification({
+          type: 'error',
+          title: 'Error',
+          message: error.response?.data?.message || 'Failed to load saved templates.'
+        });
+      } else {
+        // For 500 errors, just set empty array and continue silently
+        setSavedTemplates([]);
+        console.warn('GetAllLabelTemplates returned 500 error - continuing without templates');
+      }
     } finally {
       setTemplatesLoading(false);
     }
@@ -890,7 +979,7 @@ const LabelStockList = () => {
     if (e) {
       e.stopPropagation(); // Prevent row selection
     }
-    
+
     if (!selectedTemplate) {
       showSuccessNotification('No Template Selected', 'Please select a template from the dropdown to print labels.');
       return;
@@ -898,11 +987,11 @@ const LabelStockList = () => {
 
     try {
       setPreviewLoading(true);
-      
+
       // Prepare API payload
       const clientCode = userInfo?.ClientCode || '';
       const templateId = selectedTemplate.value;
-      
+
       // Build payload - use ItemCode if available, otherwise RFIDCode
       const payload = {
         clientCode: clientCode,
@@ -927,7 +1016,7 @@ const LabelStockList = () => {
 
       // Process response
       const labels = response.data.labels || response.data.Labels || [];
-      
+
       if (!labels || labels.length === 0) {
         showSuccessNotification('Error', 'No label was generated. Please check the item.');
         setPreviewLoading(false);
@@ -935,7 +1024,7 @@ const LabelStockList = () => {
       }
 
       const label = labels[0];
-      
+
       if (!(label.isSuccess || label.IsSuccess)) {
         const errorMsg = label.errorMessage || label.ErrorMessage || 'Failed to generate label.';
         showSuccessNotification('Error', errorMsg);
@@ -944,7 +1033,7 @@ const LabelStockList = () => {
       }
 
       const generatedLayout = label.generatedLayout || label.GeneratedLayout;
-      
+
       if (!generatedLayout) {
         showSuccessNotification('Error', 'Invalid label layout received from server.');
         setPreviewLoading(false);
@@ -960,10 +1049,84 @@ const LabelStockList = () => {
           }
         });
       }
-      
+
       // Add item code and RFID code
       labelData.ItemCode = label.itemCode || label.ItemCode || item.ItemCode || '';
       labelData.RFIDCode = label.rfidCode || label.RFIDCode || item.RFIDCode || '';
+
+      // Ensure Stone Amount and all other important fields are always mapped from item data
+      // This ensures they're available even if API doesn't return them in the layout
+      // Use item data as fallback if labelData doesn't have the value or if it's empty
+      if (!labelData.StoneAmount || labelData.StoneAmount === '' || labelData.StoneAmount === null) {
+        labelData.StoneAmount = item.TotalStoneAmount || item.StoneAmt || item.StoneAmount || '';
+      }
+      if (!labelData.TotalStoneWeight || labelData.TotalStoneWeight === '' || labelData.TotalStoneWeight === null) {
+        labelData.TotalStoneWeight = item.TotalStoneWeight || item.StoneWt || item.StoneWeight || '';
+      }
+      if (!labelData.StoneWeight || labelData.StoneWeight === '' || labelData.StoneWeight === null) {
+        labelData.StoneWeight = item.TotalStoneWeight || item.StoneWt || item.StoneWeight || '';
+      }
+      if (!labelData.DiamondAmount || labelData.DiamondAmount === '' || labelData.DiamondAmount === null) {
+        labelData.DiamondAmount = item.TotalDiamondAmount || item.DiamondAmount || '';
+      }
+      if (!labelData.DiamondWeight || labelData.DiamondWeight === '' || labelData.DiamondWeight === null) {
+        labelData.DiamondWeight = item.TotalDiamondWeight || item.DiamondWt || item.DiamondWeight || '';
+      }
+      if (!labelData.GrossWt || labelData.GrossWt === '' || labelData.GrossWt === null) {
+        labelData.GrossWt = item.GrossWt || item.GrossWeight || '';
+      }
+      if (!labelData.NetWt || labelData.NetWt === '' || labelData.NetWt === null) {
+        labelData.NetWt = item.NetWt || item.NetWeight || '';
+      }
+      if (!labelData.ProductName || labelData.ProductName === '' || labelData.ProductName === null) {
+        labelData.ProductName = item.ProductName || '';
+      }
+      if (!labelData.CategoryName || labelData.CategoryName === '' || labelData.CategoryName === null) {
+        labelData.CategoryName = item.CategoryName || item.Category || '';
+      }
+      if (!labelData.DesignName || labelData.DesignName === '' || labelData.DesignName === null) {
+        labelData.DesignName = item.DesignName || item.Design || '';
+      }
+      if (!labelData.PurityName || labelData.PurityName === '' || labelData.PurityName === null) {
+        labelData.PurityName = item.PurityName || item.Purity || '';
+      }
+      if (!labelData.BranchName || labelData.BranchName === '' || labelData.BranchName === null) {
+        labelData.BranchName = item.BranchName || item.Branch || '';
+      }
+      if (!labelData.CounterName || labelData.CounterName === '' || labelData.CounterName === null) {
+        labelData.CounterName = item.CounterName || item.Counter || '';
+      }
+      if (!labelData.MRP || labelData.MRP === '' || labelData.MRP === null) {
+        labelData.MRP = item.MRP || '';
+      }
+      if (!labelData.Size || labelData.Size === '' || labelData.Size === null) {
+        labelData.Size = item.Size || '';
+      }
+      if (!labelData.MakingFixedAmt || labelData.MakingFixedAmt === '' || labelData.MakingFixedAmt === null) {
+        labelData.MakingFixedAmt = item.MakingFixedAmt || item.FixedAmt || '';
+      }
+      if (!labelData.HallmarkAmount || labelData.HallmarkAmount === '' || labelData.HallmarkAmount === null) {
+        labelData.HallmarkAmount = item.HallmarkAmount || '';
+      }
+      if (!labelData.MakingPerGram || labelData.MakingPerGram === '' || labelData.MakingPerGram === null) {
+        labelData.MakingPerGram = item.MakingPerGram || '';
+      }
+      if (!labelData.MakingPercentage || labelData.MakingPercentage === '' || labelData.MakingPercentage === null) {
+        labelData.MakingPercentage = item.MakingPercentage || '';
+      }
+      if (!labelData.BoxDetails || labelData.BoxDetails === '' || labelData.BoxDetails === null) {
+        labelData.BoxDetails = item.BoxDetails || item.box_details || '';
+      }
+      if (!labelData.RFIDNumber || labelData.RFIDNumber === '' || labelData.RFIDNumber === null) {
+        labelData.RFIDNumber = item.RFIDNumber || item.RFIDCode || '';
+      }
+
+      // Debug log to verify StoneAmount is populated
+      console.log('Label Data for printing:', {
+        StoneAmount: labelData.StoneAmount,
+        itemStoneAmount: item.TotalStoneAmount || item.StoneAmt || item.StoneAmount,
+        allLabelData: labelData
+      });
 
       // Generate and open PDF directly
       await generateAndOpenPDF(generatedLayout, labelData, item);
@@ -1012,7 +1175,39 @@ const LabelStockList = () => {
 
         if (element.type === 'text') {
           const labelText = element.label || '';
-          const bindingValue = element.value !== undefined ? String(element.value) : '';
+          // Get binding value - ALWAYS use labelData if binding exists (it has fallback from item data)
+          let bindingValue = '';
+          if (element.binding) {
+            // If element has a binding, ALWAYS use labelData first (which has fallback from item data)
+            // This ensures StoneAmount and other fields always show even if API returns empty
+            const labelDataValue = labelData[element.binding];
+            if (labelDataValue !== undefined && labelDataValue !== null && String(labelDataValue).trim() !== '') {
+              bindingValue = String(labelDataValue);
+            } else if (element.value !== undefined && element.value !== null && String(element.value).trim() !== '') {
+              // Fallback to element.value only if labelData is empty
+              bindingValue = String(element.value);
+            }
+          } else if (element.value !== undefined && element.value !== null && String(element.value).trim() !== '') {
+            // No binding, just use element.value
+            bindingValue = String(element.value);
+          }
+
+          // Debug log for StoneAmount binding
+          if (element.binding === 'StoneAmount') {
+            console.log('Rendering StoneAmount element:', {
+              binding: element.binding,
+              elementValue: element.value,
+              labelDataValue: labelData[element.binding],
+              finalBindingValue: bindingValue,
+              labelText: labelText,
+              itemData: {
+                TotalStoneAmount: item.TotalStoneAmount,
+                StoneAmt: item.StoneAmt,
+                StoneAmount: item.StoneAmount
+              }
+            });
+          }
+
           let displayText = '';
           if (labelText && bindingValue) {
             displayText = `${labelText}: ${bindingValue}`;
@@ -1123,7 +1318,7 @@ const LabelStockList = () => {
       const pdfBlob = doc.output('blob');
       const pdfUrl = URL.createObjectURL(pdfBlob);
       const newTab = window.open(pdfUrl, '_blank');
-      
+
       if (!newTab) {
         // Fallback: download the PDF
         doc.save(`Label-${labelData.ItemCode || 'N/A'}.pdf`);
@@ -1148,7 +1343,7 @@ const LabelStockList = () => {
     setDropdownStates(prev => {
       const currentState = prev[field] || { isOpen: false, searchTerm: '', filteredOptions: [] };
       let filteredOptions = [];
-      
+
       if (field === 'branch') {
         const options = apiFilterData.branches || [];
         filteredOptions = options.filter(item => {
@@ -1192,7 +1387,7 @@ const LabelStockList = () => {
         const options = filterOptions.statuses || [];
         filteredOptions = options.filter(opt => opt !== 'All' && opt.toLowerCase().includes(searchTerm.toLowerCase()));
       }
-      
+
       return {
         ...prev,
         [field]: {
@@ -1205,15 +1400,29 @@ const LabelStockList = () => {
   };
 
   // Helper function to toggle dropdown
+  // Helper function to toggle dropdown with auto-close of others
   const toggleDropdown = (field) => {
-    setDropdownStates(prev => ({
-      ...prev,
-      [field]: {
-        ...prev[field],
-        isOpen: !prev[field]?.isOpen,
-        searchTerm: prev[field]?.isOpen ? '' : prev[field]?.searchTerm || ''
+    setDropdownStates(prev => {
+      // Create a new state object where all dropdowns are closed
+      const updated = {};
+      Object.keys(prev).forEach(key => {
+        // Reset all to closed, clear search terms if you want, or keep them.
+        // Existing logic for closeAllDropdowns cleared search terms: searchTerm: ''
+        updated[key] = { ...prev[key], isOpen: false, searchTerm: '' };
+      });
+
+      // If the clicked dropdown was NOT open, open it now
+      // We check prev[field].isOpen to see if it was open before this click
+      if (!prev[field]?.isOpen) {
+        updated[field] = {
+          ...prev[field],
+          isOpen: true,
+          searchTerm: prev[field]?.searchTerm || ''
+        };
       }
-    }));
+
+      return updated;
+    });
   };
 
   // Helper function to close all dropdowns
@@ -1235,7 +1444,7 @@ const LabelStockList = () => {
     const currentValue = filterValues[field] || 'All';
     const allOptions = options || [];
     const showOptions = searchTerm ? filteredOptions : allOptions;
-    
+
     let displayValue = allLabel;
     if (currentValue !== 'All' && currentValue) {
       const selectedOption = allOptions.find(opt => {
@@ -1260,8 +1469,8 @@ const LabelStockList = () => {
         }}>{label}</label>
         <div style={{ position: 'relative' }}>
           <div
-            onClick={() => {
-              closeAllDropdowns();
+            onClick={(e) => {
+              e.stopPropagation();
               toggleDropdown(field);
             }}
             style={{
@@ -1282,7 +1491,7 @@ const LabelStockList = () => {
             onMouseEnter={(e) => e.currentTarget.style.borderColor = '#10b981'}
             onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
           >
-            <span style={{ 
+            <span style={{
               color: currentValue === 'All' ? '#94a3b8' : '#1e293b',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -1291,13 +1500,13 @@ const LabelStockList = () => {
             }}>
               {displayValue}
             </span>
-            <KeyboardArrowDownIcon 
-              style={{ 
-                fontSize: '16px', 
+            <KeyboardArrowDownIcon
+              style={{
+                fontSize: '16px',
                 color: '#64748b',
                 transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                 transition: 'transform 0.2s'
-              }} 
+              }}
             />
           </div>
           {isOpen && (
@@ -1423,30 +1632,209 @@ const LabelStockList = () => {
     );
   };
 
+  const handleExportAllReport = async () => {
+    try {
+      setExportLoading(true);
+
+      // Get ClientCode
+      let clientCode = null;
+      if (userInfo && userInfo.ClientCode) {
+        clientCode = userInfo.ClientCode;
+      } else {
+        try {
+          const storedUserInfo = localStorage.getItem('userInfo');
+          if (storedUserInfo) {
+            const parsedUserInfo = JSON.parse(storedUserInfo);
+            if (parsedUserInfo && parsedUserInfo.ClientCode) {
+              clientCode = parsedUserInfo.ClientCode;
+            }
+          }
+        } catch (err) {
+          console.error('Error retrieving userInfo:', err);
+        }
+      }
+
+      if (!clientCode) {
+        addNotification({
+          title: 'Export Failed',
+          description: 'Client code not found. Please login again.',
+          type: 'error'
+        });
+        setExportLoading(false);
+        return;
+      }
+
+      // Build the payload - same structure as GetAllLabeledStock but without pagination
+      const safeFilters = filterValues || {
+        counterName: 'All',
+        productId: 'All',
+        categoryId: 'All',
+        designId: 'All',
+        purityId: 'All',
+        boxName: 'All',
+        vendor: 'All',
+        branch: 'All',
+        status: 'All'
+      };
+
+      // Export payload: BranchId, CounterId, CategoryId, ProductId, PurityId as IDs
+      const exportBranchId = safeFilters.branch !== 'All' && safeFilters.branch && apiFilterData.branches?.length
+        ? (() => {
+            const selectedBranch = apiFilterData.branches.find(branch => {
+              const n = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
+              return n === safeFilters.branch || n.toLowerCase() === safeFilters.branch.toLowerCase();
+            });
+            return selectedBranch ? Number(selectedBranch.Id ?? selectedBranch.id ?? 0) : 0;
+          })()
+        : 0;
+      const payload = {
+        ClientCode: clientCode,
+        CategoryId: Number(getFilterValueForAPI('categoryId', safeFilters.categoryId)) || 0,
+        ProductId: Number(getFilterValueForAPI('productId', safeFilters.productId)) || 0,
+        DesignId: Number(getFilterValueForAPI('designId', safeFilters.designId)) || 0,
+        PurityId: Number(getFilterValueForAPI('purityId', safeFilters.purityId)) || 0,
+        FromDate: safeFilters.dateFrom && safeFilters.dateFrom.trim() !== '' ? safeFilters.dateFrom.trim() : null,
+        ToDate: safeFilters.dateTo && safeFilters.dateTo.trim() !== '' ? safeFilters.dateTo.trim() : null,
+        RFIDCode: "",
+        BranchId: exportBranchId,
+        Status: safeFilters.status !== 'All' ? safeFilters.status : "ApiActive",
+        SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : "",
+        ListType: sortConfig && (sortConfig.direction === 'desc' || sortConfig.direction === 'descending') ? "descending" : "ascending",
+        SortColumn: sortConfig && sortConfig.key ? sortConfig.key : null
+      };
+
+      if (safeFilters.counterName !== 'All' && safeFilters.counterName) {
+        const selectedCounter = apiFilterData.counters?.find(counter =>
+          counter.CounterName === safeFilters.counterName ||
+          counter.Name === safeFilters.counterName ||
+          counter.counterName === safeFilters.counterName ||
+          (counter.CounterName && counter.CounterName.toLowerCase() === safeFilters.counterName.toLowerCase()) ||
+          (counter.Name && counter.Name.toLowerCase() === safeFilters.counterName.toLowerCase())
+        );
+        if (selectedCounter) {
+          payload.CounterId = Number(selectedCounter.Id ?? selectedCounter.id ?? 0);
+        }
+      }
+      if (safeFilters.boxName !== 'All' && safeFilters.boxName) {
+        payload.BoxName = safeFilters.boxName;
+      }
+      if (safeFilters.vendor !== 'All' && safeFilters.vendor) {
+        payload.Vendor = safeFilters.vendor;
+      }
+
+      console.log('Export All Report - API Request:', payload);
+
+      // Call the export API
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/ProductMaster/ExportLabelledStockToExcel',
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          responseType: 'blob', // Important for file download
+          timeout: 300000 // 5 minutes timeout for large exports
+        }
+      );
+
+      // Create a blob from the response
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      // Get filename from response headers or use default
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'LabelledStock_Export.xlsx';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/['"]/g, '');
+        }
+      } else {
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        filename = `LabelledStock_Export_${timestamp}.xlsx`;
+      }
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      // Show success popup
+      addNotification({
+        title: 'Export Successful',
+        description: `All labeled stock data has been exported to Excel successfully. File: ${filename}`,
+        type: 'success'
+      });
+
+      // Show success notification
+      showSuccessNotification(
+        'Export Successful',
+        `All labeled stock data has been exported to Excel successfully.\nFile: ${filename}`
+      );
+
+    } catch (error) {
+      console.error('Export All Report error:', error);
+      const errorMessage = error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        'Failed to export labeled stock. Please try again.';
+
+      addNotification({
+        title: 'Export Failed',
+        description: errorMessage,
+        type: 'error'
+      });
+
+      showSuccessNotification('Export Failed', errorMessage);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const handleExportToExcel = async () => {
     try {
       setExportLoading(true);
       setExportErrors({ ...exportErrors, excel: '' });
 
       const wb = XLSX.utils.book_new();
-      
+
       // Use all filtered data if available, otherwise use current page data
       const dataToExport = showAllData && allFilteredData.length > 0 ? allFilteredData : filteredStock;
-      
+
       const exportData = dataToExport.map((item, index) => ({
         'Sr No': index + 1,
         'Counter Name': item.CounterName || '',
         'Item Code': item.ItemCode || '',
         'RFID Code': item.RFIDCode || '',
         'Product Name': item.ProductName || '',
-        'Category': item.Category || '',
+        'Category': item.CategoryName || item.Category || '',
+        'Design': item.DesignName || item.Design || '',
+        'Purity': item.PurityName || item.Purity || '',
         'Gross Wt': item.GrossWt ? Number(item.GrossWt).toFixed(3) : '',
+        'Stone Wt': item.StoneWt ? Number(item.StoneWt).toFixed(3) : '',
+        'Diamond Wt': item.DiamondWt ? Number(item.DiamondWt).toFixed(3) : '',
         'Net Wt': item.NetWt ? Number(item.NetWt).toFixed(3) : '',
+        'Stone Amt': item.StoneAmt ? Number(item.StoneAmt).toFixed(2) : '',
+        'Fixed Amt': item.FixedAmt ? Number(item.FixedAmt).toFixed(2) : '',
+        'Vendor': item.Vendor || '',
+        'Branch': item.Branch || '',
+        'Created Date': item.CreatedDate ? new Date(item.CreatedDate).toLocaleDateString('en-GB') : '',
+        'Packing Weight': item.PackingWeight ? Number(item.PackingWeight).toFixed(3) : '',
+        'Total Weight': item.TotalWeight ? Number(item.TotalWeight).toFixed(3) : '',
         'Status': item.Status || ''
       }));
 
       const ws = XLSX.utils.json_to_sheet(exportData);
-      
+
       ws['!cols'] = [
         { wch: 8 },  // Sr No
         { wch: 15 }, // Counter Name
@@ -1454,8 +1842,19 @@ const LabelStockList = () => {
         { wch: 15 }, // RFID Code
         { wch: 25 }, // Product Name
         { wch: 15 }, // Category
+        { wch: 15 }, // Design
+        { wch: 12 }, // Purity
         { wch: 12 }, // Gross Wt
+        { wch: 12 }, // Stone Wt
+        { wch: 12 }, // Diamond Wt
         { wch: 12 }, // Net Wt
+        { wch: 12 }, // Stone Amt
+        { wch: 12 }, // Fixed Amt
+        { wch: 15 }, // Vendor
+        { wch: 15 }, // Branch
+        { wch: 15 }, // Created Date
+        { wch: 15 }, // Packing Weight
+        { wch: 15 }, // Total Weight
         { wch: 12 }  // Status
       ];
 
@@ -1469,7 +1868,7 @@ const LabelStockList = () => {
         'Export Successful',
         'Data has been exported to Excel successfully'
       );
-      
+
       // Add a small delay before closing the modal
       setTimeout(() => {
         setShowExportModal(false);
@@ -1489,6 +1888,136 @@ const LabelStockList = () => {
     }
   };
 
+  const handleExportCatalog = async () => {
+    try {
+      setExportLoading(true);
+      setExportErrors({ ...exportErrors, pdf: '' });
+
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      doc.setFontSize(16);
+      doc.text('Product Catalog', 14, 15);
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
+
+      // Use all filtered data if available, otherwise use current filtered stock
+      const dataToExport = showAllData && allFilteredData.length > 0 ? allFilteredData : filteredStock;
+
+      let x = 14;
+      let y = 30;
+      const cardWidth = 57; // 3 items per row approx (14 + 57 + 5 + 57 + 5 + 57 + 14 = 209 close to 210)
+      const cardHeight = 75;
+      const gap = 6;
+      const columns = 3;
+
+      const getBase64ImageFromURL = (url) => {
+        return new Promise((resolve) => {
+          if (!url) {
+            resolve(null);
+            return;
+          }
+          const img = new Image();
+          img.setAttribute("crossOrigin", "anonymous");
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            try {
+              const dataURL = canvas.toDataURL("image/jpeg");
+              resolve(dataURL);
+            } catch (e) {
+              resolve(null);
+            }
+          };
+          img.onerror = () => {
+            resolve(null);
+          };
+          img.src = url;
+        });
+      };
+
+      for (let i = 0; i < dataToExport.length; i++) {
+        const item = dataToExport[i];
+
+        // Check for page break
+        if (y + cardHeight > pageHeight - 10) {
+          doc.addPage();
+          y = 20;
+          x = 14;
+        }
+
+        // Draw card border
+        doc.setDrawColor(220, 220, 220);
+        doc.rect(x, y, cardWidth, cardHeight);
+
+        // Add Image
+        const imageH = cardHeight * 0.55;
+        if (item.Image1) {
+          try {
+            const imgData = await getBase64ImageFromURL(item.Image1);
+            if (imgData) {
+              doc.addImage(imgData, 'JPEG', x + 2, y + 2, cardWidth - 4, imageH, undefined, 'FAST');
+            } else {
+              doc.setFontSize(8);
+              doc.text('No Image', x + cardWidth / 2, y + imageH / 2, { align: 'center' });
+            }
+          } catch (e) {
+            doc.setFontSize(8);
+            doc.text('No Image', x + cardWidth / 2, y + imageH / 2, { align: 'center' });
+          }
+        } else {
+          doc.setFontSize(8);
+          doc.text('No Image', x + cardWidth / 2, y + imageH / 2, { align: 'center' });
+        }
+
+        // Product Details
+        const detailsY = y + imageH + 5;
+        doc.setFontSize(9);
+        doc.setFont(undefined, 'bold');
+        const productName = item.ProductName || 'Unknown';
+        // Truncate name
+        const truncatedName = productName.length > 22 ? productName.substring(0, 22) + '...' : productName;
+        doc.text(truncatedName, x + 2, detailsY);
+
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(8);
+        doc.text(`RFID: ${item.RFIDCode || '-'}`, x + 2, detailsY + 5);
+        doc.text(`Item: ${item.ItemCode || '-'}`, x + 2, detailsY + 9);
+        doc.text(`Gr Wt: ${item.GrossWt || '-'}`, x + 2, detailsY + 13);
+        doc.text(`Nt Wt: ${item.NetWt || '-'}`, x + 2, detailsY + 17);
+        doc.text(`Purity: ${item.Purity || '-'}`, x + 2, detailsY + 21);
+
+        // Move X
+        x += cardWidth + gap;
+
+        // Check row full
+        if ((i + 1) % columns === 0) {
+          x = 14;
+          y += cardHeight + gap;
+        }
+      }
+
+      const date = new Date().toISOString().split('T')[0];
+      const pdfBlob = doc.output('bloburl');
+      window.open(pdfBlob, '_blank');
+
+      showSuccessNotification('Catalog Exported', 'Catalog PDF has been opened in new tab');
+      setTimeout(() => {
+        setShowExportModal(false);
+        setExportLoading(false);
+      }, 500);
+
+    } catch (error) {
+      console.error('Catalog export error:', error);
+      setExportErrors({ ...exportErrors, pdf: 'Failed to generate catalog.' });
+      setExportLoading(false);
+    }
+  };
+
   const handleExportToPDF = async () => {
     try {
       setExportLoading(true);
@@ -1504,10 +2033,10 @@ const LabelStockList = () => {
       // Use the columns array for headers and keys
       const tableHeaders = columns.map(col => col.label);
       const tableKeys = columns.map(col => col.key);
-      
+
       // Use all filtered data if available, otherwise use current page data
       const dataToExport = showAllData && allFilteredData.length > 0 ? allFilteredData : filteredStock;
-      
+
       const tableData = dataToExport.map((item, idx) =>
         tableKeys.map(key => {
           if (key === 'srNo') return idx + 1;
@@ -1560,24 +2089,35 @@ const LabelStockList = () => {
 
     try {
       const wb = XLSX.utils.book_new();
-      
+
       // Use all filtered data if available, otherwise use current page data
       const dataToExport = showAllData && allFilteredData.length > 0 ? allFilteredData : filteredStock;
-      
+
       const exportData = dataToExport.map((item, index) => ({
         'Sr No': index + 1,
         'Counter Name': item.CounterName || '',
         'Item Code': item.ItemCode || '',
         'RFID Code': item.RFIDCode || '',
         'Product Name': item.ProductName || '',
-        'Category': item.Category || '',
+        'Category': item.CategoryName || item.Category || '',
+        'Design': item.DesignName || item.Design || '',
+        'Purity': item.PurityName || item.Purity || '',
         'Gross Wt': item.GrossWt ? Number(item.GrossWt).toFixed(3) : '',
+        'Stone Wt': item.StoneWt ? Number(item.StoneWt).toFixed(3) : '',
+        'Diamond Wt': item.DiamondWt ? Number(item.DiamondWt).toFixed(3) : '',
         'Net Wt': item.NetWt ? Number(item.NetWt).toFixed(3) : '',
+        'Stone Amt': item.StoneAmt ? Number(item.StoneAmt).toFixed(2) : '',
+        'Fixed Amt': item.FixedAmt ? Number(item.FixedAmt).toFixed(2) : '',
+        'Vendor': item.Vendor || '',
+        'Branch': item.Branch || '',
+        'Created Date': item.CreatedDate ? new Date(item.CreatedDate).toLocaleDateString('en-GB') : '',
+        'Packing Weight': item.PackingWeight ? Number(item.PackingWeight).toFixed(3) : '',
+        'Total Weight': item.TotalWeight ? Number(item.TotalWeight).toFixed(3) : '',
         'Status': item.Status || ''
       }));
 
       const ws = XLSX.utils.json_to_sheet(exportData);
-      
+
       ws['!cols'] = [
         { wch: 8 },  // Sr No
         { wch: 15 }, // Counter Name
@@ -1585,20 +2125,31 @@ const LabelStockList = () => {
         { wch: 15 }, // RFID Code
         { wch: 25 }, // Product Name
         { wch: 15 }, // Category
+        { wch: 15 }, // Design
+        { wch: 12 }, // Purity
         { wch: 12 }, // Gross Wt
+        { wch: 12 }, // Stone Wt
+        { wch: 12 }, // Diamond Wt
         { wch: 12 }, // Net Wt
+        { wch: 12 }, // Stone Amt
+        { wch: 12 }, // Fixed Amt
+        { wch: 15 }, // Vendor
+        { wch: 15 }, // Branch
+        { wch: 15 }, // Created Date
+        { wch: 15 }, // Packing Weight
+        { wch: 15 }, // Total Weight
         { wch: 12 }  // Status
       ];
 
       XLSX.utils.book_append_sheet(wb, ws, "Label Stock");
 
       const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      
+
       const formData = new FormData();
       formData.append('email', emailAddress);
       formData.append('clientCode', userInfo.ClientCode);
       formData.append('subject', 'RFID Label Stock Report');
-      
+
       const date = new Date().toISOString().split('T')[0];
       const filename = `label_stock_${date}.xlsx`;
       const excelBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1621,7 +2172,7 @@ const LabelStockList = () => {
           'Email Sent Successfully',
           `Report has been sent to ${emailAddress}`
         );
-        
+
         // Add a small delay before closing the modal
         setTimeout(() => {
           setShowExportModal(false);
@@ -1688,11 +2239,11 @@ const LabelStockList = () => {
   // Helper function to get the actual ID value for API payload
   const getFilterValueForAPI = (field, value) => {
     if (value === 'All' || value === 0 || !value) return 0;
-    
+
     switch (field) {
       case 'categoryId':
-        const category = apiFilterData.categories?.find(cat => 
-          cat.CategoryName === value || 
+        const category = apiFilterData.categories?.find(cat =>
+          cat.CategoryName === value ||
           cat.Name === value ||
           cat.categoryName === value ||
           (cat.CategoryName && cat.CategoryName.toLowerCase() === value.toLowerCase()) ||
@@ -1704,8 +2255,8 @@ const LabelStockList = () => {
         }
         return categoryId;
       case 'productId':
-        const product = apiFilterData.products?.find(prod => 
-          prod.ProductName === value || 
+        const product = apiFilterData.products?.find(prod =>
+          prod.ProductName === value ||
           prod.Name === value ||
           prod.productName === value ||
           (prod.ProductName && prod.ProductName.toLowerCase() === value.toLowerCase()) ||
@@ -1717,8 +2268,8 @@ const LabelStockList = () => {
         }
         return productId;
       case 'designId':
-        const design = apiFilterData.designs?.find(des => 
-          des.DesignName === value || 
+        const design = apiFilterData.designs?.find(des =>
+          des.DesignName === value ||
           des.Name === value ||
           des.designName === value ||
           (des.DesignName && des.DesignName.toLowerCase() === value.toLowerCase()) ||
@@ -1729,6 +2280,21 @@ const LabelStockList = () => {
           console.warn('Design not found in API data:', value, 'Available designs:', apiFilterData.designs);
         }
         return designId;
+      case 'purityId':
+        const purity = apiFilterData.purities?.find(p =>
+          (p.PurityName && p.PurityName === value) ||
+          (p.Name && p.Name === value) ||
+          (p.Purity && p.Purity === value) ||
+          (p.purityName && p.purityName === value) ||
+          (p.PurityName && p.PurityName.toLowerCase() === String(value).toLowerCase()) ||
+          (p.Name && p.Name.toLowerCase() === String(value).toLowerCase()) ||
+          (p.Purity && p.Purity.toLowerCase() === String(value).toLowerCase())
+        );
+        const purityId = purity ? (purity.Id || purity.id || 0) : 0;
+        if (!purity && value !== 'All') {
+          console.warn('Purity not found in API data:', value, 'Available purities:', apiFilterData.purities);
+        }
+        return purityId;
       default:
         return value;
     }
@@ -1757,6 +2323,15 @@ const LabelStockList = () => {
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
 
+  // Effect for toggle change - refetch data when showActiveOnly changes
+  useEffect(() => {
+    if (userInfo?.ClientCode) {
+      setLoading(true);
+      setCurrentPage(1);
+      fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues);
+    }
+  }, [showActiveOnly]);
+
   // Effect for filter changes - similar to reference code
   useEffect(() => {
     // Skip if this is the initial mount (userInfo not loaded yet)
@@ -1764,7 +2339,7 @@ const LabelStockList = () => {
     if (!userInfo?.ClientCode) {
       return;
     }
-    
+
     console.log('Filter values changed:', filterValues);
     console.log('API Filter Data state:', {
       products: apiFilterData.products?.length || 0,
@@ -1773,25 +2348,25 @@ const LabelStockList = () => {
       counters: apiFilterData.counters?.length || 0,
       branches: apiFilterData.branches?.length || 0
     });
-    
+
     // Always reset to page 1 when filters change
     if (currentPage !== 1) {
       setCurrentPage(1);
     }
-    
+
     // Only fetch if we have filter data loaded, or if filters are set to 'All'
     const needsFilterData = (filterValues.categoryId !== 'All' && filterValues.categoryId) ||
-                           (filterValues.productId !== 'All' && filterValues.productId) ||
-                           (filterValues.designId !== 'All' && filterValues.designId) ||
-                           (filterValues.counterName !== 'All' && filterValues.counterName) ||
-                           (filterValues.branch !== 'All' && filterValues.branch);
-    
-    const hasFilterData = apiFilterData.products?.length > 0 || 
-                         apiFilterData.designs?.length > 0 || 
-                         apiFilterData.categories?.length > 0 ||
-                         apiFilterData.counters?.length > 0 ||
-                         apiFilterData.branches?.length > 0;
-    
+      (filterValues.productId !== 'All' && filterValues.productId) ||
+      (filterValues.designId !== 'All' && filterValues.designId) ||
+      (filterValues.counterName !== 'All' && filterValues.counterName) ||
+      (filterValues.branch !== 'All' && filterValues.branch);
+
+    const hasFilterData = apiFilterData.products?.length > 0 ||
+      apiFilterData.designs?.length > 0 ||
+      apiFilterData.categories?.length > 0 ||
+      apiFilterData.counters?.length > 0 ||
+      apiFilterData.branches?.length > 0;
+
     if (needsFilterData && !hasFilterData) {
       console.warn('Filter data not loaded, fetching filter data first...');
       fetchFilterData().then(() => {
@@ -1845,14 +2420,14 @@ const LabelStockList = () => {
         setFilterValues(defaultFilters);
         fetchLabeledStock(1, itemsPerPage, searchQuery, defaultFilters);
       });
-      
+
       // If user is viewing all data, also refresh the all data
       if (showAllData) {
         fetchAllFilteredData();
       }
     }
   }, [filterValues.categoryId, filterValues.productId, filterValues.designId, filterValues.purityId,
-      filterValues.branch, filterValues.counterName, filterValues.boxName, filterValues.vendor, filterValues.status]);
+  filterValues.branch, filterValues.counterName, filterValues.boxName, filterValues.vendor, filterValues.status]);
 
   const handleResetFilters = () => {
     const resetFilters = {
@@ -1888,14 +2463,14 @@ const LabelStockList = () => {
       branches: apiFilterData.branches?.length || 0
     });
     console.log('Counter name filter:', filterValues.counterName);
-    
+
     // Check if filter data is loaded, if not, fetch it first
-    const hasFilterData = apiFilterData.products?.length > 0 || 
-                         apiFilterData.designs?.length > 0 || 
-                         apiFilterData.categories?.length > 0 ||
-                         apiFilterData.counters?.length > 0 ||
-                         apiFilterData.branches?.length > 0;
-    
+    const hasFilterData = apiFilterData.products?.length > 0 ||
+      apiFilterData.designs?.length > 0 ||
+      apiFilterData.categories?.length > 0 ||
+      apiFilterData.counters?.length > 0 ||
+      apiFilterData.branches?.length > 0;
+
     if (!hasFilterData) {
       console.warn('Filter data not loaded yet, fetching filter data first...');
       fetchFilterData().then(() => {
@@ -1930,7 +2505,7 @@ const LabelStockList = () => {
       setLoading(true);
       // Explicitly fetch data with current filter values
       fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues);
-      
+
       // If user is viewing all data, also refresh the all data
       if (showAllData) {
         fetchAllFilteredData();
@@ -2013,11 +2588,19 @@ const LabelStockList = () => {
       for (let i = 0; i < labels.length; i++) {
         const label = labels[i];
         const generatedLayout = label.generatedLayout || label.GeneratedLayout;
-        
+
         if (!generatedLayout) {
           console.warn(`Skipping label ${i + 1}: Invalid layout`);
           continue;
         }
+
+        // Find corresponding item from selectedItems
+        const itemCode = label.itemCode || label.ItemCode || '';
+        const rfidCode = label.rfidCode || label.RFIDCode || '';
+        const item = selectedItems.find(it =>
+          (it.ItemCode && it.ItemCode === itemCode) ||
+          (it.RFIDCode && it.RFIDCode === rfidCode)
+        ) || selectedItems[i] || {};
 
         // Extract label data from elements
         const labelData = {};
@@ -2028,10 +2611,76 @@ const LabelStockList = () => {
             }
           });
         }
-        
+
         // Add item code and RFID code
-        labelData.ItemCode = label.itemCode || label.ItemCode || '';
-        labelData.RFIDCode = label.rfidCode || label.RFIDCode || '';
+        labelData.ItemCode = itemCode || item.ItemCode || '';
+        labelData.RFIDCode = rfidCode || item.RFIDCode || '';
+
+        // Ensure all important fields are always mapped from item data (same as single label)
+        // This ensures they're available even if API doesn't return them in the layout
+        if (!labelData.StoneAmount || labelData.StoneAmount === '' || labelData.StoneAmount === null) {
+          labelData.StoneAmount = item.TotalStoneAmount || item.StoneAmt || item.StoneAmount || '';
+        }
+        if (!labelData.TotalStoneWeight || labelData.TotalStoneWeight === '' || labelData.TotalStoneWeight === null) {
+          labelData.TotalStoneWeight = item.TotalStoneWeight || item.StoneWt || item.StoneWeight || '';
+        }
+        if (!labelData.StoneWeight || labelData.StoneWeight === '' || labelData.StoneWeight === null) {
+          labelData.StoneWeight = item.TotalStoneWeight || item.StoneWt || item.StoneWeight || '';
+        }
+        if (!labelData.DiamondAmount || labelData.DiamondAmount === '' || labelData.DiamondAmount === null) {
+          labelData.DiamondAmount = item.TotalDiamondAmount || item.DiamondAmount || '';
+        }
+        if (!labelData.DiamondWeight || labelData.DiamondWeight === '' || labelData.DiamondWeight === null) {
+          labelData.DiamondWeight = item.TotalDiamondWeight || item.DiamondWt || item.DiamondWeight || '';
+        }
+        if (!labelData.GrossWt || labelData.GrossWt === '' || labelData.GrossWt === null) {
+          labelData.GrossWt = item.GrossWt || item.GrossWeight || '';
+        }
+        if (!labelData.NetWt || labelData.NetWt === '' || labelData.NetWt === null) {
+          labelData.NetWt = item.NetWt || item.NetWeight || '';
+        }
+        if (!labelData.ProductName || labelData.ProductName === '' || labelData.ProductName === null) {
+          labelData.ProductName = item.ProductName || '';
+        }
+        if (!labelData.CategoryName || labelData.CategoryName === '' || labelData.CategoryName === null) {
+          labelData.CategoryName = item.CategoryName || item.Category || '';
+        }
+        if (!labelData.DesignName || labelData.DesignName === '' || labelData.DesignName === null) {
+          labelData.DesignName = item.DesignName || item.Design || '';
+        }
+        if (!labelData.PurityName || labelData.PurityName === '' || labelData.PurityName === null) {
+          labelData.PurityName = item.PurityName || item.Purity || '';
+        }
+        if (!labelData.BranchName || labelData.BranchName === '' || labelData.BranchName === null) {
+          labelData.BranchName = item.BranchName || item.Branch || '';
+        }
+        if (!labelData.CounterName || labelData.CounterName === '' || labelData.CounterName === null) {
+          labelData.CounterName = item.CounterName || item.Counter || '';
+        }
+        if (!labelData.MRP || labelData.MRP === '' || labelData.MRP === null) {
+          labelData.MRP = item.MRP || '';
+        }
+        if (!labelData.Size || labelData.Size === '' || labelData.Size === null) {
+          labelData.Size = item.Size || '';
+        }
+        if (!labelData.MakingFixedAmt || labelData.MakingFixedAmt === '' || labelData.MakingFixedAmt === null) {
+          labelData.MakingFixedAmt = item.MakingFixedAmt || item.FixedAmt || '';
+        }
+        if (!labelData.HallmarkAmount || labelData.HallmarkAmount === '' || labelData.HallmarkAmount === null) {
+          labelData.HallmarkAmount = item.HallmarkAmount || '';
+        }
+        if (!labelData.MakingPerGram || labelData.MakingPerGram === '' || labelData.MakingPerGram === null) {
+          labelData.MakingPerGram = item.MakingPerGram || '';
+        }
+        if (!labelData.MakingPercentage || labelData.MakingPercentage === '' || labelData.MakingPercentage === null) {
+          labelData.MakingPercentage = item.MakingPercentage || '';
+        }
+        if (!labelData.BoxDetails || labelData.BoxDetails === '' || labelData.BoxDetails === null) {
+          labelData.BoxDetails = item.BoxDetails || item.box_details || '';
+        }
+        if (!labelData.RFIDNumber || labelData.RFIDNumber === '' || labelData.RFIDNumber === null) {
+          labelData.RFIDNumber = item.RFIDNumber || item.RFIDCode || '';
+        }
 
         // Get dimensions in mm
         const pxToMm = 0.264583; // 96 DPI
@@ -2047,12 +2696,12 @@ const LabelStockList = () => {
           firstLabelDimensions = { width: labelWidthMm, height: labelHeightMm };
           doc = new jsPDF({
             orientation: labelWidthMm > labelHeightMm ? 'landscape' : 'portrait',
-        unit: 'mm',
+            unit: 'mm',
             format: [Math.max(labelHeightMm, 10), Math.max(labelWidthMm, 10)]
           });
         } else {
           // Add new page for each additional label
-          doc.addPage([Math.max(labelHeightMm, 10), Math.max(labelWidthMm, 10)], 
+          doc.addPage([Math.max(labelHeightMm, 10), Math.max(labelWidthMm, 10)],
             labelWidthMm > labelHeightMm ? 'landscape' : 'portrait');
         }
 
@@ -2064,7 +2713,9 @@ const LabelStockList = () => {
         tempContainer.style.width = `${generatedLayout.page.width}px`;
         tempContainer.style.height = `${generatedLayout.page.height}px`;
         tempContainer.style.background = '#ffffff';
-        tempContainer.style.overflow = 'hidden';
+        // Allow overflow during rendering so html2canvas can capture full text
+        // The PDF dimensions will naturally crop to the label size
+        tempContainer.style.overflow = 'visible';
         tempContainer.className = 'label-canvas-print-target';
         document.body.appendChild(tempContainer);
 
@@ -2080,7 +2731,23 @@ const LabelStockList = () => {
 
           if (element.type === 'text') {
             const labelText = element.label || '';
-            const bindingValue = element.value !== undefined ? String(element.value) : '';
+            // Get binding value - ALWAYS use labelData if binding exists (it has fallback from item data)
+            let bindingValue = '';
+            if (element.binding) {
+              // If element has a binding, ALWAYS use labelData first (which has fallback from item data)
+              // This ensures all fields always show even if API returns empty
+              const labelDataValue = labelData[element.binding];
+              if (labelDataValue !== undefined && labelDataValue !== null && String(labelDataValue).trim() !== '') {
+                bindingValue = String(labelDataValue);
+              } else if (element.value !== undefined && element.value !== null && String(element.value).trim() !== '') {
+                // Fallback to element.value only if labelData is empty
+                bindingValue = String(element.value);
+              }
+            } else if (element.value !== undefined && element.value !== null && String(element.value).trim() !== '') {
+              // No binding, just use element.value
+              bindingValue = String(element.value);
+            }
+
             let displayText = '';
             if (labelText && bindingValue) {
               displayText = `${labelText}: ${bindingValue}`;
@@ -2090,14 +2757,38 @@ const LabelStockList = () => {
               displayText = bindingValue;
             }
 
-            elementDiv.style.fontSize = `${element.fontSize || 12}px`;
+            // Calculate appropriate font size based on text length and container width
+            let fontSize = element.fontSize || 12;
+            if (element.width && displayText.length > 0) {
+              // More accurate estimation: numbers are narrower, letters vary
+              // For numbers: ~0.55 * font size, for mixed: ~0.65 * font size
+              const isNumeric = /^\d+$/.test(displayText.replace(/[:\s]/g, ''));
+              const charWidthMultiplier = isNumeric ? 0.55 : 0.65;
+              const avgCharWidth = fontSize * charWidthMultiplier;
+              const estimatedTextWidth = displayText.length * avgCharWidth;
+              const availableWidth = element.width - 4; // Account for padding
+
+              // If text is too wide, scale down font size to fit
+              if (estimatedTextWidth > availableWidth) {
+                fontSize = Math.max((availableWidth / displayText.length) / charWidthMultiplier, 7);
+              }
+            }
+
+            elementDiv.style.fontSize = `${fontSize}px`;
             elementDiv.style.fontWeight = element.fontWeight || 'normal';
             elementDiv.style.color = element.color || '#000000';
             elementDiv.style.display = 'flex';
             elementDiv.style.alignItems = 'center';
-            elementDiv.style.padding = '2px';
+            elementDiv.style.justifyContent = 'flex-start';
+            elementDiv.style.padding = '1px 2px';
+            // Use nowrap to keep text on one line, but allow it to be fully visible
             elementDiv.style.whiteSpace = 'nowrap';
-            elementDiv.style.overflow = 'hidden';
+            elementDiv.style.overflow = 'visible';
+            elementDiv.style.textOverflow = 'clip';
+            // Ensure minimum width to show full text
+            elementDiv.style.minWidth = '0';
+            elementDiv.style.maxWidth = `${element.width}px`;
+            // Use textContent to ensure full text is rendered
             elementDiv.textContent = displayText;
           } else if (element.type === 'qrcode') {
             // QR code will be added directly to PDF, just mark the position
@@ -2167,7 +2858,7 @@ const LabelStockList = () => {
         const pdfBlob = doc.output('blob');
         const pdfUrl = URL.createObjectURL(pdfBlob);
         const newTab = window.open(pdfUrl, '_blank');
-        
+
         if (!newTab) {
           // Fallback: download the PDF
           doc.save(`Labels-${labels.length}-items.pdf`);
@@ -2194,10 +2885,10 @@ const LabelStockList = () => {
         return;
       }
 
-      const selectedItems = showAllData && allFilteredData.length > 0 
+      const selectedItems = showAllData && allFilteredData.length > 0
         ? allFilteredData.filter(item => selectedRows.includes(item.Id))
         : currentItems.filter(item => selectedRows.includes(item.Id));
-      
+
       if (selectedItems.length === 0) {
         showSuccessNotification('No Selection', 'Please select at least one item to print labels.');
         return;
@@ -2208,12 +2899,12 @@ const LabelStockList = () => {
       // Prepare API payload for multiple products
       const clientCode = userInfo?.ClientCode || '';
       const templateId = selectedTemplate.value;
-      
+
       // Collect item codes and RFID codes
       const itemCodes = selectedItems
         .map(item => item.ItemCode)
         .filter(code => code && code.trim() !== '');
-      
+
       const rfidCodes = selectedItems
         .map(item => item.RFIDCode)
         .filter(code => code && code.trim() !== '');
@@ -2242,7 +2933,7 @@ const LabelStockList = () => {
 
       // Process response
       const labels = response.data.labels || response.data.Labels || [];
-      
+
       if (!labels || labels.length === 0) {
         showSuccessNotification('Error', 'No labels were generated. Please check your selection.');
         setPreviewLoading(false);
@@ -2254,7 +2945,7 @@ const LabelStockList = () => {
       const failedLabels = labels.filter(label => !(label.isSuccess || label.IsSuccess));
 
       if (successfulLabels.length === 0) {
-        const errorMsg = failedLabels.length > 0 
+        const errorMsg = failedLabels.length > 0
           ? failedLabels.map(l => l.errorMessage || l.ErrorMessage).join('; ')
           : 'All label generation requests failed.';
         showSuccessNotification('Error', errorMsg);
@@ -2299,7 +2990,7 @@ const LabelStockList = () => {
       const deletedItems = labeledStock.filter(item => selectedRows.includes(item.Id));
       const itemCodes = deletedItems.map(item => item.ItemCode); // keep as array
       const clientCode = userInfo?.ClientCode || '';
-              const response = await axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/DeleteLabelledStockItems', {
+      const response = await axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/DeleteLabelledStockItems', {
         ClientCode: clientCode,
         ItemCodes: itemCodes // send as array
       }, {
@@ -2340,7 +3031,7 @@ const LabelStockList = () => {
     setDeleteAllStockLoading(true);
     try {
       const clientCode = userInfo?.ClientCode || '';
-      
+
       const response = await axios.delete(`https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -2355,10 +3046,10 @@ const LabelStockList = () => {
         setShowDeleteAllStockConfirm(false);
         setSelectedRows([]);
         showSuccessNotification(
-          'Delete All Successful', 
+          'Delete All Successful',
           `All stock items for client ${clientCode} have been deleted successfully.`
         );
-        
+
         await fetchLabeledStock();
         if (showAllData) {
           setShowAllData(false);
@@ -2385,7 +3076,7 @@ const LabelStockList = () => {
   // Handle RFID transaction update
   const handleRFIDTransactionUpdate = async (newStatus) => {
     if (!selectedItemForStatus) return;
-    
+
     setStatusChangeLoading(true);
     try {
       const response = await axios.post(
@@ -2404,20 +3095,20 @@ const LabelStockList = () => {
 
       if (response.data && response.data.success !== false) {
         // Update the local state
-        setLabeledStock(prev => prev.map(item => 
-          item.Id === selectedItemForStatus.Id 
+        setLabeledStock(prev => prev.map(item =>
+          item.Id === selectedItemForStatus.Id
             ? { ...item, Status: newStatus }
             : item
         ));
-        
+
         setShowStatusPopup(false);
         setSelectedItemForStatus(null);
-        
+
         showSuccessNotification(
-          'RFID Transaction Updated', 
+          'RFID Transaction Updated',
           `RFID transaction details updated for item ${selectedItemForStatus.ItemCode}`
         );
-        
+
         addNotification({
           title: 'RFID transaction updated',
           description: `RFID transaction details updated for item ${selectedItemForStatus.ItemCode}`,
@@ -2453,7 +3144,7 @@ const LabelStockList = () => {
         // Use API data for counters, categories, products, designs, branches
         // Fall back to stock data for boxNames, vendors, purities, statuses
         counterNames: ['All', ...(apiFilterData.counters?.map(counter => counter.CounterName || counter.Name || counter.counterName) || [])],
-        productNames: apiFilterData.products?.length > 0 
+        productNames: apiFilterData.products?.length > 0
           ? ['All', ...apiFilterData.products.map(p => p.ProductName || p.Name || p.productName)]
           : getUniqueOptions(labeledStock, 'ProductName'),
         categories: apiFilterData.categories?.length > 0
@@ -2520,34 +3211,29 @@ const LabelStockList = () => {
 
   // Restrict columns to only the specified fields, in this order
   const columns = [
-    { key: 'srNo', label: 'Sr No', width: '60px' },
-    { key: 'CounterName', label: 'Counter Name', width: '150px' },
-    { key: 'ItemCode', label: 'Item Code', width: '120px' },
-    { key: 'RFIDCode', label: 'RFID Code', width: '120px' },
-    { key: 'ProductName', label: 'Product Name', width: '150px' },
-    { key: 'CategoryName', label: 'Category', width: '120px' },
-    { key: 'DesignName', label: 'Design', width: '120px' },
-    { key: 'PurityName', label: 'Purity', width: '100px' },
-    { key: 'GrossWt', label: 'Gross Wt', width: '100px' },
-    { key: 'StoneWt', label: 'Stone Wt', width: '100px' },
-    { key: 'DiamondWt', label: 'Diamond Wt', width: '100px' },
-    { key: 'NetWt', label: 'Net Wt', width: '100px' },
-    { key: 'StoneAmt', label: 'Stone Amt', width: '120px' },
-    { key: 'FixedAmt', label: 'Fixed Amt', width: '120px' },
-    { key: 'Vendor', label: 'Vendor', width: '120px' },
-    { key: 'Branch', label: 'Branch', width: '120px' },
-    { key: 'CreatedDate', label: 'Created Date', width: '150px' },
-    { key: 'PackingWeight', label: 'Packing Weight', width: '120px' },
-    { key: 'TotalWeight', label: 'Total Weight', width: '120px' }
+    { key: 'srNo', label: 'Sr No', width: '50px' },
+    { key: 'CounterName', label: 'Counter', width: '100px' },
+    { key: 'ItemCode', label: 'Item Code', width: '100px' },
+    { key: 'RFIDCode', label: 'RFID Code', width: '100px' },
+    { key: 'ProductName', label: 'Product', width: '120px' },
+    { key: 'CategoryName', label: 'Category', width: '100px' },
+    { key: 'DesignName', label: 'Design', width: '100px' },
+    { key: 'PurityName', label: 'Purity', width: '80px' },
+    { key: 'GrossWt', label: 'Gross Wt', width: '85px' },
+    { key: 'StoneWt', label: 'Stone Wt', width: '85px' },
+    { key: 'DiamondWt', label: 'Diamond Wt', width: '90px' },
+    { key: 'NetWt', label: 'Net Wt', width: '85px' },
+    { key: 'Vendor', label: 'Vendor', width: '100px' },
+    { key: 'Branch', label: 'Branch', width: '100px' }
   ];
 
   const generateAndShowReport = () => {
     // Group data by Counter Name, Category and Product Name, and sum weights
     const grouped = {};
-    
+
     // Use all filtered data if available, otherwise use current page data
     const dataToReport = showAllData && allFilteredData.length > 0 ? allFilteredData : filteredStock;
-    
+
     dataToReport.forEach(item => {
       const counter = item.CounterName || '-';
       const cat = item.CategoryName || '-';
@@ -2567,11 +3253,11 @@ const LabelStockList = () => {
       const pieces = item.Pieces ? Number(item.Pieces) : 0;
       const quantity = item.Quantity ? Number(item.Quantity) : 0;
       const itemQty = pieces > 0 ? pieces : (quantity > 0 ? quantity : 1);
-      
+
       // Handle weight calculations with proper number conversion
       const grossWt = item.GrossWt ? Number(item.GrossWt) : 0;
       const netWt = item.NetWt ? Number(item.NetWt) : 0;
-      
+
       grouped[key].qty += itemQty;
       grouped[key].grossWt += grossWt;
       grouped[key].netWt += netWt;
@@ -2690,14 +3376,14 @@ const LabelStockList = () => {
         <p className="modal-subtitle">Choose your preferred export format</p>
 
         <div className="export-options">
-          <button 
+          <button
             className="export-option"
             onClick={handleExportToExcel}
             disabled={exportLoading}
           >
             <div className="option-icon excel">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-                <path d="M3 5v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2zm14 0v14H7V5h10zm-7 2v2h4V7h-4zm0 4v2h4v-2h-4zm0 4v2h4v-2h-4z"/>
+                <path d="M3 5v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2zm14 0v14H7V5h10zm-7 2v2h4V7h-4zm0 4v2h4v-2h-4zm0 4v2h4v-2h-4z" />
               </svg>
             </div>
             <div className="option-content">
@@ -2707,14 +3393,14 @@ const LabelStockList = () => {
           </button>
           {exportErrors.excel && <div className="error-message">{exportErrors.excel}</div>}
 
-          <button 
+          <button
             className="export-option"
             onClick={handleExportToPDF}
             disabled={exportLoading}
           >
             <div className="option-icon pdf">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-                <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm12 6V9c0-.55-.45-1-1-1h-2v5h2c.55 0 1-.45 1-1zm-2-3h1v3h-1V9z"/>
+                <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm12 6V9c0-.55-.45-1-1-1h-2v5h2c.55 0 1-.45 1-1zm-2-3h1v3h-1V9z" />
               </svg>
             </div>
             <div className="option-content">
@@ -2724,11 +3410,40 @@ const LabelStockList = () => {
           </button>
           {exportErrors.pdf && <div className="error-message">{exportErrors.pdf}</div>}
 
+          {/* Catalog Export Option - Only if grid view or images relevant */}
+          <button
+            className="export-option"
+            onClick={handleExportCatalog}
+            disabled={exportLoading}
+          >
+            <div className="option-icon catalog">
+              <FaThLarge size={24} />
+            </div>
+            <div className="option-content">
+              <span className="option-title">Export as Catalog</span>
+              <span className="option-description">Download PDF with product images</span>
+            </div>
+          </button>
+
+          <button
+            className="export-option"
+            onClick={handleExportAllReport}
+            disabled={exportLoading || loading}
+          >
+            <div className="option-icon excel">
+              <FaFileExport size={24} />
+            </div>
+            <div className="option-content">
+              <span className="option-title">Export All Report</span>
+              <span className="option-description">Export full report via API (all records)</span>
+            </div>
+          </button>
+
           <div className="export-option email-section">
             <div className="option-header">
               <div className="option-icon email">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-                  <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/>
+                  <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z" />
                 </svg>
               </div>
               <div className="option-content">
@@ -2736,7 +3451,7 @@ const LabelStockList = () => {
                 <span className="option-description">Send data to specified email address</span>
               </div>
             </div>
-            
+
             <div className="email-form">
               <div className="input-wrapper">
                 <input
@@ -2752,7 +3467,7 @@ const LabelStockList = () => {
                 />
                 {exportErrors.email && <div className="error-message">{exportErrors.email}</div>}
               </div>
-              <button 
+              <button
                 className={`send-button ${exportLoading ? 'loading' : ''}`}
                 onClick={handleEmailExport}
                 disabled={exportLoading || !emailAddress}
@@ -2906,6 +3621,11 @@ const LabelStockList = () => {
             color: #FF4B4B;
           }
 
+          .option-icon.catalog {
+            background: #E0E7FF;
+            color: #6366F1;
+          }
+
           .option-icon.email {
             background: #EBF5FF;
             color: #2D9CDB;
@@ -3021,6 +3741,415 @@ const LabelStockList = () => {
     </div>
   );
 
+  // Product Details View – redesigned UI with clear hierarchy and responsive layout
+  if (showProductDetails && selectedProductForDetails) {
+    const product = selectedProductForDetails;
+    const displayImageUrl = productDetailsImageOverride || getItemImageUrl(product) || null;
+    const isNarrow = windowWidth <= 768;
+
+    const formatValue = (value, type = 'text') => {
+      if (value === null || value === undefined || value === '') return '—';
+      if (type === 'number') {
+        const num = parseFloat(value);
+        return isNaN(num) ? value : num.toFixed(3);
+      }
+      if (type === 'amount') {
+        const num = parseFloat(value);
+        return isNaN(num) ? value : num.toFixed(2);
+      }
+      if (type === 'date') {
+        try {
+          const date = new Date(value);
+          if (!isNaN(date.getTime())) {
+            return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' +
+              date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+          }
+        } catch (e) {}
+      }
+      return value;
+    };
+
+    const statusColor = (s) => {
+      const v = (s || '').toLowerCase();
+      if (v === 'sold') return { bg: '#dbeafe', color: '#1d4ed8' };
+      if (v === 'apiactive' || v === 'active') return { bg: '#dcfce7', color: '#15803d' };
+      return { bg: '#f1f5f9', color: '#475569' };
+    };
+
+    const DetailRow = ({ label, value, type = 'text' }) => (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 8,
+        padding: '5px 10px',
+        borderBottom: '1px solid #f1f5f9',
+        fontSize: 12,
+      }}>
+        <span style={{ color: '#64748b', fontWeight: 500, flexShrink: 0 }}>{label}</span>
+        <span style={{ color: '#0f172a', fontWeight: 600, textAlign: 'right', wordBreak: 'break-word' }}>
+          {formatValue(value, type)}
+        </span>
+      </div>
+    );
+
+    const Section = ({ title, icon, color, children }) => (
+      <div style={{
+        background: '#ffffff',
+        borderRadius: 10,
+        overflow: 'hidden',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        border: '1px solid #e2e8f0',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '8px 12px',
+          background: `${color}08`,
+          borderLeft: `3px solid ${color}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}>
+          <span style={{ width: 26, height: 26, borderRadius: 6, background: `${color}18`, color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {icon}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{title}</span>
+        </div>
+        <div style={{ padding: '2px 0' }}>{children}</div>
+      </div>
+    );
+
+    const handleBack = () => {
+      if (productDetailsImageOverride) {
+        URL.revokeObjectURL(productDetailsImageOverride);
+        setProductDetailsImageOverride(null);
+      }
+      setShowProductDetails(false);
+      setSelectedProductForDetails(null);
+    };
+
+    const handleImageChange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file || !file.type.startsWith('image/')) return;
+      const clientCode = userInfo?.ClientCode;
+      const itemCode = product.ItemCode;
+      let designId = product.DesignId ?? product.DesignID ?? 0;
+      if (!designId && (product.DesignName || product.Design) && apiFilterData.designs?.length) {
+        const designName = product.DesignName || product.Design;
+        const found = apiFilterData.designs.find(d =>
+          (d.DesignName || d.Name || d.designName) === designName
+        );
+        if (found) designId = found.Id ?? found.DesignId ?? found.ID ?? 0;
+      }
+      if (!clientCode || !itemCode) {
+        showSuccessNotification('Error', 'Client code or item code is missing. Cannot upload image.');
+        return;
+      }
+      if (!designId) {
+        showSuccessNotification('Error', 'Design is missing for this product. Cannot upload image.');
+        return;
+      }
+      setProductDetailsImageUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append('ClientCode', clientCode);
+        formData.append('DesignId', String(designId));
+        formData.append('ItemCode', itemCode);
+        formData.append('file1', file);
+        const response = await formDataAxios.post(
+          'https://rrgold.loyalstring.co.in/api/ProductMaster/UploadImagesByClientCode',
+          formData
+        );
+        if (response.data && (response.data.success !== false)) {
+          if (productDetailsImageOverride) URL.revokeObjectURL(productDetailsImageOverride);
+          setProductDetailsImageOverride(URL.createObjectURL(file));
+          showSuccessNotification('Image uploaded', 'Product image uploaded successfully.');
+        } else {
+          showSuccessNotification('Upload failed', response.data?.message || 'Could not upload image. Please try again.');
+        }
+      } catch (err) {
+        console.error('Upload image error:', err);
+        showSuccessNotification('Upload failed', err.response?.data?.message || err.message || 'Could not upload image. Please try again.');
+      } finally {
+        setProductDetailsImageUploading(false);
+      }
+      e.target.value = '';
+    };
+
+    const sc = statusColor(product.Status);
+
+    return (
+      <div
+        className="container-fluid p-3"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: '100vh',
+          overflow: 'auto',
+          fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+          background: '#f1f5f9',
+          zIndex: 1050,
+        }}
+      >
+        <SuccessNotification
+          title={successMessage.title}
+          message={successMessage.message}
+          isVisible={showSuccess}
+          onClose={() => setShowSuccess(false)}
+        />
+        {/* Header – compact */}
+        <div style={{
+          background: '#ffffff',
+          borderRadius: 10,
+          padding: '10px 16px',
+          marginBottom: 10,
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+          border: '1px solid #e2e8f0',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              onClick={handleBack}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                fontWeight: 600,
+                borderRadius: 8,
+                border: '1px solid #6366f1',
+                background: '#eef2ff',
+                color: '#4f46e5',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#6366f1'; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = '#4f46e5'; }}
+            >
+              <FaArrowLeft size={14} />
+              Back
+            </button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 style={{ margin: 0, fontSize: isNarrow ? 16 : 18, fontWeight: 700, color: '#0f172a' }}>
+                Product Details
+              </h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  Item: <strong style={{ color: '#1e293b' }}>{product.ItemCode || '—'}</strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontSize: 11 }}>|</span>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  RFID: <strong style={{ color: '#1e293b' }}>{product.RFIDCode || '—'}</strong>
+                </span>
+                {product.Status && (
+                  <>
+                    <span style={{ color: '#cbd5e1', fontSize: 11 }}>|</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 16, background: sc.bg, color: sc.color }}>
+                      {product.Status}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Content: compact scrollable */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 16 }}>
+          {/* Hero: smaller image + quick info in one row */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isNarrow ? '1fr' : '140px 1fr',
+            gap: 14,
+            alignItems: 'start',
+            background: '#ffffff',
+            borderRadius: 10,
+            padding: 14,
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+            border: '1px solid #e2e8f0',
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: isNarrow ? 'center' : 'flex-start' }}>
+              <div style={{
+                width: isNarrow ? 120 : 120,
+                height: isNarrow ? 120 : 120,
+                borderRadius: 8,
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                {displayImageUrl ? (
+                  <img src={displayImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                ) : (
+                  <FaCamera size={28} style={{ color: '#94a3b8', opacity: 0.5 }} />
+                )}
+              </div>
+              <label
+                htmlFor="product-detail-image-upload"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  marginTop: 8,
+                  padding: '6px 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  border: '1px solid #e2e8f0',
+                  background: productDetailsImageUploading ? '#e2e8f0' : '#f8fafc',
+                  color: '#475569',
+                  cursor: productDetailsImageUploading ? 'not-allowed' : 'pointer',
+                  width: isNarrow ? '100%' : 'auto',
+                  opacity: productDetailsImageUploading ? 0.8 : 1,
+                }}
+              >
+                {productDetailsImageUploading ? <FaSpinner size={12} className="spin" style={{ flexShrink: 0 }} /> : <FaCamera size={12} />}
+                {productDetailsImageUploading ? 'Uploading…' : (displayImageUrl ? 'Change' : 'Upload')}
+              </label>
+              <input
+                id="product-detail-image-upload"
+                type="file"
+                accept="image/*"
+                onChange={handleImageChange}
+                disabled={productDetailsImageUploading}
+                style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}
+              />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10, width: '100%' }}>
+              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>Product</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>{formatValue(product.ProductName)}</div>
+              </div>
+              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>Category</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>{formatValue(product.CategoryName)}</div>
+              </div>
+              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>MRP</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>₹ {formatValue(product.MRP, 'amount')}</div>
+              </div>
+              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>Net Wt</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>{formatValue(product.NetWt, 'number')} g</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sections grid – tighter gap */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: windowWidth > 1200 ? 'repeat(4, 1fr)' : windowWidth > 768 ? 'repeat(2, 1fr)' : '1fr',
+            gap: 10,
+          }}>
+            <Section title="Basic info" color="#2563eb" icon={<FaInfoCircle size={12} />}>
+              <DetailRow label="Item Code" value={product.ItemCode} />
+              <DetailRow label="RFID" value={product.RFIDCode} />
+              <DetailRow label="Design" value={product.DesignName} />
+              <DetailRow label="Purity" value={product.PurityName} />
+              <DetailRow label="Status" value={product.Status} />
+              <DetailRow label="Description" value={product.Description || product.description} />
+            </Section>
+            <Section title="Weight" color="#059669" icon={<FaWeightHanging size={12} />}>
+              <DetailRow label="Gross Wt" value={product.GrossWt} type="number" />
+              <DetailRow label="Net Wt" value={product.NetWt} type="number" />
+              <DetailRow label="Stone Wt" value={product.StoneWt} type="number" />
+              <DetailRow label="Diamond Wt" value={product.DiamondWt} type="number" />
+              <DetailRow label="Packing Wt" value={product.PackingWeight} type="number" />
+              <DetailRow label="Total Wt" value={product.TotalWeight} type="number" />
+            </Section>
+            <Section title="Amount" color="#d97706" icon={<FaRupeeSign size={12} />}>
+              <DetailRow label="Stone Amt" value={product.StoneAmt} type="amount" />
+              <DetailRow label="Diamond Amt" value={product.DiamondAmt} type="amount" />
+              <DetailRow label="Fixed Amt" value={product.FixedAmt} type="amount" />
+              <DetailRow label="Making/Gram" value={product.MakingPerGram} type="amount" />
+              <DetailRow label="Making %" value={product.MakingPercentage} type="amount" />
+              <DetailRow label="MRP" value={product.MRP} type="amount" />
+            </Section>
+            <Section title="Location" color="#7c3aed" icon={<FaMapMarkerAlt size={12} />}>
+              <DetailRow label="Branch" value={product.Branch || product.BranchName} />
+              <DetailRow label="Counter" value={product.CounterName} />
+              <DetailRow label="Vendor" value={product.Vendor} />
+              <DetailRow label="Box" value={product.BoxDetails} />
+              <DetailRow label="Size" value={product.Size} />
+              <DetailRow label="Created" value={product.CreatedDate || product.CreatedOn} type="date" />
+            </Section>
+          </div>
+
+          {/* Stones & Diamonds – compact */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr',
+            gap: 10,
+          }}>
+            {product.Stones && product.Stones.length > 0 ? (
+              <Section title={`Stones (${product.Stones.length})`} color="#d97706" icon={<FaGem size={12} />}>
+                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead style={{ position: 'sticky', top: 0, background: '#fffbeb', zIndex: 1 }}>
+                      <tr>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#92400e' }}>Name</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#92400e' }}>Wt</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#92400e' }}>Amt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {product.Stones.map((stone, idx) => (
+                        <tr key={idx} style={{ background: idx % 2 === 0 ? '#fffbeb' : '#fff' }}>
+                          <td style={{ padding: '5px 10px', color: '#1e293b' }}>{stone.StoneName || '—'}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(stone.StoneWeight, 'number')}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(stone.StoneAmount, 'amount')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            ) : (
+              <Section title="Stones" color="#d97706" icon={<FaGem size={12} />}>
+                <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>No stones</div>
+              </Section>
+            )}
+            {product.Diamonds && product.Diamonds.length > 0 ? (
+              <Section title={`Diamonds (${product.Diamonds.length})`} color="#7c3aed" icon={<FaGem size={12} />}>
+                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead style={{ position: 'sticky', top: 0, background: '#f5f3ff', zIndex: 1 }}>
+                      <tr>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#5b21b6' }}>Name</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#5b21b6' }}>Wt</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#5b21b6' }}>Amt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {product.Diamonds.map((diamond, idx) => (
+                        <tr key={idx} style={{ background: idx % 2 === 0 ? '#f5f3ff' : '#fff' }}>
+                          <td style={{ padding: '5px 10px', color: '#1e293b' }}>{diamond.DiamondName || '—'}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(diamond.DiamondWeight, 'number')}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(diamond.DiamondSellAmount, 'amount')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            ) : (
+              <Section title="Diamonds" color="#7c3aed" icon={<FaGem size={12} />}>
+                <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>No diamonds</div>
+              </Section>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container-fluid p-3" style={{ position: 'relative' }}>
       <SuccessNotification
@@ -3032,15 +4161,15 @@ const LabelStockList = () => {
 
       <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
         {/* Unified Header & Action Section - Sticky */}
-        <div 
+        <div
           role="banner"
           aria-label="Label Stock List Header with Actions"
           style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          padding: '16px 20px',
-          marginBottom: '16px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            background: '#ffffff',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            marginBottom: '16px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
             border: '1px solid #e5e7eb',
             position: 'sticky',
             top: '0',
@@ -3079,13 +4208,13 @@ const LabelStockList = () => {
                 color: '#64748b',
                 fontWeight: 600
               }}>
-                Total: {showAllData && allFilteredData.length > 0 
-                  ? allFilteredData.length 
+                Total: {showAllData && allFilteredData.length > 0
+                  ? allFilteredData.length
                   : totalRecords} records
               </div>
 
               {/* Template Selector - Small */}
-              <div style={{ 
+              <div style={{
                 minWidth: '160px',
                 flexShrink: 0
               }}>
@@ -3141,19 +4270,19 @@ const LabelStockList = () => {
               </div>
 
               {/* Print Label Button - Small */}
-              <button 
-                onClick={handlePrintLabel} 
+              <button
+                onClick={handlePrintLabel}
                 disabled={selectedRows.length === 0 || !selectedTemplate || previewLoading}
-                aria-label={selectedRows.length === 0 
-                  ? 'Please select items to print labels' 
-                  : !selectedTemplate 
-                  ? 'Please select a template to print labels' 
-                  : `Print labels for ${selectedRows.length} selected item(s)`}
-                title={selectedRows.length === 0 
-                  ? 'Please select items to print labels' 
-                  : !selectedTemplate 
-                  ? 'Please select a template to print labels' 
-                  : `Print labels for ${selectedRows.length} selected item(s)`}
+                aria-label={selectedRows.length === 0
+                  ? 'Please select items to print labels'
+                  : !selectedTemplate
+                    ? 'Please select a template to print labels'
+                    : `Print labels for ${selectedRows.length} selected item(s)`}
+                title={selectedRows.length === 0
+                  ? 'Please select items to print labels'
+                  : !selectedTemplate
+                    ? 'Please select a template to print labels'
+                    : `Print labels for ${selectedRows.length} selected item(s)`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -3163,11 +4292,11 @@ const LabelStockList = () => {
                   fontWeight: 600,
                   borderRadius: '6px',
                   border: 'none',
-                  background: (selectedRows.length > 0 && selectedTemplate && !previewLoading) 
-                    ? 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)' 
+                  background: (selectedRows.length > 0 && selectedTemplate && !previewLoading)
+                    ? 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)'
                     : '#e2e8f0',
-                  color: (selectedRows.length > 0 && selectedTemplate && !previewLoading) 
-                    ? '#ffffff' 
+                  color: (selectedRows.length > 0 && selectedTemplate && !previewLoading)
+                    ? '#ffffff'
                     : '#94a3b8',
                   cursor: (selectedRows.length === 0 || !selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer',
                   opacity: (selectedRows.length === 0 || !selectedTemplate || previewLoading) ? 0.6 : 1,
@@ -3178,13 +4307,13 @@ const LabelStockList = () => {
                 }}
                 onMouseEnter={(e) => {
                   if (selectedRows.length > 0 && selectedTemplate && !previewLoading) {
-                    e.target.style.background = 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)';
+                    e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
                     e.target.style.transform = 'translateY(-1px)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (selectedRows.length > 0 && selectedTemplate && !previewLoading) {
-                    e.target.style.background = 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)';
+                    e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
                     e.target.style.transform = 'translateY(0)';
                   }
                 }}
@@ -3215,8 +4344,8 @@ const LabelStockList = () => {
             paddingTop: '16px',
             borderTop: '1px solid #e5e7eb'
           }}
-          role="toolbar"
-          aria-label="Action buttons toolbar"
+            role="toolbar"
+            aria-label="Action buttons toolbar"
           >
             {/* Search Input */}
             <div style={{
@@ -3253,7 +4382,53 @@ const LabelStockList = () => {
                 onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
-            
+
+            {/* Toggle Button for Active Status */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              background: showActiveOnly ? '#059669' : '#f8fafc',
+              borderRadius: '8px',
+              border: '1px solid',
+              borderColor: showActiveOnly ? '#059669' : '#e2e8f0',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              userSelect: 'none'
+            }}
+              onClick={() => setShowActiveOnly(!showActiveOnly)}
+              title={showActiveOnly ? 'Show all items' : 'Show only items with RFID Code'}
+            >
+              <div style={{
+                width: '36px',
+                height: '20px',
+                background: showActiveOnly ? '#ffffff' : '#e2e8f0',
+                borderRadius: '10px',
+                position: 'relative',
+                transition: 'all 0.2s'
+              }}>
+                <div style={{
+                  width: '16px',
+                  height: '16px',
+                  background: '#ffffff',
+                  borderRadius: '50%',
+                  position: 'absolute',
+                  top: '2px',
+                  left: showActiveOnly ? '18px' : '2px',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                }} />
+              </div>
+              <span style={{
+                fontSize: '12px',
+                fontWeight: 600,
+                color: showActiveOnly ? '#ffffff' : '#64748b'
+              }}>
+                Active Only
+              </span>
+            </div>
+
             {/* Buttons Container - Right Aligned */}
             <div style={{
               display: 'flex',
@@ -3263,219 +4438,188 @@ const LabelStockList = () => {
               marginLeft: 'auto',
               minWidth: 'fit-content'
             }}
-            role="group"
-            aria-label="Action buttons group"
+              role="group"
+              aria-label="Action buttons group"
             >
-            {/* Show All Data Button */}
-            <button 
-              onClick={toggleDataView}
-              disabled={loadingAllData}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid',
-                cursor: loadingAllData ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s',
-                background: showAllData ? '#10b981' : '#ffffff',
-                color: showAllData ? '#ffffff' : '#10b981',
-                borderColor: showAllData ? '#10b981' : '#10b981',
-                opacity: loadingAllData ? 0.6 : 1
-              }}
-              onMouseEnter={(e) => {
-                if (!loadingAllData && !showAllData) {
-                  e.target.style.background = '#f0fdf4';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!loadingAllData && !showAllData) {
-                  e.target.style.background = '#ffffff';
-                }
-              }}
-            >
-              {loadingAllData ? (
-                <>
-                  <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-                  <span>Loading...</span>
-                </>
-              ) : showAllData ? (
-                <>
-                  <FaThList />
-                  <span>Show Paginated</span>
-                </>
-              ) : (
-                <>
-                  <FaThLarge />
-                  <span>Show All Data</span>
-                </>
-              )}
-            </button>
+              {/* View Toggle Button */}
+              <button
+                onClick={() => setIsGridView(!isGridView)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #4f46e5',
+                  background: isGridView ? '#4f46e5' : '#ffffff',
+                  color: isGridView ? '#ffffff' : '#4f46e5',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                title={isGridView ? "Switch to List View" : "Switch to Grid View"}
+              >
+                {isGridView ? <FaThList /> : <FaThLarge />}
+                <span>{isGridView ? "List View" : "Grid View"}</span>
+              </button>
 
-            {/* Delete Button */}
-            <button 
-              onClick={handleDelete} 
-              disabled={selectedRows.length === 0}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #ef4444',
-                background: '#ffffff',
-                color: '#ef4444',
-                cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: selectedRows.length === 0 ? 0.5 : 1,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (selectedRows.length > 0) {
-                  e.target.style.background = '#ef4444';
+              {/* Delete Button */}
+              <button
+                onClick={handleDelete}
+                disabled={selectedRows.length === 0}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #dc2626',
+                  background: '#ffffff',
+                  color: '#dc2626',
+                  cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: selectedRows.length === 0 ? 0.5 : 1,
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (selectedRows.length > 0) {
+                    e.target.style.background = '#dc2626';
+                    e.target.style.color = '#ffffff';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selectedRows.length > 0) {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.color = '#dc2626';
+                  }
+                }}
+              >
+                <FaTrash />
+                <span>Delete</span>
+              </button>
+
+              {/* Export Button */}
+              <button
+                onClick={() => setShowExportModal(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #0ea5e9',
+                  background: '#ffffff',
+                  color: '#0ea5e9',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#0ea5e9';
                   e.target.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedRows.length > 0) {
+                }}
+                onMouseLeave={(e) => {
                   e.target.style.background = '#ffffff';
-                  e.target.style.color = '#ef4444';
-                }
-              }}
-            >
-              <FaTrash />
-              <span>Delete</span>
-            </button>
+                  e.target.style.color = '#0ea5e9';
+                }}
+              >
+                <FaFileExport />
+                <span>Export</span>
+              </button>
 
-            {/* Export Button */}
-            <button 
-              onClick={() => setShowExportModal(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #3b82f6',
-                background: '#ffffff',
-                color: '#3b82f6',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#3b82f6';
-                e.target.style.color = '#ffffff';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#3b82f6';
-              }}
-            >
-              <FaFileExport />
-              <span>Export</span>
-            </button>
-
-            {/* Report Button */}
-            <button 
-              onClick={generateAndShowReport}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #f59e0b',
-                background: '#ffffff',
-                color: '#f59e0b',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#f59e0b';
-                e.target.style.color = '#ffffff';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#f59e0b';
-              }}
-            >
-              <FaFilePdf />
-              <span>Report</span>
-            </button>
-
-            {/* Filter Button */}
-            <button 
-              onClick={() => setShowFilterPanel(!showFilterPanel)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #10b981',
-                background: showFilterPanel ? '#10b981' : '#ffffff',
-                color: showFilterPanel ? '#ffffff' : '#10b981',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!showFilterPanel) {
-                  e.target.style.background = '#f0fdf4';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!showFilterPanel) {
+              {/* Report Button */}
+              <button
+                onClick={generateAndShowReport}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #d97706',
+                  background: '#ffffff',
+                  color: '#d97706',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#d97706';
+                  e.target.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
                   e.target.style.background = '#ffffff';
-                }
-              }}
-            >
-              <FaFilter />
-              <span>Filter</span>
-            </button>
+                  e.target.style.color = '#d97706';
+                }}
+              >
+                <FaFilePdf />
+                <span>Report</span>
+              </button>
 
-            {/* Delete All Button */}
-            <button 
-              onClick={handleDeleteAllStock}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #ef4444',
-                background: '#ffffff',
-                color: '#ef4444',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#ef4444';
-                e.target.style.color = '#ffffff';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#ef4444';
-              }}
-            >
-              <FaTrash />
-              <span>Delete All</span>
-            </button>
+              {/* Filter Button - toggles inline filter section below */}
+              <button
+                onClick={() => setShowFilterPanel(!showFilterPanel)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #0d9488',
+                  background: showFilterPanel ? '#0d9488' : '#ffffff',
+                  color: showFilterPanel ? '#ffffff' : '#0d9488',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!showFilterPanel) e.target.style.background = '#ccfbf1';
+                }}
+                onMouseLeave={(e) => {
+                  if (!showFilterPanel) e.target.style.background = '#ffffff';
+                }}
+              >
+                <FaFilter />
+                <span>Filter</span>
+              </button>
+
+              {/* Delete All Button */}
+              <button
+                onClick={handleDeleteAllStock}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #e11d48',
+                  background: '#ffffff',
+                  color: '#e11d48',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#e11d48';
+                  e.target.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.color = '#e11d48';
+                }}
+              >
+                <FaTrash />
+                <span>Delete All</span>
+              </button>
             </div>
           </div>
-        </div>
-          
+
         {showReportView && (
           <div style={{
             background: '#fff',
@@ -3490,7 +4634,7 @@ const LabelStockList = () => {
               <h3 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#232a36' }}>Stock Report Summary</h3>
               <div style={{ display: 'flex', gap: 12 }}>
                 <button onClick={handleDownloadReportPDF} style={{
-                  background: '#10b981',
+                  background: '#059669',
                   color: '#fff',
                   border: 'none',
                   borderRadius: 8,
@@ -3501,11 +4645,11 @@ const LabelStockList = () => {
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}>
                   <FaFilePdf /> Download
-              </button>
+                </button>
                 <button onClick={() => setShowReportView(false)} style={{
-                  background: '#f3f4f6',
-                  color: '#4b5563',
-                  border: 'none',
+                  background: '#e2e8f0',
+                  color: '#475569',
+                  border: '1px solid #cbd5e1',
                   borderRadius: 8,
                   padding: '8px 20px',
                   fontWeight: 600,
@@ -3513,9 +4657,9 @@ const LabelStockList = () => {
                   cursor: 'pointer'
                 }}>
                   Close
-              </button>
+                </button>
+              </div>
             </div>
-          </div>
             <div style={{ maxHeight: 400, overflowY: 'auto' }}>
               <table className="report-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -3527,9 +4671,9 @@ const LabelStockList = () => {
                     <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Qty</th>
                     <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Gross Wt</th>
                     <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Net Wt</th>
-              </tr>
-            </thead>
-            <tbody>
+                  </tr>
+                </thead>
+                <tbody>
                   {reportData.map((row, index) => (
                     <tr key={index} style={{ borderBottom: '1px solid #f3f4f6' }}>
                       <td style={{ padding: '12px 16px' }}>{index + 1}</td>
@@ -3539,535 +4683,561 @@ const LabelStockList = () => {
                       <td style={{ padding: '12px 16px' }}>{row.qty}</td>
                       <td style={{ padding: '12px 16px' }}>{row.grossWt.toFixed(3)}</td>
                       <td style={{ padding: '12px 16px' }}>{row.netWt.toFixed(3)}</td>
-                </tr>
+                    </tr>
                   ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
-      {/* Filter Slider - Right Side */}
-      {showFilterPanel && (
-        <>
-          {/* Overlay */}
-          <div 
-            onClick={() => {
-              closeAllDropdowns();
-              setShowFilterPanel(false);
-            }}
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.5)',
-              zIndex: 9998,
-              animation: 'fadeIn 0.3s ease'
-            }}
-          />
-          {/* Filter Slider Panel */}
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            right: 0,
-            width: windowWidth <= 768 ? '100%' : '400px',
-            maxWidth: '90vw',
-            height: '100vh',
+        {/* Filter Slider - Right Side */}
+        {/* Inline filter section - opens below toolbar when Filter clicked (no sidebar) */}
+        {showFilterPanel && (
+          <div className="filter-inline-section" style={{
+            marginTop: '12px',
+            padding: '12px 16px',
             background: '#ffffff',
-            boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.1)',
-            zIndex: 9999,
-            display: 'flex',
-            flexDirection: 'column',
-            animation: 'slideInRight 0.3s ease',
-            overflowY: 'auto'
+            border: '1px solid #e2e8f0',
+            borderRadius: '10px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
           }}>
-            {/* Filter Header */}
             <div style={{
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              padding: '20px',
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              position: 'sticky',
-              top: 0,
-              zIndex: 10
+              flexWrap: 'wrap',
+              alignItems: 'flex-end',
+              gap: '10px',
+              rowGap: '12px'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <FaFilter style={{ color: '#ffffff', fontSize: '16px' }} />
-                <h6 style={{
-                  margin: 0,
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: '#ffffff'
-                }}>Filter Options</h6>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '4px', flexShrink: 0 }}>
+                <FaFilter style={{ color: '#0d9488', fontSize: '14px' }} />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>Filters</span>
               </div>
-              <button 
-                type="button" 
-                onClick={() => setShowFilterPanel(false)}
-                style={{
-                  background: 'rgba(255,255,255,0.2)',
-                  border: 'none',
-                  borderRadius: '6px',
-                  width: '28px',
-                  height: '28px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: '#ffffff',
-                  fontSize: '16px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
-                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
-              >
-                <FaTimes />
-              </button>
-            </div>
-            {/* Filter Content */}
-            <div style={{ padding: '20px', flex: 1 }}>
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '16px'
-                }}>
-                {renderSearchableDropdown(
-                  'branch',
-                  'Branch',
-                  'Search branch...',
-                  apiFilterData.branches || [],
-                  (item) => item.BranchName || item.Name || item.branchName || item.name,
-                  (item) => item.BranchName || item.Name || item.branchName || item.name,
-                  'All'
-                )}
-                {renderSearchableDropdown(
-                  'counterName',
-                  'Counter Name',
-                  'Search counter...',
-                  apiFilterData.counters || [],
-                  (item) => item.CounterName || item.Name || item.counterName,
-                  (item) => item.CounterName || item.Name || item.counterName,
-                  'All Counters'
-                )}
-                {renderSearchableDropdown(
-                  'boxName',
-                  'Box Name',
-                  'Search box name...',
-                  filterOptions.boxNames.filter(opt => opt !== 'All') || [],
-                  (item) => item,
-                  (item) => item,
-                  'All'
-                )}
-                {renderSearchableDropdown(
-                  'categoryId',
-                  'Category',
-                  'Search category...',
-                  apiFilterData.categories || [],
-                  (item) => item.CategoryName || item.Name || item.categoryName,
-                  (item) => item.CategoryName || item.Name || item.categoryName,
-                  'All Categories'
-                )}
-                {renderSearchableDropdown(
-                  'productId',
-                  'Product Name',
-                  'Search product...',
-                  apiFilterData.products || [],
-                  (item) => item.ProductName || item.Name || item.productName,
-                  (item) => item.ProductName || item.Name || item.productName,
-                  'All Products'
-                )}
-                {renderSearchableDropdown(
-                  'designId',
-                  'Design',
-                  'Search design...',
-                  apiFilterData.designs || [],
-                  (item) => item.DesignName || item.Name || item.designName,
-                  (item) => item.DesignName || item.Name || item.designName,
-                  'All Designs'
-                )}
-                {renderSearchableDropdown(
-                  'purityId',
-                  'Purity',
-                  'Search purity...',
-                  apiFilterData.purities || [],
-                  (item) => item.PurityName || item.Name || item.Purity || item.purityName,
-                  (item) => item.PurityName || item.Name || item.Purity || item.purityName,
-                  'All Purities'
-                )}
-                {renderSearchableDropdown(
-                  'status',
-                  'Status',
-                  'Search status...',
-                  filterOptions.statuses.filter(opt => opt !== 'All') || [],
-                  (item) => item,
-                  (item) => item,
-                  'All'
-                )}
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>From Date</label>
-                  <input
-                    type="date"
-                    value={filterValues.dateFrom}
-                    onChange={e => handleFilterChange('dateFrom', e.target.value)}
-                    max={filterValues.dateTo || undefined}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  />
-                </div>
-                <div>
-                  <label style={{
-                    display: 'block',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    marginBottom: '6px'
-                  }}>To Date</label>
-                  <input
-                    type="date"
-                    value={filterValues.dateTo}
-                    onChange={e => handleFilterChange('dateTo', e.target.value)}
-                    min={filterValues.dateFrom || undefined}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                  />
-                </div>
-                </div>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: '10px',
-                marginTop: '20px',
-                paddingTop: '20px',
-                borderTop: '1px solid #e5e7eb'
-              }}>
-                <button 
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'branch',
+                'Branch',
+                'Search branch...',
+                apiFilterData.branches || [],
+                (item) => item.BranchName || item.Name || item.branchName || item.name,
+                (item) => item.BranchName || item.Name || item.branchName || item.name,
+                'All'
+              )}</div>
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'counterName',
+                'Counter Name',
+                'Search counter...',
+                apiFilterData.counters || [],
+                (item) => item.CounterName || item.Name || item.counterName,
+                (item) => item.CounterName || item.Name || item.counterName,
+                'All Counters'
+              )}</div>
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'boxName',
+                'Box Name',
+                'Search box...',
+                filterOptions.boxNames.filter(opt => opt !== 'All') || [],
+                (item) => item,
+                (item) => item,
+                'All'
+              )}</div>
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'categoryId',
+                'Category',
+                'Search category...',
+                apiFilterData.categories || [],
+                (item) => item.CategoryName || item.Name || item.categoryName,
+                (item) => item.CategoryName || item.Name || item.categoryName,
+                'All Categories'
+              )}</div>
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'productId',
+                'Product',
+                'Search product...',
+                apiFilterData.products || [],
+                (item) => item.ProductName || item.Name || item.productName,
+                (item) => item.ProductName || item.Name || item.productName,
+                'All Products'
+              )}</div>
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'designId',
+                'Design',
+                'Search design...',
+                apiFilterData.designs || [],
+                (item) => item.DesignName || item.Name || item.designName,
+                (item) => item.DesignName || item.Name || item.designName,
+                'All Designs'
+              )}</div>
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'purityId',
+                'Purity',
+                'Search purity...',
+                apiFilterData.purities || [],
+                (item) => item.PurityName || item.Name || item.Purity || item.purityName,
+                (item) => item.PurityName || item.Name || item.Purity || item.purityName,
+                'All Purities'
+              )}</div>
+              <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto', flexShrink: 0 }}>
+                <button
                   onClick={handleResetFilters}
                   style={{
-                    padding: '8px 16px',
+                    padding: '6px 12px',
                     fontSize: '12px',
                     fontWeight: 600,
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    border: '1px solid #64748b',
                     background: '#ffffff',
-                    color: '#64748b',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#f1f5f9';
-                    e.target.style.borderColor = '#94a3b8';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.borderColor = '#cbd5e1';
+                    color: '#475569',
+                    cursor: 'pointer'
                   }}
                 >
                   Reset
                 </button>
-                <button 
+                <button
                   onClick={handleApplyFilters}
                   style={{
-                    padding: '8px 16px',
+                    padding: '6px 14px',
                     fontSize: '12px',
                     fontWeight: 600,
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     border: 'none',
-                    background: '#10b981',
+                    background: '#7c3aed',
                     color: '#ffffff',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
+                    cursor: 'pointer'
                   }}
-                  onMouseEnter={(e) => e.target.style.background = '#059669'}
-                  onMouseLeave={(e) => e.target.style.background = '#10b981'}
                 >
-                  Apply Filters
+                  Apply
                 </button>
+                <button
+                  onClick={() => { closeAllDropdowns(); setShowFilterPanel(false); }}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#f1f5f9',
+                    color: '#64748b',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <FaTimes size={12} /> Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-        </>
-      )}
+        )}
 
-        {/* Table Container */}
-        <div className="table-container" style={{
-          background: '#ffffff',
+        {/* Data Display Container */}
+        <div className="data-display-container" style={{
+          background: isGridView ? 'transparent' : '#ffffff',
           borderRadius: '12px',
           marginTop: '16px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb',
-          overflow: 'hidden'
+          boxShadow: isGridView ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
+          border: isGridView ? 'none' : '1px solid #e5e7eb',
+          overflow: isGridView ? 'visible' : 'visible',
+          display: 'flex',
+          flexDirection: 'column',
+          height: isGridView ? 'auto' : 'calc(100vh - 280px)',
+          minHeight: isGridView ? 'auto' : '400px'
         }}>
-          <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%', position: 'relative' }}>
-            <table style={{ 
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '12px',
-              tableLayout: 'auto'
+          {isGridView ? (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: windowWidth <= 768 ? 'repeat(2, 1fr)' : windowWidth <= 1200 ? 'repeat(4, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))',
+              gap: '16px',
+              marginBottom: '20px',
+              padding: '4px 0'
             }}>
-              <thead>
-                <tr style={{
-                  background: '#f8fafc',
-                  borderBottom: '2px solid #e5e7eb'
-                }}>
-                  <th style={{
-                    padding: '12px',
-                    textAlign: 'center',
-                    width: '40px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#475569'
-                  }}>
+              {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item) => (
+                <div
+                  key={item.Id}
+                  onClick={() => handleRowSelection(item.Id)}
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    border: selectedRows.includes(item.Id) ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '260px',
+                    cursor: 'pointer',
+                    position: 'relative',
+                    boxShadow: selectedRows.includes(item.Id) ? '0 8px 24px rgba(79, 70, 229, 0.22)' : '0 2px 8px rgba(0,0,0,0.06)',
+                    transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!selectedRows.includes(item.Id)) {
+                      e.currentTarget.style.transform = 'translateY(-4px)';
+                      e.currentTarget.style.boxShadow = '0 12px 28px rgba(0,0,0,0.12)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!selectedRows.includes(item.Id)) {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+                    }
+                  }}
+                >
+                  <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 2 }}>
                     <input
                       type="checkbox"
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedRows(currentItems.map(item => item.Id));
-                        } else {
-                          setSelectedRows([]);
-                        }
-                      }}
-                      checked={currentItems.length > 0 && selectedRows.length === currentItems.length}
-                      style={{
-                        cursor: 'pointer',
-                        width: '16px',
-                        height: '16px'
-                      }}
+                      checked={selectedRows.includes(item.Id)}
+                      onChange={(e) => { e.stopPropagation(); handleRowSelection(item.Id); }}
+                      style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#4f46e5' }}
                     />
-                  </th>
-                  {columns.map((column) => {
-                    // Only hide columns on very small screens (480px and below)
-                    const hiddenKeys = ['PackingWeight', 'TotalWeight'];
-                    const isHiddenOnMobile = windowWidth <= 480 && hiddenKeys.includes(column.key);
-                    return (
-                    <th
-                      key={column.key}
+                  </div>
+                  <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 2, display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setSelectedProductForDetails(item);
+                        setShowProductDetails(true);
+                      }}
                       style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#475569',
-                        whiteSpace: 'nowrap',
+                        padding: '8px', borderRadius: '10px', border: 'none', background: 'rgba(139, 92, 246, 0.12)', color: '#7c3aed',
                         cursor: 'pointer',
-                        width: column.width,
-                        transition: 'background 0.2s',
-                        display: isHiddenOnMobile ? 'none' : 'table-cell'
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(124, 58, 237, 0.2)',
+                        transition: 'all 0.2s'
                       }}
-                      onClick={() => {
-                        if (column.key !== 'checkbox') {
-                          const direction = sortConfig.key === column.key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
-                          setSortConfig({ key: column.key, direction });
-                        }
-                      }}
-                      onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
+                      title="View Details"
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#7c3aed'; e.currentTarget.style.color = '#fff'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(139, 92, 246, 0.12)'; e.currentTarget.style.color = '#7c3aed'; }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {column.label}
-                        {sortConfig.key === column.key && (
-                          <span>
-                            {sortConfig.direction === 'asc' ? <FaSortAmountUp size={12} /> : <FaSortAmountDown size={12} />}
-                          </span>
-                        )}
+                      <FaEye size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handlePrintSingleLabel(item, e); }}
+                      disabled={!selectedTemplate || previewLoading}
+                      style={{
+                        padding: '8px', borderRadius: '10px', border: 'none', background: 'rgba(59, 130, 246, 0.12)', color: '#2563eb',
+                        cursor: (!selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer', opacity: (!selectedTemplate || previewLoading) ? 0.7 : 1,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37, 99, 235, 0.2)',
+                        transition: 'all 0.2s'
+                      }}
+                      title={!selectedTemplate ? "Select template first" : "Print Label"}
+                    >
+                      {previewLoading ? <FaSpinner className="spin" size={14} /> : <FaPrint size={14} />}
+                    </button>
+                  </div>
+                  <div style={{ height: '58%', width: '100%', background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderBottom: '1px solid #e2e8f0' }}>
+                    {(() => {
+                      const imgUrl = getItemImageUrl(item);
+                      return imgUrl ? (
+                        <img src={imgUrl} alt={item.ProductName} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '8px' }} />
+                      ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', color: '#94a3b8' }}>
+                        <FaGem size={36} style={{ opacity: 0.6 }} />
+                        <span style={{ fontSize: '11px', fontWeight: 500 }}>No Image</span>
                       </div>
-                    </th>
                     );
-                  })}
-                  <th style={{
-                    padding: '12px',
-                    textAlign: 'center',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    whiteSpace: 'nowrap',
-                    position: 'sticky',
-                    right: 0,
+                    })()}
+                  </div>
+                  <div style={{ height: '42%', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', overflow: 'hidden', background: '#ffffff' }}>
+                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.ProductName || 'Unknown'}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ color: '#64748b', fontSize: '11px' }}>RFID</span><span style={{ fontWeight: 600, color: '#334155', fontSize: '11px' }}>{item.RFIDCode || '–'}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ color: '#64748b', fontSize: '11px' }}>Design</span><span style={{ fontWeight: 500, color: '#334155', maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px' }}>{item.Design || item.DesignName || '–'}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'auto', paddingTop: '4px', borderTop: '1px solid #f1f5f9' }}>
+                      <span style={{ fontWeight: 700, color: '#059669', fontSize: '12px' }}>{item.NetWt ? parseFloat(item.NetWt).toFixed(3) : '0.000'} g</span>
+                      <span style={{ fontWeight: 600, color: '#d97706', fontSize: '11px' }}>{item.Purity || '–'}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              className="table-scroll-container"
+              style={{
+                overflowX: 'auto',
+                overflowY: 'scroll',
+                width: '100%',
+                maxWidth: '100%',
+                position: 'relative',
+                height: '100%',
+                flex: 1,
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#888 #f1f1f1'
+              }}>
+              <table style={{
+                width: '100%',
+                minWidth: '1400px',
+                borderCollapse: 'collapse',
+                fontSize: '12px',
+                tableLayout: 'auto'
+              }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                  <tr style={{
                     background: '#f8fafc',
-                    zIndex: 10,
-                    width: '120px',
-                    borderLeft: '1px solid #e5e7eb'
-                  }}>Print Label</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item, index) => (
-                  <tr
-                    key={item.Id}
-                    onClick={() => handleRowSelection(item.Id)}
-                    style={{
-                      cursor: 'pointer',
-                      borderBottom: '1px solid #e5e7eb',
-                      background: selectedRows.includes(item.Id) 
-                        ? '#f3f4f6' 
-                        : index % 2 === 0 
-                        ? '#ffffff' 
-                        : '#f8fafc',
-                      transition: 'background 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!selectedRows.includes(item.Id)) {
-                        e.currentTarget.style.background = '#f1f5f9';
-                        // Update sticky columns background on hover
-                        const cells = e.currentTarget.querySelectorAll('td');
-                        cells.forEach(cell => {
-                          if (cell.style.position === 'sticky') {
-                            cell.style.background = '#f1f5f9';
-                          }
-                        });
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!selectedRows.includes(item.Id)) {
-                        const bgColor = index % 2 === 0 
-                          ? '#ffffff' 
-                          : '#f8fafc';
-                        e.currentTarget.style.background = bgColor;
-                        // Update sticky columns background on leave
-                        const cells = e.currentTarget.querySelectorAll('td');
-                        cells.forEach(cell => {
-                          if (cell.style.position === 'sticky') {
-                            cell.style.background = bgColor;
-                          }
-                        });
-                      }
-                    }}
-                  >
-                    <td style={{
+                    borderBottom: '2px solid #e5e7eb'
+                  }}>
+                    <th style={{
                       padding: '12px',
                       textAlign: 'center',
-                      fontSize: '12px'
+                      width: '40px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#475569'
                     }}>
                       <input
                         type="checkbox"
-                        checked={selectedRows.includes(item.Id)}
-                        onChange={() => handleRowSelection(item.Id)}
-                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedRows(currentItems.map(item => item.Id));
+                          } else {
+                            setSelectedRows([]);
+                          }
+                        }}
+                        checked={currentItems.length > 0 && selectedRows.length === currentItems.length}
                         style={{
                           cursor: 'pointer',
                           width: '16px',
                           height: '16px'
                         }}
                       />
-                    </td>
-                    {columns.map(column => {
-                      // Only hide columns on very small screens (480px and below)
-                      const hiddenKeys = ['PackingWeight', 'TotalWeight'];
-                      const isHiddenOnMobile = windowWidth <= 480 && hiddenKeys.includes(column.key);
-                      return (
-                      <td key={column.key} style={{
+                    </th>
+                    {columns.map((column) => (
+                        <th
+                          key={column.key}
+                          style={{
+                            padding: '10px 8px',
+                            textAlign: 'left',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#475569',
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            width: column.width,
+                            transition: 'background 0.2s'
+                          }}
+                          onClick={() => {
+                            if (column.key !== 'checkbox') {
+                              const direction = sortConfig.key === column.key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
+                              const newSortConfig = { key: column.key, direction };
+                              setSortConfig(newSortConfig);
+                              // Trigger API call with new sort configuration
+                              setCurrentPage(1); // Reset to first page when sorting changes
+                              fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, newSortConfig);
+                            }
+                          }}
+                          onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                          onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {column.label}
+                            {sortConfig.key === column.key && (
+                              <span>
+                                {sortConfig.direction === 'asc' ? <FaSortAmountUp size={12} /> : <FaSortAmountDown size={12} />}
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                      ))}
+                    <th style={{
+                      padding: '10px 8px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#475569',
+                      whiteSpace: 'nowrap',
+                      position: 'sticky',
+                      right: '50px',
+                      background: '#f8fafc',
+                      zIndex: 10,
+                      width: '50px',
+                      minWidth: '50px',
+                      borderLeft: '1px solid #e5e7eb'
+                    }}>View</th>
+                    <th style={{
+                      padding: '10px 8px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#475569',
+                      whiteSpace: 'nowrap',
+                      position: 'sticky',
+                      right: 0,
+                      background: '#f8fafc',
+                      zIndex: 10,
+                      width: '50px',
+                      minWidth: '50px',
+                      borderLeft: '1px solid #e5e7eb'
+                    }}>Print</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item, index) => (
+                    <tr
+                      key={item.Id}
+                      onClick={() => handleRowSelection(item.Id)}
+                      style={{
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #e2e8f0',
+                        background: selectedRows.includes(item.Id)
+                          ? '#fff7ed'
+                          : index % 2 === 0
+                            ? '#ffffff'
+                            : '#f8fafc',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!selectedRows.includes(item.Id)) {
+                          e.currentTarget.style.background = '#f8fafc';
+                          const cells = e.currentTarget.querySelectorAll('td');
+                          cells.forEach(cell => {
+                            if (cell.style.position === 'sticky') cell.style.background = '#f8fafc';
+                          });
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!selectedRows.includes(item.Id)) {
+                          const bgColor = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+                          e.currentTarget.style.background = bgColor;
+                          const cells = e.currentTarget.querySelectorAll('td');
+                          cells.forEach(cell => {
+                            if (cell.style.position === 'sticky') cell.style.background = bgColor;
+                          });
+                        }
+                      }}
+                    >
+                      <td style={{
                         padding: '12px',
-                        fontSize: '12px',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap',
-                        display: isHiddenOnMobile ? 'none' : 'table-cell'
+                        textAlign: 'center',
+                        fontSize: '12px'
                       }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedRows.includes(item.Id)}
+                          onChange={() => handleRowSelection(item.Id)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            cursor: 'pointer',
+                            width: '16px',
+                            height: '16px',
+                            accentColor: '#4f46e5'
+                          }}
+                        />
+                      </td>
+                      {columns.map(column => (
+                        <td key={column.key} style={{
+                          padding: '10px 8px',
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          whiteSpace: 'nowrap'
+                        }}>
                           {column.key === 'srNo' ? ((currentPage - 1) * itemsPerPage) + index + 1 : (() => {
                             const value = item[column.key];
-                            if (value === undefined || value === null || value === '') return '';
+                            if (value === undefined || value === null || value === '') return '-';
                             // Format numeric fields (weights)
-                            if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt', 'PackingWeight', 'TotalWeight'].includes(column.key)) {
+                            if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt'].includes(column.key)) {
                               const numValue = parseFloat(value);
                               return isNaN(numValue) ? value : numValue.toFixed(3);
-                            }
-                            // Format amount fields
-                            if (['StoneAmt', 'FixedAmt'].includes(column.key)) {
-                              const numValue = parseFloat(value);
-                              return isNaN(numValue) ? value : numValue.toString();
-                            }
-                            // Format date fields
-                            if (column.key === 'CreatedDate' && value) {
-                              try {
-                                const date = new Date(value);
-                                if (!isNaN(date.getTime())) {
-                                  return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                                }
-                              } catch (e) {
-                                // If date parsing fails, return original value
-                              }
                             }
                             return value;
                           })()}
                         </td>
-                      );
-                    })}
-                    <td style={{
-                      padding: '12px',
-                      fontSize: '12px',
-                      textAlign: 'center',
-                      position: 'sticky',
-                      right: 0,
-                      background: selectedRows.includes(item.Id) 
-                        ? '#f3f4f6' 
-                        : index % 2 === 0 
-                        ? '#ffffff' 
-                        : '#f8fafc',
-                      zIndex: 5,
-                      borderLeft: '1px solid #e5e7eb'
-                    }}>
-                      <button 
+                      ))}
+                      {/* View Details Button */}
+                      <td style={{
+                        padding: '8px 4px',
+                        textAlign: 'center',
+                        position: 'sticky',
+                        right: '50px',
+                        background: selectedRows.includes(item.Id)
+                          ? '#fff7ed'
+                          : index % 2 === 0
+                            ? '#ffffff'
+                            : '#f8fafc',
+                        zIndex: 5,
+                        borderLeft: '1px solid #e2e8f0',
+                        width: '50px',
+                        minWidth: '50px'
+                      }}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedProductForDetails(item);
+                            setShowProductDetails(true);
+                          }}
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            padding: 0,
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: '#8b5cf6',
+                            color: '#ffffff',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            margin: '0 auto',
+                            boxShadow: '0 1px 2px rgba(139, 92, 246, 0.3)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#7c3aed';
+                            e.currentTarget.style.transform = 'scale(1.05)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#8b5cf6';
+                            e.currentTarget.style.transform = 'scale(1)';
+                          }}
+                          title="View Product Details"
+                        >
+                          <FaEye size={14} />
+                        </button>
+                      </td>
+                      {/* Print Label Button */}
+                      <td style={{
+                        padding: '8px 4px',
+                        textAlign: 'center',
+                        position: 'sticky',
+                        right: 0,
+                        background: selectedRows.includes(item.Id)
+                          ? '#fff7ed'
+                          : index % 2 === 0
+                            ? '#ffffff'
+                            : '#f8fafc',
+                        zIndex: 5,
+                        borderLeft: '1px solid #e2e8f0',
+                        width: '50px',
+                        minWidth: '50px'
+                      }}>
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handlePrintSingleLabel(item, e);
                           }}
                           disabled={!selectedTemplate || previewLoading}
-                        style={{
-                            padding: '8px 12px',
-                            fontSize: '14px',
-                          borderRadius: '6px',
-                            border: '1px solid #3b82f6',
-                          background: '#ffffff',
-                            color: '#3b82f6',
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            padding: 0,
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: (!selectedTemplate || previewLoading) ? '#cbd5e1' : '#3b82f6',
+                            color: '#ffffff',
                             cursor: (!selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer',
-                            opacity: (!selectedTemplate || previewLoading) ? 0.5 : 1,
                             transition: 'all 0.2s',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '6px',
-                            margin: '0 auto'
-                        }}
-                        onMouseEnter={(e) => {
+                            margin: '0 auto',
+                            boxShadow: (!selectedTemplate || previewLoading) ? 'none' : '0 1px 2px rgba(59, 130, 246, 0.3)'
+                          }}
+                          onMouseEnter={(e) => {
                             if (selectedTemplate && !previewLoading) {
-                              e.target.style.background = '#3b82f6';
-                          e.target.style.color = '#ffffff';
+                              e.currentTarget.style.background = '#2563eb';
+                              e.currentTarget.style.transform = 'scale(1.05)';
                             }
-                        }}
-                        onMouseLeave={(e) => {
+                          }}
+                          onMouseLeave={(e) => {
                             if (selectedTemplate && !previewLoading) {
-                          e.target.style.background = '#ffffff';
-                              e.target.style.color = '#3b82f6';
+                              e.currentTarget.style.background = '#3b82f6';
+                              e.currentTarget.style.transform = 'scale(1)';
                             }
                           }}
                           title={!selectedTemplate ? "Please select a template first" : "Print Label"}
@@ -4077,24 +5247,25 @@ const LabelStockList = () => {
                           ) : (
                             <FaPrint size={14} />
                           )}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-            
-            {/* Pagination */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '16px 20px',
-              borderTop: '1px solid #e5e7eb',
-              flexWrap: 'wrap',
-              gap: '12px'
-            }}>
+          )}
+
+          {/* Pagination */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderTop: '1px solid #e5e7eb',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -4112,30 +5283,32 @@ const LabelStockList = () => {
                   <span>
                     Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>Show:</span>
-                    <select 
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#64748b' }}>Showing per page</span>
+                    <select
                       value={itemsPerPage}
                       onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
                       style={{
-                        padding: '6px 10px',
+                        padding: '6px 12px',
                         fontSize: '12px',
                         border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
+                        borderRadius: '8px',
                         outline: 'none',
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        background: '#ffffff',
+                        color: '#1e293b',
+                        fontWeight: 500
                       }}
                     >
                       {PAGE_SIZE_OPTIONS.map(size => (
                         <option key={size} value={size}>{size}</option>
                       ))}
                     </select>
-                    <span>per page</span>
                   </div>
                 </>
               )}
             </div>
-            
+
             {!showAllData && (
               <div style={{
                 display: 'flex',
@@ -4143,7 +5316,7 @@ const LabelStockList = () => {
                 gap: '6px',
                 flexWrap: 'wrap'
               }}>
-                <button 
+                <button
                   onClick={() => {
                     const newPage = Math.max(currentPage - 1, 1);
                     setCurrentPage(newPage);
@@ -4198,11 +5371,11 @@ const LabelStockList = () => {
                         padding: '6px 12px',
                         fontSize: '12px',
                         fontWeight: 600,
-                        borderRadius: '6px',
+                        borderRadius: '8px',
                         border: '1px solid',
-                        background: currentPage === page ? '#9ca3af' : '#ffffff',
+                        background: currentPage === page ? '#4f46e5' : '#ffffff',
                         color: currentPage === page ? '#ffffff' : '#475569',
-                        borderColor: currentPage === page ? '#9ca3af' : '#e2e8f0',
+                        borderColor: currentPage === page ? '#4f46e5' : '#e2e8f0',
                         cursor: 'pointer',
                         transition: 'all 0.2s',
                         minWidth: '36px'
@@ -4228,7 +5401,6 @@ const LabelStockList = () => {
                   onClick={() => {
                     const newPage = Math.min(currentPage + 1, totalPages);
                     setCurrentPage(newPage);
-                    // Show loader immediately when pagination is clicked
                     setLoading(true);
                     fetchLabeledStock(newPage, itemsPerPage, searchQuery, filterValues);
                   }}
@@ -4237,7 +5409,7 @@ const LabelStockList = () => {
                     padding: '6px 12px',
                     fontSize: '12px',
                     fontWeight: 600,
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     border: '1px solid #e2e8f0',
                     background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
                     color: currentPage === totalPages ? '#94a3b8' : '#475569',
@@ -4259,9 +5431,63 @@ const LabelStockList = () => {
                 >
                   Next
                 </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>Go to page</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages || 1}
+                    value={currentPage}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (e.target.value === '') return;
+                      if (!isNaN(v) && v >= 1) setCurrentPage(Math.min(v, totalPages || 1));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const v = parseInt(e.target.value, 10);
+                        if (!isNaN(v) && v >= 1 && v <= (totalPages || 1)) {
+                          setCurrentPage(v);
+                          setLoading(true);
+                          fetchLabeledStock(v, itemsPerPage, searchQuery, filterValues);
+                        }
+                      }
+                    }}
+                    style={{
+                      width: '52px',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      textAlign: 'center',
+                      background: '#ffffff'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoading(true);
+                      fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues);
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: '#4f46e5',
+                      color: '#ffffff',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Go
+                  </button>
+                </div>
               </div>
             )}
           </div>
+        </div>
         </div>
 
         {/* Responsive Styles */}
@@ -4306,9 +5532,13 @@ const LabelStockList = () => {
               gap: 12px !important;
             }
             
-            /* Filter panel responsive */
+            /* Inline filter section responsive */
+            .filter-inline-section {
+              padding: 14px !important;
+            }
             .filter-grid {
               grid-template-columns: 1fr !important;
+              gap: 12px !important;
             }
           }
           
@@ -4351,7 +5581,7 @@ const LabelStockList = () => {
 
         {exportModal}
 
-       {showDeleteConfirm && (
+        {showDeleteConfirm && (
           <div style={{
             position: 'fixed',
             top: 0,
@@ -4381,8 +5611,8 @@ const LabelStockList = () => {
                 <div style={{ fontWeight: 700, fontSize: 22, color: '#232a36', marginBottom: 8, textAlign: 'center' }}>Delete Selected Items?</div>
                 <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', maxWidth: 340 }}>
                   Are you sure you want to delete the selected item(s)? This action cannot be undone.
-               </div>
-                 </div>
+                </div>
+              </div>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginTop: 8 }}>
                 <button onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading} style={{
                   background: '#f3f4f6',
@@ -4409,12 +5639,12 @@ const LabelStockList = () => {
                   boxShadow: '0 2px 8px #ef444422',
                   opacity: deleteLoading ? 0.7 : 1,
                 }}>{deleteLoading ? 'Deleting...' : 'Delete'}</button>
-             </div>
-           </div>
-         </div>
-       )}
+              </div>
+            </div>
+          </div>
+        )}
 
-       {showDeleteAllStockConfirm && (
+        {showDeleteAllStockConfirm && (
           <div style={{
             position: 'fixed',
             top: 0,
@@ -4448,8 +5678,8 @@ const LabelStockList = () => {
                   <span style={{ color: '#dc3545', fontWeight: 600 }}>
                     Are you absolutely sure you want to proceed?
                   </span>
-               </div>
-                 </div>
+                </div>
+              </div>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginTop: 8 }}>
                 <button onClick={() => setShowDeleteAllStockConfirm(false)} disabled={deleteAllStockLoading} style={{
                   background: '#f3f4f6',
@@ -4476,10 +5706,10 @@ const LabelStockList = () => {
                   boxShadow: '0 2px 8px #dc354522',
                   opacity: deleteAllStockLoading ? 0.7 : 1,
                 }}>{deleteAllStockLoading ? 'Deleting All...' : 'Delete ALL Stock for Client'}</button>
-             </div>
-           </div>
-         </div>
-       )}
+              </div>
+            </div>
+          </div>
+        )}
 
 
         <style jsx>{`
@@ -4690,7 +5920,7 @@ const LabelStockList = () => {
           }
           .label-stock-table-wrapper {
             overflow-x: auto !important;
-            overflow-y: visible;
+            overflow-y: auto !important;
             -webkit-overflow-scrolling: touch;
             width: 100%;
             position: relative;
@@ -4698,7 +5928,8 @@ const LabelStockList = () => {
             scrollbar-color: #888 #f1f1f1;
           }
           .label-stock-table-wrapper::-webkit-scrollbar {
-            height: 10px;
+            width: 12px;
+            height: 12px;
             -webkit-appearance: none;
           }
           .label-stock-table-wrapper::-webkit-scrollbar-track {
@@ -4713,6 +5944,46 @@ const LabelStockList = () => {
           }
           .label-stock-table-wrapper::-webkit-scrollbar-thumb:hover {
             background: #555;
+          }
+          .label-stock-table-wrapper::-webkit-scrollbar-corner {
+            background: #f1f1f1;
+          }
+          
+          /* Data display container scrollbar styling - Always visible */
+          .data-display-container > div,
+          .table-scroll-container {
+            scrollbar-width: thin !important;
+            scrollbar-color: #888 #f1f1f1 !important;
+            overflow-y: scroll !important;
+            overflow-x: auto !important;
+          }
+          .data-display-container > div::-webkit-scrollbar,
+          .table-scroll-container::-webkit-scrollbar {
+            width: 12px !important;
+            height: 12px !important;
+            -webkit-appearance: none !important;
+            display: block !important;
+          }
+          .data-display-container > div::-webkit-scrollbar-track,
+          .table-scroll-container::-webkit-scrollbar-track {
+            background: #f1f1f1 !important;
+            border-radius: 6px !important;
+            -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.1) !important;
+          }
+          .data-display-container > div::-webkit-scrollbar-thumb,
+          .table-scroll-container::-webkit-scrollbar-thumb {
+            background: #888 !important;
+            border-radius: 6px !important;
+            border: 2px solid #f1f1f1 !important;
+            -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.3) !important;
+          }
+          .data-display-container > div::-webkit-scrollbar-thumb:hover,
+          .table-scroll-container::-webkit-scrollbar-thumb:hover {
+            background: #555 !important;
+          }
+          .data-display-container > div::-webkit-scrollbar-corner,
+          .table-scroll-container::-webkit-scrollbar-corner {
+            background: #f1f1f1 !important;
           }
           .table-responsive::-webkit-scrollbar {
             height: 10px;
@@ -5620,9 +6891,9 @@ const LabelStockList = () => {
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
           }
         `}</style>
-        
+
         {/* Zoho-style Status Change Modal */}
-              {showStatusPopup && selectedItemForStatus && (
+        {showStatusPopup && selectedItemForStatus && (
           <div className="modal show d-block" style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)' }}>
             <div className="modal-dialog modal-dialog-centered" style={{ maxWidth: '400px' }}>
               <div className="modal-content border-0 shadow-lg" style={{ borderRadius: '12px', overflow: 'hidden' }}>
@@ -5631,45 +6902,45 @@ const LabelStockList = () => {
                     <FaGem className="me-2" style={{ color: '#8b5cf6' }} />
                     {selectedItemForStatus.ProductName}
                   </h6>
-                  <button 
-                    type="button" 
-                    className="btn-close btn-close-sm" 
+                  <button
+                    type="button"
+                    className="btn-close btn-close-sm"
                     onClick={() => setShowStatusPopup(false)}
                     style={{ fontSize: '16px', color: '#64748b' }}
                   ></button>
-               </div>
-                
+                </div>
+
                 <div className="modal-body pt-2 px-3">
                   {/* Item Info - Compact */}
                   <div className="bg-light rounded-2 p-3 mb-3" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                     <div className="row g-2">
-                     <div className="col-6">
+                      <div className="col-6">
                         <div className="d-flex flex-column">
                           <span className="fw-semibold text-muted mb-1" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Item Code</span>
                           <span className="text-dark fw-bold" style={{ fontSize: '13px', color: '#1e293b' }}>{selectedItemForStatus.ItemCode}</span>
                         </div>
-                     </div>
-                     <div className="col-6">
+                      </div>
+                      <div className="col-6">
                         <div className="d-flex flex-column">
                           <span className="fw-semibold text-muted mb-1" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>RFID Code</span>
                           <span className="text-dark fw-bold" style={{ fontSize: '13px', color: '#1e293b' }}>{selectedItemForStatus.RFIDCode}</span>
                         </div>
-                     </div>
-                     <div className="col-6">
+                      </div>
+                      <div className="col-6">
                         <div className="d-flex flex-column">
                           <span className="fw-semibold text-muted mb-1" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Category</span>
                           <span className="text-dark fw-bold" style={{ fontSize: '13px', color: '#1e293b' }}>{selectedItemForStatus.CategoryName}</span>
                         </div>
-                       </div>
+                      </div>
                       <div className="col-6">
                         <div className="d-flex flex-column">
                           <span className="fw-semibold text-muted mb-1" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Net Weight</span>
                           <span className="text-dark fw-bold" style={{ fontSize: '13px', color: '#1e293b' }}>{selectedItemForStatus.NetWt} g</span>
                         </div>
-                     </div>
-                   </div>
-                 </div>
-                  
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Current Status - Compact */}
                   <div className="mb-3">
                     <label className="form-label fw-semibold text-muted mb-1" style={{ fontSize: '12px', color: '#64748b' }}>
@@ -5677,20 +6948,20 @@ const LabelStockList = () => {
                       Current Status
                     </label>
                     <div>
-                      <span className={`badge ${selectedItemForStatus.Status?.toLowerCase() === 'apiactive' ? 'bg-primary' : 'bg-success'}`} 
-                            style={{ 
-                              fontSize: '11px', 
-                              padding: '6px 12px', 
-                              borderRadius: '16px',
-                              fontWeight: '600',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.3px'
-                            }}>
+                      <span className={`badge ${selectedItemForStatus.Status?.toLowerCase() === 'apiactive' ? 'bg-primary' : 'bg-success'}`}
+                        style={{
+                          fontSize: '11px',
+                          padding: '6px 12px',
+                          borderRadius: '16px',
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.3px'
+                        }}>
                         {selectedItemForStatus.Status || 'N/A'}
                       </span>
                     </div>
                   </div>
-                  
+
                   {/* New Status Selection - Compact */}
                   <div className="mb-3">
                     <label className="form-label fw-semibold text-muted mb-2" style={{ fontSize: '12px', color: '#64748b' }}>
@@ -5699,44 +6970,44 @@ const LabelStockList = () => {
                     </label>
                     <div className="d-grid gap-2">
                       {availableStatuses.map((status) => (
-                        <div key={status} className={`form-check border-0 rounded-2 p-2 ${status === 'Sold' ? 'status-sold' : ''}`} style={{ 
-                          background: selectedItemForStatus.Status === status ? 
+                        <div key={status} className={`form-check border-0 rounded-2 p-2 ${status === 'Sold' ? 'status-sold' : ''}`} style={{
+                          background: selectedItemForStatus.Status === status ?
                             (status === 'Sold' ? '#fef2f2' : 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)') : '#f8fafc',
-                          border: selectedItemForStatus.Status === status ? 
+                          border: selectedItemForStatus.Status === status ?
                             (status === 'Sold' ? '2px solid #dc2626' : '2px solid #3b82f6') : '1px solid #e2e8f0',
                           transition: 'all 0.3s ease',
                           cursor: 'pointer'
                         }}>
-                         <input
-                           type="radio"
-                           name="newStatus"
-                           value={status}
+                          <input
+                            type="radio"
+                            name="newStatus"
+                            value={status}
                             className="form-check-input"
                             id={`status-${status}`}
-                           defaultChecked={selectedItemForStatus.Status === status}
-                           style={{ transform: 'scale(1.1)', accentColor: '#3b82f6' }}
-                         />
-                          <label className="form-check-label fw-semibold ms-2" htmlFor={`status-${status}`} style={{ 
-                            color: selectedItemForStatus.Status === status ? 
+                            defaultChecked={selectedItemForStatus.Status === status}
+                            style={{ transform: 'scale(1.1)', accentColor: '#3b82f6' }}
+                          />
+                          <label className="form-check-label fw-semibold ms-2" htmlFor={`status-${status}`} style={{
+                            color: selectedItemForStatus.Status === status ?
                               (status === 'Sold' ? '#dc2626' : '#1e40af') : '#475569',
                             fontSize: '13px',
                             cursor: 'pointer'
                           }}>
-                             {status}
-                           </label>
-                       </div>
-                     ))}
-                   </div>
-                 </div>
-               </div>
-                
+                            {status}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="modal-footer border-top-0 pt-0 px-3 pb-3">
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="btn btn-outline-secondary btn-sm px-3"
                     onClick={() => setShowStatusPopup(false)}
                     disabled={statusChangeLoading}
-                    style={{ 
+                    style={{
                       borderRadius: '6px',
                       border: '1px solid #cbd5e1',
                       fontWeight: '600',
@@ -5744,37 +7015,37 @@ const LabelStockList = () => {
                       transition: 'all 0.3s ease'
                     }}
                   >
-                   <FaTimes className="me-1" />
-                   Cancel
-                 </button>
-                 <button 
-                   type="button" 
-                   className="btn btn-primary btn-sm px-3 ms-2" 
-                   onClick={() => {
-                     const selectedStatus = document.querySelector('input[name="newStatus"]:checked')?.value;
-                     if (selectedStatus && selectedStatus !== selectedItemForStatus.Status) {
-                       handleRFIDTransactionUpdate(selectedStatus);
-                     }
-                   }}
-                   disabled={statusChangeLoading}
-                   style={{ 
-                     borderRadius: '6px',
-                     fontWeight: '600',
-                     fontSize: '13px',
-                     background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-                     border: 'none',
-                     boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
-                     transition: 'all 0.3s ease'
-                   }}
-                 >
-                   <FaSave className="me-1" />
-                   {statusChangeLoading ? 'Updating...' : 'Update RFID Transaction'}
-                 </button>
-               </div>
-             </div>
-           </div>
-         </div>
-       )}
+                    <FaTimes className="me-1" />
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm px-3 ms-2"
+                    onClick={() => {
+                      const selectedStatus = document.querySelector('input[name="newStatus"]:checked')?.value;
+                      if (selectedStatus && selectedStatus !== selectedItemForStatus.Status) {
+                        handleRFIDTransactionUpdate(selectedStatus);
+                      }
+                    }}
+                    disabled={statusChangeLoading}
+                    style={{
+                      borderRadius: '6px',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                      border: 'none',
+                      boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <FaSave className="me-1" />
+                    {statusChangeLoading ? 'Updating...' : 'Update RFID Transaction'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

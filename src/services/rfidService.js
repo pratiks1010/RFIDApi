@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const BASE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster';
+const RRGOLD_PRODUCT_URL = 'https://rrgold.loyalstring.co.in/api/ProductMaster';
 const DEVICE_URL = 'https://rrgold.loyalstring.co.in/api/RFIDDevice';
 
 // Request interceptor for API calls
@@ -51,6 +52,22 @@ export const rfidService = {
       );
       // Return the data in a consistent format
       return Array.isArray(response.data) ? response.data : response.data?.data || [];
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // Get TID by Barcode (rrgold) - returns TID value(s) for the given RFID/barcode
+  getTidByBarcode: async (clientCode, barcodeNumber) => {
+    try {
+      const response = await axios.post(
+        `${RRGOLD_PRODUCT_URL}/GetTidByBarcode`,
+        {
+          ClientCode: clientCode || '',
+          BarcodeNumber: barcodeNumber || ''
+        }
+      );
+      return response.data;
     } catch (error) {
       throw error;
     }
@@ -121,36 +138,93 @@ export const rfidService = {
     }
   },
 
+  // Public helper: get Stones and Diamonds in API format (for bulk submit from AddStock)
+  getStonesAndDiamondsForApi(stoneList, diamondList) {
+    return {
+      Stones: this._mapStonesForApi(stoneList),
+      Diamonds: this._mapDiamondsForApi(diamondList)
+    };
+  },
+
+  // Map stone list from form to API "Stones" array format
+  _mapStonesForApi(stoneList) {
+    if (!Array.isArray(stoneList) || stoneList.length === 0) return [];
+    return stoneList.map(entry => ({
+      StoneName: entry.StoneName ?? '',
+      StoneSize: entry.StoneSize ?? '',
+      StoneWeight: String(entry.StoneWeight ?? ''),
+      StonePieces: String(entry.StonePieces ?? ''),
+      StoneRatePiece: String(entry.StoneRatePerPiece ?? entry.StoneRate ?? '0.00'),
+      StoneRateKarate: String(entry.StoneRateKarate ?? '0.00'),
+      StoneAmount: String(entry.StoneAmount ?? '0.00'),
+      Description: entry.StoneDescription ?? '',
+      StoneDeduct: String(entry.StoneLessPercent ?? ''),
+      StoneColour: entry.StoneColour ?? '',
+      StoneShape: entry.StoneShape ?? entry.StoneSettingType ?? '',
+      StoneStatusType: entry.StoneStatusType ?? null,
+      StoneWeightType: entry.StoneWeightType ?? 'Gram'
+    }));
+  },
+
+  // Map diamond list from form to API "Diamonds" array format
+  _mapDiamondsForApi(diamondList) {
+    if (!Array.isArray(diamondList) || diamondList.length === 0) return [];
+    return diamondList.map(entry => ({
+      DiamondName: entry.DiamondName ?? '',
+      DiamondSieve: entry.DiamondSieve ?? '',
+      DiamondWeight: String(entry.DiamondWeight ?? entry.TotalDiamondWeight ?? ''),
+      DiamondPieces: String(entry.DiamondPieces ?? ''),
+      DiamondClarity: entry.DiamondClarity ?? '',
+      DiamondColour: entry.DiamondColour ?? '',
+      DiamondCut: entry.DiamondCut ?? '',
+      DiamondShape: entry.DiamondShape ?? '',
+      DiamondSize: String(entry.DiamondSize ?? ''),
+      DiamondSellRate: String(entry.DiamondSellRate ?? ''),
+      DiamondSellAmount: String(entry.DiamondSellAmount ?? ''),
+      DiamondPurchaseAmount: String(entry.DiamondPurchaseAmount ?? ''),
+      Description: entry.DiamondDescription ?? '',
+      DiamondCertificate: entry.DiamondCertificate ?? '',
+      DiamondSettingType: entry.DiamondSettingType ?? '',
+      DiamondMargin: String(entry.DiamondMargin ?? ''),
+      TotalDiamondWeight: String(entry.TotalDiamondWeight ?? entry.DiamondWeight ?? '')
+    }));
+  },
+
   // Save RFID Transaction Details
   saveRFIDTransaction: async (data) => {
     try {
+      const payload = {
+        client_code: data.clientCode,
+        branch_id: data.branchId || "",
+        counter_id: data.counterId || "",
+        RFIDNumber: data.rfidNumber,
+        Itemcode: data.itemCode,
+        category_id: data.categoryId,
+        product_id: data.productId,
+        design_id: data.designId,
+        purity_id: data.purityId,
+        grosswt: data.grossWeight,
+        stonewt: data.stoneWeight,
+        diamondheight: data.diamondHeight,
+        diamondweight: data.diamondWeight || data.diamondHeight,
+        netwt: data.netWeight,
+        box_details: data.boxDetails,
+        size: data.size || 0,
+        stoneamount: data.stoneAmount,
+        diamondAmount: data.diamondAmount,
+        HallmarkAmount: data.hallmarkAmount,
+        MakingPerGram: data.makingPerGram,
+        MakingPercentage: data.makingPercentage,
+        MakingFixedAmt: data.makingFixedAmount,
+        MRP: data.mrp,
+        imageurl: data.imageUrl || "",
+        status: data.status || "ApiActive"
+      };
+      payload.Stones = this._mapStonesForApi(data.stoneList);
+      payload.Diamonds = this._mapDiamondsForApi(data.diamondList);
       const response = await axios.post(
         `${BASE_URL}/SaveRFIDTransactionDetails`, 
-        [{
-          client_code: data.clientCode,
-          RFIDNumber: data.rfidNumber,
-          Itemcode: data.itemCode,
-          category_id: data.categoryId,
-          product_id: data.productId,
-          design_id: data.designId,
-          purity_id: data.purityId,
-          grosswt: data.grossWeight,
-          stonewt: data.stoneWeight,
-          diamondheight: data.diamondHeight,
-          diamondweight: data.diamondWeight || data.diamondHeight,
-          netwt: data.netWeight,
-          box_details: data.boxDetails,
-          size: data.size || 0,
-          stoneamount: data.stoneAmount,
-          diamondAmount: data.diamondAmount,
-          HallmarkAmount: data.hallmarkAmount,
-          MakingPerGram: data.makingPerGram,
-          MakingPercentage: data.makingPercentage,
-          MakingFixedAmt: data.makingFixedAmount,
-          MRP: data.mrp,
-          imageurl: data.imageUrl || "",
-          status: data.status || "ApiActive"
-        }]
+        [payload]
       );
       return response.data;
     } catch (error) {

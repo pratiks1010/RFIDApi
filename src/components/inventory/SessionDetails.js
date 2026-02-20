@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
 import { 
   FaClipboardCheck, 
-  FaSpinner,
+  FaSpinner, 
   FaExclamationTriangle,
   FaCheckCircle,
   FaTimesCircle,
   FaFileExcel,
   FaArrowLeft,
   FaChevronLeft,
-  FaChevronRight
+  FaChevronRight,
+  FaSearch
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
@@ -28,10 +29,46 @@ const SessionDetails = () => {
   const [error, setError] = useState(null);
   const [matchedPage, setMatchedPage] = useState(1);
   const [unmatchedPage, setUnmatchedPage] = useState(1);
+  const [matchedSearchQuery, setMatchedSearchQuery] = useState('');
+  const [unmatchedSearchQuery, setUnmatchedSearchQuery] = useState('');
   const [tableItemsPerPage] = useState(10);
   const [userInfo, setUserInfo] = useState({});
   const [clientCode, setClientCode] = useState('');
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+
+  // Filtered lists for Matched/Unmatched items
+  const filteredMatchedList = useMemo(() => {
+    if (!sessionDetails?.MatchedList) return [];
+    if (!matchedSearchQuery) return sessionDetails.MatchedList;
+    const lowerQuery = matchedSearchQuery.toLowerCase();
+    return sessionDetails.MatchedList.filter(item =>
+      (item.ItemCode && String(item.ItemCode).toLowerCase().includes(lowerQuery)) ||
+      (item.ProductName && String(item.ProductName).toLowerCase().includes(lowerQuery)) ||
+      (item.CategoryName && String(item.CategoryName).toLowerCase().includes(lowerQuery)) ||
+      (item.RFIDCode && String(item.RFIDCode).toLowerCase().includes(lowerQuery))
+    );
+  }, [sessionDetails?.MatchedList, matchedSearchQuery]);
+
+  const filteredUnmatchedList = useMemo(() => {
+    if (!sessionDetails?.UnmatchedList) return [];
+    if (!unmatchedSearchQuery) return sessionDetails.UnmatchedList;
+    const lowerQuery = unmatchedSearchQuery.toLowerCase();
+    return sessionDetails.UnmatchedList.filter(item =>
+      (item.ItemCode && String(item.ItemCode).toLowerCase().includes(lowerQuery)) ||
+      (item.ProductName && String(item.ProductName).toLowerCase().includes(lowerQuery)) ||
+      (item.CategoryName && String(item.CategoryName).toLowerCase().includes(lowerQuery)) ||
+      (item.RFIDCode && String(item.RFIDCode).toLowerCase().includes(lowerQuery))
+    );
+  }, [sessionDetails?.UnmatchedList, unmatchedSearchQuery]);
+
+  // Reset pagination when search query changes
+  useEffect(() => {
+    setMatchedPage(1);
+  }, [matchedSearchQuery]);
+
+  useEffect(() => {
+    setUnmatchedPage(1);
+  }, [unmatchedSearchQuery]);
 
   // Get user info and client code
   useEffect(() => {
@@ -144,13 +181,14 @@ const SessionDetails = () => {
       // Matched Items Sheet
       if (sessionDetails.MatchedList && sessionDetails.MatchedList.length > 0) {
         const matchedHeaders = [
-          'Item Code', 'Product Name', 'Branch Name', 'Category', 'Gross Weight (g)', 'Net Weight (g)', 'Pieces', 'Status'
+          'Item Code', 'Product Name', 'Branch Name', 'Category', 'RFIDCode', 'Gross Weight (g)', 'Net Weight (g)', 'Pieces', 'Status'
         ];
         const matchedData = sessionDetails.MatchedList.map(item => [
           item.ItemCode || 'N/A',
           item.ProductName || 'N/A',
           item.BranchName?.trim() || sessionDetails.BranchName?.trim() || 'N/A',
           item.CategoryName || 'N/A',
+          item.RFIDCode || 'RFID Tag not Attached',
           item.GrossWeight || 0,
           item.NetWeight || 0,
           item.Quantity || 0,
@@ -158,7 +196,7 @@ const SessionDetails = () => {
         ]);
         const matchedWS = XLSX.utils.aoa_to_sheet([matchedHeaders, ...matchedData]);
         matchedWS['!cols'] = [
-          { width: 15 }, { width: 25 }, { width: 18 }, { width: 15 }, { width: 15 }, { width: 15 }, { width: 10 }, { width: 12 }
+          { width: 15 }, { width: 25 }, { width: 18 }, { width: 15 }, { width: 20 }, { width: 15 }, { width: 15 }, { width: 10 }, { width: 12 }
         ];
         XLSX.utils.book_append_sheet(wb, matchedWS, 'Matched Items');
       }
@@ -166,13 +204,14 @@ const SessionDetails = () => {
       // Unmatched Items Sheet
       if (sessionDetails.UnmatchedList && sessionDetails.UnmatchedList.length > 0) {
         const unmatchedHeaders = [
-          'Item Code', 'Product Name', 'Branch Name', 'Category', 'Gross Weight (g)', 'Net Weight (g)', 'Pieces', 'Status'
+          'Item Code', 'Product Name', 'Branch Name', 'Category', 'RFIDCode', 'Gross Weight (g)', 'Net Weight (g)', 'Pieces', 'Status'
         ];
         const unmatchedData = sessionDetails.UnmatchedList.map(item => [
           item.ItemCode || 'N/A',
           item.ProductName || 'N/A',
           item.BranchName?.trim() || sessionDetails.BranchName?.trim() || 'N/A',
           item.CategoryName || 'N/A',
+          item.RFIDCode || 'RFID Tag not Attached',
           item.GrossWeight || 0,
           item.NetWeight || 0,
           item.Quantity || 0,
@@ -180,7 +219,7 @@ const SessionDetails = () => {
         ]);
         const unmatchedWS = XLSX.utils.aoa_to_sheet([unmatchedHeaders, ...unmatchedData]);
         unmatchedWS['!cols'] = [
-          { width: 15 }, { width: 25 }, { width: 18 }, { width: 15 }, { width: 15 }, { width: 15 }, { width: 10 }, { width: 12 }
+          { width: 15 }, { width: 25 }, { width: 18 }, { width: 15 }, { width: 20 }, { width: 15 }, { width: 15 }, { width: 10 }, { width: 12 }
         ];
         XLSX.utils.book_append_sheet(wb, unmatchedWS, 'Unmatched Items');
       }
@@ -505,7 +544,9 @@ const SessionDetails = () => {
           borderRadius: '12px',
           border: '1px solid #e5e7eb',
           overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          display: 'flex',
+          flexDirection: 'column'
         }}>
           <div style={{
             padding: '16px',
@@ -513,21 +554,42 @@ const SessionDetails = () => {
             borderBottom: '2px solid #10b981',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
             gap: '10px'
           }}>
-            <FaCheckCircle style={{ color: '#10b981', fontSize: '18px' }} />
-            <span style={{ fontSize: '16px', fontWeight: 600, color: '#475569' }}>Matched Items</span>
-            <span style={{
-              fontSize: '12px',
-              color: '#64748b',
-              background: '#d1fae5',
-              padding: '4px 12px',
-              borderRadius: '12px',
-              marginLeft: 'auto',
-              fontWeight: 600
-            }}>{sessionDetails.MatchedList?.length || 0} items</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <FaCheckCircle style={{ color: '#10b981', fontSize: '18px' }} />
+              <span style={{ fontSize: '16px', fontWeight: 600, color: '#475569' }}>Matched Items</span>
+              <span style={{
+                fontSize: '12px',
+                color: '#065f46',
+                background: '#d1fae5',
+                padding: '4px 12px',
+                borderRadius: '12px',
+                fontWeight: 600
+              }}>{filteredMatchedList.length} items</span>
+            </div>
+            <div style={{ position: 'relative', width: '180px' }}>
+              <FaSearch style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
+              <input 
+                type="text" 
+                placeholder="Search..." 
+                value={matchedSearchQuery}
+                onChange={(e) => setMatchedSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px 8px 32px',
+                  fontSize: '12px',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '8px',
+                  outline: 'none',
+                  background: '#ffffff'
+                }}
+              />
+            </div>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', flex: 1 }}>
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
@@ -573,6 +635,14 @@ const SessionDetails = () => {
                     fontSize: '12px', 
                     fontWeight: 600, 
                     color: '#475569', 
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap'
+                  }}>RFIDCode</th>
+                  <th style={{ 
+                    padding: '12px', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    color: '#475569', 
                     textAlign: 'center',
                     whiteSpace: 'nowrap'
                   }}>Gross Wt</th>
@@ -595,14 +665,14 @@ const SessionDetails = () => {
                 </tr>
               </thead>
               <tbody>
-                {sessionDetails.MatchedList?.length === 0 ? (
+                {filteredMatchedList.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
-                      No matched items
+                    <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+                      {matchedSearchQuery ? 'No matches found' : 'No matched items'}
                     </td>
                   </tr>
                 ) : (
-                  getPaginatedData(sessionDetails.MatchedList || [], matchedPage, tableItemsPerPage).map((item, index) => {
+                  getPaginatedData(filteredMatchedList, matchedPage, tableItemsPerPage).map((item, index) => {
                     const globalIndex = (matchedPage - 1) * tableItemsPerPage + index;
                     return (
                       <tr
@@ -649,6 +719,14 @@ const SessionDetails = () => {
                         <td style={{ 
                           padding: '12px', 
                           fontSize: '13px', 
+                          color: '#1e293b',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>{item.RFIDCode || 'RFID Tag not Attached'}</td>
+                        <td style={{ 
+                          padding: '12px', 
+                          fontSize: '13px', 
                           color: '#1e293b', 
                           textAlign: 'center',
                           whiteSpace: 'nowrap'
@@ -675,7 +753,7 @@ const SessionDetails = () => {
             </table>
           </div>
           {/* Matched Items Pagination */}
-          {sessionDetails.MatchedList && sessionDetails.MatchedList.length > tableItemsPerPage && (
+          {filteredMatchedList.length > tableItemsPerPage && (
             <div style={{
               padding: '16px',
               borderTop: '1px solid #e5e7eb',
@@ -687,7 +765,7 @@ const SessionDetails = () => {
               background: '#f8fafc'
             }}>
               <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Showing {((matchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(matchedPage * tableItemsPerPage, sessionDetails.MatchedList.length)} of {sessionDetails.MatchedList.length} items
+                Showing {((matchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(matchedPage * tableItemsPerPage, filteredMatchedList.length)} of {filteredMatchedList.length} items
               </span>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
@@ -731,33 +809,33 @@ const SessionDetails = () => {
                   borderRadius: '6px',
                   border: '1px solid #e5e7eb'
                 }}>
-                  {matchedPage} / {getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)}
+                  {matchedPage} / {getTotalPages(filteredMatchedList, tableItemsPerPage)}
                 </span>
                 <button 
-                  onClick={() => setMatchedPage(prev => Math.min(getTotalPages(sessionDetails.MatchedList, tableItemsPerPage), prev + 1))}
-                  disabled={matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)}
+                  onClick={() => setMatchedPage(prev => Math.min(getTotalPages(filteredMatchedList, tableItemsPerPage), prev + 1))}
+                  disabled={matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage)}
                   style={{
                     padding: '6px 12px',
                     fontSize: '12px',
                     fontWeight: 600,
                     borderRadius: '6px',
                     border: '1px solid #10b981',
-                    background: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
-                    color: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? '#94a3b8' : '#10b981',
-                    cursor: matchedPage === getTotalPages(sessionDetails.MatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
+                    background: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
+                    color: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? '#94a3b8' : '#10b981',
+                    cursor: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
                     transition: 'all 0.2s',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px'
                   }}
                   onMouseEnter={(e) => {
-                    if (matchedPage !== getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)) {
+                    if (matchedPage !== getTotalPages(filteredMatchedList, tableItemsPerPage)) {
                       e.target.style.background = '#10b981';
                       e.target.style.color = '#ffffff';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (matchedPage !== getTotalPages(sessionDetails.MatchedList, tableItemsPerPage)) {
+                    if (matchedPage !== getTotalPages(filteredMatchedList, tableItemsPerPage)) {
                       e.target.style.background = '#ffffff';
                       e.target.style.color = '#10b981';
                     }
@@ -776,7 +854,9 @@ const SessionDetails = () => {
           borderRadius: '12px',
           border: '1px solid #e5e7eb',
           overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          display: 'flex',
+          flexDirection: 'column'
         }}>
           <div style={{
             padding: '16px',
@@ -784,21 +864,43 @@ const SessionDetails = () => {
             borderBottom: '2px solid #ef4444',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
             gap: '10px'
           }}>
-            <FaTimesCircle style={{ color: '#ef4444', fontSize: '18px' }} />
-            <span style={{ fontSize: '16px', fontWeight: 600, color: '#475569' }}>Unmatched Items</span>
-            <span style={{
-              fontSize: '12px',
-              color: '#64748b',
-              background: '#fee2e2',
-              padding: '4px 12px',
-              borderRadius: '12px',
-              marginLeft: 'auto',
-              fontWeight: 600
-            }}>{sessionDetails.UnmatchedList?.length || 0} items</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <FaTimesCircle style={{ color: '#ef4444', fontSize: '18px' }} />
+              <span style={{ fontSize: '16px', fontWeight: 600, color: '#475569' }}>Unmatched Items</span>
+              <span style={{
+                fontSize: '12px',
+                color: '#7f1d1d',
+                background: '#fee2e2',
+                padding: '4px 12px',
+                borderRadius: '12px',
+                marginLeft: 'auto',
+                fontWeight: 600
+              }}>{filteredUnmatchedList.length} items</span>
+            </div>
+            <div style={{ position: 'relative', width: '180px' }}>
+              <FaSearch style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
+              <input 
+                type="text" 
+                placeholder="Search..." 
+                value={unmatchedSearchQuery}
+                onChange={(e) => setUnmatchedSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px 8px 32px',
+                  fontSize: '12px',
+                  border: '1px solid #fca5a5',
+                  borderRadius: '8px',
+                  outline: 'none',
+                  background: '#ffffff'
+                }}
+              />
+            </div>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', flex: 1 }}>
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
@@ -844,6 +946,14 @@ const SessionDetails = () => {
                     fontSize: '12px', 
                     fontWeight: 600, 
                     color: '#475569', 
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap'
+                  }}>RFIDCode</th>
+                  <th style={{ 
+                    padding: '12px', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    color: '#475569', 
                     textAlign: 'center',
                     whiteSpace: 'nowrap'
                   }}>Gross Wt</th>
@@ -866,14 +976,14 @@ const SessionDetails = () => {
                 </tr>
               </thead>
               <tbody>
-                {sessionDetails.UnmatchedList?.length === 0 ? (
+                {filteredUnmatchedList.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
-                      No unmatched items
+                    <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+                      {unmatchedSearchQuery ? 'No matches found' : 'No unmatched items'}
                     </td>
                   </tr>
                 ) : (
-                  getPaginatedData(sessionDetails.UnmatchedList || [], unmatchedPage, tableItemsPerPage).map((item, index) => {
+                  getPaginatedData(filteredUnmatchedList, unmatchedPage, tableItemsPerPage).map((item, index) => {
                     const globalIndex = (unmatchedPage - 1) * tableItemsPerPage + index;
                     return (
                       <tr
@@ -920,6 +1030,14 @@ const SessionDetails = () => {
                         <td style={{ 
                           padding: '12px', 
                           fontSize: '13px', 
+                          color: '#1e293b',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>{item.RFIDCode || 'RFID Tag not Attached'}</td>
+                        <td style={{ 
+                          padding: '12px', 
+                          fontSize: '13px', 
                           color: '#1e293b', 
                           textAlign: 'center',
                           whiteSpace: 'nowrap'
@@ -946,7 +1064,7 @@ const SessionDetails = () => {
             </table>
           </div>
           {/* Unmatched Items Pagination */}
-          {sessionDetails.UnmatchedList && sessionDetails.UnmatchedList.length > tableItemsPerPage && (
+          {filteredUnmatchedList.length > tableItemsPerPage && (
             <div style={{
               padding: '16px',
               borderTop: '1px solid #e5e7eb',
@@ -958,7 +1076,7 @@ const SessionDetails = () => {
               background: '#f8fafc'
             }}>
               <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Showing {((unmatchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(unmatchedPage * tableItemsPerPage, sessionDetails.UnmatchedList.length)} of {sessionDetails.UnmatchedList.length} items
+                Showing {((unmatchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(unmatchedPage * tableItemsPerPage, filteredUnmatchedList.length)} of {filteredUnmatchedList.length} items
               </span>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
@@ -1002,33 +1120,33 @@ const SessionDetails = () => {
                   borderRadius: '6px',
                   border: '1px solid #e5e7eb'
                 }}>
-                  {unmatchedPage} / {getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)}
+                  {unmatchedPage} / {getTotalPages(filteredUnmatchedList, tableItemsPerPage)}
                 </span>
                 <button 
-                  onClick={() => setUnmatchedPage(prev => Math.min(getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage), prev + 1))}
-                  disabled={unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)}
+                  onClick={() => setUnmatchedPage(prev => Math.min(getTotalPages(filteredUnmatchedList, tableItemsPerPage), prev + 1))}
+                  disabled={unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage)}
                   style={{
                     padding: '6px 12px',
                     fontSize: '12px',
                     fontWeight: 600,
                     borderRadius: '6px',
                     border: '1px solid #ef4444',
-                    background: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
-                    color: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? '#94a3b8' : '#ef4444',
-                    cursor: unmatchedPage === getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
+                    background: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
+                    color: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? '#94a3b8' : '#ef4444',
+                    cursor: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
                     transition: 'all 0.2s',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px'
                   }}
                   onMouseEnter={(e) => {
-                    if (unmatchedPage !== getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)) {
+                    if (unmatchedPage !== getTotalPages(filteredUnmatchedList, tableItemsPerPage)) {
                       e.target.style.background = '#ef4444';
                       e.target.style.color = '#ffffff';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (unmatchedPage !== getTotalPages(sessionDetails.UnmatchedList, tableItemsPerPage)) {
+                    if (unmatchedPage !== getTotalPages(filteredUnmatchedList, tableItemsPerPage)) {
                       e.target.style.background = '#ffffff';
                       e.target.style.color = '#ef4444';
                     }

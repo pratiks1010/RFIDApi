@@ -10,8 +10,14 @@ import {
   FaCheckCircle,
   FaList,
   FaTimes,
-  FaFileInvoice
+  FaFileInvoice,
+  FaFileExcel,
+  FaFilePdf,
+  FaChevronDown
 } from 'react-icons/fa';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
@@ -60,6 +66,8 @@ const SampleOut = () => {
   
   const customerDropdownRef = useRef(null);
   const itemCodeSearchRef = useRef(null);
+  const exportDropdownRef = useRef(null);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
 
   // Helper function to normalize array responses
   const normalizeArray = (data) => {
@@ -227,10 +235,29 @@ const SampleOut = () => {
       );
       
       if (response.data) {
-        const lastNumber = response.data?.LastSampleOutNo || response.data?.SampleOutNo || response.data || '0';
-        const nextNumber = (parseInt(lastNumber) + 1).toString();
-        setSampleOutNumber(nextNumber);
+        // Get the value from response (could be in different formats)
+        let lastNumberValue = response.data?.LastSampleOutNo || response.data?.SampleOutNo || response.data?.LastSampleInNo || response.data?.SampleInNo || response.data;
+        
+        // Convert to string if it's not already
+        let lastNumberStr = String(lastNumberValue || '0');
+        
+        // Extract numeric part from string (handles cases like "C22" -> "22")
+        // This regex extracts all digits from the string
+        const numericMatch = lastNumberStr.match(/\d+/);
+        let lastNumber = numericMatch ? numericMatch[0] : '0';
+        
+        // Parse and validate
+        const parsedNumber = parseInt(lastNumber, 10);
+        if (isNaN(parsedNumber) || parsedNumber < 0) {
+          console.warn('Invalid sample out number from API, defaulting to 1. Response:', response.data, 'Extracted:', lastNumber);
+          setSampleOutNumber('1');
+        } else {
+          const nextNumber = (parsedNumber + 1).toString();
+          console.log('Sample Out Number - API Response:', response.data, 'Extracted Number:', lastNumber, 'Next Number:', nextNumber);
+          setSampleOutNumber(nextNumber);
+        }
       } else {
+        console.warn('No data in API response, defaulting to 1');
         setSampleOutNumber('1');
       }
     } catch (error) {
@@ -655,6 +682,217 @@ const SampleOut = () => {
     return `${day}/${month}/${year}`;
   };
 
+  // Calculate totals for export
+  const calculateTotals = () => {
+    const totals = {
+      Qty: 0,
+      TotalWt: 0,
+      GrossWt: 0,
+      NetWt: 0,
+      StoneWt: 0,
+      DiamondWt: 0
+    };
+
+    sampleOutItems.forEach(item => {
+      totals.Qty += parseInt(item.Qty || 1);
+      totals.TotalWt += parseFloat(item.TotalWt || 0);
+      totals.GrossWt += parseFloat(item.grosswt || 0);
+      totals.NetWt += parseFloat(item.netwt || 0);
+      totals.StoneWt += parseFloat(item.stonewt || 0);
+      totals.DiamondWt += parseFloat(item.diamondweight || 0);
+    });
+
+    return totals;
+  };
+
+  // Export to Excel
+  const handleExportToExcel = () => {
+    try {
+      if (sampleOutItems.length === 0) {
+        addNotification({
+          type: 'error',
+          message: 'No items to export',
+          duration: 3000
+        });
+        return;
+      }
+
+      const totals = calculateTotals();
+      const exportData = sampleOutItems.map((item, index) => ({
+        'Sr No': index + 1,
+        'Item Code': item.Itemcode || '-',
+        'RFID Code': item.RFIDNumber || '-',
+        'Category': item.category_id || '-',
+        'Product Name': item.product_id || '-',
+        'Design Name': item.design_id || '-',
+        'Total Wt': parseFloat(item.TotalWt || 0),
+        'Gross Wt': parseFloat(item.grosswt || 0),
+        'Net Wt': parseFloat(item.netwt || 0),
+        'Stone Wt': parseFloat(item.stonewt || 0),
+        'Diamond Wt': parseFloat(item.diamondweight || 0),
+        'Fine%': item.FinePercent || '0.00',
+        'Wastage%': item.WastagePercent || '0.00',
+        'Qty': parseInt(item.Qty || 1),
+        'Pcs': parseInt(item.Pieces || 1)
+      }));
+
+      // Add summary row
+      exportData.push({
+        'Sr No': '',
+        'Item Code': '',
+        'RFID Code': '',
+        'Category': '',
+        'Product Name': '',
+        'Design Name': 'TOTAL',
+        'Total Wt': totals.TotalWt,
+        'Gross Wt': totals.GrossWt,
+        'Net Wt': totals.NetWt,
+        'Stone Wt': totals.StoneWt,
+        'Diamond Wt': totals.DiamondWt,
+        'Fine%': '',
+        'Wastage%': '',
+        'Qty': totals.Qty,
+        'Pcs': ''
+      });
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sample Out Items');
+      
+      const fileName = `SampleOut_${sampleOutNumber || 'Items'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      addNotification({
+        type: 'success',
+        message: `Sample Out items exported to ${fileName} successfully`,
+        duration: 3000
+      });
+      setShowExportDropdown(false);
+    } catch (err) {
+      console.error('Error exporting to Excel:', err);
+      addNotification({
+        type: 'error',
+        message: 'Failed to export. Please try again.',
+        duration: 3000
+      });
+    }
+  };
+
+  // Export to PDF
+  const handleExportToPDF = () => {
+    try {
+      if (sampleOutItems.length === 0) {
+        addNotification({
+          type: 'error',
+          message: 'No items to export',
+          duration: 3000
+        });
+        return;
+      }
+
+      const totals = calculateTotals();
+      const doc = new jsPDF('landscape');
+      
+      doc.setFontSize(16);
+      doc.text('Sample Out Items', 15, 20);
+      doc.setFontSize(10);
+      doc.text(`Sample Out No: ${sampleOutNumber || 'N/A'}`, 15, 28);
+      doc.text(`Date: ${sampleOutDate}`, 15, 34);
+      doc.text(`Customer: ${customerName || 'N/A'}`, 15, 40);
+      doc.text(`Return Date: ${returnDate || 'N/A'}`, 15, 46);
+      doc.text(`Total Items: ${sampleOutItems.length}`, 15, 52);
+
+      const tableHeaders = [
+        'Sr No',
+        'Item Code',
+        'RFID Code',
+        'Category',
+        'Product',
+        'Design',
+        'Total Wt',
+        'Gross Wt',
+        'Net Wt',
+        'Stone Wt',
+        'Diamond Wt',
+        'Fine%',
+        'Wastage%',
+        'Qty',
+        'Pcs'
+      ];
+
+      const tableData = sampleOutItems.map((item, index) => [
+        index + 1,
+        item.Itemcode || '-',
+        item.RFIDNumber || '-',
+        item.category_id || '-',
+        item.product_id || '-',
+        item.design_id || '-',
+        parseFloat(item.TotalWt || 0).toFixed(3),
+        parseFloat(item.grosswt || 0).toFixed(3),
+        parseFloat(item.netwt || 0).toFixed(3),
+        parseFloat(item.stonewt || 0).toFixed(3),
+        parseFloat(item.diamondweight || 0).toFixed(3),
+        item.FinePercent || '0.00',
+        item.WastagePercent || '0.00',
+        item.Qty || 1,
+        item.Pieces || 1
+      ]);
+
+      // Add summary row
+      tableData.push([
+        '',
+        '',
+        '',
+        '',
+        '',
+        'TOTAL',
+        totals.TotalWt.toFixed(3),
+        totals.GrossWt.toFixed(3),
+        totals.NetWt.toFixed(3),
+        totals.StoneWt.toFixed(3),
+        totals.DiamondWt.toFixed(3),
+        '',
+        '',
+        totals.Qty,
+        ''
+      ]);
+
+      doc.autoTable({
+        head: [tableHeaders],
+        body: tableData,
+        startY: 58,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [69, 73, 232], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        margin: { left: 8, right: 8 },
+        tableWidth: 'auto',
+        didParseCell: function(data) {
+          if (data.row.index === tableData.length - 1) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [241, 245, 249];
+          }
+        }
+      });
+
+      const fileName = `SampleOut_${sampleOutNumber || 'Items'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+      
+      addNotification({
+        type: 'success',
+        message: `Sample Out items exported to ${fileName} successfully`,
+        duration: 3000
+      });
+      setShowExportDropdown(false);
+    } catch (err) {
+      console.error('Error exporting to PDF:', err);
+      addNotification({
+        type: 'error',
+        message: 'Failed to export. Please try again.',
+        duration: 3000
+      });
+    }
+  };
+
   return (
     <div style={{ 
       padding: isSmallScreen ? '8px' : '20px', 
@@ -740,6 +978,112 @@ const SampleOut = () => {
               />
             </div>
           </div>
+          {/* Export Button with Dropdown */}
+          {sampleOutItems.length > 0 && (
+            <div ref={exportDropdownRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowExportDropdown(!showExportDropdown)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #10b981',
+                  background: '#ffffff',
+                  color: '#10b981',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#10b981';
+                  e.target.style.color = '#ffffff';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.color = '#10b981';
+                }}
+              >
+                <FaFileExcel />
+                <span>Export</span>
+                <FaChevronDown style={{ fontSize: '10px' }} />
+              </button>
+
+              {showExportDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '8px',
+                  background: '#ffffff',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
+                  zIndex: 1000,
+                  minWidth: '180px',
+                  overflow: 'hidden'
+                }}>
+                  <button
+                    onClick={handleExportToExcel}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '12px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      background: '#ffffff',
+                      color: '#10b981',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'left',
+                      borderBottom: '1px solid #f1f5f9'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#f0fdf4';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                    }}
+                  >
+                    <FaFileExcel style={{ fontSize: '16px' }} />
+                    Export to Excel
+                  </button>
+                  <button
+                    onClick={handleExportToPDF}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '12px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      border: 'none',
+                      background: '#ffffff',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#fef2f2';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#ffffff';
+                    }}
+                  >
+                    <FaFilePdf style={{ fontSize: '16px' }} />
+                    Export to PDF
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

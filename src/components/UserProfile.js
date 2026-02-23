@@ -188,7 +188,7 @@ const UserProfile = () => {
   // Selection state
   const [selectedUser, setSelectedUser] = useState(null);
   const [branchAccess, setBranchAccess] = useState(null);
-  const [selectedBranchIds, setSelectedBranchIds] = useState([]);
+  const [selectedBranchIds, setSelectedBranchIds] = useState([]); // Can be null (all), [] (none), or [1,2,3] (specific)
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
 
   // Form state
@@ -278,10 +278,25 @@ const UserProfile = () => {
       setLoadingBranches(true);
       const data = await userManagementService.getUserBranchAccess(userId);
       setBranchAccess(data);
-      setSelectedBranchIds(data?.AllowedBranchIds || []);
+      
+      // Extract branch IDs from the response
+      // Response can be array of { branchId, isAssigned } or { AllowedBranchIds: [...] }
+      if (Array.isArray(data)) {
+        // Format: [{ branchId: 1, isAssigned: true }, ...]
+        const assignedBranchIds = data
+          .filter(item => item.isAssigned === true)
+          .map(item => item.branchId || item.BranchId || item.Id);
+        setSelectedBranchIds(assignedBranchIds);
+      } else if (data?.AllowedBranchIds) {
+        // Format: { AllowedBranchIds: [1, 2, 3] }
+        setSelectedBranchIds(data.AllowedBranchIds || []);
+      } else {
+        setSelectedBranchIds([]);
+      }
     } catch (error) {
       console.error('Failed to load branch access', error);
       toast.error('Failed to load branch access.');
+      setSelectedBranchIds([]);
     } finally {
       setLoadingBranches(false);
     }
@@ -366,15 +381,39 @@ const UserProfile = () => {
     if (!selectedUser) return;
     try {
       setCreatingUser(true);
-      await userManagementService.assignBranches(selectedUser.UserId, selectedBranchIds);
-      toast.success('Branches assigned successfully.');
+      // Handle different branch access scenarios:
+      // - null = All branches access
+      // - [] = No branch access
+      // - [1, 2, 3] = Specific branches only
+      let branchIdsToAssign;
+      if (selectedBranchIds === null) {
+        // All branches access
+        branchIdsToAssign = null;
+      } else if (Array.isArray(selectedBranchIds) && selectedBranchIds.length === 0) {
+        // No access
+        branchIdsToAssign = [];
+      } else {
+        // Specific branches
+        branchIdsToAssign = selectedBranchIds;
+      }
+      
+      await userManagementService.assignBranches(selectedUser.UserId, branchIdsToAssign);
+      toast.success('Branch access updated successfully.');
       fetchUsers();
       setModalView(null);
+      setSelectedBranchIds([]);
+      setBranchAccess(null);
     } catch (error) {
       toast.error(error.message || 'Failed to assign branches.');
     } finally {
       setCreatingUser(false);
     }
+  };
+
+  const handleOpenBranchAccess = async (user) => {
+    setSelectedUser(user);
+    setModalView('assign-branches');
+    await loadUserBranchAccess(user.UserId);
   };
 
   const handleDeleteUser = (userId, userName) => {
@@ -446,7 +485,19 @@ const UserProfile = () => {
   };
 
   const toggleBranchSelection = (branchId) => {
-    setSelectedBranchIds(prev => prev.includes(branchId) ? prev.filter(id => id !== branchId) : [...prev, branchId]);
+    setSelectedBranchIds(prev => {
+      // If prev is null (all branches), convert to array with all except the one being toggled
+      if (prev === null) {
+        const allIds = branches.map(b => b.BranchId || b.Id || b.branchId || b.id).filter(Boolean);
+        return allIds.filter(id => id !== branchId);
+      }
+      // Normal toggle for array
+      if (Array.isArray(prev)) {
+        return prev.includes(branchId) ? prev.filter(id => id !== branchId) : [...prev, branchId];
+      }
+      // Fallback
+      return [branchId];
+    });
   };
 
   const getInitials = (name) => name ? name.substring(0, 2).toUpperCase() : 'U';
@@ -815,6 +866,15 @@ const UserProfile = () => {
                   </th>
                   <th style={{ 
                     padding: isMobile ? '10px 12px' : '12px 16px', 
+                    textAlign: 'left', fontWeight: '600', color: '#6b7280', 
+                    fontSize: isMobile ? '9px' : '10px', 
+                    letterSpacing: '0.5px', textTransform: 'uppercase',
+                    display: isMobile ? 'none' : 'table-cell'
+                  }}>
+                    Branch Access
+                  </th>
+                  <th style={{ 
+                    padding: isMobile ? '10px 12px' : '12px 16px', 
                     textAlign: 'right', fontWeight: '600', color: '#6b7280', 
                     fontSize: isMobile ? '9px' : '10px', 
                     letterSpacing: '0.5px', textTransform: 'uppercase' 
@@ -825,9 +885,9 @@ const UserProfile = () => {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="5" style={{ padding: '60px', textAlign: 'center' }}><Loader /></td></tr>
+                  <tr><td colSpan="6" style={{ padding: '60px', textAlign: 'center' }}><Loader /></td></tr>
                 ) : filteredUsers.length === 0 ? (
-                  <tr><td colSpan="5" style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                  <tr><td colSpan="6" style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
                     <div style={{ marginBottom: '12px' }}><FaSearch size={24} color="#e2e8f0" /></div>
                     No users found matching your search.
                   </td></tr>
@@ -949,6 +1009,72 @@ const UserProfile = () => {
                           </div>
                         </td>
                         <td style={{ 
+                          padding: isMobile ? '10px 12px' : '12px 16px',
+                          display: isMobile ? 'none' : 'table-cell'
+                        }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {user.AllowedBranchIds === null || user.HasAllBranchAccess ? (
+                              <span style={{ 
+                                fontSize: '10px', 
+                                background: '#f0fdf4', 
+                                color: '#16a34a', 
+                                padding: '3px 8px', 
+                                borderRadius: '4px', 
+                                border: '1px solid #bbf7d0',
+                                fontWeight: '500',
+                                display: 'inline-block',
+                                width: 'fit-content'
+                              }}>
+                                All Branches
+                              </span>
+                            ) : Array.isArray(user.AllowedBranchIds) && user.AllowedBranchIds.length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  background: '#eff6ff', 
+                                  color: '#2563eb', 
+                                  padding: '3px 8px', 
+                                  borderRadius: '4px', 
+                                  border: '1px solid #bfdbfe',
+                                  fontWeight: '500',
+                                  display: 'inline-block',
+                                  width: 'fit-content'
+                                }}>
+                                  {user.AllowedBranchIds.length} Branch{user.AllowedBranchIds.length !== 1 ? 'es' : ''}
+                                </span>
+                                {user.AllowedBranchIds.slice(0, 2).map(branchId => (
+                                  <span key={branchId} style={{ 
+                                    fontSize: '9px', 
+                                    color: '#64748b',
+                                    marginLeft: '4px'
+                                  }}>
+                                    • {getBranchName(branchId)}
+                                  </span>
+                                ))}
+                                {user.AllowedBranchIds.length > 2 && (
+                                  <span style={{ fontSize: '9px', color: '#94a3b8', marginLeft: '4px' }}>
+                                    +{user.AllowedBranchIds.length - 2} more
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ 
+                                fontSize: '10px', 
+                                background: '#fef2f2', 
+                                color: '#dc2626', 
+                                padding: '3px 8px', 
+                                borderRadius: '4px', 
+                                border: '1px solid #fecaca',
+                                fontWeight: '500',
+                                display: 'inline-block',
+                                width: 'fit-content'
+                              }}>
+                                No Access
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ 
                           padding: isMobile ? '10px 12px' : '12px 16px', 
                           textAlign: isMobile ? 'left' : 'right' 
                         }}>
@@ -983,6 +1109,19 @@ const UserProfile = () => {
                               onMouseEnter={e => { e.currentTarget.style.borderColor = '#8b5cf6'; e.currentTarget.style.background = '#f5f3ff'; e.currentTarget.style.color = '#8b5cf6'; }}
                               onMouseLeave={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = '#6b7280'; }}>
                               <FaUserShield size={isMobile ? 10 : 11} /> {isMobile ? '' : 'Perms'}
+                            </button>
+                            <button className="user-profile-action-btn" onClick={() => handleOpenBranchAccess(user)} title="Branch Access"
+                              style={{ 
+                                padding: isMobile ? '5px 8px' : '6px 10px', 
+                                border: '1px solid #e5e7eb', borderRadius: '6px', 
+                                background: '#ffffff', color: '#6b7280', cursor: 'pointer', transition: 'all 0.2s',
+                                fontSize: isMobile ? '10px' : '11px', fontWeight: '500', 
+                                display: 'flex', alignItems: 'center', gap: isMobile ? '3px' : '4px',
+                                whiteSpace: 'nowrap'
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = '#10b981'; e.currentTarget.style.background = '#ecfdf5'; e.currentTarget.style.color = '#10b981'; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = '#6b7280'; }}>
+                              <FaMapMarkerAlt size={isMobile ? 10 : 11} /> {isMobile ? '' : 'Branches'}
                             </button>
                             {user.IsActive && (
                               <button className="user-profile-action-btn" onClick={() => handleForceLogout(user.UserId, user.UserName)} title="Force Logout"
@@ -1223,44 +1362,270 @@ const UserProfile = () => {
         )}
       </Modal>
 
-      {/* 4. Assign Branches Modal */}
-      <Modal isOpen={modalView === 'assign-branches'} onClose={() => setModalView(null)} title="Assign Branches">
+      {/* 4. Assign Branches Modal - Enhanced */}
+      <Modal isOpen={modalView === 'assign-branches'} onClose={() => { setModalView(null); setSelectedBranchIds([]); setBranchAccess(null); }} title="Manage Branch Access" maxWidth="700px">
         {selectedUser && (
           <div>
-            {loadingBranches ? <div style={{ textAlign: 'center', padding: '20px' }}><Loader /></div> : (
+            <div style={{ marginBottom: '20px', padding: '12px', background: '#f8fafc', borderRadius: '8px', fontSize: '13px', color: '#64748b', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontWeight: '600', color: '#334155', marginBottom: '4px' }}>User: {selectedUser.UserName}</div>
+              <div style={{ fontSize: '12px' }}>
+                {selectedUser.Permissions?.CanViewStock ? (
+                  <span style={{ color: '#059669' }}>✓ Can View Stock</span>
+                ) : (
+                  <span style={{ color: '#dc2626' }}>⚠ Cannot View Stock - Enable "CanViewStock" permission first</span>
+                )}
+              </div>
+            </div>
+
+            {loadingBranches ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}><Loader /></div>
+            ) : (
               <>
+                {/* Quick Actions */}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => {
+                      // Select all branches
+                      const allBranchIds = branches.map(b => b.BranchId || b.Id).filter(Boolean);
+                      setSelectedBranchIds(allBranchIds);
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#eff6ff',
+                      color: '#2563eb',
+                      border: '1px solid #bfdbfe',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setSelectedBranchIds([])}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#fef2f2',
+                      color: '#dc2626',
+                      border: '1px solid #fecaca',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Clear All
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Set to null for all branches access
+                      setSelectedBranchIds(null);
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#f0fdf4',
+                      color: '#16a34a',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Allow All Branches
+                  </button>
+                </div>
+
+                {/* Branch Selection */}
                 <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '10px' }}>Select Allowed Branches</label>
-                  <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                    {branches.length === 0 ? <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8' }}>No branches found</div> : 
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '10px' }}>
+                    Select Branches for Stock Access
+                    {selectedBranchIds === null && (
+                      <span style={{ marginLeft: '8px', color: '#16a34a', fontSize: '11px' }}>(All branches enabled)</span>
+                    )}
+                    {Array.isArray(selectedBranchIds) && selectedBranchIds.length > 0 && (
+                      <span style={{ marginLeft: '8px', color: '#2563eb', fontSize: '11px' }}>({selectedBranchIds.length} selected)</span>
+                    )}
+                    {Array.isArray(selectedBranchIds) && selectedBranchIds.length === 0 && (
+                      <span style={{ marginLeft: '8px', color: '#dc2626', fontSize: '11px' }}>(No access)</span>
+                    )}
+                  </label>
+                  <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#ffffff' }}>
+                    {branches.length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                        <FaMapMarkerAlt size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                        <div>No branches found</div>
+                      </div>
+                    ) : (
                       branches.map(branch => {
-                        const id = branch.BranchId || branch.Id;
-                        const name = branch.BranchName || branch.Name;
-                        const isSel = selectedBranchIds.includes(id);
+                        const id = branch.BranchId || branch.Id || branch.branchId || branch.id;
+                        const name = branch.BranchName || branch.Name || branch.branchName || branch.name || `Branch ${id}`;
+                        const isSel = selectedBranchIds === null || (Array.isArray(selectedBranchIds) && selectedBranchIds.includes(id));
+                        const wasAssigned = branchAccess && Array.isArray(branchAccess) 
+                          ? branchAccess.find(b => (b.branchId || b.BranchId || b.Id) === id)?.isAssigned
+                          : false;
+                        
                         return (
-                          <div key={id} onClick={() => toggleBranchSelection(id)}
-                            style={{ padding: '10px 16px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: isSel ? '#f0f9ff' : 'white', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: '1px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', background: isSel ? '#2563eb' : 'white' }}>
-                              {isSel && <FaCheck size={10} color="white" />}
+                          <div 
+                            key={id} 
+                            onClick={() => {
+                              if (selectedBranchIds === null) {
+                                // If "all branches" is selected, switch to specific selection
+                                const allIds = branches.map(b => b.BranchId || b.Id || b.branchId || b.id).filter(Boolean);
+                                setSelectedBranchIds(allIds.filter(bid => bid !== id));
+                              } else {
+                                toggleBranchSelection(id);
+                              }
+                            }}
+                            style={{ 
+                              padding: '12px 16px', 
+                              borderBottom: '1px solid #f1f5f9', 
+                              cursor: 'pointer', 
+                              background: isSel ? '#f0f9ff' : 'white', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '12px',
+                              transition: 'background 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSel) e.currentTarget.style.background = '#f8fafc';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSel) e.currentTarget.style.background = 'white';
+                            }}
+                          >
+                            <div style={{ 
+                              width: '20px', 
+                              height: '20px', 
+                              borderRadius: '4px', 
+                              border: isSel ? 'none' : '2px solid #cbd5e1', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              background: isSel ? '#2563eb' : 'white',
+                              flexShrink: 0
+                            }}>
+                              {isSel && <FaCheck size={12} color="white" />}
                             </div>
-                            <span style={{ fontSize: '13px', color: '#334155' }}>{name} <span style={{ color: '#94a3b8', fontSize: '11px' }}>({id})</span></span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '13px', color: '#334155', fontWeight: '500' }}>
+                                {name}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                                ID: {id}
+                                {wasAssigned && !isSel && (
+                                  <span style={{ marginLeft: '8px', color: '#f59e0b', fontSize: '10px' }}>(Previously assigned)</span>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         );
                       })
-                    }
+                    )}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '24px' }}>
-                  {selectedBranchIds.map(id => (
-                    <span key={id} style={{ fontSize: '11px', background: '#eff6ff', color: '#1e40af', padding: '4px 8px', borderRadius: '4px', border: '1px solid #dbeafe' }}>
-                      {getBranchName(id)}
-                    </span>
-                  ))}
+
+                {/* Selected Branches Summary */}
+                {selectedBranchIds !== null && Array.isArray(selectedBranchIds) && selectedBranchIds.length > 0 && (
+                  <div style={{ marginBottom: '20px', padding: '12px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#1e40af', marginBottom: '8px' }}>
+                      Selected Branches ({selectedBranchIds.length}):
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {selectedBranchIds.map(id => (
+                        <span key={id} style={{ 
+                          fontSize: '11px', 
+                          background: '#ffffff', 
+                          color: '#1e40af', 
+                          padding: '4px 8px', 
+                          borderRadius: '4px', 
+                          border: '1px solid #93c5fd',
+                          fontWeight: '500'
+                        }}>
+                          {getBranchName(id)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedBranchIds === null && (
+                  <div style={{ marginBottom: '20px', padding: '12px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <FaCheck /> All Branches Access Enabled
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#15803d', marginTop: '4px' }}>
+                      User will be able to view stock from all branches.
+                    </div>
+                  </div>
+                )}
+
+                {Array.isArray(selectedBranchIds) && selectedBranchIds.length === 0 && (
+                  <div style={{ marginBottom: '20px', padding: '12px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <FaExclamationTriangle /> No Branch Access
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#991b1b', marginTop: '4px' }}>
+                      User will not be able to view any stock. Select branches or enable "All Branches" access.
+                    </div>
+                  </div>
+                )}
+
+                {/* Info Note */}
+                <div style={{ marginBottom: '20px', padding: '10px', background: '#fffbeb', borderRadius: '6px', border: '1px solid #fde68a', fontSize: '11px', color: '#92400e' }}>
+                  <strong>Note:</strong> Branch access controls which stock data the user can view. User must also have "CanViewStock" permission enabled.
                 </div>
-                <button onClick={handleAssignBranches} disabled={creatingUser}
-                  style={{ width: '100%', padding: '12px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
-                  {creatingUser ? 'Assigning...' : 'Save Branch Assignments'}
-                </button>
+
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button 
+                    onClick={() => { setModalView(null); setSelectedBranchIds([]); setBranchAccess(null); }}
+                    disabled={creatingUser}
+                    style={{ 
+                      flex: 1, 
+                      padding: '12px', 
+                      background: '#f3f4f6', 
+                      color: '#374151', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '8px', 
+                      fontSize: '14px', 
+                      fontWeight: '600', 
+                      cursor: creatingUser ? 'not-allowed' : 'pointer',
+                      opacity: creatingUser ? 0.6 : 1
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleAssignBranches} 
+                    disabled={creatingUser || !selectedUser.Permissions?.CanViewStock}
+                    style={{ 
+                      flex: 1, 
+                      padding: '12px', 
+                      background: selectedUser.Permissions?.CanViewStock ? '#10b981' : '#9ca3af', 
+                      color: 'white', 
+                      border: 'none', 
+                      borderRadius: '8px', 
+                      fontSize: '14px', 
+                      fontWeight: '600', 
+                      cursor: (creatingUser || !selectedUser.Permissions?.CanViewStock) ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    {creatingUser ? (
+                      <>
+                        <FaSpinner className="spin" /> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave /> Save Branch Access
+                      </>
+                    )}
+                  </button>
+                </div>
               </>
             )}
           </div>

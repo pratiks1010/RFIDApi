@@ -55,6 +55,77 @@ formDataAxios.interceptors.request.use(
   (err) => Promise.reject(err)
 );
 
+// Custom axios instance for LabelStockList to handle errors without auto-logout
+// This prevents subusers from being logged out on permission errors
+const labelStockAxios = axios.create();
+labelStockAxios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) config.headers['Authorization'] = `Bearer ${token}`;
+    config.headers['Content-Type'] = 'application/json';
+    return config;
+  },
+  (err) => Promise.reject(err)
+);
+
+// Response interceptor that handles errors gracefully without auto-logout
+// Only logs out on actual authentication failures, not permission issues
+labelStockAxios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    // Check for 401 Unauthorized
+    if (error.response?.status === 401) {
+      const errorMessage = error.response?.data?.Message || error.response?.data?.message || '';
+      const errorString = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : '';
+      
+      // Check if it's a permission/access issue vs authentication issue
+      const isPermissionError = errorString.includes('permission') || 
+                                errorString.includes('forbidden') ||
+                                errorString.includes('access denied') ||
+                                errorString.includes('not allowed') ||
+                                errorString.includes('insufficient');
+      
+      // Check if it's a Security Stamp related error
+      const isSecurityStampError = errorString.includes('security stamp') || 
+                                    errorString.includes('forced to logout') ||
+                                    (errorString.includes('token') && errorString.includes('invalid'));
+      
+      // Only logout on actual authentication failures, not permission issues
+      if (isSecurityStampError) {
+        // Security stamp error - this is a real auth issue, logout
+        const { logoutCurrentUser } = await import('../../utils/tokenUtils');
+        logoutCurrentUser('security_stamp_updated');
+      } else if (!isPermissionError) {
+        // Regular 401 that's not a permission issue - might be expired token
+        // Check if token is actually expired
+        const token = localStorage.getItem('token');
+        if (token) {
+          try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const tokenPayload = JSON.parse(window.atob(base64));
+            const currentTime = Math.floor(Date.now() / 1000);
+            
+            // Only logout if token is actually expired
+            if (tokenPayload.exp && tokenPayload.exp <= currentTime) {
+              const { logoutCurrentUser } = await import('../../utils/tokenUtils');
+              logoutCurrentUser('token_expired');
+            }
+            // If token is not expired, it's likely a permission issue - don't logout
+          } catch (tokenError) {
+            // Invalid token format - logout
+            const { logoutCurrentUser } = await import('../../utils/tokenUtils');
+            logoutCurrentUser('invalid_token');
+          }
+        }
+      }
+      // If it's a permission error, don't logout - just let the component handle it
+    }
+    
+    return Promise.reject(error);
+  }
+);
+
 const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
 const DEFAULT_PAGE_SIZE = 500;
 const IMAGE_BASE_URL = 'https://rrgold.loyalstring.co.in/';
@@ -318,133 +389,113 @@ const LabelStockList = () => {
         return;
       }
 
-      // Build payload for all data: BranchId, CounterId, CategoryId, ProductId, PurityId as IDs
-      const allBranchId = filterValues.branch !== 'All' && filterValues.branch && apiFilterData.branches?.length
-        ? (() => {
-            const selectedBranch = apiFilterData.branches.find(branch => {
-              const n = branch.BranchName || branch.Name || branch.branchName || branch.name || '';
-              return n === filterValues.branch || n.toLowerCase() === filterValues.branch.toLowerCase();
-            });
-            return selectedBranch ? Number(selectedBranch.Id ?? selectedBranch.id ?? 0) : 0;
-          })()
-        : 0;
+      // Build payload for new API - fetch all data with max page size (1000 per API docs)
+      const resolvedCategoryId = Number(getFilterValueForAPI('categoryId', filterValues.categoryId)) || 0;
+      const resolvedProductId = Number(getFilterValueForAPI('productId', filterValues.productId)) || 0;
+      const resolvedPurityId = Number(getFilterValueForAPI('purityId', filterValues.purityId)) || 0;
+      const resolvedDesignId = Number(getFilterValueForAPI('designId', filterValues.designId)) || 0;
+
       const payload = {
-        ClientCode: clientCode,
-        CategoryId: Number(getFilterValueForAPI('categoryId', filterValues.categoryId)) || 0,
-        ProductId: Number(getFilterValueForAPI('productId', filterValues.productId)) || 0,
-        DesignId: Number(getFilterValueForAPI('designId', filterValues.designId)) || 0,
-        PurityId: Number(getFilterValueForAPI('purityId', filterValues.purityId)) || 0,
-        FromDate: filterValues.dateFrom && filterValues.dateFrom.trim() !== '' ? filterValues.dateFrom.trim() : null,
-        ToDate: filterValues.dateTo && filterValues.dateTo.trim() !== '' ? filterValues.dateTo.trim() : null,
-        RFIDCode: "",
         PageNumber: 1,
-        PageSize: 999999,
-        BranchId: allBranchId,
-        Status: showActiveOnly ? "Active" : (filterValues.status !== 'All' ? filterValues.status : "ApiActive"),
-        SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : "",
-        ListType: "ascending",
-        SortColumn: sortConfig.key || null
+        PageSize: 1000, // Max page size per API docs
+        Status: showActiveOnly ? "Active" : (filterValues.status !== 'All' ? filterValues.status : "all"),
+        ListType: "ascending"
       };
 
-      if (filterValues.counterName !== 'All' && filterValues.counterName) {
-        const selectedCounter = apiFilterData.counters?.find(counter =>
-          counter.CounterName === filterValues.counterName ||
-          counter.Name === filterValues.counterName ||
-          counter.counterName === filterValues.counterName ||
-          (counter.CounterName && counter.CounterName.toLowerCase() === filterValues.counterName.toLowerCase()) ||
-          (counter.Name && counter.Name.toLowerCase() === filterValues.counterName.toLowerCase())
-        );
-        if (selectedCounter) {
-          payload.CounterId = Number(selectedCounter.Id ?? selectedCounter.id ?? 0);
-        } else {
-          console.warn('Counter not found in API data (all data fetch):', filterValues.counterName);
-        }
+      // Add optional filters
+      if (resolvedCategoryId > 0) {
+        payload.CategoryId = resolvedCategoryId;
       }
-      if (filterValues.boxName !== 'All' && filterValues.boxName) {
-        payload.BoxName = filterValues.boxName;
+      if (resolvedProductId > 0) {
+        payload.ProductId = resolvedProductId;
       }
-      if (filterValues.vendor !== 'All' && filterValues.vendor) {
-        payload.Vendor = filterValues.vendor;
+      if (resolvedDesignId > 0) {
+        payload.DesignId = resolvedDesignId;
+      }
+      if (resolvedPurityId > 0) {
+        payload.PurityId = resolvedPurityId;
+      }
+      if (filterValues.dateFrom && filterValues.dateFrom.trim() !== '') {
+        payload.FromDate = filterValues.dateFrom.trim();
+      }
+      if (filterValues.dateTo && filterValues.dateTo.trim() !== '') {
+        payload.ToDate = filterValues.dateTo.trim();
+      }
+      if (searchQuery && searchQuery.trim() !== '') {
+        payload.SearchQuery = searchQuery.trim();
       }
 
       console.log('Fetching ALL filtered data:', payload);
 
-      const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
-        payload,
-        {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      // Fetch all pages if needed (since max page size is 1000)
+      let allData = [];
+      let currentPage = 1;
+      let hasMorePages = true;
 
-      if (response.data && Array.isArray(response.data)) {
-        const allDataWithSerialNumbers = response.data.map((item, index) => ({
+      while (hasMorePages) {
+        const pagePayload = { ...payload, PageNumber: currentPage };
+        const response = await labelStockAxios.post(
+          'https://localhost:7095/api/RFIDStock/GetStock',
+          pagePayload
+        );
+
+        // Check for PascalCase first (backend response), then fallback to camelCase
+        const stockItems = response.data?.StockItems || response.data?.stockItems;
+        if (response.data && stockItems && Array.isArray(stockItems)) {
+          allData = [...allData, ...stockItems];
+          hasMorePages = (response.data.hasNextPage === true || response.data.HasNextPage === true) && stockItems.length === 1000;
+          currentPage++;
+        } else {
+          hasMorePages = false;
+        }
+      }
+
+      if (allData.length > 0) {
+        // Map new API response structure to existing component structure
+        const allDataWithSerialNumbers = allData.map((item, index) => ({
           ...item,
           srNo: index + 1,
-          // Map stone fields from API response
-          StoneWt: item.TotalStoneWeight !== undefined && item.TotalStoneWeight !== null ? item.TotalStoneWeight : (item.StoneWt || ''),
-          StonePcs: item.TotalStonePieces !== undefined && item.TotalStonePieces !== null ? item.TotalStonePieces : (item.StonePcs || ''),
-          StoneAmt: item.TotalStoneAmount !== undefined && item.TotalStoneAmount !== null ? item.TotalStoneAmount : (item.StoneAmt || ''),
-          // Map diamond fields from API response
-          DiamondWt: item.TotalDiamondWeight !== undefined && item.TotalDiamondWeight !== null ? item.TotalDiamondWeight : (item.DiamondWt || ''),
-          // Map DiamondPcs to TotalDiamondPieces (pieces count)
-          DiamondPcs: item.TotalDiamondPieces !== undefined && item.TotalDiamondPieces !== null ? item.TotalDiamondPieces : (item.DiamondPcs || item.DiamondPieces || ''),
-          // Map DiamondAmount to TotalDiamondAmount (amount value)
-          DiamondAmount: item.TotalDiamondAmount !== undefined && item.TotalDiamondAmount !== null ? item.TotalDiamondAmount : (item.DiamondAmount || ''),
-          // Map making and hallmark fields from API response
-          MakingFixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.MakingFixedAmt || ''),
-          HallmarkAmount: item.HallmarkAmount !== undefined && item.HallmarkAmount !== null ? item.HallmarkAmount : (item.HallmarkAmount || ''),
-          MakingPerGram: item.MakingPerGram !== undefined && item.MakingPerGram !== null ? item.MakingPerGram : (item.MakingPerGram || ''),
-          MakingPercentage: item.MakingPercentage !== undefined && item.MakingPercentage !== null ? item.MakingPercentage : (item.MakingPercentage || ''),
-          FixedWastage: item.MakingFixedWastage !== undefined && item.MakingFixedWastage !== null ? item.MakingFixedWastage : (item.FixedWastage || ''),
-          FixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.FixedAmt || ''),
-          // Map other fields that might have different names
+          // Map fields from new API (camelCase) to existing structure
+          ItemCode: item.itemCode || item.ItemCode || '',
+          RFIDCode: item.rfidCode || item.RFIDCode || '',
+          ProductName: item.productTitle || item.productName || item.ProductName || '',
+          Status: item.status || item.Status || '',
+          CategoryName: item.categoryName || item.CategoryName || '',
+          DesignName: item.designName || item.DesignName || '',
+          PurityName: item.purityName || item.PurityName || '',
+          VendorName: item.vendorName || item.VendorName || '',
+          BranchName: item.branchName || item.BranchName || '',
+          GrossWt: item.grossWt || item.GrossWt || '',
+          NetWt: item.netWt || item.NetWt || '',
+          MRP: item.mrp || item.MRP || '',
+          // Map stone fields
+          TotalStoneWeight: item.totalStoneWeight || item.TotalStoneWeight || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stoneWeight || 0), 0).toString() : ''),
+          TotalStonePieces: item.totalStonePieces || item.TotalStonePieces || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stonePieces || 0), 0).toString() : ''),
+          StoneWt: item.totalStoneWeight || item.TotalStoneWeight || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stoneWeight || 0), 0).toString() : ''),
+          StonePcs: item.totalStonePieces || item.TotalStonePieces || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stonePieces || 0), 0).toString() : ''),
+          // Map diamond fields
+          TotalDiamondWeight: item.totalDiamondWeight || item.TotalDiamondWeight || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondWeight || 0), 0).toString() : ''),
+          TotalDiamondPieces: item.totalDiamondPieces || item.TotalDiamondPieces || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondPieces || 0), 0).toString() : ''),
+          DiamondWt: item.totalDiamondWeight || item.TotalDiamondWeight || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondWeight || 0), 0).toString() : ''),
+          DiamondPcs: item.totalDiamondPieces || item.TotalDiamondPieces || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondPieces || 0), 0).toString() : ''),
+          // Map other fields
+          CreatedOn: item.createdOn || item.CreatedOn || item.CreatedDate || '',
+          CreatedDate: item.createdOn || item.CreatedOn || item.CreatedDate || '',
           CounterName: item.CounterName || '',
           BoxName: item.BoxName || '',
-          Vendor: item.VendorName || item.Vendor || '',
-          Branch: item.BranchName || item.Branch || '',
-          CategoryName: item.CategoryName || item.Category || '',
-          DesignName: item.DesignName || item.Design || '',
-          PurityName: item.PurityName || item.Purity || '',
-          CreatedDate: item.CreatedOn || item.CreatedDate || '',
-          PackingWeight: item.PackingWeight !== undefined && item.PackingWeight !== null ? item.PackingWeight : (item.PackingWeight || ''),
-          TotalWeight: item.TotalWeight !== undefined && item.TotalWeight !== null ? item.TotalWeight : (item.TotalWeight || '')
+          Vendor: item.vendorName || item.VendorName || item.Vendor || '',
+          Branch: item.branchName || item.BranchName || item.Branch || '',
+          Category: item.categoryName || item.CategoryName || item.Category || '',
+          Design: item.designName || item.DesignName || item.Design || '',
+          Purity: item.purityName || item.PurityName || item.Purity || '',
+          stones: item.stones || [],
+          diamonds: item.diamonds || []
         }));
         setAllFilteredData(allDataWithSerialNumbers);
-        console.log(`Fetched ALL data: ${response.data.length} items`);
-
-        // Debug: Log first item to verify field mapping
-        if (allDataWithSerialNumbers.length > 0) {
-          console.log('Sample mapped item (all data):', {
-            ItemCode: allDataWithSerialNumbers[0].ItemCode,
-            StoneWt: allDataWithSerialNumbers[0].StoneWt,
-            StonePcs: allDataWithSerialNumbers[0].StonePcs,
-            StoneAmt: allDataWithSerialNumbers[0].StoneAmt,
-            DiamondWt: allDataWithSerialNumbers[0].DiamondWt,
-            DiamondPcs: allDataWithSerialNumbers[0].DiamondPcs,
-            DiamondAmount: allDataWithSerialNumbers[0].DiamondAmount,
-            MakingFixedAmt: allDataWithSerialNumbers[0].MakingFixedAmt,
-            HallmarkAmount: allDataWithSerialNumbers[0].HallmarkAmount,
-            MakingPerGram: allDataWithSerialNumbers[0].MakingPerGram,
-            MakingPercentage: allDataWithSerialNumbers[0].MakingPercentage,
-            FixedWastage: allDataWithSerialNumbers[0].FixedWastage,
-            FixedAmt: allDataWithSerialNumbers[0].FixedAmt,
-            // Original API fields for comparison
-            API_TotalStoneWeight: response.data[0].TotalStoneWeight,
-            API_TotalStonePieces: response.data[0].TotalStonePieces,
-            API_TotalStoneAmount: response.data[0].TotalStoneAmount,
-            API_TotalDiamondWeight: response.data[0].TotalDiamondWeight,
-            API_TotalDiamondPieces: response.data[0].TotalDiamondPieces,
-            API_TotalDiamondAmount: response.data[0].TotalDiamondAmount,
-            API_MakingFixedAmt: response.data[0].MakingFixedAmt,
-            API_HallmarkAmount: response.data[0].HallmarkAmount
-          });
-        }
+        console.log(`Fetched ALL data: ${allDataWithSerialNumbers.length} items`);
       } else {
-        throw new Error('Invalid data format received');
+        setAllFilteredData([]);
+        console.log('No data received for all data fetch');
       }
     } catch (err) {
       console.error('Error fetching all data:', err);
@@ -607,37 +658,166 @@ const LabelStockList = () => {
     try {
       setLoading(true);
 
-      // Try to get ClientCode from userInfo or fallback to localStorage
+      // ===== TOKEN VALIDATION & DEBUGGING =====
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('[GetStock] Token not found in localStorage');
+        setError('Authentication token not found. Please login again.');
+        setLoading(false);
+        isFetchingRef.current = false;
+        return;
+      }
+
+      // Decode and validate token claims
+      let tokenPayload = null;
+      let userId = null;
       let clientCode = null;
-      if (userInfo && userInfo.ClientCode) {
+      let isSubUser = false;
+      
+      try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        tokenPayload = JSON.parse(window.atob(base64));
+        
+        // Extract required claims (check multiple possible claim names)
+        // Note: ClaimTypes.NameIdentifier is a C# constant, in JWT it's usually "sub" or "nameid"
+        userId = tokenPayload.NameIdentifier || 
+                tokenPayload.sub || 
+                tokenPayload.nameid ||
+                tokenPayload.unique_name ||
+                tokenPayload['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'] ||
+                null;
+        
+        clientCode = tokenPayload.ClientCode || 
+                    tokenPayload.clientcode || 
+                    tokenPayload.clientCode ||
+                    null;
+        
+        isSubUser = tokenPayload.IsSubUser === true || 
+                   tokenPayload.IsSubUser === 'true' ||
+                   tokenPayload.isSubUser === true ||
+                   false;
+
+        // Log token claims for debugging
+        console.log('[GetStock] Token Claims:', {
+          userId: userId || 'NOT FOUND',
+          clientCode: clientCode || 'NOT FOUND',
+          isSubUser: isSubUser,
+          hasNameIdentifier: !!tokenPayload.NameIdentifier || !!tokenPayload.sub || !!tokenPayload.nameid,
+          hasClientCode: !!tokenPayload.ClientCode || !!tokenPayload.clientcode,
+          allClaims: Object.keys(tokenPayload)
+        });
+
+        // Validate required claims
+        if (!userId) {
+          console.error('[GetStock] ERROR: UserId (NameIdentifier/sub) not found in token');
+          setError('User identification not found in token. Please login again.');
+          setLoading(false);
+          isFetchingRef.current = false;
+          return;
+        }
+
+        if (!clientCode) {
+          console.error('[GetStock] ERROR: ClientCode not found in token');
+          setError('Client code not found in token. Please login again.');
+          setLoading(false);
+          isFetchingRef.current = false;
+          return;
+        }
+
+        // Check token expiration
+        if (tokenPayload.exp) {
+          const currentTime = Math.floor(Date.now() / 1000);
+          if (tokenPayload.exp <= currentTime) {
+            console.error('[GetStock] ERROR: Token expired');
+            setError('Your session has expired. Please login again.');
+            setLoading(false);
+            isFetchingRef.current = false;
+            // Logout after showing error
+            setTimeout(() => {
+              import('../../utils/tokenUtils').then(({ logoutCurrentUser }) => {
+                logoutCurrentUser('token_expired');
+              });
+            }, 2000);
+            return;
+          }
+        }
+
+        // Check permissions for subusers
+        if (isSubUser) {
+          const permissionsStr = localStorage.getItem('permissions');
+          let permissions = {};
+          if (permissionsStr) {
+            try {
+              permissions = JSON.parse(permissionsStr);
+            } catch (e) {
+              console.error('[GetStock] Error parsing permissions:', e);
+            }
+          }
+
+          const canViewStock = permissions.CanViewStock === true || permissions.canViewStock === true;
+          console.log('[GetStock] SubUser Permission Check:', {
+            isSubUser: true,
+            canViewStock: canViewStock,
+            permissions: permissions
+          });
+
+          if (!canViewStock) {
+            console.error('[GetStock] ERROR: SubUser does not have CanViewStock permission');
+            setError('You do not have permission to view stock data. Please contact your administrator to grant you the "CanViewStock" permission.');
+            setLoading(false);
+            isFetchingRef.current = false;
+            return;
+          }
+        }
+
+      } catch (tokenError) {
+        console.error('[GetStock] ERROR: Token decode/validation failed:', tokenError);
+        setError('Invalid token format. Please login again.');
+        setLoading(false);
+        isFetchingRef.current = false;
+        return;
+      }
+
+      // Try to get ClientCode from userInfo as fallback (but we already have it from token)
+      if (!clientCode && userInfo && userInfo.ClientCode) {
         clientCode = userInfo.ClientCode;
-        console.log('userInfo check passed:', { userInfo, clientCode });
-      } else {
-        // Fallback: try to get from localStorage directly
+        console.log('[GetStock] Using ClientCode from userInfo as fallback:', clientCode);
+      } else if (!clientCode) {
+        // Final fallback: try to get from localStorage directly
         try {
           const storedUserInfo = localStorage.getItem('userInfo');
           if (storedUserInfo) {
             const parsedUserInfo = JSON.parse(storedUserInfo);
             if (parsedUserInfo && parsedUserInfo.ClientCode) {
               clientCode = parsedUserInfo.ClientCode;
-              console.log('Fallback clientCode from localStorage:', clientCode);
+              console.log('[GetStock] Using ClientCode from localStorage as fallback:', clientCode);
             }
           }
         } catch (err) {
-          console.error('Error in fallback userInfo retrieval:', err);
+          console.error('[GetStock] Error in fallback userInfo retrieval:', err);
         }
       }
 
       if (!clientCode) {
-        console.log('ClientCode not found in userInfo or localStorage');
+        console.error('[GetStock] ERROR: ClientCode not found in token, userInfo, or localStorage');
         setError('Client code not found. Please login again.');
         setLoading(false);
+        isFetchingRef.current = false;
         return;
       }
 
       setError(null); // Clear any existing errors
+      
+      console.log('[GetStock] Making API request with:', {
+        userId: userId,
+        clientCode: clientCode,
+        isSubUser: isSubUser,
+        page: page,
+        pageSize: pageSize
+      });
 
-      // Build the payload: BranchId, CounterId, CategoryId, ProductId, PurityId as IDs for GetAllLabeledStock API
+      // Build the payload for new RFIDStock/GetStock API
       const resolvedBranchId = safeFilters.branch !== 'All' && safeFilters.branch && apiFilterData.branches?.length
         ? (() => {
             const selectedBranch = apiFilterData.branches.find(branch => {
@@ -652,150 +832,165 @@ const LabelStockList = () => {
       const resolvedPurityId = Number(getFilterValueForAPI('purityId', safeFilters.purityId)) || 0;
       const resolvedDesignId = Number(getFilterValueForAPI('designId', safeFilters.designId)) || 0;
 
+      // Build payload according to new API documentation
       const payload = {
-        ClientCode: clientCode,
-        CategoryId: resolvedCategoryId,
-        ProductId: resolvedProductId,
-        DesignId: resolvedDesignId,
-        PurityId: resolvedPurityId,
-        FromDate: safeFilters.dateFrom && safeFilters.dateFrom.trim() !== '' ? safeFilters.dateFrom.trim() : null,
-        ToDate: safeFilters.dateTo && safeFilters.dateTo.trim() !== '' ? safeFilters.dateTo.trim() : null,
-        RFIDCode: "", // Always include RFIDCode as empty string
         PageNumber: page,
         PageSize: pageSize,
-        BranchId: resolvedBranchId,
-        Status: showActiveOnly ? "Active" : (safeFilters.status !== 'All' ? safeFilters.status : "ApiActive"),
-        SearchQuery: search && search.trim() !== '' ? search.trim() : "",
-        ListType: sort && sort.direction === 'desc' ? "descending" : "ascending",
-        SortColumn: sort && sort.key ? sort.key : null // Include SortColumn based on current sort configuration
+        Status: showActiveOnly ? "Active" : (safeFilters.status !== 'All' ? safeFilters.status : "all"),
+        ListType: sort && sort.direction === 'desc' ? "descending" : "ascending"
       };
 
-      // Counter: send CounterId in payload when user selects a counter
-      if (safeFilters.counterName !== 'All' && safeFilters.counterName) {
-        const selectedCounter = apiFilterData.counters?.find(counter =>
-          counter.CounterName === safeFilters.counterName ||
-          counter.Name === safeFilters.counterName ||
-          counter.counterName === safeFilters.counterName ||
-          (counter.CounterName && counter.CounterName.toLowerCase() === safeFilters.counterName.toLowerCase()) ||
-          (counter.Name && counter.Name.toLowerCase() === safeFilters.counterName.toLowerCase())
-        );
-        if (selectedCounter) {
-          payload.CounterId = Number(selectedCounter.Id ?? selectedCounter.id ?? 0);
-        } else {
-          console.warn('Counter not found in API data:', safeFilters.counterName, 'Available counters:', apiFilterData.counters);
-        }
+      // Add optional filters
+      if (resolvedCategoryId > 0) {
+        payload.CategoryId = resolvedCategoryId;
       }
-      if (safeFilters.boxName !== 'All' && safeFilters.boxName) {
-        payload.BoxName = safeFilters.boxName;
+      if (resolvedProductId > 0) {
+        payload.ProductId = resolvedProductId;
       }
-      if (safeFilters.vendor !== 'All' && safeFilters.vendor) {
-        payload.Vendor = safeFilters.vendor;
+      if (resolvedDesignId > 0) {
+        payload.DesignId = resolvedDesignId;
       }
+      if (resolvedPurityId > 0) {
+        payload.PurityId = resolvedPurityId;
+      }
+      if (safeFilters.dateFrom && safeFilters.dateFrom.trim() !== '') {
+        payload.FromDate = safeFilters.dateFrom.trim();
+      }
+      if (safeFilters.dateTo && safeFilters.dateTo.trim() !== '') {
+        payload.ToDate = safeFilters.dateTo.trim();
+      }
+      if (search && search.trim() !== '') {
+        payload.SearchQuery = search.trim();
+      }
+      // Note: ItemCode, RFIDCode, ProductCode filters can be added if needed
+      // These would be separate search fields in the UI
 
-      console.log(`API Request - Page ${page}:`, payload);
-      console.log('Filter → API IDs:', {
+      console.log(`[GetStock] API Request - Page ${page}:`, payload);
+      console.log('[GetStock] Filter → API IDs:', {
         branch: safeFilters.branch,
-        branchId: payload.BranchId,
-        counterName: safeFilters.counterName,
-        counterId: payload.CounterId,
         categoryId: payload.CategoryId,
         productId: payload.ProductId,
         purityId: payload.PurityId,
         designId: payload.DesignId
       });
 
-      const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
+      // Log request details for debugging
+      console.log('[GetStock] Request Details:', {
+        url: 'https://localhost:7095/api/RFIDStock/GetStock',
+        hasToken: !!token,
+        tokenLength: token?.length,
+        tokenPreview: token ? `${token.substring(0, 20)}...` : 'NO TOKEN',
+        userId: userId,
+        clientCode: clientCode,
+        isSubUser: isSubUser
+      });
+
+      const response = await labelStockAxios.post(
+        'https://localhost:7095/api/RFIDStock/GetStock',
         payload,
         {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json'
-          },
           timeout: 20000 // 20 seconds timeout to prevent hanging
         }
       );
 
-      // Handle different response structures
+      console.log('[GetStock] API Response received:', {
+        status: response.status,
+        hasData: !!response.data,
+        dataKeys: response.data ? Object.keys(response.data) : [],
+        stockItemsCount: response.data?.StockItems?.length || response.data?.stockItems?.length || 0
+      });
+
+      // Handle new API response structure
       let dataArray = [];
       let totalCount = 0;
+      let totalPages = 0;
+
+      console.log('API Response structure:', {
+        hasStockItems: !!response.data?.StockItems,
+        hasstockItems: !!response.data?.stockItems,
+        isArray: Array.isArray(response.data),
+        responseKeys: response.data ? Object.keys(response.data) : []
+      });
 
       if (response.data) {
-        // Case 1: Direct array
-        if (Array.isArray(response.data)) {
+        // New API structure: { StockItems: [], totalCount, pageNumber, pageSize, totalPages, ... }
+        // Check for PascalCase first (backend response), then fallback to camelCase
+        if (response.data.StockItems && Array.isArray(response.data.StockItems)) {
+          dataArray = response.data.StockItems;
+          totalCount = response.data.TotalCount || response.data.totalCount || 0;
+          totalPages = response.data.TotalPages || response.data.totalPages || Math.ceil(totalCount / pageSize);
+          console.log(`Using StockItems (PascalCase): ${dataArray.length} items, TotalCount: ${totalCount}, TotalPages: ${totalPages}`);
+        }
+        // Fallback to camelCase for compatibility
+        else if (response.data.stockItems && Array.isArray(response.data.stockItems)) {
+          dataArray = response.data.stockItems;
+          totalCount = response.data.totalCount || 0;
+          totalPages = response.data.totalPages || Math.ceil(totalCount / pageSize);
+          console.log(`Using stockItems (camelCase): ${dataArray.length} items, TotalCount: ${totalCount}, TotalPages: ${totalPages}`);
+        }
+        // Fallback: if response is direct array (shouldn't happen with new API)
+        else if (Array.isArray(response.data)) {
           dataArray = response.data;
-          // Try to get total count from first item
-          if (dataArray.length > 0 && dataArray[0].TotalCount !== undefined) {
-            totalCount = dataArray[0].TotalCount;
-          } else if (dataArray.length > 0 && dataArray[0].TotalRecords !== undefined) {
-            totalCount = dataArray[0].TotalRecords;
-          }
-        }
-        // Case 2: Nested in data property
-        else if (response.data.data && Array.isArray(response.data.data)) {
-          dataArray = response.data.data;
-          totalCount = response.data.totalRecords || response.data.totalCount || response.data.total || dataArray.length;
-        }
-        // Case 3: Success wrapper
-        else if (response.data.success && response.data.data && Array.isArray(response.data.data)) {
-          dataArray = response.data.data;
-          totalCount = response.data.totalRecords || response.data.totalCount || response.data.total || dataArray.length;
-        }
-        // Case 4: Deeply nested
-        else if (response.data.data && response.data.data.data && Array.isArray(response.data.data.data)) {
-          dataArray = response.data.data.data;
-          totalCount = response.data.data.totalRecords || response.data.data.totalCount || response.data.data.total || dataArray.length;
-        }
-        // Case 5: Check root level for total count (even if data structure is different)
-        else if (response.data.totalRecords !== undefined) {
-          totalCount = response.data.totalRecords;
-        } else if (response.data.totalCount !== undefined) {
-          totalCount = response.data.totalCount;
-        } else if (response.data.total !== undefined) {
-          totalCount = response.data.total;
+          totalCount = response.data.length;
+          totalPages = Math.ceil(totalCount / pageSize);
+          console.log(`Using direct array: ${dataArray.length} items`);
+        } else {
+          console.warn('Unexpected response structure:', response.data);
         }
       }
 
       // Process data if available
-      if (dataArray.length > 0 || (Array.isArray(response.data) && response.data.length > 0)) {
-        const stockData = dataArray.length > 0 ? dataArray : (Array.isArray(response.data) ? response.data : []);
+      if (dataArray.length > 0) {
+        const stockData = dataArray;
+        // Map new API response structure (camelCase) to existing component structure
         const stockWithSerialNumbers = stockData.map((item, index) => ({
           ...item,
           srNo: ((page - 1) * pageSize) + index + 1,
-          // Map stone fields
-          StoneWt: item.TotalStoneWeight !== undefined && item.TotalStoneWeight !== null ? item.TotalStoneWeight : (item.StoneWt || ''),
-          StonePcs: item.TotalStonePieces !== undefined && item.TotalStonePieces !== null ? item.TotalStonePieces : (item.StonePcs || ''),
-          StoneAmt: item.TotalStoneAmount !== undefined && item.TotalStoneAmount !== null ? item.TotalStoneAmount : (item.StoneAmt || ''),
-          // Map diamond fields
-          DiamondWt: item.TotalDiamondWeight !== undefined && item.TotalDiamondWeight !== null ? item.TotalDiamondWeight : (item.DiamondWt || ''),
-          DiamondPcs: item.TotalDiamondPieces !== undefined && item.TotalDiamondPieces !== null ? item.TotalDiamondPieces : (item.DiamondPcs || ''),
-          DiamondAmount: item.TotalDiamondAmount !== undefined && item.TotalDiamondAmount !== null ? item.TotalDiamondAmount : (item.DiamondAmount || ''),
-          // Map making and hallmark fields
-          MakingFixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.MakingFixedAmt || ''),
-          HallmarkAmount: item.HallmarkAmount !== undefined && item.HallmarkAmount !== null ? item.HallmarkAmount : (item.HallmarkAmount || ''),
-          MakingPerGram: item.MakingPerGram !== undefined && item.MakingPerGram !== null ? item.MakingPerGram : (item.MakingPerGram || ''),
-          MakingPercentage: item.MakingPercentage !== undefined && item.MakingPercentage !== null ? item.MakingPercentage : (item.MakingPercentage || ''),
-          FixedWastage: item.MakingFixedWastage !== undefined && item.MakingFixedWastage !== null ? item.MakingFixedWastage : (item.FixedWastage || ''),
-          FixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.FixedAmt || ''),
-          // Map other fields that might have different names
+          // Map fields from new API (camelCase) to existing structure
+          ItemCode: item.itemCode || item.ItemCode || '',
+          RFIDCode: item.rfidCode || item.RFIDCode || '',
+          ProductName: item.productTitle || item.productName || item.ProductName || '',
+          Status: item.status || item.Status || '',
+          CategoryName: item.categoryName || item.CategoryName || '',
+          DesignName: item.designName || item.DesignName || '',
+          PurityName: item.purityName || item.PurityName || '',
+          VendorName: item.vendorName || item.VendorName || '',
+          BranchName: item.branchName || item.BranchName || '',
+          GrossWt: item.grossWt || item.GrossWt || '',
+          NetWt: item.netWt || item.NetWt || '',
+          MRP: item.mrp || item.MRP || '',
+          // Map stone fields - new API has stones array
+          TotalStoneWeight: item.totalStoneWeight || item.TotalStoneWeight || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stoneWeight || 0), 0).toString() : ''),
+          TotalStonePieces: item.totalStonePieces || item.TotalStonePieces || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stonePieces || 0), 0).toString() : ''),
+          StoneWt: item.totalStoneWeight || item.TotalStoneWeight || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stoneWeight || 0), 0).toString() : ''),
+          StonePcs: item.totalStonePieces || item.TotalStonePieces || (item.stones && item.stones.length > 0 ? item.stones.reduce((sum, stone) => sum + parseFloat(stone.stonePieces || 0), 0).toString() : ''),
+          // Map diamond fields - new API has diamonds array
+          TotalDiamondWeight: item.totalDiamondWeight || item.TotalDiamondWeight || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondWeight || 0), 0).toString() : ''),
+          TotalDiamondPieces: item.totalDiamondPieces || item.TotalDiamondPieces || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondPieces || 0), 0).toString() : ''),
+          DiamondWt: item.totalDiamondWeight || item.TotalDiamondWeight || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondWeight || 0), 0).toString() : ''),
+          DiamondPcs: item.totalDiamondPieces || item.TotalDiamondPieces || (item.diamonds && item.diamonds.length > 0 ? item.diamonds.reduce((sum, diamond) => sum + parseFloat(diamond.diamondPieces || 0), 0).toString() : ''),
+          // Map other fields with fallbacks
+          CreatedOn: item.createdOn || item.CreatedOn || item.CreatedDate || '',
+          CreatedDate: item.createdOn || item.CreatedOn || item.CreatedDate || '',
+          // Preserve original fields if they exist
           CounterName: item.CounterName || '',
           BoxName: item.BoxName || '',
-          Vendor: item.VendorName || item.Vendor || '',
-          Branch: item.BranchName || item.Branch || '',
-          CategoryName: item.CategoryName || item.Category || '',
-          DesignName: item.DesignName || item.Design || '',
-          PurityName: item.PurityName || item.Purity || '',
-          CreatedDate: item.CreatedOn || item.CreatedDate || '',
-          PackingWeight: item.PackingWeight !== undefined && item.PackingWeight !== null ? item.PackingWeight : (item.PackingWeight || ''),
-          TotalWeight: item.TotalWeight !== undefined && item.TotalWeight !== null ? item.TotalWeight : (item.TotalWeight || '')
+          Vendor: item.vendorName || item.VendorName || item.Vendor || '',
+          Branch: item.branchName || item.BranchName || item.Branch || '',
+          Category: item.categoryName || item.CategoryName || item.Category || '',
+          Design: item.designName || item.DesignName || item.Design || '',
+          Purity: item.purityName || item.PurityName || item.Purity || '',
+          // Preserve stones and diamonds arrays if they exist
+          stones: item.stones || [],
+          diamonds: item.diamonds || []
         }));
         setLabeledStock(stockWithSerialNumbers);
 
-        // Set pagination info
+        // Set pagination info from new API response
         if (totalCount > 0) {
           setTotalRecords(totalCount);
-          setTotalPages(Math.ceil(totalCount / pageSize));
-          console.log(`Page ${page}: Received ${stockWithSerialNumbers.length} items, TotalRecords: ${totalCount}, TotalPages: ${Math.ceil(totalCount / pageSize)}`);
+          setTotalPages(totalPages || Math.ceil(totalCount / pageSize));
+          console.log(`Page ${page}: Received ${stockWithSerialNumbers.length} items, TotalRecords: ${totalCount}, TotalPages: ${totalPages || Math.ceil(totalCount / pageSize)}`);
         } else if (stockWithSerialNumbers.length > 0) {
           // Fallback: if no total count, use current page size
           setTotalRecords(stockWithSerialNumbers.length);
@@ -824,18 +1019,74 @@ const LabelStockList = () => {
       } else if (err.response) {
         // Server responded with error status
         const status = err.response.status;
-        const message = err.response.data?.message || err.response.data?.error || 'Server error occurred';
+        const errorMessage = err.response.data?.Message || 
+                           err.response.data?.message || 
+                           err.response.data?.error || 
+                           err.response.data?.Error ||
+                           '';
+        const errorString = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : '';
+        
+        // Check if it's a permission/access issue
+        const isPermissionError = errorString.includes('permission') || 
+                                  errorString.includes('forbidden') ||
+                                  errorString.includes('access denied') ||
+                                  errorString.includes('not allowed') ||
+                                  errorString.includes('insufficient') ||
+                                  errorString.includes('unauthorized access') ||
+                                  errorString.includes('not authorized');
 
         if (status === 401) {
-          setError('Unauthorized. Please login again.');
+          // Check if it's actually a permission issue vs authentication issue
+          if (isPermissionError) {
+            setError('You do not have permission to access the Label Stock List. Please contact your administrator to grant you the necessary permissions.');
+          } else {
+            // Check if token is expired
+            const token = localStorage.getItem('token');
+            let isTokenExpired = false;
+            if (token) {
+              try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const tokenPayload = JSON.parse(window.atob(base64));
+                const currentTime = Math.floor(Date.now() / 1000);
+                isTokenExpired = tokenPayload.exp && tokenPayload.exp <= currentTime;
+              } catch (e) {
+                // Invalid token
+                isTokenExpired = true;
+              }
+            }
+            
+            if (isTokenExpired) {
+              setError('Your session has expired. You will be redirected to the login page shortly.');
+              // Only logout if token is actually expired - use dynamic import
+              import('../../utils/tokenUtils').then(({ logoutCurrentUser }) => {
+                setTimeout(() => {
+                  logoutCurrentUser('token_expired');
+                }, 2000);
+              }).catch(() => {
+                // Fallback if import fails
+                console.error('Failed to import logoutCurrentUser');
+              });
+            } else {
+              // For subusers, this is likely a permission issue even if not explicitly stated
+              const isSubUser = JSON.parse(localStorage.getItem('isSubUser') || 'false');
+              if (isSubUser) {
+                setError('You do not have permission to access the Label Stock List. Please contact your administrator to grant you access to this feature.');
+              } else {
+                setError('Unauthorized access. Please check your permissions or contact your administrator.');
+              }
+            }
+          }
         } else if (status === 403) {
-          setError('Access forbidden. Please check your permissions.');
+          setError('Access forbidden. You do not have permission to view the Label Stock List. Please contact your administrator to grant you access.');
         } else if (status === 404) {
-          setError('API endpoint not found. Please contact support.');
+          setError('API endpoint not found. The requested resource could not be found. Please contact support if this issue persists.');
         } else if (status >= 500) {
-          setError('Server error. Please try again later.');
+          setError('Server error occurred. The server is experiencing issues. Please try again later or contact support if the problem continues.');
         } else {
-          setError(message || 'Failed to fetch labeled stock data');
+          // Use the error message from API if available, otherwise show generic message
+          const displayMessage = errorMessage || 'Failed to fetch labeled stock data. Please try again or contact support.';
+          setError(displayMessage);
         }
       } else if (err.request) {
         // Request was made but no response received
@@ -1664,7 +1915,7 @@ const LabelStockList = () => {
         return;
       }
 
-      // Build the payload - same structure as GetAllLabeledStock but without pagination
+      // Build the payload - same structure as RFIDStock/GetStock but without pagination
       const safeFilters = filterValues || {
         counterName: 'All',
         productId: 'All',
@@ -3356,10 +3607,163 @@ const LabelStockList = () => {
 
 
   if (error) {
+    // Determine error type and styling
+    const isPermissionError = error.toLowerCase().includes('permission') || 
+                              error.toLowerCase().includes('forbidden') ||
+                              error.toLowerCase().includes('access denied') ||
+                              error.toLowerCase().includes('not allowed');
+    const isAuthError = error.toLowerCase().includes('session') || 
+                       error.toLowerCase().includes('expired') ||
+                       error.toLowerCase().includes('login');
+    const isNetworkError = error.toLowerCase().includes('network') || 
+                          error.toLowerCase().includes('connection') ||
+                          error.toLowerCase().includes('timeout');
+
+    const errorType = isPermissionError ? 'permission' : 
+                     isAuthError ? 'auth' : 
+                     isNetworkError ? 'network' : 'general';
+
+    const errorConfig = {
+      permission: {
+        icon: <FaExclamationTriangle style={{ fontSize: 48, color: '#f59e0b' }} />,
+        title: 'Access Denied',
+        bgColor: '#fef3c7',
+        borderColor: '#f59e0b',
+        textColor: '#92400e',
+        iconBg: '#fef3c7'
+      },
+      auth: {
+        icon: <FaExclamationTriangle style={{ fontSize: 48, color: '#dc2626' }} />,
+        title: 'Authentication Error',
+        bgColor: '#fee2e2',
+        borderColor: '#dc2626',
+        textColor: '#991b1b',
+        iconBg: '#fee2e2'
+      },
+      network: {
+        icon: <FaExclamationTriangle style={{ fontSize: 48, color: '#2563eb' }} />,
+        title: 'Connection Error',
+        bgColor: '#dbeafe',
+        borderColor: '#2563eb',
+        textColor: '#1e40af',
+        iconBg: '#dbeafe'
+      },
+      general: {
+        icon: <FaExclamationTriangle style={{ fontSize: 48, color: '#dc2626' }} />,
+        title: 'Error',
+        bgColor: '#fee2e2',
+        borderColor: '#dc2626',
+        textColor: '#991b1b',
+        iconBg: '#fee2e2'
+      }
+    };
+
+    const config = errorConfig[errorType];
+
     return (
-      <div className="error-container">
-        <FaExclamationTriangle />
-        <p>Error: {error}</p>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '60vh',
+        padding: '40px 20px',
+        fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif"
+      }}>
+        <div style={{
+          background: config.bgColor,
+          border: `2px solid ${config.borderColor}`,
+          borderRadius: '16px',
+          padding: '40px',
+          maxWidth: '600px',
+          width: '100%',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+          textAlign: 'center',
+          animation: 'fadeIn 0.3s ease-in'
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            marginBottom: '20px'
+          }}>
+            {config.icon}
+          </div>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: 700,
+            color: config.textColor,
+            margin: '0 0 12px 0',
+            lineHeight: 1.2
+          }}>
+            {config.title}
+          </h2>
+          <p style={{
+            fontSize: '16px',
+            color: config.textColor,
+            margin: '0 0 24px 0',
+            lineHeight: 1.6,
+            opacity: 0.9
+          }}>
+            {error}
+          </p>
+          {!isAuthError && (
+            <button
+              onClick={() => {
+                setError(null);
+                setCurrentPage(1);
+                fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues);
+              }}
+              style={{
+                background: config.borderColor,
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '12px 24px',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.opacity = '0.9';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.15)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
+              }}
+            >
+              <FaSync style={{ marginRight: '8px', display: 'inline' }} />
+              Try Again
+            </button>
+          )}
+          {isPermissionError && (
+            <p style={{
+              fontSize: '13px',
+              color: config.textColor,
+              margin: '20px 0 0 0',
+              opacity: 0.8,
+              fontStyle: 'italic'
+            }}>
+              If you believe this is an error, please contact your administrator.
+            </p>
+          )}
+        </div>
+        <style>{`
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: translateY(-10px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        `}</style>
       </div>
     );
   }

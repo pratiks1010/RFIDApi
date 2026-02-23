@@ -176,7 +176,7 @@ const Login = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post('https://soni.loyalstring.co.in/api/ProductMaster/AuthLogin', formData);
+      const response = await axios.post('https://localhost:7095/api/ProductMaster/AuthLogin', formData);
       
       if (!response.data?.Token) {
         throw new Error('No token received from server');

@@ -187,7 +187,7 @@ INV;POINT;216;543;7;7;"${purityName}"
 STOP
 BARCODE
 C128B;INV;XRD1:1:2:2:3:3:4:4;H3.18;70;381
-"${formattedBarcode}"
+"${barcodeValue}"
 STOP
 ALPHA
 INV;POINT;39;501;7;7;"${itemCode}"
@@ -219,16 +219,6 @@ const generateLS000443DiamondPrn = (item) => {
     rawEpcHex = rawEpcHex.padStart(24, "0");
   } else if (rawEpcHex.length > 24) {
     rawEpcHex = rawEpcHex.substring(0, 24);
-  }
-
-  // Format barcode: & prefix + apostrophe after 3rd char from end (e.g., SRSBR-30164 -> &SRSBR-3'0164)
-  let formattedBarcode = barcodeValue;
-  if (barcodeValue.length > 3) {
-    const prefix = barcodeValue.substring(0, barcodeValue.length - 3);
-    const suffix = barcodeValue.substring(barcodeValue.length - 3);
-    formattedBarcode = `&${prefix}'${suffix}`;
-  } else {
-    formattedBarcode = `&${barcodeValue}`;
   }
 
   const isGrossWtVisible = parseFloat(grossWt) > 0;
@@ -266,16 +256,16 @@ ALPHA
 ${isGrossWtVisible ? `INV;POINT;237;515;8;7;"G.Wt :"\nINV;POINT;240;458;7;7;"${grossWt}"` : ''}
 ${isDWtVisible ? `INV;POINT;219;515;7;7;"D.Wt :"\nINV;POINT;220;456;7;7;"${dWt}"` : ''}
 ${isOWtVisible ? `INV;POINT;199;515;7;7;"O.Wt :"\nINV;POINT;199;455;7;7;"${oWt}"` : ''}
-INV;POINT;177;515;7;7;"${itemCode}"
+INV;POINT;177;515;7;7;"${vendorName}"
 INV;POINT;157;536;6;6;"${description}"
 INV;POINT;117;531;7;7;"LJ"
 INV;POINT;117;489;7;7;"${mrp}"
 INV;POINT;94;531;7;7;"${purityName}"
-INV;POINT;71;531;7;7;"${barcodeValue}"
+INV;POINT;71;531;7;7;"${itemCode}"
 STOP
 BARCODE
 C128B;INV;XRD1:1:2:2:3:3:4:4;H3.9;36;380
-"${formattedBarcode}"
+"${barcodeValue}"
 STOP
 ALPHA
 INV;POINT;192;306;7;7;"LASHEEN JEWELLERY"
@@ -347,7 +337,7 @@ INV;POINT;218;538;7;7;"${purityName}"
 STOP
 BARCODE
 C128B;INV;XRD1:1:2:2:3:3:4:4;H3.17;81;390
-"${formattedBarcode}"
+"${barcodeValue}"
 STOP
 ALPHA
 INV;POINT;48;511;7;7;"${itemCode}"

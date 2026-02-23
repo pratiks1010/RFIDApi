@@ -257,6 +257,11 @@ const Header = () => {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userInfo');
+    localStorage.removeItem('permissions');
+    localStorage.removeItem('roleType');
+    localStorage.removeItem('isSubUser');
+    localStorage.removeItem('allowedBranchIds');
+    localStorage.removeItem('hasAllBranchAccess');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
     sessionStorage.clear();

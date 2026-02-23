@@ -132,42 +132,51 @@ END
 const generateLS000443GoldPrn = (item) => {
   const itemCode = item.ItemCode || '';
   const barcodeValue = item.BarcodeValue || item.Barcode || itemCode;
+  const description = item.Description || '18K GOLD JEWELLERY';
   const grossWt = item.GrossWt || item.GrossWeight || '0.61';
-  const epcHex = toHex(barcodeValue);
+  let rawEpcHex = stringToHex(barcodeValue);
+  // Pad to 20 characters (80 bits) for EPC
+  rawEpcHex = rawEpcHex.padStart(20, '0');
   
   return `!PTX_SETUP
-ENGINE-WIDTH;2794:LENGTH;1301:MIRROR;0.
+ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
 PTX_END
 ~PAPER;ROTATE 0
 ~CONFIG
 UPC DESCENDERS;0
 END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
 ~CONFIG
 CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
 END
-~CREATE;FORM-0;93
+~CREATE;FORM-0;99
 SCALE;DOT;203;203
 ISET;'UTF8'
 RFWTAG;16;PC
 16;H;*2C00*
 STOP
 RFWTAG;80;EPC
-80;H;*${epcHex}*
+80;H;*${rawEpcHex}*
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
-INV;POINT;219;537;7;7;"G.Wt :"
-INV;POINT;219;476;7;7;"${grossWt}"
-INV;POINT;196;524;7;7;"MK :"
-INV;POINT;128;537;7;7;"${itemCode}"
+INV;POINT;187;543;7;8;"G.Wt :"
+INV;POINT;187;473;7;7;"${grossWt}"
+INV;POINT;216;543;7;7;"${description}"
 STOP
 BARCODE
-C128B;INV;XRD1:1:2:2:3:3:4:4;H3.9;90;427
-"&${itemCode}"
+C128B;INV;XRD1:1:2:2:3:3:4:4;H3.18;70;381
+"${barcodeValue}"
 STOP
 ALPHA
-INV;POINT;68;537;7;7;"18K GOLD JEWELLERY"
-INV;POINT;217;304;7;7;"LASHEEN JEWELLERY"
+INV;POINT;39;501;7;7;"${itemCode}"
+INV;POINT;183;316;7;7;"LASHEEN JEWELLERY"
 STOP
 END
 ~EXECUTE;FORM-0;1
@@ -202,48 +211,68 @@ const generateLS000443DiamondPrn = (item) => {
   const pcDecimal = epcWords << 11
   const pcValue = "*"+pcDecimal.toString(16).toUpperCase().padStart(4, "0")+"*";
 
-  // const { epcBits, pcValue, epcHex } = calculateEpcMemory(rawEpcHex);
-  const barcodeStr = barcodeValue;
+  // Pad to 24 characters (96 bits) for EPC
+  rawEpcHex = rawEpcHex.padStart(24, '0');
+  
+  // Format barcode: & prefix + apostrophe after 7th char (e.g., SRSBR-30164 -> &SRSBR-3'0164)
+  // For shorter codes, use after 3rd char
+  let formattedBarcode = barcodeValue;
+  if (barcodeValue.length > 7) {
+    formattedBarcode = `&${barcodeValue.substring(0, 7)}'${barcodeValue.substring(7)}`;
+  } else if (barcodeValue.length > 3) {
+    formattedBarcode = `&${barcodeValue.substring(0, 3)}'${barcodeValue.substring(3)}`;
+  } else {
+    formattedBarcode = `&${barcodeValue}`;
+  }
 
   const isGrossWtVisible = parseFloat(grossWt) > 0;
   const isDWtVisible = parseFloat(dWt) > 0;
   const isOWtVisible = parseFloat(oWt) > 0;
   
   return `!PTX_SETUP
-ENGINE-WIDTH;2794:LENGTH;1301:MIRROR;0.
+ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
 PTX_END
 ~PAPER;ROTATE 0
 ~CONFIG
 UPC DESCENDERS;0
 END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
 ~CONFIG
 CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
 END
-~CREATE;FORM-0;93
+~CREATE;FORM-0;99
 SCALE;DOT;203;203
 ISET;'UTF8'
 RFWTAG;16;PC
-16;H;${pcValue}
+16;H;*3400*
 STOP
-RFWTAG;${epcBits};EPC
-${epcBits};H;*${rawEpcHex}*
+RFWTAG;96;EPC
+96;H;*${rawEpcHex}*
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
-${isGrossWtVisible ? `INV;POINT;238;541;6;6;"G.Wt :"\nINV;POINT;238;464;6;6;"${grossWt}"` : ''}
-INV;POINT;178;541;6;6;"${purityName}"
-INV;POINT;75;541;6;6;"${itemCode}"
-INV;POINT;99;541;6;6;"${description}"
-INV;POINT;200;290;6;6;"LASHEEN JEWELLERY"
-${isDWtVisible ? `INV;POINT;218;541;6;6;"D.Wt :"\nINV;POINT;218;465;6;6;"${dWt}"` : ''}
-${isOWtVisible ? `INV;POINT;198;541;6;6;"O.Wt :"\nINV;POINT;198;465;6;6;"${oWt}"` : ''}
-INV;POINT;157;542;6;6;"${vendorName}"
-INV;POINT;116;541;6;6;"LJ"
-INV;POINT;115;508;6;6;"${mrp}"
+${isGrossWtVisible ? `INV;POINT;221;515;8;7;"G.Wt :"\nINV;POINT;224;458;7;7;"${grossWt}"` : ''}
+${isDWtVisible ? `INV;POINT;203;515;7;7;"D.Wt :"\nINV;POINT;204;456;7;7;"${dWt}"` : ''}
+${isOWtVisible ? `INV;POINT;183;515;7;7;"O.Wt :"\nINV;POINT;183;455;7;7;"${oWt}"` : ''}
+INV;POINT;161;515;7;7;"${itemCode}"
+INV;POINT;141;536;6;6;"${description}"
+INV;POINT;101;531;7;7;"LJ"
+INV;POINT;102;489;7;7;"${mrp}"
+INV;POINT;78;531;7;7;"${vendorName}"
+INV;POINT;55;531;7;7;"${barcodeValue}"
 STOP
 BARCODE
-C128B;INV;XRD1:1:2:2:3:3:4:4;H3.1;44;398
-"${barcodeStr}"
+C128B;INV;XRD1:1:2:2:3:3:4:4;H3.9;20;380
+"${formattedBarcode}"
+STOP
+ALPHA
+INV;POINT;180;306;7;7;"LASHEEN JEWELLERY"
 STOP
 END
 ~EXECUTE;FORM-0;1
@@ -257,48 +286,51 @@ END
 const generateLS000443SilverPrn = (item) => {
   const itemCode = item.ItemCode || '';
   const barcodeValue = item.BarcodeValue || item.Barcode || itemCode;
-  const purityName = item.PurityName || item.Purity || '';
+  const description = item.Description || 'SILVER JEWELLERY';
   const grossWt = item.GrossWt || item.GrossWeight || '0';
-  const rawEpcHex = toHex(itemCode);
-  const { epcBits, pcValue, epcHex } = calculateEpcMemory(rawEpcHex);
-  
-  // Format barcode: insert ' after first 3 characters (e.g., SLR25000333 -> SLR'25000333)
-  let formattedBarcode = barcodeValue;
-  if (barcodeValue.length > 3) {
-    formattedBarcode = barcodeValue.substring(0, 3) + "'" + barcodeValue.substring(3);
-  }
+  let rawEpcHex = toHex(itemCode);
+  // Pad to 24 characters (96 bits) for EPC
+  rawEpcHex = rawEpcHex.padStart(24, '0');
   
   return `!PTX_SETUP
-ENGINE-WIDTH;2794:LENGTH;1301:MIRROR;0.
+ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
 PTX_END
 ~PAPER;ROTATE 0
 ~CONFIG
 UPC DESCENDERS;0
 END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
 ~CONFIG
 CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
 END
-~CREATE;FORM-0;93
+~CREATE;FORM-0;99
 SCALE;DOT;203;203
 ISET;'UTF8'
 RFWTAG;16;PC
-16;H;${pcValue}
+16;H;*3400*
 STOP
-RFWTAG;${epcBits};EPC
-${epcBits};H;*${epcHex}*
+RFWTAG;96;EPC
+96;H;*${rawEpcHex}*
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
-INV;POINT;219;537;7;7;"G.Wt :"
-INV;POINT;219;476;7;7;"${grossWt}"
-INV;POINT;196;524;7;7;"MK :"
-INV;POINT;93;537;7;7;"${itemCode}"
-INV;POINT;68;537;7;7;"${purityName}"
-INV;POINT;217;304;7;7;"LASHEEN JEWELLERY"
+INV;POINT;192;538;7;8;"GWt :"
+INV;POINT;192;472;7;7;"${grossWt}"
+INV;POINT;218;538;7;7;"${description}"
 STOP
 BARCODE
-C128B;INV;XRD1:1:2:2:3:3:4:4;H3.9;118;394
-"${formattedBarcode}"
+C128B;INV;XRD1:1:2:2:3:3:4:4;H3.17;81;390
+"${barcodeValue}"
+STOP
+ALPHA
+INV;POINT;48;511;7;7;"${itemCode}"
+INV;POINT;184;323;7;7;"LASHEEN JEWELLERY"
 STOP
 END
 ~EXECUTE;FORM-0;1

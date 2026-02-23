@@ -42,6 +42,7 @@ import ThirdPartySoftwareIntegration from './components/ThirdPartySoftwareIntegr
 import DownloadApiDoc from './components/DownloadApiDoc';
 import DownloadResources from './components/DownloadResources';
 import ProfileMenuPage from './components/ProfileMenuPage';
+import UserProfile from './components/UserProfile';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
 import './styles/rtl.css';
@@ -51,6 +52,9 @@ import ZohoLoader from './components/common/Loader';
 import { NotificationProvider } from './context/NotificationContext';
 import { TranslationProvider } from './context/TranslationContext';
 import WelcomeModal from './components/common/WelcomeModal';
+import { Provider } from 'react-redux';
+import { store } from './store/store';
+import AuthInitializer from './components/common/AuthInitializer';
 import './i18n';
 
 // Global loading context
@@ -95,6 +99,11 @@ const useAuthProtection = () => {
           if (!isAuth) {
             localStorage.removeItem('token');
             localStorage.removeItem('userInfo');
+            localStorage.removeItem('permissions');
+            localStorage.removeItem('roleType');
+            localStorage.removeItem('isSubUser');
+            localStorage.removeItem('allowedBranchIds');
+            localStorage.removeItem('hasAllBranchAccess');
             localStorage.removeItem('lastLoginTime');
           }
         } else {
@@ -104,6 +113,11 @@ const useAuthProtection = () => {
         // Invalid token format, clear storage
         localStorage.removeItem('token');
         localStorage.removeItem('userInfo');
+        localStorage.removeItem('permissions');
+        localStorage.removeItem('roleType');
+        localStorage.removeItem('isSubUser');
+        localStorage.removeItem('allowedBranchIds');
+        localStorage.removeItem('hasAllBranchAccess');
         localStorage.removeItem('lastLoginTime');
         isAuth = false;
       }
@@ -186,7 +200,7 @@ const useAuthProtection = () => {
     }
 
     // If admin is authenticated but tries to access user routes
-    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'].includes(currentPath)) {
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/profile'].includes(currentPath)) {
       navigate('/admin-dashboard', { replace: true });
     }
   }, [location.pathname, navigate]);
@@ -257,6 +271,11 @@ const isAuthenticated = () => {
       if (!isValid) {
         localStorage.removeItem('token');
         localStorage.removeItem('userInfo');
+        localStorage.removeItem('permissions');
+        localStorage.removeItem('roleType');
+        localStorage.removeItem('isSubUser');
+        localStorage.removeItem('allowedBranchIds');
+        localStorage.removeItem('hasAllBranchAccess');
         localStorage.removeItem('lastLoginTime');
       }
 
@@ -268,6 +287,11 @@ const isAuthenticated = () => {
     // Invalid token format, clear storage
     localStorage.removeItem('token');
     localStorage.removeItem('userInfo');
+    localStorage.removeItem('permissions');
+    localStorage.removeItem('roleType');
+    localStorage.removeItem('isSubUser');
+    localStorage.removeItem('allowedBranchIds');
+    localStorage.removeItem('hasAllBranchAccess');
     localStorage.removeItem('lastLoginTime');
     return false;
   }
@@ -332,6 +356,11 @@ const useSessionTimeout = () => {
     // Clear all authentication data
     localStorage.removeItem('token');
     localStorage.removeItem('userInfo');
+    localStorage.removeItem('permissions');
+    localStorage.removeItem('roleType');
+    localStorage.removeItem('isSubUser');
+    localStorage.removeItem('allowedBranchIds');
+    localStorage.removeItem('hasAllBranchAccess');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
     localStorage.removeItem('adminToken');
@@ -411,7 +440,7 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'];
+      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/profile'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -629,6 +658,16 @@ const RoutesWrapper = () => {
             }
           />
           <Route
+            path="/profile"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <UserProfile />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/create-label"
             element={
               <AuthGuard>
@@ -822,10 +861,12 @@ function App() {
   }, []);
 
   return (
-    <TranslationProvider>
-      <NotificationProvider>
-        <LoadingProvider>
-          <Router>
+    <Provider store={store}>
+      <TranslationProvider>
+        <NotificationProvider>
+          <LoadingProvider>
+            <AuthInitializer>
+              <Router>
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             <div style={{
               minHeight: '100vh',
@@ -909,10 +950,12 @@ function App() {
               theme="light"
               className="smooth-scroll"
             />
-          </Router>
-        </LoadingProvider>
-      </NotificationProvider>
-    </TranslationProvider>
+              </Router>
+            </AuthInitializer>
+          </LoadingProvider>
+        </NotificationProvider>
+      </TranslationProvider>
+    </Provider>
   );
 }
 

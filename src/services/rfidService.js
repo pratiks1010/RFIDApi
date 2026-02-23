@@ -1,8 +1,68 @@
 import axios from 'axios';
+import { userManagementService } from './userManagementService';
+import { 
+  getCurrentUserId, 
+  getUserIdFromToken, 
+  clearAuthData, 
+  logoutCurrentUser,
+  decodeToken 
+} from '../utils/tokenUtils';
 
 const BASE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster';
 const RRGOLD_PRODUCT_URL = 'https://rrgold.loyalstring.co.in/api/ProductMaster';
 const DEVICE_URL = 'https://rrgold.loyalstring.co.in/api/RFIDDevice';
+
+/**
+ * Handle Security Stamp updated - logout only the affected user
+ * Best practice: Only logout the user whose SecurityStamp was updated
+ * @param {Object} responseData - Response data from API
+ * @param {Object} requestConfig - Request configuration
+ */
+const handleSecurityStampUpdated = async (responseData = null, requestConfig = null) => {
+  try {
+    // Step 1: Check if this is a ForceLogout request
+    const requestUrl = requestConfig?.url || requestConfig?.baseURL || '';
+    const fullUrl = typeof requestUrl === 'string' ? requestUrl : (requestConfig?.url || '');
+    const isForceLogoutRequest = fullUrl.includes('/ForceLogout') || 
+                                 fullUrl.toLowerCase().includes('forcelogout');
+    
+    if (isForceLogoutRequest) {
+      console.log('[SecurityStamp] Message from ForceLogout request - ignoring (expected behavior)');
+      return; // Don't logout anyone - the ForceLogout API already handled the target user
+    }
+    
+    // Step 2: Get current user's UserId from token
+    const currentUserId = getCurrentUserId();
+    if (!currentUserId) {
+      console.warn('[SecurityStamp] No current user ID found in token');
+      logoutCurrentUser('security_stamp_unknown_user');
+      return;
+    }
+    
+    // Step 3: Extract target UserId from response if available
+    let targetUserId = null;
+    if (responseData) {
+      targetUserId = responseData.UserId || 
+                    responseData.userId || 
+                    responseData.UserID ||
+                    responseData.user_id;
+    }
+    
+    // Step 4: Compare UserIds
+    if (targetUserId && targetUserId !== currentUserId) {
+      console.log(`[SecurityStamp] Update is for user ${targetUserId}, current user is ${currentUserId} - NOT logging out current user`);
+      return; // Don't logout current user if message is about a different user
+    }
+    
+    // Step 5: Logout current user
+    console.log(`[SecurityStamp] Update is for current user (${currentUserId}) - logging out`);
+    logoutCurrentUser('security_stamp_updated');
+    
+  } catch (error) {
+    console.error('[SecurityStamp] Error handling security stamp update:', error);
+    logoutCurrentUser('security_stamp_error');
+  }
+};
 
 // Request interceptor for API calls
 axios.interceptors.request.use(
@@ -22,19 +82,63 @@ axios.interceptors.request.use(
 
 // Response interceptor for API calls
 axios.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Check response message for Security Stamp updated
+    const message = response.data?.Message || response.data?.message;
+    if (message && typeof message === 'string' && 
+        message.toLowerCase().includes('security stamp') && 
+        message.toLowerCase().includes('forced to logout')) {
+      // Handle security stamp update asynchronously (don't block response)
+      // Pass response data and request config to extract UserId and check if it's a ForceLogout request
+      handleSecurityStampUpdated(response.data, response.config);
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
     
+    // Check for 401 Unauthorized - this could be due to SecurityStamp mismatch
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      // Clear auth data
-      localStorage.removeItem('token');
-      localStorage.removeItem('userInfo');
-      // Redirect to login with session expired flag
-      window.location.href = '/login?session_expired=true';
+      
+      const errorMessage = error.response?.data?.Message || error.response?.data?.message || '';
+      const errorString = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : '';
+      
+      // Check if it's a Security Stamp related error
+      const isSecurityStampError = errorString.includes('security stamp') || 
+                                  errorString.includes('forced to logout') ||
+                                  (errorString.includes('token') && errorString.includes('invalid'));
+      
+      if (isSecurityStampError) {
+        // Handle security stamp update
+        await handleSecurityStampUpdated(error.response?.data, error.config);
+        return Promise.reject(error);
+      }
+      
+      // Regular 401 - token expired or invalid
+      // Only logout if it's not a ForceLogout request
+      const requestUrl = error.config?.url || '';
+      const isForceLogoutRequest = requestUrl.includes('/ForceLogout') || 
+                                   requestUrl.toLowerCase().includes('forcelogout');
+      
+      if (!isForceLogoutRequest) {
+        console.log('[Auth] 401 Unauthorized - logging out current user');
+        logoutCurrentUser('unauthorized');
+      }
+      
       return Promise.reject(error);
     }
+    
+    // Check error message for Security Stamp updated (non-401 errors)
+    const errorMessage = error.response?.data?.Message || error.response?.data?.message;
+    if (errorMessage && typeof errorMessage === 'string' && 
+        errorMessage.toLowerCase().includes('security stamp') && 
+        errorMessage.toLowerCase().includes('forced to logout')) {
+      // Handle security stamp update
+      await handleSecurityStampUpdated(error.response?.data, error.config);
+      return Promise.reject(error);
+    }
+    
     return Promise.reject(error);
   }
 );

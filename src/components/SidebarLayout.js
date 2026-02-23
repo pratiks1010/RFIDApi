@@ -29,6 +29,7 @@ import {
   FaClipboardList,
   FaChartPie,
   FaThLarge,
+  FaCog,
 } from 'react-icons/fa';
 import {
   HiDocumentText,
@@ -39,12 +40,19 @@ import {
 } from 'react-icons/hi';
 import { useNotifications } from '../context/NotificationContext';
 import { useTranslation } from '../hooks/useTranslation';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { logout as logoutAction } from '../store/slices/authSlice';
+import { clearAuthData } from '../utils/tokenUtils';
 import axios from 'axios';
 const SidebarLayout = ({ children }) => {
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
   const { notifications, addNotification } = useNotifications();
+  
+  // Get permissions from Redux store
+  const { permissions, isSuperAdmin, isSubUser } = useAppSelector((state) => state.auth);
 
   // State - sidebar open/closed and collapsed (icon-only) on desktop
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -67,38 +75,60 @@ const SidebarLayout = ({ children }) => {
 
   // Section 0: Quick Access
   const navigationProfile = [
-    { path: '/profile-menu', icon: FaThLarge, label: 'All Apps & Resources', color: '#6366f1' }
+    { path: '/profile-menu', icon: FaThLarge, label: 'All Apps & Resources', color: '#6366f1', isProfile: true },
+    { path: '/settings', icon: FaCog, label: 'Settings', color: '#475569', isProfile: true },
+    { path: '/profile', icon: FaUserCircle, label: 'Profile', color: '#0ea5e9', isProfile: true }
   ];
+
+  // Helper function to check if user has permission
+  const hasPermission = (requiredPermission) => {
+    if (isSuperAdmin) return true;
+    if (!requiredPermission) return true; // No permission required
+    return permissions?.[requiredPermission] === true;
+  };
+
+  // Helper function to filter menu items based on permissions
+  const filterMenuItems = (items) => {
+    return items.filter(item => {
+      if (!item.requiredPermission) return true; // No permission required
+      return hasPermission(item.requiredPermission);
+    });
+  };
 
   // Navigation items – icons matched to menu names, distinct colors
   // Section 1: Inventory Management
   const inventorySession = [
-    { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
-    { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management' },
-    { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
-    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management' },
-    { path: '/create-label', icon: FaPaintBrush, label: 'Design Label', color: '#0891b2', section: 'Inventory Management' },
-    { path: '/rfid-label', icon: FaPrint, label: 'Create PRN Label', color: '#7c3aed', section: 'Inventory Management' },
+    { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management', requiredPermission: 'CanViewStock' },
+    { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management', requiredPermission: 'CanAddStock' },
+    { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management', requiredPermission: 'CanViewStock' },
+    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management', requiredPermission: 'CanViewStock' },
+    { path: '/create-label', icon: FaPaintBrush, label: 'Design Label', color: '#0891b2', section: 'Inventory Management', requiredPermission: 'CanViewStock' },
+    { path: '/rfid-label', icon: FaPrint, label: 'Create PRN Label', color: '#7c3aed', section: 'Inventory Management', requiredPermission: 'CanViewStock' },
   ];
 
   // Section 2: Transaction
   const navigationSection2 = [
-    { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#be185d' },
-    { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#15803d' },
-    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#0d9488' },
-    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#b91c1c' },
-    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#c2410c' },
-    { path: '/order-list', icon: FaClipboardList, label: 'Order List', color: '#6d28d9' },
-    { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490' },
+    { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#be185d', requiredPermission: 'CanViewStock' },
+    { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#15803d', requiredPermission: 'CanViewStock' },
+    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#0d9488', requiredPermission: 'CanAddStock' },
+    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#b91c1c', requiredPermission: 'CanViewStock' },
+    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#c2410c', requiredPermission: 'CanEditStock' },
+    { path: '/order-list', icon: FaClipboardList, label: 'Order List', color: '#6d28d9', requiredPermission: 'CanViewStock' },
+    { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490', requiredPermission: 'CanViewReports' },
   ];
 
   // Section 3: RFID Tags Management
   const navigationSection3 = [
-    { path: '/rfid-devices', icon: FaBarcode, label: 'Scan to Desktop', color: '#a21caf' },
-    { path: '/upload-rfid', icon: FaFileUpload, label: 'RFID Tags Sheet Upload', color: '#4f46e5' },
-    { path: '/rfid-tags', icon: FaTags, label: 'RFID Tag List', color: '#b91c1c' },
-    { path: '/tag-usage', icon: FaChartPie, label: 'RFID Tags Usage', color: '#0e7490' },
+    { path: '/rfid-devices', icon: FaBarcode, label: 'Scan to Desktop', color: '#a21caf', requiredPermission: 'CanViewStock' },
+    { path: '/upload-rfid', icon: FaFileUpload, label: 'RFID Tags Sheet Upload', color: '#4f46e5', requiredPermission: 'CanAddStock' },
+    { path: '/rfid-tags', icon: FaTags, label: 'RFID Tag List', color: '#b91c1c', requiredPermission: 'CanViewStock' },
+    { path: '/tag-usage', icon: FaChartPie, label: 'RFID Tags Usage', color: '#0e7490', requiredPermission: 'CanViewStock' },
   ];
+
+  // Filter menu items based on permissions
+  const filteredInventorySession = filterMenuItems(inventorySession);
+  const filteredNavigationSection2 = filterMenuItems(navigationSection2);
+  const filteredNavigationSection3 = filterMenuItems(navigationSection3);
 
   const clientCode = userInfo.ClientCode || userInfo.clientcode || userInfo.clientCode || 'N/A';
   const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
@@ -225,11 +255,12 @@ const SidebarLayout = ({ children }) => {
   }, [toggleFullscreen]);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userInfo');
-    localStorage.removeItem('lastLoginTime');
-    localStorage.removeItem('showWelcomeToast');
-    sessionStorage.clear();
+    // Clear Redux state
+    dispatch(logoutAction());
+    
+    // Use centralized logout utility (best practice)
+    clearAuthData();
+    
     navigate('/login', { replace: true });
   };
 
@@ -450,7 +481,7 @@ const SidebarLayout = ({ children }) => {
               };
 
               const renderMenuItem = (item) => {
-                const { path, icon: Icon, label, color, comingSoon } = item;
+                const { path, icon: Icon, label, color, comingSoon, isProfile } = item;
                 const isActive = location.pathname === path;
 
                 if (comingSoon) {
@@ -538,35 +569,47 @@ const SidebarLayout = ({ children }) => {
                       gap: sidebarCollapsed ? '0' : '6px',
                       padding: sidebarCollapsed ? '4px 4px' : '1px 6px',
                       margin: sidebarCollapsed ? '1px 4px' : '0 6px',
-                      borderRadius: '6px',
+                      marginTop: isProfile ? '4px' : (sidebarCollapsed ? '1px' : '0'),
+                      marginBottom: isProfile ? '4px' : '0',
+                      borderRadius: isProfile ? '8px' : '6px',
                         textDecoration: 'none',
                         color: '#1e293b',
                         background: isActive
                         ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)`
-                        : 'transparent',
+                        : (isProfile ? '#f8fafc' : 'transparent'),
                       fontWeight: isActive ? 600 : 500,
-                      fontSize: '10px',
+                      fontSize: isProfile ? '11px' : '10px',
                       lineHeight: '1.25',
                       transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
-                      border: isActive ? `1px solid ${color}40` : `1px solid transparent`,
-                      boxShadow: isActive ? `0 1px 3px ${color}20` : 'none'
+                      border: isActive 
+                        ? `1px solid ${color}40` 
+                        : (isProfile ? '1px solid #e2e8f0' : '1px solid transparent'),
+                      boxShadow: isActive 
+                        ? `0 1px 3px ${color}20` 
+                        : (isProfile && !isActive ? '0 1px 2px rgba(0,0,0,0.05)' : 'none')
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.background = `linear-gradient(135deg, ${color}12 0%, ${color}06 100%)`;
-                        e.currentTarget.style.borderColor = `${color}40`;
+                        if (isProfile) {
+                          e.currentTarget.style.background = '#f1f5f9';
+                          e.currentTarget.style.borderColor = '#cbd5e1';
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.06)';
+                        } else {
+                          e.currentTarget.style.background = `linear-gradient(135deg, ${color}12 0%, ${color}06 100%)`;
+                          e.currentTarget.style.borderColor = `${color}40`;
+                          e.currentTarget.style.boxShadow = `0 1px 4px ${color}15`;
+                        }
                         e.currentTarget.style.transform = 'translateX(4px)';
-                        e.currentTarget.style.boxShadow = `0 1px 4px ${color}15`;
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.borderColor = 'transparent';
+                        e.currentTarget.style.background = isProfile ? '#f8fafc' : 'transparent';
+                        e.currentTarget.style.borderColor = isProfile ? '#e2e8f0' : 'transparent';
                         e.currentTarget.style.transform = 'translateX(0)';
-                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.boxShadow = isProfile ? '0 1px 2px rgba(0,0,0,0.05)' : 'none';
                       }
                     }}
                     title={sidebarCollapsed ? label : ''}
@@ -617,11 +660,15 @@ const SidebarLayout = ({ children }) => {
               return (
                 <>
                   {/* Section 1: Inventory Management */}
-                  {renderSectionHeader('Inventory Management', ['#10b981', '#10b981'])}
-                  {inventorySession.map(renderMenuItem)}
+                  {filteredInventorySession.length > 0 && (
+                    <>
+                      {renderSectionHeader('Inventory Management', ['#10b981', '#10b981'])}
+                      {filteredInventorySession.map(renderMenuItem)}
+                    </>
+                  )}
 
                   {/* Separator */}
-                  {!sidebarCollapsed && (
+                  {!sidebarCollapsed && (filteredInventorySession.length > 0 && (filteredNavigationSection2.length > 0 || filteredNavigationSection3.length > 0)) && (
                     <div style={{
                       height: '1px',
                       background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
@@ -631,11 +678,15 @@ const SidebarLayout = ({ children }) => {
                   )}
 
                   {/* Section 2: Transaction */}
-                  {renderSectionHeader('Transaction', ['#f97316', '#f97316'])}
-                  {navigationSection2.map(renderMenuItem)}
+                  {filteredNavigationSection2.length > 0 && (
+                    <>
+                      {renderSectionHeader('Transaction', ['#f97316', '#f97316'])}
+                      {filteredNavigationSection2.map(renderMenuItem)}
+                    </>
+                  )}
 
                   {/* Separator */}
-                  {!sidebarCollapsed && (
+                  {!sidebarCollapsed && (filteredNavigationSection2.length > 0 && filteredNavigationSection3.length > 0) && (
                     <div style={{
                       height: '1px',
                       background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
@@ -645,8 +696,12 @@ const SidebarLayout = ({ children }) => {
                   )}
 
                   {/* Section 3: RFID Tags Management */}
-                  {renderSectionHeader('RFID Tags Management', ['#ef4444', '#ef4444'])}
-                  {navigationSection3.map(renderMenuItem)}
+                  {filteredNavigationSection3.length > 0 && (
+                    <>
+                      {renderSectionHeader('RFID Tags Management', ['#ef4444', '#ef4444'])}
+                      {filteredNavigationSection3.map(renderMenuItem)}
+                    </>
+                  )}
 
                   {/* Separator */}
                   {!sidebarCollapsed && (
@@ -675,9 +730,13 @@ const SidebarLayout = ({ children }) => {
                     </>
                   )}
 
-                  {/* Section 0: Quick Access - Moved to Bottom */}
-                  {renderSectionHeader('Main Menu', ['#6366f1', '#6366f1'])}
-                  {navigationProfile.map(renderMenuItem)}
+                  {/* Section 0: Quick Access - Moved to Bottom - Only for Super Admin */}
+                  {!isSubUser && (
+                    <>
+                      {renderSectionHeader('Main Menu', ['#6366f1', '#6366f1'])}
+                      {navigationProfile.map(renderMenuItem)}
+                    </>
+                  )}
 
                 </>
               );

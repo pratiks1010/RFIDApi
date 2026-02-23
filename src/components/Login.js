@@ -4,6 +4,9 @@ import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
+import { useAppDispatch } from '../store/hooks';
+import { setCredentials } from '../store/slices/authSlice';
+import { userManagementService } from '../services/userManagementService';
 
 const sliderData = [
   {
@@ -123,6 +126,7 @@ const infoSlides = [
 ];
 
 const Login = () => {
+  const dispatch = useAppDispatch();
   const [formData, setFormData] = useState({
     LoginName: '',
     Password: ''
@@ -178,7 +182,9 @@ const Login = () => {
         throw new Error('No token received from server');
       }
 
-      const token = response.data.Token;
+      // Extract all data from API response
+      const { Token, IsSubUser, RoleType, Permissions, AllowedBranchIds, HasAllBranchAccess } = response.data;
+      const token = Token;
       
       try {
         const base64Url = token.split('.')[1];
@@ -194,11 +200,61 @@ const Login = () => {
           throw new Error('Client code not found in token');
         }
 
+        // Store all authentication data in localStorage
         localStorage.setItem('token', token);
         localStorage.setItem('userInfo', JSON.stringify(userInfo));
+        localStorage.setItem('isSubUser', JSON.stringify(IsSubUser || false));
+        localStorage.setItem('roleType', JSON.stringify(RoleType || null));
+        localStorage.setItem('permissions', JSON.stringify(Permissions || {}));
+        localStorage.setItem('allowedBranchIds', JSON.stringify(AllowedBranchIds || null));
+        localStorage.setItem('hasAllBranchAccess', JSON.stringify(HasAllBranchAccess || false));
+        
         const loginTime = new Date().toLocaleString();
         localStorage.setItem('lastLoginTime', loginTime);
         localStorage.setItem('showWelcomeToast', 'true');
+
+        // Determine user permissions and role from API response
+        let permissions = Permissions || {
+          CanViewStock: false,
+          CanAddStock: false,
+          CanEditStock: false,
+          CanDeleteStock: false,
+          CanManageUsers: false,
+          CanViewReports: false,
+          CanExportData: false,
+          CanViewAllBranches: false,
+          CanManageBranches: false,
+        };
+        
+        // Ensure all permission fields are present
+        permissions = {
+          CanViewStock: permissions.CanViewStock || false,
+          CanAddStock: permissions.CanAddStock || false,
+          CanEditStock: permissions.CanEditStock || false,
+          CanDeleteStock: permissions.CanDeleteStock || false,
+          CanManageUsers: permissions.CanManageUsers || false,
+          CanViewReports: permissions.CanViewReports || false,
+          CanExportData: permissions.CanExportData || false,
+          CanViewAllBranches: permissions.CanViewAllBranches || false,
+          CanManageBranches: permissions.CanManageBranches || false,
+        };
+        
+        const roleType = RoleType || null;
+        const isSubUser = IsSubUser || false;
+        // Super Admin is determined by IsSubUser being false
+        const isSuperAdmin = !isSubUser;
+
+        // Store credentials in Redux with all data
+        dispatch(setCredentials({
+          user: userInfo,
+          token: token,
+          permissions: permissions,
+          roleType: roleType,
+          isSuperAdmin: isSuperAdmin,
+          isSubUser: isSubUser,
+          allowedBranchIds: AllowedBranchIds,
+          hasAllBranchAccess: HasAllBranchAccess || false,
+        }));
 
         window.dispatchEvent(new Event('rfid-welcome'));
 

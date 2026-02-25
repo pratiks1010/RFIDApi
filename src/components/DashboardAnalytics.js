@@ -23,7 +23,11 @@ import {
   FaArrowUp,
   FaArrowDown,
   FaEye,
-  FaTags
+  FaTags,
+  FaFilePdf,
+  FaWifi,
+  FaExclamationTriangle,
+  FaBan
 } from 'react-icons/fa';
 import { 
   Chart as ChartJS,
@@ -77,6 +81,8 @@ const DashboardAnalytics = () => {
   const [tagUsageLoading, setTagUsageLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [dummyTagUsage, setDummyTagUsage] = useState({ used: 350, unused: 180 });
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const itemsPerPage = 6;
   const { addNotification } = useNotifications();
 
@@ -94,9 +100,10 @@ const DashboardAnalytics = () => {
     return null;
   };
 
-  // Fetch analytics data
+  // Fetch analytics data from new GetAnalytics API
   const fetchAnalyticsData = async () => {
     try {
+      setAnalyticsLoading(true);
       setLoading(true);
       const clientCode = getClientCode();
       
@@ -104,37 +111,59 @@ const DashboardAnalytics = () => {
         throw new Error(t('analytics.errorLoadingData'));
       }
 
+      console.log('[Analytics] Fetching data from GetAnalytics API with ClientCode:', clientCode);
+
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllStockAndroid',
-        { ClientCode: clientCode }
+        'https://localhost:7095/api/Analytics/GetAnalytics',
+        { ClientCode: clientCode },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          timeout: 30000
+        }
       );
 
-      // Handle different response structures
-      let dataArray = [];
-      if (Array.isArray(response.data)) {
-        dataArray = response.data;
-      } else if (response.data && Array.isArray(response.data.data)) {
-        dataArray = response.data.data;
-      } else if (response.data && response.data.Result && Array.isArray(response.data.Result)) {
-        dataArray = response.data.Result;
-      } else if (response.data && typeof response.data === 'object') {
-        // If response is an object, try to extract array from common properties
-        dataArray = response.data.Stock || response.data.Items || response.data.Products || [];
-      }
+      console.log('[Analytics] GetAnalytics API Response:', response.data);
 
-      if (dataArray && dataArray.length > 0) {
-        setData(dataArray);
+      if (response.data) {
+        setAnalyticsData(response.data);
         setError(null);
+        console.log('[Analytics] Analytics data set:', response.data);
+        
+        // Also set legacy data format for backward compatibility
+        // Convert analytics data to array format for existing code
+        const dataArray = [];
+        if (response.data.CategoryAnalytics?.CategoryDetails) {
+          response.data.CategoryAnalytics.CategoryDetails.forEach(cat => {
+            const count = cat.ProductCount || cat.ActiveProductCount || 0;
+            for (let i = 0; i < count; i++) {
+              dataArray.push({
+                CategoryName: cat.CategoryName || cat.categoryName,
+                ProductName: cat.CategoryName || cat.categoryName,
+                Status: (cat.ActiveProductCount || 0) > 0 ? 'Active' : 'Inactive',
+                CounterName: 'Unassigned',
+                GrossWt: count > 0 ? (cat.TotalWeight || 0) / count : 0,
+                TodaysRate: 0
+              });
+            }
+          });
+        }
+        setData(dataArray);
       } else {
-        // If no data but response is successful, set empty array
+        setAnalyticsData(null);
         setData([]);
         setError(null);
       }
     } catch (err) {
-      console.error('Error fetching analytics data:', err);
+      console.error('[Analytics] Error fetching analytics data:', err);
       setError(err.message || t('analytics.errorLoadingData'));
-      toast.error(err.message || t('analytics.errorLoadingData'));
+      toast.error(err.response?.data?.message || err.message || t('analytics.errorLoadingData'));
+      setAnalyticsData(null);
+      setData([]);
     } finally {
+      setAnalyticsLoading(false);
       setLoading(false);
     }
   };
@@ -245,8 +274,54 @@ const DashboardAnalytics = () => {
     return categoryMatch;
   });
 
-  // Analytics calculations
+  // Analytics calculations - Updated to use new API data
   const getStatusDistribution = () => {
+    if (analyticsData?.ProductStatistics) {
+      const stats = analyticsData.ProductStatistics;
+      const statusCounts = {
+        'Active': stats.ActiveProducts || 0,
+        'Sold': stats.SoldProducts || 0,
+        'Inactive': stats.InactiveProducts || 0
+      };
+      const statusColors = {
+        'Active': '#0d9488',
+        'ApiActive': '#6366f1',
+        'Sold': '#dc2626',
+        'Inactive': '#64748b',
+        'Pending': '#ea580c',
+      };
+      const labels = Object.keys(statusCounts).filter(key => statusCounts[key] > 0);
+      return {
+        labels,
+        datasets: [{
+          label: t('analytics.itemsCount'),
+          data: labels.map(label => statusCounts[label]),
+          backgroundColor: labels.map(label => {
+            const color = statusColors[label] || '#3b82f6';
+            return color;
+          }),
+          borderColor: labels.map(label => statusColors[label] || '#3b82f6'),
+          borderWidth: 2,
+          borderRadius: {
+            topLeft: 8,
+            topRight: 8,
+            bottomLeft: 4,
+            bottomRight: 4
+          },
+          borderSkipped: false,
+          hoverBackgroundColor: labels.map(label => {
+            const color = statusColors[label] || '#0077d4';
+            return color === '#22c55e' ? '#16a34a' : 
+                   color === '#ef4444' ? '#dc2626' : 
+                   color === '#64748b' ? '#475569' : '#0066cc';
+          }),
+          hoverBorderWidth: 2,
+          hoverBorderColor: '#ffffff',
+        }]
+      };
+    }
+    
+    // Fallback to old method
     const statusCounts = filteredData.reduce((acc, item) => {
       acc[item.Status] = (acc[item.Status] || 0) + 1;
       return acc;
@@ -266,7 +341,6 @@ const DashboardAnalytics = () => {
         data: Object.values(statusCounts),
         backgroundColor: labels.map(label => {
           const color = statusColors[label] || '#3b82f6';
-          // Create gradient effect
           return color;
         }),
         borderColor: labels.map(label => statusColors[label] || '#3b82f6'),
@@ -299,6 +373,25 @@ const DashboardAnalytics = () => {
   ];
 
   const getCategoryDistribution = () => {
+    if (analyticsData?.CategoryAnalytics?.CategoryDetails) {
+      const categories = analyticsData.CategoryAnalytics.CategoryDetails.filter(cat => (cat.ProductCount || 0) > 0);
+      const labels = categories.map(cat => cat.CategoryName || cat.categoryName);
+      const data = categories.map(cat => cat.ProductCount || cat.productCount || 0);
+      return {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: labels.map((_, i) => categoryColorPalette[i % categoryColorPalette.length]),
+          borderColor: '#ffffff',
+          borderWidth: 2,
+          hoverOffset: 4,
+          hoverBorderWidth: 3,
+          hoverBorderColor: '#ffffff',
+        }]
+      };
+    }
+    
+    // Fallback to old method
     const categoryCounts = filteredData.reduce((acc, item) => {
       acc[item.CategoryName] = (acc[item.CategoryName] || 0) + 1;
       return acc;
@@ -319,10 +412,21 @@ const DashboardAnalytics = () => {
   };
 
   const getProductDistribution = () => {
-    const productCounts = filteredData.reduce((acc, item) => {
-      acc[item.ProductName] = (acc[item.ProductName] || 0) + 1;
-      return acc;
-    }, {});
+    let productCounts = {};
+    
+    // Use new API data if available (PascalCase)
+    if (analyticsData?.TopProductsAnalytics?.TopProducts) {
+      analyticsData.TopProductsAnalytics.TopProducts.forEach(product => {
+        const productName = product.ProductName || product.productName || 'Unknown';
+        productCounts[productName] = product.InventoryCount || product.productCount || product.count || 0;
+      });
+    } else {
+      // Fallback to old method
+      productCounts = filteredData.reduce((acc, item) => {
+        acc[item.ProductName] = (acc[item.ProductName] || 0) + 1;
+        return acc;
+      }, {});
+    }
 
     const sortedProducts = Object.entries(productCounts)
       .sort(([,a], [,b]) => b - a)
@@ -392,11 +496,22 @@ const DashboardAnalytics = () => {
   };
 
   const getCounterDistribution = () => {
-    const counterCounts = filteredData.reduce((acc, item) => {
-      const counterName = item.CounterName || item.Counter || 'Unassigned';
-      acc[counterName] = (acc[counterName] || 0) + 1;
-      return acc;
-    }, {});
+    let counterCounts = {};
+    
+    // Use new API data if available (PascalCase)
+    if (analyticsData?.CounterAnalytics?.CounterDetails) {
+      analyticsData.CounterAnalytics.CounterDetails.forEach(counter => {
+        const counterName = counter.CounterName || counter.counterName || 'Unassigned';
+        counterCounts[counterName] = counter.ProductCount || counter.productCount || counter.count || 0;
+      });
+    } else {
+      // Fallback to old method
+      counterCounts = filteredData.reduce((acc, item) => {
+        const counterName = item.CounterName || item.Counter || 'Unassigned';
+        acc[counterName] = (acc[counterName] || 0) + 1;
+        return acc;
+      }, {});
+    }
 
     const sortedCounters = Object.entries(counterCounts)
       .sort(([,a], [,b]) => b - a)
@@ -498,6 +613,41 @@ const DashboardAnalytics = () => {
   };
 
   const getBranchDistribution = () => {
+    if (analyticsData?.BranchAnalytics?.BranchDetails) {
+      const branches = analyticsData.BranchAnalytics.BranchDetails.filter(branch => (branch.ProductCount || 0) > 0);
+      const labels = branches.map(branch => branch.BranchName || branch.branchName || 'Unknown');
+      const data = branches.map(branch => branch.ProductCount || branch.productCount || 0);
+      return {
+        labels,
+        datasets: [{
+          label: t('analytics.itemsCount'),
+          data,
+          backgroundColor: labels.map((_, i) => branchColorPalette[i % branchColorPalette.length]),
+          borderColor: labels.map((_, i) => branchColorPalette[i % branchColorPalette.length]),
+          borderWidth: 1,
+          borderRadius: {
+            topLeft: 8,
+            topRight: 8,
+            bottomLeft: 4,
+            bottomRight: 4
+          },
+          borderSkipped: false,
+          hoverBackgroundColor: labels.map((_, i) => {
+            const color = branchColorPalette[i % branchColorPalette.length];
+            return color === '#2563eb' ? '#1d4ed8' : 
+                   color === '#16a34a' ? '#15803d' : 
+                   color === '#fbbf24' ? '#f59e0b' : 
+                   color === '#a21caf' ? '#86198f' : 
+                   color === '#f87171' ? '#ef4444' : 
+                   color === '#0ea5e9' ? '#0284c7' : color;
+          }),
+          hoverBorderWidth: 2,
+          hoverBorderColor: '#ffffff',
+        }]
+      };
+    }
+    
+    // Fallback to old method
     const branchCounts = filteredData.reduce((acc, item) => {
       acc[item.BranchName] = (acc[item.BranchName] || 0) + 1;
       return acc;
@@ -520,7 +670,6 @@ const DashboardAnalytics = () => {
         borderSkipped: false,
         hoverBackgroundColor: labels.map((_, i) => {
           const color = branchColorPalette[i % branchColorPalette.length];
-          // Darken the color for hover effect
           return color === '#2563eb' ? '#1d4ed8' : 
                  color === '#16a34a' ? '#15803d' : 
                  color === '#fbbf24' ? '#f59e0b' : 
@@ -591,13 +740,23 @@ const DashboardAnalytics = () => {
     };
   };
 
-  // Calculate summary statistics
-  const totalItems = filteredData.length;
-  const totalWeight = filteredData.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0);
+  // Calculate summary statistics - Updated to use new API data (PascalCase)
+  const totalItems = analyticsData?.OverallSummary?.TotalStockItems || 
+                     analyticsData?.ProductStatistics?.TotalProducts || 
+                     filteredData.length;
+  const totalWeight = analyticsData?.OverallSummary?.TotalGrossWeight ||
+                     analyticsData?.CategoryAnalytics?.TotalCategoryWeight || 
+                     filteredData.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0);
   const totalRfidNew = (tagUsageData && (tagUsageData.UnusedCount != null)) ? (tagUsageData.UnusedCount || 0) : 0;
-  const soldItems = filteredData.filter(item => item.Status === 'Sold').length;
-  const availableItems = filteredData.filter(item => item.Status !== 'Sold').length;
-  const uniqueCounters = [...new Set(filteredData.map(item => item.CounterName || item.Counter || 'Unassigned'))].length;
+  const soldItems = analyticsData?.OverallSummary?.TotalSoldStockItems ||
+                   analyticsData?.ProductStatistics?.SoldProducts || 
+                   filteredData.filter(item => item.Status === 'Sold').length;
+  const availableItems = analyticsData?.OverallSummary?.TotalActiveStockItems ||
+                         analyticsData?.ProductStatistics?.ActiveProducts || 
+                         filteredData.filter(item => item.Status !== 'Sold').length;
+  const uniqueCounters = analyticsData?.OverallSummary?.TotalCounters ||
+                        analyticsData?.CounterAnalytics?.CounterDetails?.length || 
+                        [...new Set(filteredData.map(item => item.CounterName || item.Counter || 'Unassigned'))].length;
 
   const chartOptions = {
     responsive: true,
@@ -978,8 +1137,33 @@ const DashboardAnalytics = () => {
     );
   };
 
-  // Category Performance Analysis function
+  // Category Performance Analysis function - Updated to use new API data (PascalCase)
   const getCategoryPerformanceAnalysis = () => {
+    if (analyticsData?.CategoryAnalytics?.CategoryDetails) {
+      return analyticsData.CategoryAnalytics.CategoryDetails
+        .filter(cat => (cat.ProductCount || 0) > 0)
+        .map(cat => {
+          const productCount = cat.ProductCount || 0;
+          const totalWeight = cat.TotalWeight || 0;
+          const soldCount = cat.SoldProductCount || 0;
+          const avgValue = productCount > 0 ? (totalWeight / productCount * 5000) : 0; // Estimate value
+          const conversionRate = productCount > 0 ? ((soldCount / productCount) * 100).toFixed(1) : 0;
+          
+          return {
+            category: cat.CategoryName || cat.categoryName || 'Unknown',
+            totalItems: productCount,
+            totalWeight: totalWeight.toFixed(2),
+            avgValue: `₹${Math.round(avgValue).toLocaleString()}`,
+            topProduct: cat.CategoryName || 'N/A',
+            activeCount: cat.ActiveProductCount || 0,
+            soldCount: soldCount,
+            trend: conversionRate,
+            trendClass: parseFloat(conversionRate) > 50 ? 'trend-high' : parseFloat(conversionRate) > 25 ? 'trend-medium' : 'trend-low'
+          };
+        }).sort((a, b) => b.totalItems - a.totalItems);
+    }
+    
+    // Fallback to old method
     const categoryAnalysis = {};
     
     filteredData.forEach(item => {
@@ -1516,14 +1700,322 @@ const DashboardAnalytics = () => {
   };
 
   if (error) {
+    const isNetworkError = error.toLowerCase().includes('network') || 
+                         error.toLowerCase().includes('connection') || 
+                         error.toLowerCase().includes('timeout') ||
+                         error.toLowerCase().includes('failed to fetch') ||
+                         error.toLowerCase().includes('err_network');
+    
     return (
-      <div className="analytics-error">
-        <div className="error-content">
-          <FaChartLine size={48} color="#ef4444" />
-          <p>{error}</p>
-          <button onClick={fetchAnalyticsData} className="retry-btn">
-            <FaSyncAlt /> Retry
+      <div className="analytics-error" style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%)',
+        padding: '20px',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Animated Background Elements */}
+        <div style={{
+          position: 'absolute',
+          top: '-50%',
+          left: '-50%',
+          width: '200%',
+          height: '200%',
+          background: 'radial-gradient(circle, rgba(239, 68, 68, 0.1) 0%, transparent 70%)',
+          animation: 'pulse 4s ease-in-out infinite',
+          pointerEvents: 'none'
+        }} />
+        <div style={{
+          position: 'absolute',
+          top: '20%',
+          right: '-10%',
+          width: '300px',
+          height: '300px',
+          background: 'radial-gradient(circle, rgba(239, 68, 68, 0.08) 0%, transparent 70%)',
+          borderRadius: '50%',
+          animation: 'float 6s ease-in-out infinite',
+          pointerEvents: 'none'
+        }} />
+        <div style={{
+          position: 'absolute',
+          bottom: '10%',
+          left: '-5%',
+          width: '250px',
+          height: '250px',
+          background: 'radial-gradient(circle, rgba(239, 68, 68, 0.06) 0%, transparent 70%)',
+          borderRadius: '50%',
+          animation: 'float 8s ease-in-out infinite reverse',
+          pointerEvents: 'none'
+        }} />
+
+        <div className="error-content" style={{
+          background: '#ffffff',
+          borderRadius: '24px',
+          padding: '48px 40px',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.12), 0 8px 24px rgba(239, 68, 68, 0.08)',
+          border: '1px solid rgba(239, 68, 68, 0.1)',
+          maxWidth: '520px',
+          width: '100%',
+          textAlign: 'center',
+          position: 'relative',
+          zIndex: 1,
+          animation: 'slideUp 0.5s ease-out',
+          transform: 'translateY(0)'
+        }}>
+          {/* Icon Container with Animation */}
+          <div style={{
+            position: 'relative',
+            marginBottom: '24px',
+            display: 'inline-block'
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '120px',
+              height: '120px',
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.05) 100%)',
+              borderRadius: '50%',
+              animation: 'pulse 2s ease-in-out infinite',
+              zIndex: 0
+            }} />
+            <div style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '80px',
+              height: '80px',
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.08) 100%)',
+              borderRadius: '50%',
+              animation: 'pulse 2s ease-in-out infinite 0.5s',
+              zIndex: 1
+            }} />
+            <div style={{
+              position: 'relative',
+              zIndex: 2,
+              width: '100px',
+              height: '100px',
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 24px rgba(239, 68, 68, 0.3)',
+              animation: 'bounce 2s ease-in-out infinite'
+            }}>
+              {isNetworkError ? (
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <FaWifi size={40} color="#ffffff" style={{ 
+                    animation: 'shake 0.5s ease-in-out infinite',
+                    opacity: 0.7
+                  }} />
+                  <FaBan 
+                    size={52} 
+                    color="#ffffff" 
+                    style={{ 
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      opacity: 0.9
+                    }} 
+                  />
+                </div>
+              ) : (
+                <FaExclamationTriangle size={48} color="#ffffff" />
+              )}
+            </div>
+          </div>
+
+          {/* Error Title */}
+          <h2 style={{
+            fontSize: '28px',
+            fontWeight: '700',
+            color: '#1e293b',
+            margin: '0 0 12px 0',
+            letterSpacing: '-0.5px'
+          }}>
+            {isNetworkError ? 'Connection Error' : 'Oops! Something Went Wrong'}
+          </h2>
+
+          {/* Error Message */}
+          <p style={{
+            fontSize: '16px',
+            color: '#64748b',
+            margin: '0 0 32px 0',
+            lineHeight: '1.6',
+            fontWeight: '400'
+          }}>
+            {error}
+          </p>
+
+          {/* Additional Help Text for Network Errors */}
+          {isNetworkError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '12px',
+              padding: '16px',
+              marginBottom: '32px',
+              textAlign: 'left'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px'
+              }}>
+                <FaWifi style={{
+                  color: '#ef4444',
+                  fontSize: '18px',
+                  marginTop: '2px',
+                  flexShrink: 0
+                }} />
+                <div>
+                  <p style={{
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#991b1b',
+                    margin: '0 0 8px 0'
+                  }}>
+                    Troubleshooting Tips:
+                  </p>
+                  <ul style={{
+                    margin: 0,
+                    paddingLeft: '20px',
+                    fontSize: '13px',
+                    color: '#7f1d1d',
+                    lineHeight: '1.8'
+                  }}>
+                    <li>Check your internet connection</li>
+                    <li>Verify the server is running</li>
+                    <li>Try refreshing the page</li>
+                    <li>Check firewall or VPN settings</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Retry Button */}
+          <button 
+            onClick={fetchAnalyticsData} 
+            className="retry-btn"
+            style={{
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              color: 'white',
+              border: 'none',
+              padding: '14px 32px',
+              borderRadius: '12px',
+              fontSize: '15px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '10px',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 6px 20px rgba(239, 68, 68, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)';
+            }}
+          >
+            <FaSyncAlt style={{ animation: 'spin 2s linear infinite' }} />
+            <span>Retry Connection</span>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: '-100%',
+              width: '100%',
+              height: '100%',
+              background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
+              animation: 'shimmer 2s infinite'
+            }} />
           </button>
+
+          {/* Animated Styles */}
+          <style>{`
+            @keyframes slideUp {
+              from {
+                opacity: 0;
+                transform: translateY(30px);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+            
+            @keyframes pulse {
+              0%, 100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+              }
+              50% {
+                opacity: 0.7;
+                transform: translate(-50%, -50%) scale(1.1);
+              }
+            }
+            
+            @keyframes bounce {
+              0%, 100% {
+                transform: translateY(0);
+              }
+              50% {
+                transform: translateY(-10px);
+              }
+            }
+            
+            @keyframes shake {
+              0%, 100% {
+                transform: translateX(0);
+              }
+              25% {
+                transform: translateX(-5px) rotate(-5deg);
+              }
+              75% {
+                transform: translateX(5px) rotate(5deg);
+              }
+            }
+            
+            @keyframes float {
+              0%, 100% {
+                transform: translateY(0) translateX(0);
+              }
+              50% {
+                transform: translateY(-20px) translateX(10px);
+              }
+            }
+            
+            @keyframes shimmer {
+              0% {
+                left: -100%;
+              }
+              100% {
+                left: 100%;
+              }
+            }
+            
+            @keyframes spin {
+              from {
+                transform: rotate(0deg);
+              }
+              to {
+                transform: rotate(360deg);
+              }
+            }
+          `}</style>
         </div>
       </div>
     );
@@ -1531,7 +2023,7 @@ const DashboardAnalytics = () => {
 
   return (
     <div 
-      className="dashboard-container dashboard-analytics-responsive"
+      className="analytics-container dashboard-container dashboard-analytics-responsive"
       style={{
         padding: '16px',
         background: '#ffffff',
@@ -1571,6 +2063,126 @@ const DashboardAnalytics = () => {
           .bottom-tables-grid { gap: 10px !important; margin-bottom: 12px !important; }
         }
       `}</style>
+      {/* Page Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '24px',
+        background: '#ffffff',
+        padding: '20px 24px',
+        borderRadius: '16px',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px'
+        }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '12px',
+            background: 'linear-gradient(135deg, #0077d4, #005ea8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            fontSize: '24px'
+          }}>
+            <FaChartLine />
+          </div>
+          <div>
+            <h1 style={{
+              margin: 0,
+              fontSize: '24px',
+              fontWeight: '700',
+              color: '#0f172a',
+              letterSpacing: '-0.5px'
+            }}>
+              Analytics Dashboard
+            </h1>
+            <p style={{
+              margin: '4px 0 0 0',
+              fontSize: '14px',
+              color: '#64748b',
+              fontWeight: '400'
+            }}>
+              Comprehensive insights into your inventory and sales performance
+            </p>
+          </div>
+        </div>
+        <div style={{
+          display: 'flex',
+          gap: '12px',
+          alignItems: 'center'
+        }}>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            style={{
+              padding: '10px 16px',
+              background: '#0077d4',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: refreshing || loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s',
+              opacity: refreshing || loading ? 0.6 : 1
+            }}
+            onMouseEnter={(e) => {
+              if (!refreshing && !loading) {
+                e.currentTarget.style.background = '#005ea8';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!refreshing && !loading) {
+                e.currentTarget.style.background = '#0077d4';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }
+            }}
+          >
+            <FaSyncAlt className={refreshing ? 'spinning' : ''} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <button
+            onClick={handleExportPDF}
+            style={{
+              padding: '10px 16px',
+              background: '#22c55e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#16a34a';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#22c55e';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <FaFilePdf />
+            Export PDF
+          </button>
+        </div>
+      </div>
+
       {/* Loading Progress Indicator */}
       {loading && (
         <div style={{
@@ -1850,17 +2462,33 @@ const DashboardAnalytics = () => {
               }}>
                 Overview of item status across inventory
               </p>
+              <p style={{
+                fontSize: '8px',
+                color: '#8b5cf6',
+                margin: '4px 0 0 0',
+                fontWeight: '600',
+                letterSpacing: '0.3px'
+              }}>
+                Total: <span style={{ color: '#7c3aed' }}>{analyticsData?.ProductStatistics || analyticsData?.productStatistics ? 
+                  ((analyticsData.ProductStatistics || analyticsData.productStatistics)?.ActiveProducts || 
+                   (analyticsData.ProductStatistics || analyticsData.productStatistics)?.activeProducts || 0) + 
+                  ((analyticsData.ProductStatistics || analyticsData.productStatistics)?.SoldProducts || 
+                   (analyticsData.ProductStatistics || analyticsData.productStatistics)?.soldProducts || 0) + 
+                  ((analyticsData.ProductStatistics || analyticsData.productStatistics)?.InactiveProducts || 
+                   (analyticsData.ProductStatistics || analyticsData.productStatistics)?.inactiveProducts || 0) : 
+                  (analyticsData?.OverallSummary?.TotalStockItems || analyticsData?.overallSummary?.totalStockItems || 0)}</span> Items
+              </p>
           </div>
             <div style={{
               width: '36px',
               height: '36px',
               borderRadius: '10px',
-              background: '#6366f118',
-              color: '#6366f1',
+              background: '#8b5cf618',
+              color: '#8b5cf6',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid #6366f130'
+              border: '1px solid #8b5cf630'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
           </div>
@@ -1912,17 +2540,26 @@ const DashboardAnalytics = () => {
               }}>
                 {t('analytics.modal.breakdown')}
               </p>
+              <p style={{
+                fontSize: '8px',
+                color: '#10b981',
+                margin: '4px 0 0 0',
+                fontWeight: '600',
+                letterSpacing: '0.3px'
+              }}>
+                Total: <span style={{ color: '#059669' }}>{(analyticsData?.CategoryAnalytics?.TotalCategories || analyticsData?.categoryAnalytics?.totalCategories || 0)}</span> Categories • <span style={{ color: '#047857' }}>{((analyticsData?.CategoryAnalytics?.TotalCategoryWeight || analyticsData?.categoryAnalytics?.totalCategoryWeight || 0)).toFixed(2)}g</span>
+              </p>
         </div>
             <div style={{
               width: '36px',
               height: '36px',
               borderRadius: '10px',
-              background: '#0d948818',
-              color: '#0d9488',
+              background: '#10b98118',
+              color: '#10b981',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid #0d948830'
+              border: '1px solid #10b98130'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
           </div>
@@ -1974,17 +2611,26 @@ const DashboardAnalytics = () => {
               }}>
                 {t('analytics.chart.branchDistribution')}
               </p>
+              <p style={{
+                fontSize: '8px',
+                color: '#f59e0b',
+                margin: '4px 0 0 0',
+                fontWeight: '600',
+                letterSpacing: '0.3px'
+              }}>
+                Total: <span style={{ color: '#d97706' }}>{(analyticsData?.BranchAnalytics?.TotalBranches || analyticsData?.branchAnalytics?.totalBranches || 0)}</span> Branches • <span style={{ color: '#b45309' }}>{((analyticsData?.BranchAnalytics?.TotalBranchWeight || analyticsData?.branchAnalytics?.totalBranchWeight || 0)).toFixed(2)}g</span>
+              </p>
               </div>
             <div style={{
               width: '36px',
               height: '36px',
               borderRadius: '10px',
-              background: '#ea580c18',
-              color: '#ea580c',
+              background: '#f59e0b18',
+              color: '#f59e0b',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid #ea580c30'
+              border: '1px solid #f59e0b30'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
               </div>
@@ -2148,7 +2794,9 @@ const DashboardAnalytics = () => {
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 1fr)',
           gap: '16px',
-          marginBottom: '24px'
+          marginBottom: '24px',
+          width: '100%',
+          minWidth: 0
         }}
       >
         {/* Top Products */}
@@ -2174,23 +2822,34 @@ const DashboardAnalytics = () => {
                 width: '36px',
                 height: '36px',
                 borderRadius: '10px',
-                background: '#ea580c18',
-                color: '#ea580c',
+                background: '#3b82f618',
+                color: '#3b82f6',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                border: '1px solid #ea580c30'
+                border: '1px solid #3b82f630'
               }}>
                 <FaChartBar style={{ fontSize: '14px' }} />
               </div>
-              <h3 style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#0f172a',
-                margin: 0
-              }}>
-                {t('analytics.modal.topItems')}
-              </h3>
+              <div>
+                <h3 style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#0f172a',
+                  margin: 0
+                }}>
+                  {t('analytics.modal.topItems')}
+                </h3>
+                <p style={{
+                  fontSize: '8px',
+                  color: '#3b82f6',
+                  margin: '2px 0 0 0',
+                  fontWeight: '600',
+                  letterSpacing: '0.3px'
+                }}>
+                  Total: <span style={{ color: '#1e40af' }}>{(analyticsData?.TopProductsAnalytics?.TopProducts || analyticsData?.topProductsAnalytics?.topProducts || []).length}</span> Products
+                </p>
+              </div>
             </div>
             <div style={{
               background: '#f8fafc',
@@ -2222,7 +2881,7 @@ const DashboardAnalytics = () => {
           <div className="analytics-table-scroll" style={{ maxHeight: '300px', overflowY: 'auto', overflowX: 'auto', minWidth: 0 }}>
             <table className="analytics-bottom-table" style={{
               width: '100%',
-              minWidth: '320px',
+              minWidth: '400px',
               borderCollapse: 'collapse',
               fontSize: '12px',
               tableLayout: 'auto',
@@ -2251,6 +2910,15 @@ const DashboardAnalytics = () => {
                     whiteSpace: 'nowrap',
                     minWidth: '100px'
                   }}>{t('analytics.productName')}</th>
+                  <th className="col-category" style={{
+                    padding: '10px 8px',
+                    textAlign: 'left',
+                    fontWeight: '600',
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '80px'
+                  }}>Category</th>
                   <th style={{
                     padding: '10px 8px',
                     textAlign: 'right',
@@ -2260,38 +2928,67 @@ const DashboardAnalytics = () => {
                     whiteSpace: 'nowrap',
                     minWidth: '56px'
                   }}>{t('analytics.count')}</th>
-                  <th style={{
+                  <th className="col-weight" style={{
                     padding: '10px 8px',
-                    textAlign: 'left',
+                    textAlign: 'right',
                     fontWeight: '600',
                     color: '#334155',
                     fontSize: '12px',
                     whiteSpace: 'nowrap',
-                    minWidth: '80px'
-                  }}>{t('analytics.share')}</th>
+                    minWidth: '70px'
+                  }}>Weight (G)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(() => {
-                  const productCounts = data.reduce((acc, item) => {
-                      acc[item.ProductName] = (acc[item.ProductName] || 0) + 1;
+                  let productsList = [];
+                  
+                  // Use new API data if available (PascalCase or camelCase)
+                  const topProducts = analyticsData?.TopProductsAnalytics?.TopProducts || analyticsData?.topProductsAnalytics?.topProducts;
+                  if (topProducts) {
+                    productsList = topProducts.map(product => ({
+                      name: product.ProductName || product.productName || 'Unknown',
+                      count: product.InventoryCount || product.inventoryCount || product.productCount || product.count || 0,
+                      category: product.CategoryName || product.categoryName || 'Unknown',
+                      weight: product.TotalWeight || product.totalWeight || 0,
+                      status: product.Status || product.status || 'Active'
+                    }));
+                  } else {
+                    // Fallback to old method
+                    const productCounts = data.reduce((acc, item) => {
+                      const name = item.ProductName || 'Unknown';
+                      if (!acc[name]) {
+                        acc[name] = {
+                          count: 0,
+                          category: item.CategoryName || 'Unknown',
+                          weight: 0,
+                          status: item.Status || 'Active'
+                        };
+                      }
+                      acc[name].count += 1;
+                      acc[name].weight += parseFloat(item.GrossWt) || 0;
                       return acc;
                     }, {});
+                    productsList = Object.entries(productCounts).map(([name, data]) => ({
+                      name,
+                      ...data
+                    }));
+                  }
                     
-                    const filteredProductCounts = Object.entries(productCounts)
-                      .filter(([name]) => name.toLowerCase().includes(productSearch.toLowerCase()));
+                    const filteredProducts = productsList
+                      .filter(product => product.name.toLowerCase().includes(productSearch.toLowerCase()));
                     
-                    const sortedProducts = filteredProductCounts
-                      .sort(([,a], [,b]) => b - a);
-                    const total = filteredProductCounts.reduce((sum, [,count]) => sum + count, 0);
+                    const sortedProducts = filteredProducts
+                      .sort((a, b) => b.count - a.count);
+                    const total = filteredProducts.reduce((sum, product) => sum + product.count, 0);
                     
                     const startIndex = (productPage - 1) * itemsPerPage;
                     const paginatedProducts = sortedProducts.slice(startIndex, startIndex + itemsPerPage);
                     
                     return (
                       <>
-                        {paginatedProducts.map(([name, count], index) => (
-                        <tr key={name} style={{
+                        {paginatedProducts.map((product, index) => (
+                        <tr key={product.name} style={{
                           borderBottom: '1px solid #f3f4f6'
                         }}>
                           <td style={{
@@ -2311,7 +3008,7 @@ const DashboardAnalytics = () => {
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis'
                               }}>
-                                {name}
+                                {product.name}
                               </div>
                               <div style={{
                                 fontSize: '10px',
@@ -2321,51 +3018,80 @@ const DashboardAnalytics = () => {
                               </div>
                               </div>
                             </td>
+                          <td className="col-category" style={{
+                            padding: '8px',
+                            fontSize: '11px',
+                            color: '#64748b',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '100px'
+                          }}>
+                            {product.category}
+                          </td>
                           <td style={{
                             padding: '8px',
                             fontSize: '11px',
                             fontWeight: '600',
-                            color: '#111827',
+                            color: '#3b82f6',
                             textAlign: 'right'
                           }}>
-                            {count.toLocaleString()}
+                            {product.count.toLocaleString()}
                           </td>
-                          <td style={{
-                            padding: '8px'
+                          <td className="col-weight" style={{
+                            padding: '8px',
+                            fontSize: '11px',
+                            color: '#f59e0b',
+                            fontWeight: '600',
+                            textAlign: 'right'
                           }}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px'
-                            }}>
-                              <span style={{
-                                fontSize: '11px',
-                                color: '#6b7280',
-                                minWidth: '32px'
-                              }}>
-                                {((count / total) * 100).toFixed(1)}%
-                              </span>
-                              <div style={{
-                                flex: 1,
-                                height: '4px',
-                                background: '#e5e7eb',
-                                borderRadius: '2px',
-                                overflow: 'hidden'
-                              }}>
-                                <div style={{
-                                  height: '100%',
-                                  background: '#6366f1',
-                                  width: `${(count / total) * 100}%`
-                                }} />
-                                </div>
-                              </div>
-                            </td>
+                            {product.weight.toFixed(2)}
+                          </td>
                           </tr>
                         ))}
                       </>
                     );
                   })()}
                 </tbody>
+                <tfoot>
+                  <tr style={{
+                    borderTop: '2px solid #e2e8f0',
+                    background: '#f8fafc'
+                  }}>
+                    <td colSpan="3" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#64748b',
+                      textAlign: 'right'
+                    }}>
+                      Total:
+                    </td>
+                    <td style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#3b82f6',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const topProducts = analyticsData?.TopProductsAnalytics?.TopProducts || analyticsData?.topProductsAnalytics?.topProducts || [];
+                        return topProducts.reduce((sum, p) => sum + (p.InventoryCount || p.inventoryCount || 0), 0).toLocaleString();
+                      })()}
+                    </td>
+                    <td className="col-weight" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#f59e0b',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const topProducts = analyticsData?.TopProductsAnalytics?.TopProducts || analyticsData?.topProductsAnalytics?.topProducts || [];
+                        return topProducts.reduce((sum, p) => sum + (p.TotalWeight || p.totalWeight || 0), 0).toFixed(2);
+                      })()}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
           </div>
         </div>
@@ -2402,14 +3128,25 @@ const DashboardAnalytics = () => {
               }}>
                 <FaUsers style={{ fontSize: '14px' }} />
               </div>
-              <h3 style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#0f172a',
-                margin: 0
-              }}>
-                Counter Wise Stock 
-              </h3>
+              <div>
+                <h3 style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#0f172a',
+                  margin: 0
+                }}>
+                  Counter Wise Stock 
+                </h3>
+                <p style={{
+                  fontSize: '8px',
+                  color: '#14b8a6',
+                  margin: '2px 0 0 0',
+                  fontWeight: '600',
+                  letterSpacing: '0.3px'
+                }}>
+                  Total: <span style={{ color: '#0d9488' }}>{(analyticsData?.CounterAnalytics?.TotalCounters || analyticsData?.counterAnalytics?.totalCounters || 0)}</span> Counters
+                </p>
+              </div>
             </div>
             <div style={{
               background: '#f8fafc',
@@ -2441,7 +3178,7 @@ const DashboardAnalytics = () => {
           <div className="analytics-table-scroll" style={{ maxHeight: '300px', overflowY: 'auto', overflowX: 'auto', minWidth: 0 }}>
             <table className="analytics-bottom-table" style={{
               width: '100%',
-              minWidth: '320px',
+              minWidth: '400px',
               borderCollapse: 'collapse',
               fontSize: '12px',
               tableLayout: 'auto',
@@ -2470,6 +3207,15 @@ const DashboardAnalytics = () => {
                     whiteSpace: 'nowrap',
                     minWidth: '100px'
                   }}>{t('analytics.counterName')}</th>
+                  <th className="col-branch" style={{
+                    padding: '10px 8px',
+                    textAlign: 'left',
+                    fontWeight: '600',
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '80px'
+                  }}>Branch</th>
                   <th style={{
                     padding: '10px 8px',
                     textAlign: 'right',
@@ -2481,37 +3227,87 @@ const DashboardAnalytics = () => {
                   }}>{t('analytics.items')}</th>
                   <th style={{
                     padding: '10px 8px',
-                    textAlign: 'left',
+                    textAlign: 'right',
                     fontWeight: '600',
                     color: '#334155',
                     fontSize: '12px',
                     whiteSpace: 'nowrap',
-                    minWidth: '90px'
-                  }}>{t('analytics.performance')}</th>
+                    minWidth: '70px'
+                  }}>Weight (G)</th>
+                  <th className="col-active" style={{
+                    padding: '10px 8px',
+                    textAlign: 'right',
+                    fontWeight: '600',
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '60px'
+                  }}>Active</th>
+                  <th className="col-sold" style={{
+                    padding: '10px 8px',
+                    textAlign: 'right',
+                    fontWeight: '600',
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '60px'
+                  }}>Sold</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(() => {
-                  const counterCounts = filteredData.reduce((acc, item) => {
-                    const counterName = item.CounterName || item.Counter || 'Unassigned';
-                    acc[counterName] = (acc[counterName] || 0) + 1;
+                  let countersList = [];
+                  
+                  // Use new API data if available (PascalCase or camelCase)
+                  const counterDetails = analyticsData?.CounterAnalytics?.CounterDetails || analyticsData?.counterAnalytics?.counterDetails;
+                  if (counterDetails) {
+                    countersList = counterDetails.map(counter => ({
+                      name: counter.CounterName || counter.counterName || 'Unassigned',
+                      count: counter.ProductCount || counter.productCount || counter.count || 0,
+                      branch: counter.BranchName || counter.branchName || 'Unknown',
+                      weight: counter.TotalWeight || counter.totalWeight || 0,
+                      active: counter.ActiveProductCount || counter.activeProductCount || 0,
+                      sold: counter.SoldProductCount || counter.soldProductCount || 0
+                    }));
+                  } else {
+                    // Fallback to old method
+                    const counterCounts = filteredData.reduce((acc, item) => {
+                      const counterName = item.CounterName || item.Counter || 'Unassigned';
+                      if (!acc[counterName]) {
+                        acc[counterName] = {
+                          count: 0,
+                          branch: item.BranchName || 'Unknown',
+                          weight: 0,
+                          active: 0,
+                          sold: 0
+                        };
+                      }
+                      acc[counterName].count += 1;
+                      acc[counterName].weight += parseFloat(item.GrossWt) || 0;
+                      if (item.Status === 'Active' || item.Status === 'ApiActive') acc[counterName].active += 1;
+                      if (item.Status === 'Sold') acc[counterName].sold += 1;
                       return acc;
                     }, {});
+                    countersList = Object.entries(counterCounts).map(([name, data]) => ({
+                      name,
+                      ...data
+                    }));
+                  }
                     
-                    const filteredCounterCounts = Object.entries(counterCounts)
-                      .filter(([name]) => name && name.toLowerCase().includes(counterSearch.toLowerCase()));
+                    const filteredCounters = countersList
+                      .filter(counter => counter.name && counter.name.toLowerCase().includes(counterSearch.toLowerCase()));
                     
-                    const sortedCounters = filteredCounterCounts
-                      .sort(([,a], [,b]) => b - a);
-                    const maxCount = filteredCounterCounts.length > 0 ? Math.max(...filteredCounterCounts.map(([,count]) => count)) : 0;
+                    const sortedCounters = filteredCounters
+                      .sort((a, b) => b.count - a.count);
+                    const maxCount = filteredCounters.length > 0 ? Math.max(...filteredCounters.map(c => c.count)) : 0;
                     
                     const startIndex = (counterPage - 1) * itemsPerPage;
                     const paginatedCounters = sortedCounters.slice(startIndex, startIndex + itemsPerPage);
                     
                     return (
                       <>
-                        {paginatedCounters.map(([name, count], index) => (
-                        <tr key={name} style={{
+                        {paginatedCounters.map((counter, index) => (
+                        <tr key={counter.name} style={{
                           borderBottom: '1px solid #f3f4f6'
                         }}>
                           <td style={{
@@ -2531,7 +3327,7 @@ const DashboardAnalytics = () => {
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis'
                               }}>
-                                {name || 'Unknown'}
+                                {counter.name || 'Unknown'}
                               </div>
                               <div style={{
                                 fontSize: '10px',
@@ -2541,96 +3337,223 @@ const DashboardAnalytics = () => {
                               </div>
                               </div>
                             </td>
+                          <td className="col-branch" style={{
+                            padding: '8px',
+                            fontSize: '11px',
+                            color: '#64748b',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '100px'
+                          }}>
+                            {counter.branch}
+                          </td>
                           <td style={{
                             padding: '8px',
                             fontSize: '11px',
                             fontWeight: '600',
-                            color: '#111827',
+                            color: '#14b8a6',
                             textAlign: 'right'
                           }}>
-                            {count.toLocaleString()}
+                            {counter.count.toLocaleString()}
                             </td>
                           <td style={{
-                            padding: '8px'
+                            padding: '8px',
+                            fontSize: '11px',
+                            color: '#f59e0b',
+                            fontWeight: '600',
+                            textAlign: 'right'
                           }}>
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px'
-                            }}>
-                              <span style={{
-                                fontSize: '11px',
-                                color: '#6b7280',
-                                minWidth: '32px'
-                              }}>
-                                {((count / maxCount) * 100).toFixed(0)}%
-                              </span>
-                              <div style={{
-                                flex: 1,
-                                height: '4px',
-                                background: '#e5e7eb',
-                                borderRadius: '2px',
-                                overflow: 'hidden'
-                              }}>
-                                <div style={{
-                                  height: '100%',
-                                  background: '#10b981',
-                                  width: `${(count / maxCount) * 100}%`
-                                }} />
-                                </div>
-                              </div>
-                            </td>
+                            {counter.weight.toFixed(2)}
+                          </td>
+                          <td className="col-active" style={{
+                            padding: '8px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            color: '#10b981',
+                            textAlign: 'right'
+                          }}>
+                            {counter.active}
+                          </td>
+                          <td className="col-sold" style={{
+                            padding: '8px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            color: '#ef4444',
+                            textAlign: 'right'
+                          }}>
+                            {counter.sold}
+                          </td>
                           </tr>
                         ))}
                       </>
                     );
                   })()}
                 </tbody>
+                <tfoot>
+                  <tr style={{
+                    borderTop: '2px solid #e2e8f0',
+                    background: '#f8fafc'
+                  }}>
+                    <td colSpan="2" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#64748b',
+                      textAlign: 'right'
+                    }}>
+                      Total:
+                    </td>
+                    <td className="col-branch" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#64748b',
+                      textAlign: 'right'
+                    }}>
+                      -
+                    </td>
+                    <td style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#14b8a6',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const counterDetails = analyticsData?.CounterAnalytics?.CounterDetails || analyticsData?.counterAnalytics?.counterDetails || [];
+                        return counterDetails.reduce((sum, c) => sum + (c.ProductCount || c.productCount || 0), 0).toLocaleString();
+                      })()}
+                    </td>
+                    <td style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#f59e0b',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const counterDetails = analyticsData?.CounterAnalytics?.CounterDetails || analyticsData?.counterAnalytics?.counterDetails || [];
+                        return counterDetails.reduce((sum, c) => sum + (c.TotalWeight || c.totalWeight || 0), 0).toFixed(2);
+                      })()}
+                    </td>
+                    <td className="col-active" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#10b981',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const counterDetails = analyticsData?.CounterAnalytics?.CounterDetails || analyticsData?.counterAnalytics?.counterDetails || [];
+                        return counterDetails.reduce((sum, c) => sum + (c.ActiveProductCount || c.activeProductCount || 0), 0).toLocaleString();
+                      })()}
+                    </td>
+                    <td className="col-sold" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#ef4444',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const counterDetails = analyticsData?.CounterAnalytics?.CounterDetails || analyticsData?.counterAnalytics?.counterDetails || [];
+                        return counterDetails.reduce((sum, c) => sum + (c.SoldProductCount || c.soldProductCount || 0), 0).toLocaleString();
+                      })()}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
           </div>
         </div>
 
         {/* Category Performance Analysis */}
-        <div style={{
+        <div className="analytics-bottom-card category-distribution-card" style={{
           background: '#ffffff',
           borderRadius: '16px',
           padding: '16px',
           border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0
         }}>
           <div style={{
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '8px',
-            marginBottom: '12px'
+            marginBottom: '12px',
+            flexWrap: 'wrap',
+            gap: '8px'
           }}>
             <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              background: '#6366f118',
-              color: '#6366f1',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid #6366f130'
+              gap: '8px'
             }}>
-              <FaChartLine style={{ fontSize: '14px' }} />
-          </div>
-            <h3 style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: '#0f172a',
-              margin: 0
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                background: '#6366f118',
+                color: '#6366f1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px solid #6366f130'
+              }}>
+                <FaChartLine style={{ fontSize: '14px' }} />
+              </div>
+              <div>
+                <h3 style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#0f172a',
+                  margin: 0
+                }}>
+                  {t('analytics.chart.categoryDistribution')}
+                </h3>
+                <p style={{
+                  fontSize: '8px',
+                  color: '#6366f1',
+                  margin: '2px 0 0 0',
+                  fontWeight: '600',
+                  letterSpacing: '0.3px'
+                }}>
+                  Total: <span style={{ color: '#4f46e5' }}>{(analyticsData?.CategoryAnalytics?.TotalCategories || analyticsData?.categoryAnalytics?.totalCategories || 0)}</span> Categories
+                </p>
+              </div>
+            </div>
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '6px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
             }}>
-              {t('analytics.chart.categoryDistribution')}
-            </h3>
+              <FaSearch style={{ color: '#64748b', fontSize: '11px' }} />
+              <input
+                type="text"
+                placeholder={t('analytics.searchCategories') || 'Search categories...'}
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+                style={{
+                  border: 'none',
+                  outline: 'none',
+                  background: 'transparent',
+                  fontSize: '11px',
+                  color: '#374151',
+                  width: '120px'
+                }}
+              />
+            </div>
           </div>
           
-          <div className="analytics-table-scroll" style={{ maxHeight: '300px', overflowY: 'auto', overflowX: 'auto', minWidth: 0 }}>
+          <div className="analytics-table-scroll category-table-scroll" style={{ minHeight: '220px', maxHeight: '320px', overflowY: 'auto', overflowX: 'auto', minWidth: 0, WebkitOverflowScrolling: 'touch' }}>
             <table className="analytics-bottom-table" style={{
               width: '100%',
-              minWidth: '380px',
+              minWidth: '400px',
               borderCollapse: 'collapse',
               fontSize: '12px',
               tableLayout: 'auto',
@@ -2668,7 +3591,7 @@ const DashboardAnalytics = () => {
                     whiteSpace: 'nowrap',
                     minWidth: '85px'
                   }}>Weight (G)</th>
-                  <th style={{
+                  <th className="col-active" style={{
                     padding: '10px 8px',
                     textAlign: 'right',
                     fontWeight: '600',
@@ -2676,23 +3599,35 @@ const DashboardAnalytics = () => {
                     fontSize: '12px',
                     whiteSpace: 'nowrap',
                     minWidth: '75px'
-                  }}>{t('analytics.avgValue')}</th>
-                  <th style={{
+                  }}>Active</th>
+                  <th className="col-sold" style={{
                     padding: '10px 8px',
-                    textAlign: 'left',
+                    textAlign: 'right',
+                    fontWeight: '600',
+                    color: '#334155',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '75px'
+                  }}>Sold</th>
+                  <th className="col-avg" style={{
+                    padding: '10px 8px',
+                    textAlign: 'right',
                     fontWeight: '600',
                     color: '#334155',
                     fontSize: '12px',
                     whiteSpace: 'nowrap',
                     minWidth: '90px'
-                  }}>{t('analytics.topProduct')}</th>
+                  }}>{t('analytics.avgValue')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(() => {
                     const analysisData = getCategoryPerformanceAnalysis();
+                    const filtered = categorySearch.trim()
+                      ? analysisData.filter(item => (item.category || '').toLowerCase().includes(categorySearch.toLowerCase()))
+                      : analysisData;
                     const startIndex = (categoryPage - 1) * itemsPerPage;
-                    const paginatedData = analysisData.slice(startIndex, startIndex + itemsPerPage);
+                    const paginatedData = filtered.slice(startIndex, startIndex + itemsPerPage);
                     
                     return paginatedData.map((item, idx) => (
                     <tr key={item.category} style={{
@@ -2721,7 +3656,7 @@ const DashboardAnalytics = () => {
                         padding: '8px',
                         fontSize: '11px',
                         fontWeight: '600',
-                        color: '#111827',
+                        color: '#6366f1',
                         textAlign: 'right'
                       }}>
                         {item.totalItems.toLocaleString()}
@@ -2729,12 +3664,31 @@ const DashboardAnalytics = () => {
                       <td style={{
                         padding: '8px',
                         fontSize: '11px',
-                        color: '#111827',
+                        color: '#f59e0b',
+                        fontWeight: '600',
                         textAlign: 'right'
                       }}>
                         {item.totalWeight}g
                         </td>
-                      <td style={{
+                      <td className="col-active" style={{
+                        padding: '8px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        color: '#10b981',
+                        textAlign: 'right'
+                      }}>
+                        {item.activeCount || 0}
+                        </td>
+                      <td className="col-sold" style={{
+                        padding: '8px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        color: '#ef4444',
+                        textAlign: 'right'
+                      }}>
+                        {item.soldCount || 0}
+                        </td>
+                      <td className="col-avg" style={{
                         padding: '8px',
                         fontSize: '11px',
                         color: '#111827',
@@ -2742,20 +3696,95 @@ const DashboardAnalytics = () => {
                       }}>
                         {item.avgValue}
                         </td>
-                      <td style={{
-                        padding: '8px',
-                        fontSize: '11px',
-                        color: '#111827',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        maxWidth: '140px'
-                      }}>
-                        {item.topProduct.length > 16 ? item.topProduct.substring(0, 16) + '…' : item.topProduct}
-                        </td>
                       </tr>
                     ));
                   })()}
                 </tbody>
+                <tfoot>
+                  <tr style={{
+                    borderTop: '2px solid #e2e8f0',
+                    background: '#f8fafc'
+                  }}>
+                    <td style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#64748b',
+                      textAlign: 'right'
+                    }}>
+                      Total:
+                    </td>
+                    <td style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#6366f1',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const analysisData = getCategoryPerformanceAnalysis();
+                        const filtered = categorySearch.trim()
+                          ? analysisData.filter(item => (item.category || '').toLowerCase().includes(categorySearch.toLowerCase()))
+                          : analysisData;
+                        return filtered.reduce((sum, item) => sum + item.totalItems, 0).toLocaleString();
+                      })()}
+                    </td>
+                    <td style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#f59e0b',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const analysisData = getCategoryPerformanceAnalysis();
+                        const filtered = categorySearch.trim()
+                          ? analysisData.filter(item => (item.category || '').toLowerCase().includes(categorySearch.toLowerCase()))
+                          : analysisData;
+                        return filtered.reduce((sum, item) => sum + parseFloat(item.totalWeight) || 0, 0).toFixed(2) + 'g';
+                      })()}
+                    </td>
+                    <td className="col-active" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#10b981',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const analysisData = getCategoryPerformanceAnalysis();
+                        const filtered = categorySearch.trim()
+                          ? analysisData.filter(item => (item.category || '').toLowerCase().includes(categorySearch.toLowerCase()))
+                          : analysisData;
+                        return filtered.reduce((sum, item) => sum + (item.activeCount || 0), 0).toLocaleString();
+                      })()}
+                    </td>
+                    <td className="col-sold" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      color: '#ef4444',
+                      textAlign: 'right'
+                    }}>
+                      {(() => {
+                        const analysisData = getCategoryPerformanceAnalysis();
+                        const filtered = categorySearch.trim()
+                          ? analysisData.filter(item => (item.category || '').toLowerCase().includes(categorySearch.toLowerCase()))
+                          : analysisData;
+                        return filtered.reduce((sum, item) => sum + (item.soldCount || 0), 0).toLocaleString();
+                      })()}
+                    </td>
+                    <td className="col-avg" style={{
+                      padding: '8px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#64748b',
+                      textAlign: 'right'
+                    }}>
+                      -
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
           </div>
         </div>
@@ -2764,7 +3793,7 @@ const DashboardAnalytics = () => {
       <style>{`
         .analytics-container {
           padding: 15px;
-          background: #f8fafc;
+          background: #ffffff;
           min-height: calc(100vh - 64px);
           font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
@@ -2988,6 +4017,26 @@ const DashboardAnalytics = () => {
           grid-template-columns: repeat(3, 1fr);
           gap: 18px;
           align-items: stretch;
+        }
+
+        .bottom-tables-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          width: 100%;
+          min-width: 0;
+        }
+
+        .analytics-table-scroll,
+        .category-table-scroll {
+          -webkit-overflow-scrolling: touch;
+          overflow-x: auto;
+          overflow-y: auto;
+        }
+
+        .category-distribution-card {
+          min-height: 0;
+          overflow: hidden;
         }
         
         /* Ensure insights card is always visible and properly positioned */
@@ -3879,6 +4928,15 @@ const DashboardAnalytics = () => {
             gap: 15px;
           }
 
+          .bottom-tables-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .metrics-cards-grid {
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+          }
+
           .chart-card.enhanced,
           .performance-card {
             height: 400px;
@@ -3899,6 +4957,16 @@ const DashboardAnalytics = () => {
           .bottom-analytics-grid {
             grid-template-columns: 1fr;
             gap: 12px;
+          }
+
+          .bottom-tables-grid {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+
+          .metrics-cards-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
           }
 
           .chart-card.enhanced,
@@ -3946,6 +5014,9 @@ const DashboardAnalytics = () => {
         @media (max-width: 768px) {
           .analytics-container {
             padding: 10px;
+            overflow-x: hidden;
+            width: 100%;
+            box-sizing: border-box;
           }
           
           .analytics-header {
@@ -3962,6 +5033,16 @@ const DashboardAnalytics = () => {
           .summary-cards {
             grid-template-columns: repeat(2, 1fr);
             gap: 10px;
+          }
+
+          .metrics-cards-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+          }
+
+          .bottom-tables-grid {
+            grid-template-columns: 1fr;
+            gap: 12px;
           }
           
           .main-analytics-grid {
@@ -4211,9 +5292,20 @@ const DashboardAnalytics = () => {
             grid-template-columns: 1fr;
             gap: 8px;
           }
+
+          .metrics-cards-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
+
+          .bottom-tables-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
           
           .analytics-container {
             padding: 8px;
+            overflow-x: hidden;
           }
           
           .analytics-header {
@@ -5049,6 +6141,30 @@ const DashboardAnalytics = () => {
           .bottom-tables-grid .analytics-bottom-table td {
             font-size: 10px !important;
             padding: 5px 3px !important;
+          }
+          
+          /* Hide less important columns on mobile */
+          .col-category, .col-branch, .col-weight, .col-active, .col-sold, .col-avg {
+            display: none !important;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          /* Hide category and branch on tablets */
+          .col-category, .col-branch {
+            display: none !important;
+          }
+          
+          /* Hide weight and avg on small tablets */
+          .col-weight, .col-avg {
+            display: none !important;
+          }
+        }
+        
+        @media (max-width: 992px) {
+          /* Hide avg value on medium screens */
+          .col-avg {
+            display: none !important;
           }
         }
         

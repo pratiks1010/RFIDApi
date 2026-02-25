@@ -336,40 +336,99 @@ const SidebarLayout = ({ children }) => {
       flexDirection: 'column',
       fontFamily: 'var(--font-family, "Roboto", sans-serif)'
     }}>
-      {/* Show Sidebar button - when sidebar is closed */}
-      {!sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
+      {/* Mobile: fixed header bar with hamburger when sidebar closed */}
+      {isMobile && !sidebarOpen && (
+        <header
+          className="sidebar-mobile-header"
           style={{
             position: 'fixed',
-            top: 12,
-            left: 12,
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 56,
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 12px 0 16px',
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+          }}
+        >
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="sidebar-hamburger-btn"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 44,
+              height: 44,
+              minWidth: 44,
+              minHeight: 44,
+              background: '#f1f5f9',
+              border: '1px solid #e2e8f0',
+              borderRadius: 12,
+              cursor: 'pointer',
+              color: '#0077d4',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#e2e8f0';
+              e.currentTarget.style.color = '#005ea8';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#f1f5f9';
+              e.currentTarget.style.color = '#0077d4';
+            }}
+            title="Open menu"
+            aria-label="Open menu"
+          >
+            <FaBars size={22} />
+          </button>
+          <span style={{ marginLeft: 12, fontSize: 18, fontWeight: 600, color: '#0f172a' }}>Menu</span>
+        </header>
+      )}
+
+      {/* Desktop: floating hamburger when sidebar is closed */}
+      {!isMobile && !sidebarOpen && (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="sidebar-hamburger-btn"
+          style={{
+            position: 'fixed',
+            top: 16,
+            left: 16,
             zIndex: 1001,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: 44,
-            height: 44,
+            width: 48,
+            height: 48,
+            minWidth: 48,
+            minHeight: 48,
             background: '#ffffff',
-            border: '1px solid #e0e7ef',
-            borderRadius: '10px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
             cursor: 'pointer',
             color: '#0077d4',
             transition: 'all 0.2s ease'
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#f1f5f9';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,119,212,0.2)';
+            e.currentTarget.style.background = '#f8fafc';
+            e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,119,212,0.2)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = '#ffffff';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+            e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)';
           }}
-          title="Show menu"
-          aria-label="Show menu"
+          title="Open menu"
+          aria-label="Open menu"
         >
-          <FaBars size={20} />
+          <FaBars size={22} />
         </button>
       )}
 
@@ -786,9 +845,12 @@ const SidebarLayout = ({ children }) => {
           marginLeft: mainContentMargin,
           transition: 'margin-left 0.3s ease',
           padding: '24px',
+          paddingTop: isMobile && !sidebarOpen ? 80 : 24,
           minHeight: '100vh',
           background: '#ffffff',
-          width: mainContentMargin ? `calc(100% - ${mainContentMargin})` : '100%'
+          width: mainContentMargin ? `calc(100% - ${mainContentMargin})` : '100%',
+          overflowX: 'hidden',
+          boxSizing: 'border-box'
         }}>
           {children}
         </main>
@@ -906,6 +968,14 @@ const SidebarLayout = ({ children }) => {
           }
         }
         
+        .sidebar-hamburger-btn:active {
+          transform: scale(0.97);
+        }
+        @media (max-width: 768px) {
+          .sidebar-mobile-header {
+            padding-left: max(16px, env(safe-area-inset-left));
+          }
+        }
         /* Mobile responsive sidebar */
         @media (max-width: 768px) {
           .sidebar-content {

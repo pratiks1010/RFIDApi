@@ -22,7 +22,7 @@ const mapGatiToLoyalstringPayload = (row, clientCode) => ({
   diamondheight: String(row.TotalDiamondWeight ?? '0'),
   diamondweight: String(row.TotalDiamondWeight ?? '0'),
   netwt: String(row.NetWt ?? '0'),
-  box_details: String(row.SKU ?? ''),
+  description: String(row.CategoryName ?? row.Category ?? ''),
   size: 0,
   stoneamount: String(row.TotalStonePieces ?? '0'),
   diamondAmount: String(row.TotalDiamondPieces ?? '0'),

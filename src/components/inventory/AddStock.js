@@ -1869,44 +1869,38 @@ const AddStock = () => {
     return record;
   };
 
-  // Add current form data to record list; when Quantity > 1, add that many rows with same details (unique RFID/ItemCode per row)
+  // Add current form data to record list. When Quantity > 1, first row uses form RFID/ItemCode; rest have empty RFID/ItemCode for user to fill in the table.
   const handleAddToRecordList = () => {
     const errors = [];
-    // User-friendly messages for "why data is not adding"
-    // RFID Number is now optional - removed validation
-    if (!singleProduct.Itemcode?.trim()) errors.push('Item Code is not entered');
     if (!singleProduct.category_id?.trim()) errors.push('Category is not selected');
     if (!singleProduct.product_id?.trim()) errors.push('Product is not selected');
     const qty = Math.max(1, parseInt(addStockQuantity, 10) || 1);
     const baseRfid = String(singleProduct.RFIDNumber || '').trim();
     const baseItemCode = String(singleProduct.Itemcode || '').trim();
-    const existingItemCodes = new Set(addedRecords.map(r => String(r.Itemcode || '').toLowerCase()).filter(code => code));
-    const existingRfids = new Set(addedRecords.map(r => String(r.RFIDNumber || '').toLowerCase()).filter(rfid => rfid));
-    for (let i = 0; i < qty; i++) {
-      const rfid = qty === 1 ? baseRfid : (i === 0 ? baseRfid : `${baseRfid}-${i + 1}`);
-      const itemCode = qty === 1 ? baseItemCode : (i === 0 ? baseItemCode : `${baseItemCode}-${i + 1}`);
-      if (itemCode && existingItemCodes.has(itemCode.toLowerCase())) errors.push(`Item Code "${itemCode}" is already in the list`);
-      if (rfid && existingRfids.has(rfid.toLowerCase())) errors.push(`RFID Number "${rfid}" is already in the list`);
-      if (itemCode) existingItemCodes.add(itemCode.toLowerCase());
-      if (rfid) existingRfids.add(rfid.toLowerCase());
+    if (qty === 1) {
+      if (!baseItemCode) errors.push('Item Code is not entered');
+      const existingItemCodes = new Set(addedRecords.map(r => String(r.Itemcode || '').toLowerCase()).filter(code => code));
+      const existingRfids = new Set(addedRecords.map(r => String(r.RFIDNumber || '').toLowerCase()).filter(rfid => rfid));
+      if (baseItemCode && existingItemCodes.has(baseItemCode.toLowerCase())) errors.push(`Item Code "${baseItemCode}" is already in the list`);
+      if (baseRfid && existingRfids.has(baseRfid.toLowerCase())) errors.push(`RFID Number "${baseRfid}" is already in the list`);
     }
     if (errors.length > 0) {
       setAddFormValidationErrors(errors);
       addNotification({ type: 'error', title: 'Data not added', message: 'Please fix the issues below and try again. ' + errors.join('. ') });
       return;
     }
-    setAddFormValidationErrors([]); // clear when adding successfully
+    setAddFormValidationErrors([]);
     const newRecords = [];
     for (let i = 0; i < qty; i++) {
-      const rfid = qty === 1 ? baseRfid : (i === 0 ? baseRfid : `${baseRfid}-${i + 1}`);
-      const itemCode = qty === 1 ? baseItemCode : (i === 0 ? baseItemCode : `${baseItemCode}-${i + 1}`);
+      const rfid = qty === 1 ? baseRfid : (i === 0 ? baseRfid : '');
+      const itemCode = qty === 1 ? baseItemCode : (i === 0 ? baseItemCode : '');
       newRecords.push(buildRecordFromForm(rfid, itemCode));
     }
     setAddedRecords(prev => [...prev, ...newRecords]);
     setAddedRecordTids(prev => [...prev, ...newRecords.map(() => ({ tid: null, loading: false }))]);
     resetSingleForm();
     setAddStockQuantity(1);
-    addNotification({ type: 'success', title: 'Added', message: `${newRecords.length} record(s) added with same details. You can edit RFID and Item Code in the table and they will be validated.` });
+    addNotification({ type: 'success', title: 'Added', message: qty === 1 ? '1 record added. You can edit RFID and Item Code in the table.' : `${qty} rows added. Enter RFID and Item Code for each row in the table below.` });
   };
 
   // Update a single field of an added record (e.g. RFIDNumber, Itemcode)
@@ -1964,10 +1958,64 @@ const AddStock = () => {
     addNotification({ type: 'info', title: 'Cleared', message: 'All records cleared.' });
   };
 
+  // Collect all error messages from API response for user-friendly display
+  const collectErrorMessages = (error) => {
+    const list = [];
+    const data = error?.response?.data;
+    if (data) {
+      if (Array.isArray(data.errors)) {
+        data.errors.forEach((e) => list.push(typeof e === 'string' ? e : (e?.message || e?.Message || JSON.stringify(e))));
+      }
+      const combined = (data.Message || data.message || '').trim();
+      if (combined) {
+        const parts = combined.split(/[;\n]+/).map((s) => s.trim()).filter(Boolean);
+        if (parts.length > 1) parts.forEach((p) => list.push(p));
+        else if (parts.length === 1) list.push(parts[0]);
+      }
+    }
+    if (list.length === 0) list.push(error?.message || 'Failed to add stock.');
+    return [...new Set(list)];
+  };
+
+  // Pre-submit validation: required fields per record and shared (branch, counter)
+  const validateAddedRecordsForSubmit = () => {
+    const errors = [];
+    if (!sharedData.branch_name?.trim()) errors.push('• Branch is not selected. Please select Branch above.');
+    if (!sharedData.counter_name?.trim()) errors.push('• Counter is not selected. Please select Counter above.');
+    addedRecords.forEach((record, idx) => {
+      const row = idx + 1;
+      if (!(record.RFIDNumber || '').trim()) errors.push(`• Row ${row}: RFID Number is required.`);
+      if (!(record.Itemcode || '').trim()) errors.push(`• Row ${row}: Item Code is required.`);
+      if (!(record.category_id || '').trim()) errors.push(`• Row ${row}: Category is required.`);
+      if (!(record.product_id || '').trim()) errors.push(`• Row ${row}: Product is required.`);
+    });
+    return errors;
+  };
+
   // Submit all added records to API
   const handleSubmitAllRecords = async () => {
     if (addedRecords.length === 0) {
-      addNotification({ type: 'error', title: 'No Records', message: 'Add at least one record using the + Add button before submitting.' });
+      const msg = 'Add at least one record using the + Add button before submitting.';
+      addNotification({ type: 'error', title: 'Cannot Add Stock', message: msg });
+      toast.error(msg, { position: toast.POSITION.TOP_RIGHT, autoClose: 6000 });
+      return;
+    }
+    const validationErrors = validateAddedRecordsForSubmit();
+    if (validationErrors.length > 0) {
+      const title = 'Please fix the following before adding stock:';
+      const fullMessage = [title, ...validationErrors].join('\n');
+      addNotification({ type: 'error', title: 'Validation Failed', message: fullMessage });
+      toast.error(
+        <div style={{ maxWidth: 420 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>{title}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6, fontSize: 13 }}>
+            {validationErrors.map((e, i) => (
+              <li key={i} style={{ marginBottom: 4 }}>{e.replace(/^•\s*/, '')}</li>
+            ))}
+          </ul>
+        </div>,
+        { position: toast.POSITION.TOP_RIGHT, autoClose: 12000, closeButton: true }
+      );
       return;
     }
     const validProducts = addedRecords.map(record => {
@@ -2016,11 +2064,7 @@ const AddStock = () => {
         throw new Error(response.data?.Message || response.data?.message || 'Failed to add stock.');
       }
       const successMsg = response.data?.message || `${validProducts.length} stock item(s) added successfully!`;
-      addNotification({
-        type: 'success',
-        title: 'Success',
-        message: successMsg
-      });
+      addNotification({ type: 'success', title: 'Success', message: successMsg });
       toast.success('Stock added successfully!', {
         position: toast.POSITION.TOP_RIGHT,
         autoClose: 3000
@@ -2029,8 +2073,21 @@ const AddStock = () => {
       resetSingleForm();
       setSharedData({ branch_name: '', counter_name: '', Itemcode: '' });
     } catch (error) {
-      const msg = error.response?.data?.message || error.response?.data?.Message || error.message || 'Failed to add stock.';
-      addNotification({ type: 'error', title: 'Error', message: msg });
+      const errorList = collectErrorMessages(error);
+      const title = 'Add Stock Failed';
+      const fullMessage = errorList.join('\n');
+      addNotification({ type: 'error', title, message: fullMessage });
+      toast.error(
+        <div style={{ maxWidth: 420 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>{title}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6, fontSize: 13 }}>
+            {errorList.map((e, i) => (
+              <li key={i} style={{ marginBottom: 4 }}>{e}</li>
+            ))}
+          </ul>
+        </div>,
+        { position: toast.POSITION.TOP_RIGHT, autoClose: 15000, closeButton: true }
+      );
     } finally {
       setLoading(false);
     }
@@ -4274,7 +4331,7 @@ const AddStock = () => {
                   const showTidMissing = hasRfidMoreThan4 && !tidLoading && tidByBarcode === null;
                   const isGreen = showTidPresent && !fieldErrors.RFIDNumber;
                   const isRed = fieldErrors.RFIDNumber || showTidMissing;
-                  const isReadOnly = showTidPresent;
+                  const isReadOnly = false;
                   return (
                     <>
                 <input
@@ -4762,7 +4819,7 @@ const AddStock = () => {
                       const showTidMissing = hasRfidMoreThan4 && !rowTid.loading && rowTid.tid === null;
                       const rfidGreen = showTidPresent;
                       const rfidRed = showTidMissing;
-                      const rfidReadOnly = showTidPresent;
+                      const rfidReadOnly = false;
                       const recordCategory = (record.category_id || '').toLowerCase();
                       const canAddDiamond = recordCategory.includes('diamond');
                       return (

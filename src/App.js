@@ -19,6 +19,7 @@ import {
   AddStock,
   OrderList
 } from './components/inventory/components';
+import ProductDetailsPage from './components/inventory/ProductDetailsPage';
 import CreateLabel from './components/inventory/CreateLabel';
 import CreateInvoice from './components/inventory/CreateInvoice';
 import SampleOut from './components/inventory/SampleOut';
@@ -186,7 +187,7 @@ const useAuthProtection = () => {
     }
 
     // If admin is authenticated but tries to access user routes
-    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'].includes(currentPath)) {
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'].includes(currentPath)) {
       navigate('/admin-dashboard', { replace: true });
     }
   }, [location.pathname, navigate]);
@@ -411,7 +412,7 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'];
+      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -494,6 +495,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <LabelStockList />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/product-details"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <ProductDetailsPage />
                 </PageWrapper>
               </AuthGuard>
             }

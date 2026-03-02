@@ -3236,55 +3236,6 @@ const StockVerification = () => {
                         </div>
                       </div>
 
-                      {/* Total Scanned Card */}
-                      <div style={{ 
-                        background: '#f0fdf4', 
-                        borderRadius: '12px', 
-                        padding: '20px', 
-                        border: '1px solid #dcfce7',
-                        boxShadow: '0 2px 4px rgba(34, 197, 94, 0.05)',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
-                          <FaBarcode size={80} color="#22c55e" />
-                        </div>
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#15803d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Scanned</h4>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#16a34a', lineHeight: 1 }}>
-                        {consolidationData.Totals.TotalScannedItems?.toLocaleString() ?? 0}
-                      </div>
-                        <div style={{ width: '100%', background: '#bbf7d0', height: '6px', borderRadius: '3px', marginTop: '12px' }}>
-                          <div style={{ 
-                            width: `${Math.min(100, ((consolidationData.Totals.TotalScannedItems || 0) / (consolidationData.Totals.TotalInventoryQty || 1)) * 100)}%`, 
-                            background: '#22c55e', 
-                            height: '100%', 
-                            borderRadius: '3px' 
-                          }}></div>
-                    </div>
-                      </div>
-
-                      {/* Not Scanned Card */}
-                      <div style={{ 
-                        background: '#fef2f2', 
-                        borderRadius: '12px', 
-                        padding: '20px', 
-                        border: '1px solid #fee2e2',
-                        boxShadow: '0 2px 4px rgba(239, 68, 68, 0.05)',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
-                          <FaExclamationTriangle size={80} color="#ef4444" />
-                        </div>
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#b91c1c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Not Scanned</h4>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#dc2626', lineHeight: 1 }}>
-                          {consolidationData.Totals.TotalNotScannedItems?.toLocaleString() ?? 0}
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#991b1b', marginTop: '8px', fontWeight: 500 }}>
-                          Missing Items
-                        </div>
-                      </div>
-
                       {/* Matched Qty Card */}
                       <div style={{ 
                         background: '#f0fdfa', 

@@ -97,59 +97,79 @@ const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstri
 const UPDATE_API = 'https://soni.loyalstring.co.in/api/ProductMaster/UpdateExistingProducts';
 const UPLOAD_IMAGE_API = `${API_BASE.replace(/\/$/, '')}/api/ProductMaster/UploadImagesByClientCode`;
 
-const DetailCard = ({ title, icon: Icon, iconColor, children }) => (
-  <div style={{
+const DetailCard = ({ title, icon: Icon, iconColor, children, compact }) => (
+  <div className="pdp-card" style={{
     background: '#ffffff',
-    borderRadius: 8,
+    borderRadius: 10,
     overflow: 'hidden',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-    border: '1px solid #e2e8f0',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    border: '1px solid #e5e7eb',
   }}>
     <div style={{
-      padding: '6px 10px',
-      background: `linear-gradient(135deg, ${iconColor}18 0%, ${iconColor}12 100%)`,
-      borderLeft: `3px solid ${iconColor}`,
+      padding: compact ? '10px 14px' : '12px 16px',
+      background: '#fafafa',
+      borderBottom: '1px solid #e5e7eb',
       display: 'flex',
       alignItems: 'center',
-      gap: 8,
+      gap: 10,
     }}>
-      <span style={{ width: 28, height: 28, borderRadius: 6, background: iconColor, color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        {Icon && <Icon size={16} style={{ color: '#ffffff' }} />}
+      <span style={{ width: 32, height: 32, borderRadius: 8, background: iconColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {Icon && <Icon size={16} style={{ color: '#fff' }} />}
       </span>
-      <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{title}</span>
+      <span className="pdp-card-title" style={{ fontSize: 14, fontWeight: 600, color: '#1f2937' }}>{title}</span>
     </div>
     <div style={{ padding: 0 }}>{children}</div>
   </div>
 );
 
 const DetailRow = ({ label, value, type = 'text' }) => (
-  <div style={{
+  <div className="pdp-detail-row" style={{
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
-    padding: '4px 10px',
-    borderBottom: '1px solid #f1f5f9',
-    fontSize: 11,
+    gap: 12,
+    padding: '10px 14px',
+    borderBottom: '1px solid #f3f4f6',
+    fontSize: 13,
+    minHeight: 44,
   }}>
-    <span style={{ color: '#64748b', fontWeight: 500, flexShrink: 0 }}>{label}</span>
-    <span style={{ color: '#0f172a', fontWeight: 600, textAlign: 'right', wordBreak: 'break-word' }}>
+    <span style={{ color: '#6b7280', fontWeight: 500, flexShrink: 0 }}>{label}</span>
+    <span style={{ color: '#111827', fontWeight: 600, textAlign: 'right', wordBreak: 'break-word' }}>
       {formatValue(value, type)}
     </span>
   </div>
 );
 
-const EditField = ({ label, formKey, type = 'text', placeholder = '', options = [], form, setForm }) => {
+const EditField = ({ label, formKey, type = 'text', placeholder = '', options = [], form, setForm, isMobile }) => {
   const inputStyle = {
-    width: '55%', minWidth: 80, maxWidth: 140, padding: '4px 8px', fontSize: 11, borderRadius: 6,
-    border: '1px solid #e2e8f0', outline: 'none', background: '#fff',
+    flex: isMobile ? '1' : '0 1 auto',
+    width: isMobile ? '100%' : '55%',
+    minWidth: isMobile ? 0 : 80,
+    maxWidth: isMobile ? 'none' : 180,
+    padding: '8px 12px',
+    fontSize: 13,
+    borderRadius: 8,
+    border: '1px solid #e5e7eb',
+    outline: 'none',
+    background: '#fff',
+    boxSizing: 'border-box',
   };
-  const rowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '4px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 11 };
+  const rowStyle = {
+    display: 'flex',
+    flexDirection: isMobile ? 'column' : 'row',
+    justifyContent: isMobile ? 'flex-start' : 'space-between',
+    alignItems: isMobile ? 'stretch' : 'center',
+    gap: isMobile ? 6 : 12,
+    padding: '10px 14px',
+    borderBottom: '1px solid #f3f4f6',
+    fontSize: 13,
+    minHeight: 44,
+  };
   if (options.length) {
     return (
       <div style={rowStyle}>
-        <span style={{ color: '#64748b', fontWeight: 500, flexShrink: 0 }}>{label}</span>
-        <select value={form[formKey] ?? ''} onChange={(e) => setForm(formKey, e.target.value)} style={inputStyle} onFocus={(e) => { e.target.style.borderColor = '#6366f1'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; }}>
+        <span style={{ color: '#6b7280', fontWeight: 500, flexShrink: 0 }}>{label}</span>
+        <select value={form[formKey] ?? ''} onChange={(e) => setForm(formKey, e.target.value)} style={inputStyle} onFocus={(e) => { e.target.style.borderColor = '#2563eb'; }} onBlur={(e) => { e.target.style.borderColor = '#e5e7eb'; }}>
           {options.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
         </select>
       </div>
@@ -157,8 +177,8 @@ const EditField = ({ label, formKey, type = 'text', placeholder = '', options = 
   }
   return (
     <div style={rowStyle}>
-      <span style={{ color: '#64748b', fontWeight: 500, flexShrink: 0 }}>{label}</span>
-      <input type={type} value={form[formKey] ?? ''} onChange={(e) => setForm(formKey, e.target.value)} placeholder={placeholder} style={inputStyle} onFocus={(e) => { e.target.style.borderColor = '#6366f1'; }} onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; }} />
+      <span style={{ color: '#6b7280', fontWeight: 500, flexShrink: 0 }}>{label}</span>
+      <input type={type} value={form[formKey] ?? ''} onChange={(e) => setForm(formKey, e.target.value)} placeholder={placeholder} style={inputStyle} onFocus={(e) => { e.target.style.borderColor = '#2563eb'; }} onBlur={(e) => { e.target.style.borderColor = '#e5e7eb'; }} />
     </div>
   );
 };
@@ -393,19 +413,21 @@ const ProductDetailsPage = () => {
 
   if (!product) {
     return (
-      <div style={{ minHeight: '100vh', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ fontSize: 16, color: '#64748b', marginBottom: 16 }}>Product not found.</p>
+      <div className="pdp-page" style={{ minHeight: '100vh', background: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ textAlign: 'center', maxWidth: 360 }}>
+          <p style={{ fontSize: 16, color: '#6b7280', marginBottom: 20, lineHeight: 1.5 }}>Product not found. Go back to the list to select a product.</p>
           <button
             onClick={() => navigate('/label-stock')}
             style={{
-              padding: '10px 20px',
-              borderRadius: 10,
-              border: '1px solid #6366f1',
-              background: '#eef2ff',
-              color: '#4f46e5',
+              padding: '12px 24px',
+              borderRadius: 8,
+              border: '1px solid #e5e7eb',
+              background: '#ffffff',
+              color: '#2563eb',
               fontWeight: 600,
+              fontSize: 14,
               cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
             }}
           >
             Back to Label Stock
@@ -416,13 +438,18 @@ const ProductDetailsPage = () => {
   }
 
   const st = statusStyle(product.Status);
+  const isMobile = windowWidth <= 576;
+  const isTablet = windowWidth > 576 && windowWidth <= 992;
   const isNarrow = windowWidth <= 768;
+  const isDesktop = windowWidth > 992;
+  const containerPadding = isMobile ? 16 : isTablet ? 20 : 24;
+  const mainMaxWidth = 1100;
 
   return (
-    <div style={{
+    <div className="pdp-page" style={{
       minHeight: '100vh',
-      background: '#ffffff',
-      fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+      background: '#f9fafb',
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     }}>
       <SuccessNotification title={successMessage.title} message={successMessage.message} isVisible={showSuccess} onClose={() => setShowSuccess(false)} />
 
@@ -437,24 +464,24 @@ const ProductDetailsPage = () => {
             position: 'fixed',
             inset: 0,
             zIndex: 2000,
-            background: 'rgba(0,0,0,0.85)',
+            background: 'rgba(0,0,0,0.9)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: 24,
+            padding: windowWidth <= 576 ? 16 : 24,
           }}
         >
           <button
             onClick={() => setShowImagePopup(false)}
             style={{
               position: 'absolute',
-              top: 16,
-              right: 16,
-              width: 40,
-              height: 40,
+              top: windowWidth <= 576 ? 12 : 20,
+              right: windowWidth <= 576 ? 12 : 20,
+              width: 44,
+              height: 44,
               borderRadius: '50%',
               border: 'none',
-              background: 'rgba(255,255,255,0.2)',
+              background: 'rgba(255,255,255,0.15)',
               color: '#fff',
               cursor: 'pointer',
               display: 'flex',
@@ -464,98 +491,110 @@ const ProductDetailsPage = () => {
             }}
             aria-label="Close"
           >
-            <FaTimes size={20} style={{ color: '#ffffff' }} />
+            <FaTimes size={22} />
           </button>
           <img
             src={displayImageUrl}
             alt="Product"
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: '95vw', maxHeight: '95vh', objectFit: 'contain' }}
+            style={{ maxWidth: '100%', maxHeight: '90vh', objectFit: 'contain' }}
           />
         </div>
       )}
 
-      {/* Header */}
-      <header style={{
+      {/* Header - Zoho-style */}
+      <header className="pdp-header" style={{
         background: '#ffffff',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-        borderBottom: '1px solid #e2e8f0',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderBottom: '1px solid #e5e7eb',
         position: 'sticky',
         top: 0,
         zIndex: 100,
       }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '8px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <button
-              onClick={handleBack}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600,
-                borderRadius: 6, border: 'none', background: '#475569', color: '#ffffff', cursor: 'pointer',
-              }}
-            >
-              <FaArrowLeft size={16} style={{ color: '#ffffff' }} /> Back
-            </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 style={{ margin: 0, fontSize: isNarrow ? 14 : 16, fontWeight: 700, color: '#0f172a' }}>
-                Product Details
-              </h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, color: '#64748b' }}>Item: <strong style={{ color: '#1e293b' }}>{product.ItemCode || '—'}</strong></span>
-                <span style={{ color: '#cbd5e1' }}>•</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>RFID: <strong style={{ color: '#1e293b' }}>{product.RFIDCode || product.RFIDNumber || '—'}</strong></span>
-                <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 10, background: st.bg, color: st.color }}>
-                  {st.label}
-                </span>
+        <div style={{ maxWidth: mainMaxWidth, margin: '0 auto', padding: isMobile ? '12px 16px' : isTablet ? '14px 20px' : '16px 24px' }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            alignItems: isMobile ? 'stretch' : 'center',
+            gap: isMobile ? 12 : 16,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button
+                onClick={handleBack}
+                aria-label="Back to list"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8, padding: isMobile ? '10px 14px' : '8px 14px',
+                  fontSize: 13, fontWeight: 600, borderRadius: 8, border: '1px solid #e5e7eb',
+                  background: '#fff', color: '#374151', cursor: 'pointer', minHeight: 40,
+                }}
+              >
+                <FaArrowLeft size={18} style={{ color: '#374151' }} /> Back
+              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 600, color: '#111827' }}>
+                  Product Details
+                </h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: '#6b7280' }}>Item: <strong style={{ color: '#111827' }}>{product.ItemCode || '—'}</strong></span>
+                  <span style={{ color: '#d1d5db' }}>|</span>
+                  <span style={{ fontSize: 13, color: '#6b7280' }}>RFID: <strong style={{ color: '#111827' }}>{product.RFIDCode || product.RFIDNumber || '—'}</strong></span>
+                  <span style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 20, background: st.bg, color: st.color }}>
+                    {st.label}
+                  </span>
+                </div>
               </div>
             </div>
-            {editMode ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button onClick={handleCancelEdit} disabled={saveLoading} style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 11, fontWeight: 600,
-                  borderRadius: 6, border: 'none', background: '#64748b', color: '#ffffff', cursor: saveLoading ? 'not-allowed' : 'pointer',
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, ...(isMobile && { justifyContent: 'flex-end' }) }}>
+              {editMode ? (
+                <>
+                  <button onClick={handleCancelEdit} disabled={saveLoading} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600,
+                    borderRadius: 8, border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280', cursor: saveLoading ? 'not-allowed' : 'pointer', minHeight: 40,
+                  }}>
+                    <FaTimes size={16} /> Cancel
+                  </button>
+                  <button onClick={handleSave} disabled={saveLoading} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600,
+                    borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: saveLoading ? 'not-allowed' : 'pointer', minHeight: 40,
+                  }}>
+                    {saveLoading ? <FaSpinner size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> : <FaSave size={16} />}
+                    {saveLoading ? 'Saving…' : 'Save'}
+                  </button>
+                </>
+              ) : (
+                <button onClick={handleStartEdit} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600,
+                  borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: 'pointer', minHeight: 40,
                 }}>
-                  <FaTimes size={16} style={{ color: '#ffffff' }} /> Cancel
+                  <FaEdit size={16} /> Edit
                 </button>
-                <button onClick={handleSave} disabled={saveLoading} style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 11, fontWeight: 600,
-                  borderRadius: 6, border: 'none', background: '#059669', color: '#ffffff', cursor: saveLoading ? 'not-allowed' : 'pointer',
-                }}>
-                  {saveLoading ? <FaSpinner size={16} style={{ animation: 'spin 0.8s linear infinite', color: '#ffffff' }} /> : <FaSave size={16} style={{ color: '#ffffff' }} />}
-                  {saveLoading ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            ) : (
-              <button onClick={handleStartEdit} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 11, fontWeight: 600,
-                borderRadius: 6, border: 'none', background: '#6366f1', color: '#ffffff', cursor: 'pointer',
-              }}>
-                <FaEdit size={16} style={{ color: '#ffffff' }} /> Edit
-              </button>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </header>
 
-      <main style={{ maxWidth: 1200, margin: '0 auto', padding: 12 }}>
-        {/* Top row: Image section (left) + Key stats (right) - different layout */}
-        <div style={{
-          display: isNarrow ? 'block' : 'flex',
-          gap: 12,
-          marginBottom: 12,
-          alignItems: 'flex-start',
+      <main className="pdp-main" style={{ maxWidth: mainMaxWidth, margin: '0 auto', padding: containerPadding }}>
+        {/* Top: Image + Key stats - responsive row */}
+        <div className="pdp-hero" style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: isMobile ? 16 : 20,
+          marginBottom: 20,
+          alignItems: isMobile ? 'stretch' : 'flex-start',
         }}>
-          {/* Image section - separate card, click to enlarge */}
-          <section style={{
+          {/* Image card */}
+          <section className="pdp-image-card" style={{
             background: '#ffffff',
-            borderRadius: 8,
-            padding: 12,
-            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            padding: isMobile ? 20 : 24,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            border: '1px solid #e5e7eb',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             flexShrink: 0,
-            width: isNarrow ? '100%' : 160,
+            width: isMobile ? '100%' : 200,
           }}>
             <div
               role="button"
@@ -563,11 +602,11 @@ const ProductDetailsPage = () => {
               onClick={() => (displayImageUrl ? setShowImagePopup(true) : document.getElementById('product-detail-image-upload')?.click())}
               onKeyDown={(e) => { if (e.key === 'Enter' && displayImageUrl) setShowImagePopup(true); }}
               style={{
-                width: isNarrow ? 100 : 120,
-                height: isNarrow ? 100 : 120,
-                borderRadius: 8,
-                background: displayImageUrl ? '#f8fafc' : '#94a3b8',
-                border: '1px solid #e2e8f0',
+                width: isMobile ? 160 : 152,
+                height: isMobile ? 160 : 152,
+                borderRadius: 12,
+                background: displayImageUrl ? '#f9fafb' : '#e5e7eb',
+                border: '1px solid #e5e7eb',
                 overflow: 'hidden',
                 display: 'flex',
                 alignItems: 'center',
@@ -579,70 +618,78 @@ const ProductDetailsPage = () => {
               {displayImageUrl ? (
                 <>
                   <img src={displayImageUrl} alt="Product" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                  <span style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '2px 4px', display: 'flex' }}>
-                    <FaExpand size={12} style={{ color: '#ffffff' }} />
+                  <span style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.5)', color: '#fff', borderRadius: 6, padding: '4px 6px' }}>
+                    <FaExpand size={14} />
                   </span>
                 </>
               ) : (
-                <FaCamera size={36} style={{ color: '#ffffff' }} />
+                <FaCamera size={40} style={{ color: '#9ca3af' }} />
               )}
             </div>
             <label htmlFor="product-detail-image-upload" style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8,
-              padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
-              background: imageUploading ? '#94a3b8' : '#64748b', color: '#ffffff', cursor: imageUploading ? 'not-allowed' : 'pointer',
-              width: '100%',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14,
+              padding: '10px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: '1px solid #e5e7eb',
+              background: imageUploading ? '#f3f4f6' : '#fff', color: imageUploading ? '#9ca3af' : '#374151', cursor: imageUploading ? 'not-allowed' : 'pointer',
+              width: '100%', minHeight: 44,
             }}>
-              {imageUploading ? <FaSpinner size={14} style={{ animation: 'spin 0.8s linear infinite', color: '#ffffff' }} /> : <FaCamera size={14} style={{ color: '#ffffff' }} />}
+              {imageUploading ? <FaSpinner size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> : <FaCamera size={16} />}
               {imageUploading ? 'Uploading…' : (displayImageUrl ? 'Change image' : 'Upload image')}
             </label>
-            <input id="product-detail-image-upload" type="file" accept="image/*" onChange={handleImageChange} disabled={imageUploading} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} />
+            <input id="product-detail-image-upload" type="file" accept="image/*" onChange={handleImageChange} disabled={imageUploading} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} aria-hidden="true" />
           </section>
 
-          {/* Top section - key stats */}
-          <section style={{
+          {/* Key stats - Zoho-style stat chips */}
+          <section className="pdp-stats" style={{
             flex: 1,
             minWidth: 0,
             background: '#ffffff',
-            borderRadius: 8,
-            padding: 12,
-            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            padding: isMobile ? 16 : 24,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            border: '1px solid #e5e7eb',
           }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8, width: '100%' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : isTablet ? 'repeat(3, 1fr)' : 'repeat(3, 1fr)',
+              gap: isMobile ? 10 : 14,
+              width: '100%',
+            }}>
               {[
-                { label: 'Product', value: formatValue(product.ProductName), color: '#6366f1' },
+                { label: 'Product', value: formatValue(product.ProductName), color: '#2563eb' },
                 { label: 'Category', value: formatValue(product.CategoryName), color: '#059669' },
                 { label: 'MRP', value: `₹ ${formatValue(product.MRP, 'amount')}`, color: '#d97706' },
                 { label: 'Net Wt', value: `${formatValue(product.NetWt, 'number')} g`, color: '#7c3aed' },
-                { label: 'Design', value: formatValue(product.DesignName || product.Design), color: '#0ea5e9' },
+                { label: 'Design', value: formatValue(product.DesignName || product.Design), color: '#0284c7' },
                 { label: 'Purity', value: formatValue(product.PurityName || product.Purity), color: '#b45309' },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{
-                  padding: '8px 10px', background: `${color}15`, borderRadius: 6, border: `1px solid ${color}40`,
+                  padding: isMobile ? '12px 14px' : '14px 16px',
+                  background: '#fafafa',
+                  borderRadius: 10,
+                  border: '1px solid #e5e7eb',
                 }}>
-                  <div style={{ fontSize: 10, color, fontWeight: 600, marginBottom: 4, textTransform: 'uppercase' }}>{label}</div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', lineHeight: 1.2 }}>{value}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.02em' }}>{label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', lineHeight: 1.3 }}>{value}</div>
                 </div>
               ))}
             </div>
           </section>
         </div>
 
-        {/* Cards grid */}
-        <div style={{
+        {/* Detail cards grid - 1 col mobile, 2 col tablet+ */}
+        <div className="pdp-cards-grid" style={{
           display: 'grid',
-          gridTemplateColumns: windowWidth > 1100 ? 'repeat(2, 1fr)' : '1fr',
-          gap: 8,
+          gridTemplateColumns: isDesktop ? 'repeat(2, 1fr)' : '1fr',
+          gap: 16,
         }}>
-          <DetailCard title="Basic info" Icon={FaInfoCircle} iconColor="#2563eb">
+          <DetailCard title="Basic info" Icon={FaInfoCircle} iconColor="#2563eb" compact={isMobile}>
             {editMode ? (
               <>
-                <EditField label="Category" formKey="category_id" form={form} setForm={setForm} options={getOptions('category_id')} />
-                <EditField label="Product" formKey="product_id" form={form} setForm={setForm} options={getOptions('product_id')} />
-                <EditField label="Design" formKey="design_id" form={form} setForm={setForm} options={getOptions('design_id')} />
-                <EditField label="Purity" formKey="purity_id" form={form} setForm={setForm} options={getOptions('purity_id')} />
-                <EditField label="Status" formKey="status" form={form} setForm={setForm} options={['ApiActive', 'Sold']} />
+                <EditField label="Category" formKey="category_id" form={form} setForm={setForm} options={getOptions('category_id')} isMobile={isMobile} />
+                <EditField label="Product" formKey="product_id" form={form} setForm={setForm} options={getOptions('product_id')} isMobile={isMobile} />
+                <EditField label="Design" formKey="design_id" form={form} setForm={setForm} options={getOptions('design_id')} isMobile={isMobile} />
+                <EditField label="Purity" formKey="purity_id" form={form} setForm={setForm} options={getOptions('purity_id')} isMobile={isMobile} />
+                <EditField label="Status" formKey="status" form={form} setForm={setForm} options={['ApiActive', 'Sold']} isMobile={isMobile} />
               </>
             ) : (
               <>
@@ -658,13 +705,13 @@ const ProductDetailsPage = () => {
             )}
           </DetailCard>
 
-          <DetailCard title="Weight" Icon={FaWeightHanging} iconColor="#059669">
+          <DetailCard title="Weight" Icon={FaWeightHanging} iconColor="#059669" compact={isMobile}>
             {editMode ? (
               <>
-                <EditField label="Gross Wt (g)" formKey="grosswt" type="number" form={form} setForm={setForm} />
-                <EditField label="Net Wt (g)" formKey="netwt" type="number" form={form} setForm={setForm} />
-                <EditField label="Stone Wt" formKey="stonewt" type="number" form={form} setForm={setForm} />
-                <EditField label="Diamond Wt" formKey="diamondWeight" type="number" form={form} setForm={setForm} />
+                <EditField label="Gross Wt (g)" formKey="grosswt" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Net Wt (g)" formKey="netwt" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Stone Wt" formKey="stonewt" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Diamond Wt" formKey="diamondWeight" type="number" form={form} setForm={setForm} isMobile={isMobile} />
               </>
             ) : (
               <>
@@ -678,16 +725,16 @@ const ProductDetailsPage = () => {
             )}
           </DetailCard>
 
-          <DetailCard title="Amount & pricing" Icon={FaRupeeSign} iconColor="#d97706">
+          <DetailCard title="Amount & pricing" Icon={FaRupeeSign} iconColor="#d97706" compact={isMobile}>
             {editMode ? (
               <>
-                <EditField label="Stone Amt" formKey="stoneamount" type="number" form={form} setForm={setForm} />
-                <EditField label="Diamond Amt" formKey="diamondAmount" type="number" form={form} setForm={setForm} />
-                <EditField label="Hallmark Amt" formKey="HallmarkAmount" type="number" form={form} setForm={setForm} />
-                <EditField label="Making/Gram" formKey="MakingPerGram" type="number" form={form} setForm={setForm} />
-                <EditField label="Making %" formKey="MakingPercentage" type="number" form={form} setForm={setForm} />
-                <EditField label="Making Fixed" formKey="MakingFixedAmt" type="number" form={form} setForm={setForm} />
-                <EditField label="MRP" formKey="MRP" type="number" form={form} setForm={setForm} />
+                <EditField label="Stone Amt" formKey="stoneamount" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Diamond Amt" formKey="diamondAmount" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Hallmark Amt" formKey="HallmarkAmount" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Making/Gram" formKey="MakingPerGram" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Making %" formKey="MakingPercentage" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="Making Fixed" formKey="MakingFixedAmt" type="number" form={form} setForm={setForm} isMobile={isMobile} />
+                <EditField label="MRP" formKey="MRP" type="number" form={form} setForm={setForm} isMobile={isMobile} />
               </>
             ) : (
               <>
@@ -701,12 +748,12 @@ const ProductDetailsPage = () => {
             )}
           </DetailCard>
 
-          <DetailCard title="Location & meta" Icon={FaMapMarkerAlt} iconColor="#7c3aed">
+          <DetailCard title="Location & meta" Icon={FaMapMarkerAlt} iconColor="#7c3aed" compact={isMobile}>
             {editMode ? (
               <>
-                <EditField label="Branch" formKey="branch_id" form={form} setForm={setForm} options={getOptions('branch_id')} />
-                <EditField label="Counter" formKey="counter_id" form={form} setForm={setForm} options={getOptions('counter_id')} />
-                <EditField label="Box" formKey="box_details" form={form} setForm={setForm} />
+                <EditField label="Branch" formKey="branch_id" form={form} setForm={setForm} options={getOptions('branch_id')} isMobile={isMobile} />
+                <EditField label="Counter" formKey="counter_id" form={form} setForm={setForm} options={getOptions('counter_id')} isMobile={isMobile} />
+                <EditField label="Box" formKey="box_details" form={form} setForm={setForm} isMobile={isMobile} />
               </>
             ) : (
               <>
@@ -722,8 +769,13 @@ const ProductDetailsPage = () => {
         </div>
 
         {/* Stones & Diamonds */}
-        <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr', gap: 8, marginTop: 8 }}>
-          <DetailCard title={product.Stones?.length ? `Stones (${product.Stones.length})` : 'Stones'} Icon={FaGem} iconColor="#d97706">
+        <div className="pdp-stones-diamonds" style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+          gap: 16,
+          marginTop: 20,
+        }}>
+          <DetailCard title={product.Stones?.length ? `Stones (${product.Stones.length})` : 'Stones'} Icon={FaGem} iconColor="#d97706" compact={isMobile}>
             {product.Stones?.length > 0 ? (
               <div style={{ maxHeight: 120, overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -749,7 +801,7 @@ const ProductDetailsPage = () => {
               <div style={{ padding: '8px 10px', fontSize: 11, color: '#94a3b8' }}>No stones</div>
             )}
           </DetailCard>
-          <DetailCard title={product.Diamonds?.length ? `Diamonds (${product.Diamonds.length})` : 'Diamonds'} Icon={FaGem} iconColor="#7c3aed">
+          <DetailCard title={product.Diamonds?.length ? `Diamonds (${product.Diamonds.length})` : 'Diamonds'} Icon={FaGem} iconColor="#7c3aed" compact={isMobile}>
             {product.Diamonds?.length > 0 ? (
               <div style={{ maxHeight: 120, overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -780,6 +832,27 @@ const ProductDetailsPage = () => {
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .pdp-page { -webkit-tap-highlight-color: transparent; }
+        .pdp-header .pdp-card-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pdp-detail-row:last-child { border-bottom: none; }
+        .pdp-card { transition: box-shadow 0.2s ease; }
+        @media (max-width: 576px) {
+          .pdp-main { padding: 16px !important; }
+          .pdp-hero { flex-direction: column !important; gap: 16px !important; }
+          .pdp-image-card { width: 100% !important; }
+          .pdp-stats { padding: 16px !important; }
+          .pdp-cards-grid { grid-template-columns: 1fr !important; gap: 16px !important; }
+          .pdp-stones-diamonds { grid-template-columns: 1fr !important; }
+          .pdp-card table { font-size: 12px !important; }
+          .pdp-card th, .pdp-card td { padding: 8px 10px !important; }
+        }
+        @media (min-width: 577px) and (max-width: 992px) {
+          .pdp-main { padding: 20px !important; }
+          .pdp-cards-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (min-width: 993px) {
+          .pdp-cards-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        }
       `}</style>
     </div>
   );

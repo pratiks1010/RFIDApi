@@ -29,6 +29,7 @@ import {
   FaClipboardList,
   FaChartPie,
   FaThLarge,
+  FaLayerGroup,
 } from 'react-icons/fa';
 import {
   HiDocumentText,
@@ -74,6 +75,7 @@ const SidebarLayout = ({ children }) => {
   // Section 1: Inventory Management
   const inventorySession = [
     { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
+    // { path: '/create-masters', icon: FaLayerGroup, label: 'Create Masters', color: '#7c3aed', section: 'Inventory Management' },
     { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management' },
     { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
     { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management' },
@@ -291,7 +293,7 @@ const SidebarLayout = ({ children }) => {
   const avatarLetter = username ? username[0].toUpperCase() : 'U';
 
   const sidebarWidth = sidebarOpen
-    ? (isMobile ? '260px' : (sidebarCollapsed ? '72px' : '220px'))
+    ? (isMobile ? '280px' : (sidebarCollapsed ? '72px' : '220px'))
     : '0';
   const mainContentMargin = !isMobile && sidebarOpen
     ? (sidebarCollapsed ? '72px' : '220px')
@@ -305,79 +307,99 @@ const SidebarLayout = ({ children }) => {
       flexDirection: 'column',
       fontFamily: 'var(--font-family, "Roboto", sans-serif)'
     }}>
-      {/* Show Sidebar button - when sidebar is closed */}
+      {/* Top app bar with hamburger when sidebar is closed - anchored, no floating */}
       {!sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
+        <header
+          className="sidebar-topbar"
           style={{
             position: 'fixed',
-            top: 12,
-            left: 12,
-            zIndex: 1001,
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 10000,
+            height: 56,
+            minHeight: 56,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            width: 44,
-            height: 44,
+            paddingLeft: 12,
+            paddingRight: 12,
             background: '#ffffff',
-            border: '1px solid #e0e7ef',
-            borderRadius: '10px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            cursor: 'pointer',
-            color: '#0077d4',
-            transition: 'all 0.2s ease'
+            borderBottom: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#f1f5f9';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,119,212,0.2)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = '#ffffff';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
-          }}
-          title="Show menu"
-          aria-label="Show menu"
         >
-          <FaBars size={20} />
-        </button>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="sidebar-hamburger-btn"
+            aria-label="Open menu"
+            title="Open menu"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 44,
+              height: 44,
+              minWidth: 44,
+              minHeight: 44,
+              padding: 0,
+              background: '#f8fafc',
+              border: '1px solid #e5e7eb',
+              borderRadius: 10,
+              cursor: 'pointer',
+              color: '#2563eb',
+              flexShrink: 0,
+              transition: 'background 0.2s, box-shadow 0.2s',
+            }}
+          >
+            <FaBars size={20} aria-hidden="true" />
+          </button>
+        </header>
       )}
 
-      {/* Mobile overlay when sidebar open */}
+      {/* Mobile overlay when sidebar open - tap to close */}
       {isMobile && sidebarOpen && (
         <div
+          role="button"
+          tabIndex={0}
           onClick={() => setSidebarOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSidebarOpen(false); }}
+          aria-label="Close menu"
           style={{
             position: 'fixed',
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 998
+            background: 'rgba(0, 0, 0, 0.45)',
+            zIndex: 998,
+            animation: 'sidebar-overlay-in 0.2s ease',
           }}
         />
       )}
 
-      <div style={{ display: 'flex', marginTop: 0, minHeight: '100vh' }}>
+      <div className="sidebar-layout-wrapper" style={{ display: 'flex', marginTop: 0, minHeight: '100vh', width: '100%', overflow: 'hidden' }}>
         {/* Sidebar - glassmorphism background, logo, nav, bottom controls */}
         <aside
-          className="sidebar-glass"
+          className={`sidebar-glass ${isMobile ? 'sidebar-mobile' : ''} ${isMobile && sidebarOpen ? 'sidebar-mobile-open' : ''}`}
           style={{
             position: 'fixed',
             left: 0,
             top: 0,
             bottom: 0,
-            width: sidebarWidth,
-            background: 'rgba(255, 255, 255, 0.72)',
+            width: isMobile ? '280px' : sidebarWidth,
+            background: 'rgba(255, 255, 255, 0.95)',
             backdropFilter: 'blur(14px)',
             WebkitBackdropFilter: 'blur(14px)',
-            borderRight: '1px solid rgba(255, 255, 255, 0.5)',
-            transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            borderRight: '1px solid rgba(0,0,0,0.08)',
+            transition: isMobile ? 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             overflow: 'hidden',
             zIndex: 999,
-            display: sidebarOpen ? 'flex' : 'none',
+            display: isMobile ? 'flex' : (sidebarOpen ? 'flex' : 'none'),
             flexDirection: 'column',
-            boxShadow: '4px 0 24px rgba(0, 0, 0, 0.06), inset 1px 0 0 rgba(255,255,255,0.8)',
+            boxShadow: '4px 0 24px rgba(0, 0, 0, 0.08)',
+            transform: isMobile ? (sidebarOpen ? 'translateX(0)' : 'translateX(-100%)') : undefined,
+            visibility: isMobile && !sidebarOpen ? 'hidden' : 'visible',
           }}
         >
           {/* Sidebar top: Logo + collapse/expand on desktop, close on mobile */}
@@ -401,7 +423,7 @@ const SidebarLayout = ({ children }) => {
               <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#64748b' }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={12} /></button>
             )}
             {isMobile && (
-              <button onClick={() => setSidebarOpen(false)} style={{ flexShrink: 0, background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: '#64748b' }} title="Close menu" aria-label="Close menu"><FaTimes size={14} /></button>
+              <button type="button" onClick={() => setSidebarOpen(false)} className="sidebar-close-btn" style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10, cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Close menu" aria-label="Close menu"><FaTimes size={18} /></button>
             )}
           </div>
 
@@ -705,32 +727,25 @@ const SidebarLayout = ({ children }) => {
           </div>
         </aside>
 
-        {/* Mobile Overlay */}
-        {isMobile && sidebarOpen && (
-          <div
-            onClick={() => setSidebarOpen(false)}
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.5)',
-              zIndex: 998
-            }}
-          />
-        )}
-
-        {/* Main Content */}
-        <main style={{
-          flex: 1,
-          marginLeft: mainContentMargin,
-          transition: 'margin-left 0.3s ease',
-          padding: '24px',
-          minHeight: '100vh',
-          background: '#ffffff',
-          width: mainContentMargin ? `calc(100% - ${mainContentMargin})` : '100%'
-        }}>
+        {/* Main Content - full width, padding under top bar when sidebar closed */}
+        <main
+          className={`sidebar-main-content ${!sidebarOpen ? 'has-topbar' : ''}`}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            marginLeft: mainContentMargin,
+            transition: 'margin-left 0.3s ease, padding 0.2s ease',
+            paddingTop: sidebarOpen ? (isMobile ? 12 : 20) : undefined,
+            paddingBottom: isMobile ? 12 : 20,
+            paddingLeft: isMobile ? 12 : 20,
+            paddingRight: isMobile ? 12 : 20,
+            minHeight: '100vh',
+            background: '#f9fafb',
+            width: '100%',
+            boxSizing: 'border-box',
+            overflowX: 'auto',
+          }}
+        >
           {children}
         </main>
       </div>
@@ -744,11 +759,27 @@ const SidebarLayout = ({ children }) => {
               <div style={{ fontSize: 14, color: '#64748b', marginBottom: 6 }}>{t('header.backupDescription') || 'Download your data backup'}</div>
               {backupError && <div style={{ color: '#dc2626', fontSize: 13, marginTop: 4 }}>{backupError}</div>}
             </div>
-            <div style={{ display: 'flex', gap: 16, width: '100%', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowBackupModal(false)} style={{ background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 8, padding: '10px 24px', fontWeight: 600, fontSize: 14, cursor: 'pointer' }} disabled={backupLoading}>
+            <div style={{ display: 'flex', gap: 12, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setShowBackupModal(false)}
+                disabled={backupLoading}
+                className="layout-btn layout-btn-secondary"
+                style={{
+                  padding: '10px 20px', minHeight: 44, borderRadius: 8, border: '1px solid #e5e7eb', background: '#fff',
+                  color: '#374151', fontWeight: 600, fontSize: 14, cursor: backupLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
                 {t('header.cancel') || 'Cancel'}
               </button>
-              <button onClick={handleBackup} style={{ background: backupLoading ? '#94a3b8' : '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontWeight: 600, fontSize: 14, cursor: backupLoading ? 'not-allowed' : 'pointer', opacity: backupLoading ? 0.7 : 1 }} disabled={backupLoading}>
+              <button
+                onClick={handleBackup}
+                disabled={backupLoading}
+                className="layout-btn layout-btn-primary"
+                style={{
+                  padding: '10px 20px', minHeight: 44, borderRadius: 8, border: 'none', background: backupLoading ? '#94a3b8' : '#2563eb',
+                  color: '#fff', fontWeight: 600, fontSize: 14, cursor: backupLoading ? 'not-allowed' : 'pointer', opacity: backupLoading ? 0.8 : 1,
+                }}
+              >
                 {backupLoading ? (t('header.downloading') || 'Downloading...') : (t('header.downloadBackupButton') || 'Download Backup')}
               </button>
             </div>
@@ -757,6 +788,103 @@ const SidebarLayout = ({ children }) => {
       )}
 
       <style>{`
+        /* Top app bar - anchored, not floating; safe-area for notched devices */
+        .sidebar-topbar {
+          padding-left: max(12px, env(safe-area-inset-left)) !important;
+          padding-top: env(safe-area-inset-top) !important;
+          padding-bottom: env(safe-area-inset-bottom) !important;
+          height: calc(56px + env(safe-area-inset-top)) !important;
+          min-height: calc(56px + env(safe-area-inset-top)) !important;
+        }
+        /* Hamburger inside top bar - touch-friendly, no float */
+        .sidebar-hamburger-btn {
+          -webkit-tap-highlight-color: transparent;
+        }
+        .sidebar-hamburger-btn:hover {
+          background: #eff6ff !important;
+          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15) !important;
+        }
+        .sidebar-hamburger-btn:active {
+          transform: scale(0.97);
+        }
+        @media (max-width: 768px) {
+          .sidebar-hamburger-btn {
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+            min-height: 44px !important;
+          }
+          .sidebar-close-btn {
+            -webkit-tap-highlight-color: transparent;
+          }
+        }
+        /* Mobile sidebar - max width so content remains visible */
+        .sidebar-glass.sidebar-mobile {
+          max-width: min(280px, 85vw);
+          width: 280px !important;
+        }
+        @keyframes sidebar-overlay-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        /* Main content - full width, responsive */
+        .sidebar-layout-wrapper {
+          width: 100%;
+          max-width: 100vw;
+        }
+        .sidebar-main-content {
+          flex: 1 1 0%;
+          min-width: 0;
+        }
+        .sidebar-main-content.has-topbar {
+          padding-top: calc(56px + env(safe-area-inset-top) + 12px) !important;
+        }
+        @media (min-width: 769px) {
+          .sidebar-main-content.has-topbar {
+            padding-top: calc(56px + env(safe-area-inset-top) + 16px) !important;
+          }
+        }
+        @media (max-width: 768px) {
+          .sidebar-main-content {
+            margin-left: 0 !important;
+            width: 100% !important;
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+            padding-bottom: 12px !important;
+          }
+        }
+        @media (min-width: 769px) and (max-width: 1024px) {
+          .sidebar-main-content { padding: 16px !important; }
+        }
+        @media (min-width: 1025px) {
+          .sidebar-main-content { padding: 20px 24px !important; }
+        }
+        /* Layout action buttons - use in pages for Edit / Save */
+        .layout-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: background 0.2s, box-shadow 0.2s;
+        }
+        .layout-btn-primary {
+          background: #2563eb !important;
+          color: #fff !important;
+          border: none !important;
+        }
+        .layout-btn-primary:hover:not(:disabled) {
+          background: #1d4ed8 !important;
+          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+        }
+        .layout-btn-secondary {
+          background: #fff !important;
+          color: #374151 !important;
+          border: 1px solid #e5e7eb !important;
+        }
+        .layout-btn-secondary:hover:not(:disabled) {
+          background: #f9fafb !important;
+          border-color: #d1d5db !important;
+        }
         /* Sidebar glassmorphism */
         .sidebar-glass {
           -webkit-backdrop-filter: blur(14px);
@@ -772,7 +900,6 @@ const SidebarLayout = ({ children }) => {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        
         /* Syncfusion grid label support */
         .e-grid .e-headertext,
         .e-grid .e-rowcell,
@@ -781,7 +908,6 @@ const SidebarLayout = ({ children }) => {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        
         /* General label trailing support */
         label,
         .label,
@@ -791,7 +917,6 @@ const SidebarLayout = ({ children }) => {
           white-space: nowrap;
           max-width: 100%;
         }
-        
         /* Table cell text truncation */
         td, th {
           overflow: hidden;
@@ -799,23 +924,12 @@ const SidebarLayout = ({ children }) => {
           white-space: nowrap;
         }
         
-        /* Responsive adjustments */
+        /* Responsive adjustments - main content */
         @media (max-width: 768px) {
-          main {
+          main.sidebar-main-content {
             margin-left: 0 !important;
             width: 100% !important;
-            padding: 16px !important;
-          }
-          
-          aside {
-            width: 220px !important;
-          }
-        }
-        
-        @media (max-width: 480px) {
-          aside {
-            width: 100% !important;
-            max-width: 100vw !important;
+            padding: 12px !important;
           }
         }
         
@@ -847,98 +961,75 @@ const SidebarLayout = ({ children }) => {
           }
         }
         
-        /* Mobile responsive sidebar */
+        /* Mobile responsive sidebar - single consistent width, touch targets */
         @media (max-width: 768px) {
+          .sidebar-glass.sidebar-mobile {
+            width: 280px !important;
+            max-width: 85vw !important;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
+          }
           .sidebar-content {
-            padding: 2px 0 !important;
+            padding: 6px 0 !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             min-height: 0 !important;
+            -webkit-overflow-scrolling: touch;
           }
           .sidebar-nav-item {
-            padding: 4px 8px !important;
-            margin: 0px 4px !important;
-            font-size: 10px !important;
-            gap: 6px !important;
-            border-radius: 6px !important;
-            height: 24px !important; /* Force height */
+            padding: 12px 14px !important;
+            margin: 0 8px 2px 8px !important;
+            font-size: 13px !important;
+            gap: 12px !important;
+            border-radius: 10px !important;
+            min-height: 44px !important;
             align-items: center !important;
             display: flex !important;
           }
           .sidebar-nav-item svg {
-            font-size: 12px !important;
+            font-size: 18px !important;
           }
-          aside {
-            width: 180px !important;
-            overflow: hidden !important;
-          }
-          main {
+          .sidebar-main-content {
             padding: 12px !important;
-            overflow-x: hidden !important;
+            overflow-x: auto !important;
           }
-          /* Section headers responsive */
           .sidebar-content > div > div:first-child {
-            padding: 2px 8px !important;
-            margin: 4px 4px 2px 4px !important;
-            font-size: 8px !important;
-            line-height: 1 !important;
+            padding: 6px 12px !important;
+            margin: 8px 8px 2px 8px !important;
+            font-size: 10px !important;
+            line-height: 1.2 !important;
           }
         }
         
         @media (max-width: 480px) {
-          .sidebar-content {
-            padding: 2px 0 !important;
-            overflow-y: auto !important;
-            overflow-x: hidden !important;
+          .sidebar-glass.sidebar-mobile {
+            width: 260px !important;
+            max-width: 85vw !important;
           }
           .sidebar-nav-item {
-            padding: 3px 6px !important;
-            margin: 0px 2px !important;
-            font-size: 9px !important;
-            gap: 5px !important;
-            height: 22px !important;
+            padding: 10px 12px !important;
+            margin: 0 6px 2px 6px !important;
+            font-size: 12px !important;
+            min-height: 44px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 11px !important;
+            font-size: 16px !important;
           }
-          aside {
-            width: 160px !important;
-            overflow: hidden !important;
-          }
-          main {
+          .sidebar-main-content {
             padding: 10px !important;
-            overflow-x: hidden !important;
-          }
-          /* Section headers responsive */
-          .sidebar-content > div > div:first-child {
-            padding: 1px 6px !important;
-            margin: 3px 2px 1px 2px !important;
-            font-size: 7px !important;
           }
         }
         
         @media (max-width: 360px) {
-          .sidebar-content {
-            padding: 1px 0 !important;
+          .sidebar-glass.sidebar-mobile {
+            width: 240px !important;
+            max-width: 90vw !important;
           }
           .sidebar-nav-item {
-            padding: 2px 4px !important;
-            margin: 0px 2px !important;
-            font-size: 8px !important;
-            gap: 4px !important;
-            height: 20px !important;
-          }
-          .sidebar-nav-item svg {
-            font-size: 10px !important;
-          }
-          aside {
-            width: 140px !important;
-          }
-          /* Section headers responsive */
-          .sidebar-content > div > div:first-child {
-            padding: 1px 4px !important;
-            margin: 2px 2px 1px 2px !important;
-            font-size: 6px !important;
+            padding: 10px 10px !important;
+            font-size: 11px !important;
+            min-height: 42px !important;
           }
         }
         

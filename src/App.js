@@ -40,6 +40,7 @@ import { AdminLogin, AdminDashboard } from './components/admin';
 import AdminRfidTagsReport from './components/admin/AdminRfidTagsReport';
 import SingleUseTags from './components/SingleUseTags';
 import ThirdPartySoftwareIntegration from './components/ThirdPartySoftwareIntegration';
+import CreateMasters from './components/CreateMasters';
 import DownloadApiDoc from './components/DownloadApiDoc';
 import DownloadResources from './components/DownloadResources';
 import ProfileMenuPage from './components/ProfileMenuPage';
@@ -155,6 +156,7 @@ const useAuthProtection = () => {
       const protectedRoutes = [
         '/dashboard',
         '/analytics',
+        '/create-masters',
         '/rfid-integration',
         '/label-stock',
         '/rfid-devices',
@@ -187,7 +189,7 @@ const useAuthProtection = () => {
     }
 
     // If admin is authenticated but tries to access user routes
-    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'].includes(currentPath)) {
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'].includes(currentPath)) {
       navigate('/admin-dashboard', { replace: true });
     }
   }, [location.pathname, navigate]);
@@ -205,6 +207,7 @@ const useAuthProtection = () => {
       const protectedRoutes = [
         '/dashboard',
         '/analytics',
+        '/create-masters',
         '/rfid-integration',
         '/label-stock',
         '/invoice-stock',
@@ -412,7 +415,7 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'];
+      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -478,6 +481,7 @@ const RoutesWrapper = () => {
         <Route element={<Layout />}>
           <Route path="/analytics" element={<AuthGuard><PageWrapper><DashboardAnalytics /></PageWrapper></AuthGuard>} />
           <Route path="/dashboard" element={<AuthGuard><PageWrapper><Dashboard /></PageWrapper></AuthGuard>} />
+          <Route path="/create-masters" element={<AuthGuard><PageWrapper><CreateMasters /></PageWrapper></AuthGuard>} />
           <Route path="/api-documentation" element={<AuthGuard><PageWrapper><APIDocumentation /></PageWrapper></AuthGuard>} />
           <Route
             path="/rfid-integration"

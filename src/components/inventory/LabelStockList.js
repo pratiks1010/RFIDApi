@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   FaSearch,
@@ -254,11 +255,7 @@ const LabelStockList = () => {
   // Label preview modal state
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // Product details view state
-  const [showProductDetails, setShowProductDetails] = useState(false);
-  const [selectedProductForDetails, setSelectedProductForDetails] = useState(null);
-  const [productDetailsImageOverride, setProductDetailsImageOverride] = useState(null);
-  const [productDetailsImageUploading, setProductDetailsImageUploading] = useState(false);
+  const navigate = useNavigate();
 
   // Add state for status change popup
   const [showStatusPopup, setShowStatusPopup] = useState(false);
@@ -269,17 +266,27 @@ const LabelStockList = () => {
 
   // Window width state for responsive design
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const filterDropdownOpenRef = useRef(false);
+
+  useEffect(() => {
+    filterDropdownOpenRef.current = Object.values(dropdownStates).some(s => s?.isOpen);
+  }, [dropdownStates]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!filterDropdownOpenRef.current) return;
+      if (e.target.closest('[data-filter-dropdown]')) return;
+      closeAllDropdowns();
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
-  // Clear product details image override when viewing a different product
-  useEffect(() => {
-    if (!selectedProductForDetails) setProductDetailsImageOverride(null);
-  }, [selectedProductForDetails?.ItemCode, selectedProductForDetails?.RFIDCode]);
 
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('userInfo');
@@ -1710,7 +1717,7 @@ const LabelStockList = () => {
     }
 
     return (
-      <div style={{ position: 'relative', width: '100%' }}>
+      <div data-filter-dropdown style={{ position: 'relative', width: '100%' }}>
         <label style={{
           display: 'block',
           fontSize: windowWidth <= 768 ? '11px' : '10px',
@@ -1781,7 +1788,7 @@ const LabelStockList = () => {
                   flexDirection: 'column'
                 }}
               >
-                <div style={{ padding: '8px', borderBottom: '1px solid #e2e8f0' }}>
+                <div style={{ padding: '8px', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
                   <input
                     type="text"
                     placeholder={placeholder || `Search ${label.toLowerCase()}...`}
@@ -1791,6 +1798,7 @@ const LabelStockList = () => {
                       handleDropdownSearch(field, e.target.value);
                     }}
                     onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     style={{
                       width: '100%',
                       padding: '8px 12px',
@@ -1798,10 +1806,19 @@ const LabelStockList = () => {
                       border: '1px solid #e2e8f0',
                       borderRadius: '6px',
                       outline: 'none',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      color: '#1e293b',
+                      background: '#fff'
                     }}
-                    onFocus={(e) => e.target.style.borderColor = '#10b981'}
-                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      e.currentTarget.style.borderColor = '#10b981';
+                      e.currentTarget.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
                     autoFocus
                   />
                 </div>
@@ -2163,66 +2180,90 @@ const LabelStockList = () => {
       const gap = 6;
       const columns = 3;
 
-      const getBase64ImageFromURL = (url) => {
-        return new Promise((resolve) => {
-          if (!url) {
-            resolve(null);
-            return;
-          }
-          const img = new Image();
-          img.setAttribute("crossOrigin", "anonymous");
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0);
-            try {
-              const dataURL = canvas.toDataURL("image/jpeg");
-              resolve(dataURL);
-            } catch (e) {
-              resolve(null);
-            }
-          };
-          img.onerror = () => {
-            resolve(null);
-          };
-          img.src = url;
+      const IMAGE_LOAD_TIMEOUT_MS = 8000;
+
+      const blobToDataURL = (blob) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
         });
+
+      const getBase64ImageFromURL = (url) => {
+        if (!url) return Promise.resolve(null);
+        const fullUrl = url.startsWith('http') ? url : `${IMAGE_BASE_URL.replace(/\/$/, '')}/${url.replace(/^\//, '')}`;
+        const proxyBase = typeof process !== 'undefined' && process.env?.REACT_APP_CATALOG_IMAGE_PROXY;
+
+        const withTimeout = (p) =>
+          Promise.race([
+            p,
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), IMAGE_LOAD_TIMEOUT_MS))
+          ]);
+
+        const fetchAsBlob = (targetUrl) =>
+          fetch(targetUrl, { mode: 'cors', credentials: 'omit' })
+            .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('not ok'))))
+            .then((blob) => blobToDataURL(blob));
+
+        const viaFetch = (targetUrl) => withTimeout(fetchAsBlob(targetUrl));
+
+        const viaImage = () =>
+          new Promise((resolve) => {
+            const img = new Image();
+            img.setAttribute('crossOrigin', 'anonymous');
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.naturalWidth || img.width;
+              canvas.height = img.naturalHeight || img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              try {
+                resolve(canvas.toDataURL('image/jpeg', 0.85));
+              } catch (e) {
+                resolve(null);
+              }
+            };
+            img.onerror = () => resolve(null);
+            img.src = fullUrl;
+          });
+
+        const tryDirect = () => viaFetch(fullUrl).catch(() => withTimeout(viaImage()));
+        const tryProxy = () => (proxyBase ? viaFetch(`${proxyBase}?url=${encodeURIComponent(fullUrl)}`) : Promise.reject());
+
+        return tryDirect().catch(() => tryProxy()).catch(() => null);
       };
 
       for (let i = 0; i < dataToExport.length; i++) {
         const item = dataToExport[i];
+        const imageUrl = getItemImageUrl(item);
 
-        // Check for page break
         if (y + cardHeight > pageHeight - 10) {
           doc.addPage();
           y = 20;
           x = 14;
         }
 
-        // Draw card border
         doc.setDrawColor(220, 220, 220);
         doc.rect(x, y, cardWidth, cardHeight);
 
-        // Add Image
         const imageH = cardHeight * 0.55;
-        if (item.Image1) {
+        if (imageUrl) {
           try {
-            const imgData = await getBase64ImageFromURL(item.Image1);
+            const imgData = await getBase64ImageFromURL(imageUrl);
             if (imgData) {
               doc.addImage(imgData, 'JPEG', x + 2, y + 2, cardWidth - 4, imageH, undefined, 'FAST');
             } else {
               doc.setFontSize(8);
-              doc.text('No Image', x + cardWidth / 2, y + imageH / 2, { align: 'center' });
+              doc.text('No Image', x + cardWidth / 2, y + imageH / 2 + 2, { align: 'center' });
             }
           } catch (e) {
             doc.setFontSize(8);
-            doc.text('No Image', x + cardWidth / 2, y + imageH / 2, { align: 'center' });
+            doc.text('No Image', x + cardWidth / 2, y + imageH / 2 + 2, { align: 'center' });
           }
         } else {
           doc.setFontSize(8);
-          doc.text('No Image', x + cardWidth / 2, y + imageH / 2, { align: 'center' });
+          doc.text('No Image', x + cardWidth / 2, y + imageH / 2 + 2, { align: 'center' });
         }
 
         // Product Details
@@ -4145,415 +4186,7 @@ const LabelStockList = () => {
     </div>
   );
 
-  // Product Details View – redesigned UI with clear hierarchy and responsive layout
-  if (showProductDetails && selectedProductForDetails) {
-    const product = selectedProductForDetails;
-    const displayImageUrl = productDetailsImageOverride || getItemImageUrl(product) || null;
-    const isNarrow = windowWidth <= 768;
-
-    const formatValue = (value, type = 'text') => {
-      if (value === null || value === undefined || value === '') return '—';
-      if (type === 'number') {
-        const num = parseFloat(value);
-        return isNaN(num) ? value : num.toFixed(3);
-      }
-      if (type === 'amount') {
-        const num = parseFloat(value);
-        return isNaN(num) ? value : num.toFixed(2);
-      }
-      if (type === 'date') {
-        try {
-          const date = new Date(value);
-          if (!isNaN(date.getTime())) {
-            return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' +
-              date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-          }
-        } catch (e) {}
-      }
-      return value;
-    };
-
-    const statusColor = (s) => {
-      const v = (s || '').toLowerCase();
-      if (v === 'sold') return { bg: '#dbeafe', color: '#1d4ed8' };
-      if (v === 'apiactive' || v === 'active') return { bg: '#dcfce7', color: '#15803d' };
-      return { bg: '#f1f5f9', color: '#475569' };
-    };
-
-    const DetailRow = ({ label, value, type = 'text' }) => (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: 8,
-        padding: '5px 10px',
-        borderBottom: '1px solid #f1f5f9',
-        fontSize: 12,
-      }}>
-        <span style={{ color: '#64748b', fontWeight: 500, flexShrink: 0 }}>{label}</span>
-        <span style={{ color: '#0f172a', fontWeight: 600, textAlign: 'right', wordBreak: 'break-word' }}>
-          {formatValue(value, type)}
-        </span>
-      </div>
-    );
-
-    const Section = ({ title, icon, color, children }) => (
-      <div style={{
-        background: '#ffffff',
-        borderRadius: 10,
-        overflow: 'hidden',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-        border: '1px solid #e2e8f0',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
-        <div style={{
-          padding: '8px 12px',
-          background: `${color}08`,
-          borderLeft: `3px solid ${color}`,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}>
-          <span style={{ width: 26, height: 26, borderRadius: 6, background: `${color}18`, color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {icon}
-          </span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{title}</span>
-        </div>
-        <div style={{ padding: '2px 0' }}>{children}</div>
-      </div>
-    );
-
-    const handleBack = () => {
-      if (productDetailsImageOverride) {
-        URL.revokeObjectURL(productDetailsImageOverride);
-        setProductDetailsImageOverride(null);
-      }
-      setShowProductDetails(false);
-      setSelectedProductForDetails(null);
-    };
-
-    const handleImageChange = async (e) => {
-      const file = e.target.files?.[0];
-      if (!file || !file.type.startsWith('image/')) return;
-      const clientCode = userInfo?.ClientCode;
-      const itemCode = product.ItemCode;
-      let designId = product.DesignId ?? product.DesignID ?? 0;
-      if (!designId && (product.DesignName || product.Design) && apiFilterData.designs?.length) {
-        const designName = product.DesignName || product.Design;
-        const found = apiFilterData.designs.find(d =>
-          (d.DesignName || d.Name || d.designName) === designName
-        );
-        if (found) designId = found.Id ?? found.DesignId ?? found.ID ?? 0;
-      }
-      if (!clientCode || !itemCode) {
-        showSuccessNotification('Error', 'Client code or item code is missing. Cannot upload image.');
-        return;
-      }
-      if (!designId) {
-        showSuccessNotification('Error', 'Design is missing for this product. Cannot upload image.');
-        return;
-      }
-      setProductDetailsImageUploading(true);
-      try {
-        const formData = new FormData();
-        formData.append('ClientCode', clientCode);
-        formData.append('DesignId', String(designId));
-        formData.append('ItemCode', itemCode);
-        formData.append('file1', file);
-        const response = await formDataAxios.post(
-          'https://rrgold.loyalstring.co.in/api/ProductMaster/UploadImagesByClientCode',
-          formData
-        );
-        if (response.data && (response.data.success !== false)) {
-          if (productDetailsImageOverride) URL.revokeObjectURL(productDetailsImageOverride);
-          setProductDetailsImageOverride(URL.createObjectURL(file));
-          showSuccessNotification('Image uploaded', 'Product image uploaded successfully.');
-        } else {
-          showSuccessNotification('Upload failed', response.data?.message || 'Could not upload image. Please try again.');
-        }
-      } catch (err) {
-        console.error('Upload image error:', err);
-        showSuccessNotification('Upload failed', err.response?.data?.message || err.message || 'Could not upload image. Please try again.');
-      } finally {
-        setProductDetailsImageUploading(false);
-      }
-      e.target.value = '';
-    };
-
-    const sc = statusColor(product.Status);
-
-    return (
-      <div
-        className="container-fluid p-3"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: '100vh',
-          overflow: 'auto',
-          fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
-          background: '#f1f5f9',
-          zIndex: 1050,
-        }}
-      >
-        <SuccessNotification
-          title={successMessage.title}
-          message={successMessage.message}
-          isVisible={showSuccess}
-          onClose={() => setShowSuccess(false)}
-        />
-        {/* Header – compact */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: 10,
-          padding: '10px 16px',
-          marginBottom: 10,
-          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-          border: '1px solid #e2e8f0',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <button
-              onClick={handleBack}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 12px',
-                fontSize: 13,
-                fontWeight: 600,
-                borderRadius: 8,
-                border: '1px solid #6366f1',
-                background: '#eef2ff',
-                color: '#4f46e5',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#6366f1'; e.currentTarget.style.color = '#fff'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = '#4f46e5'; }}
-            >
-              <FaArrowLeft size={14} />
-              Back
-            </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 style={{ margin: 0, fontSize: isNarrow ? 16 : 18, fontWeight: 700, color: '#0f172a' }}>
-                Product Details
-              </h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>
-                  Item: <strong style={{ color: '#1e293b' }}>{product.ItemCode || '—'}</strong>
-                </span>
-                <span style={{ color: '#cbd5e1', fontSize: 11 }}>|</span>
-                <span style={{ fontSize: 12, color: '#64748b' }}>
-                  RFID: <strong style={{ color: '#1e293b' }}>{product.RFIDCode || '—'}</strong>
-                </span>
-                {product.Status && (
-                  <>
-                    <span style={{ color: '#cbd5e1', fontSize: 11 }}>|</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 16, background: sc.bg, color: sc.color }}>
-                      {product.Status}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Content: compact scrollable */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 16 }}>
-          {/* Hero: smaller image + quick info in one row */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isNarrow ? '1fr' : '140px 1fr',
-            gap: 14,
-            alignItems: 'start',
-            background: '#ffffff',
-            borderRadius: 10,
-            padding: 14,
-            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-            border: '1px solid #e2e8f0',
-          }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: isNarrow ? 'center' : 'flex-start' }}>
-              <div style={{
-                width: isNarrow ? 120 : 120,
-                height: isNarrow ? 120 : 120,
-                borderRadius: 8,
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                overflow: 'hidden',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}>
-                {displayImageUrl ? (
-                  <img src={displayImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                ) : (
-                  <FaCamera size={28} style={{ color: '#94a3b8', opacity: 0.5 }} />
-                )}
-              </div>
-              <label
-                htmlFor="product-detail-image-upload"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  marginTop: 8,
-                  padding: '6px 12px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  borderRadius: 6,
-                  border: '1px solid #e2e8f0',
-                  background: productDetailsImageUploading ? '#e2e8f0' : '#f8fafc',
-                  color: '#475569',
-                  cursor: productDetailsImageUploading ? 'not-allowed' : 'pointer',
-                  width: isNarrow ? '100%' : 'auto',
-                  opacity: productDetailsImageUploading ? 0.8 : 1,
-                }}
-              >
-                {productDetailsImageUploading ? <FaSpinner size={12} className="spin" style={{ flexShrink: 0 }} /> : <FaCamera size={12} />}
-                {productDetailsImageUploading ? 'Uploading…' : (displayImageUrl ? 'Change' : 'Upload')}
-              </label>
-              <input
-                id="product-detail-image-upload"
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                disabled={productDetailsImageUploading}
-                style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}
-              />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10, width: '100%' }}>
-              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>Product</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>{formatValue(product.ProductName)}</div>
-              </div>
-              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>Category</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>{formatValue(product.CategoryName)}</div>
-              </div>
-              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>MRP</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>₹ {formatValue(product.MRP, 'amount')}</div>
-              </div>
-              <div style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>Net Wt</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>{formatValue(product.NetWt, 'number')} g</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sections grid – tighter gap */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: windowWidth > 1200 ? 'repeat(4, 1fr)' : windowWidth > 768 ? 'repeat(2, 1fr)' : '1fr',
-            gap: 10,
-          }}>
-            <Section title="Basic info" color="#2563eb" icon={<FaInfoCircle size={12} />}>
-              <DetailRow label="Item Code" value={product.ItemCode} />
-              <DetailRow label="RFID" value={product.RFIDCode} />
-              <DetailRow label="Design" value={product.DesignName} />
-              <DetailRow label="Purity" value={product.PurityName} />
-              <DetailRow label="Status" value={product.Status} />
-              <DetailRow label="Description" value={product.Description || product.description} />
-            </Section>
-            <Section title="Weight" color="#059669" icon={<FaWeightHanging size={12} />}>
-              <DetailRow label="Gross Wt" value={product.GrossWt} type="number" />
-              <DetailRow label="Net Wt" value={product.NetWt} type="number" />
-              <DetailRow label="Stone Wt" value={product.StoneWt} type="number" />
-              <DetailRow label="Diamond Wt" value={product.DiamondWt} type="number" />
-              <DetailRow label="Packing Wt" value={product.PackingWeight} type="number" />
-              <DetailRow label="Total Wt" value={product.TotalWeight} type="number" />
-            </Section>
-            <Section title="Amount" color="#d97706" icon={<FaRupeeSign size={12} />}>
-              <DetailRow label="Stone Amt" value={product.StoneAmt} type="amount" />
-              <DetailRow label="Diamond Amt" value={product.DiamondAmt} type="amount" />
-              <DetailRow label="Fixed Amt" value={product.FixedAmt} type="amount" />
-              <DetailRow label="Making/Gram" value={product.MakingPerGram} type="amount" />
-              <DetailRow label="Making %" value={product.MakingPercentage} type="amount" />
-              <DetailRow label="MRP" value={product.MRP} type="amount" />
-            </Section>
-            <Section title="Location" color="#7c3aed" icon={<FaMapMarkerAlt size={12} />}>
-              <DetailRow label="Branch" value={product.Branch || product.BranchName} />
-              <DetailRow label="Counter" value={product.CounterName} />
-              <DetailRow label="Vendor" value={product.Vendor} />
-              <DetailRow label="Box" value={product.BoxDetails} />
-              <DetailRow label="Size" value={product.Size} />
-              <DetailRow label="Created" value={product.CreatedDate || product.CreatedOn} type="date" />
-            </Section>
-          </div>
-
-          {/* Stones & Diamonds – compact */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr',
-            gap: 10,
-          }}>
-            {product.Stones && product.Stones.length > 0 ? (
-              <Section title={`Stones (${product.Stones.length})`} color="#d97706" icon={<FaGem size={12} />}>
-                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                    <thead style={{ position: 'sticky', top: 0, background: '#fffbeb', zIndex: 1 }}>
-                      <tr>
-                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#92400e' }}>Name</th>
-                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#92400e' }}>Wt</th>
-                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#92400e' }}>Amt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {product.Stones.map((stone, idx) => (
-                        <tr key={idx} style={{ background: idx % 2 === 0 ? '#fffbeb' : '#fff' }}>
-                          <td style={{ padding: '5px 10px', color: '#1e293b' }}>{stone.StoneName || '—'}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(stone.StoneWeight, 'number')}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(stone.StoneAmount, 'amount')}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Section>
-            ) : (
-              <Section title="Stones" color="#d97706" icon={<FaGem size={12} />}>
-                <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>No stones</div>
-              </Section>
-            )}
-            {product.Diamonds && product.Diamonds.length > 0 ? (
-              <Section title={`Diamonds (${product.Diamonds.length})`} color="#7c3aed" icon={<FaGem size={12} />}>
-                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                    <thead style={{ position: 'sticky', top: 0, background: '#f5f3ff', zIndex: 1 }}>
-                      <tr>
-                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#5b21b6' }}>Name</th>
-                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#5b21b6' }}>Wt</th>
-                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#5b21b6' }}>Amt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {product.Diamonds.map((diamond, idx) => (
-                        <tr key={idx} style={{ background: idx % 2 === 0 ? '#f5f3ff' : '#fff' }}>
-                          <td style={{ padding: '5px 10px', color: '#1e293b' }}>{diamond.DiamondName || '—'}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(diamond.DiamondWeight, 'number')}</td>
-                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#1e293b' }}>{formatValue(diamond.DiamondSellAmount, 'amount')}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Section>
-            ) : (
-              <Section title="Diamonds" color="#7c3aed" icon={<FaGem size={12} />}>
-                <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>No diamonds</div>
-              </Section>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  /* product details moved to ProductDetailsPage - navigate to /product-details with state: { product, apiFilterData } */
   return (
     <div className="container-fluid p-3" style={{ position: 'relative' }}>
       <SuccessNotification
@@ -5248,108 +4881,80 @@ const LabelStockList = () => {
           minHeight: isGridView ? 'auto' : '400px'
         }}>
           {isGridView ? (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: windowWidth <= 768 ? 'repeat(2, 1fr)' : windowWidth <= 1200 ? 'repeat(4, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: '16px',
-              marginBottom: '20px',
-              padding: '4px 0'
-            }}>
-              {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item) => (
-                <div
-                  key={item.Id}
-                  onClick={() => handleRowSelection(item.Id)}
-                  style={{
-                    background: '#ffffff',
-                    borderRadius: '12px',
-                    border: selectedRows.includes(item.Id) ? '2px solid #4f46e5' : '1px solid #e5e7eb',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    height: '260px',
-                    cursor: 'pointer',
-                    position: 'relative',
-                    boxShadow: selectedRows.includes(item.Id) ? '0 8px 24px rgba(79, 70, 229, 0.22)' : '0 2px 8px rgba(0,0,0,0.06)',
-                    transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!selectedRows.includes(item.Id)) {
-                      e.currentTarget.style.transform = 'translateY(-4px)';
-                      e.currentTarget.style.boxShadow = '0 12px 28px rgba(0,0,0,0.12)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!selectedRows.includes(item.Id)) {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
-                    }
-                  }}
-                >
-                  <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 2 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedRows.includes(item.Id)}
-                      onChange={(e) => { e.stopPropagation(); handleRowSelection(item.Id); }}
-                      style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#4f46e5' }}
-                    />
-                  </div>
-                  <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 2, display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setSelectedProductForDetails(item);
-                        setShowProductDetails(true);
-                      }}
-                      style={{
-                        padding: '8px', borderRadius: '10px', border: 'none', background: 'rgba(139, 92, 246, 0.12)', color: '#7c3aed',
-                        cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(124, 58, 237, 0.2)',
-                        transition: 'all 0.2s'
-                      }}
-                      title="View Details"
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#7c3aed'; e.currentTarget.style.color = '#fff'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(139, 92, 246, 0.12)'; e.currentTarget.style.color = '#7c3aed'; }}
-                    >
-                      <FaEye size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handlePrintSingleLabel(item, e); }}
-                      disabled={!selectedTemplate || previewLoading}
-                      style={{
-                        padding: '8px', borderRadius: '10px', border: 'none', background: 'rgba(59, 130, 246, 0.12)', color: '#2563eb',
-                        cursor: (!selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer', opacity: (!selectedTemplate || previewLoading) ? 0.7 : 1,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(37, 99, 235, 0.2)',
-                        transition: 'all 0.2s'
-                      }}
-                      title={!selectedTemplate ? "Select template first" : "Print Label"}
-                    >
-                      {previewLoading ? <FaSpinner className="spin" size={14} /> : <FaPrint size={14} />}
-                    </button>
-                  </div>
-                  <div style={{ height: '58%', width: '100%', background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderBottom: '1px solid #e2e8f0' }}>
-                    {(() => {
-                      const imgUrl = getItemImageUrl(item);
-                      return imgUrl ? (
-                        <img src={imgUrl} alt={item.ProductName} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '8px' }} />
-                      ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', color: '#94a3b8' }}>
-                        <FaGem size={36} style={{ opacity: 0.6 }} />
-                        <span style={{ fontSize: '11px', fontWeight: 500 }}>No Image</span>
-                      </div>
-                    );
-                    })()}
-                  </div>
-                  <div style={{ height: '42%', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', overflow: 'hidden', background: '#ffffff' }}>
-                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.ProductName || 'Unknown'}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ color: '#64748b', fontSize: '11px' }}>RFID</span><span style={{ fontWeight: 600, color: '#334155', fontSize: '11px' }}>{item.RFIDCode || '–'}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ color: '#64748b', fontSize: '11px' }}>Design</span><span style={{ fontWeight: 500, color: '#334155', maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px' }}>{item.Design || item.DesignName || '–'}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'auto', paddingTop: '4px', borderTop: '1px solid #f1f5f9' }}>
-                      <span style={{ fontWeight: 700, color: '#059669', fontSize: '12px' }}>{item.NetWt ? parseFloat(item.NetWt).toFixed(3) : '0.000'} g</span>
-                      <span style={{ fontWeight: 600, color: '#d97706', fontSize: '11px' }}>{item.Purity || '–'}</span>
+            <div className="product-grid">
+              {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item) => {
+                const imgUrl = getItemImageUrl(item);
+                const isSelected = selectedRows.includes(item.Id);
+                return (
+                  <article
+                    key={item.Id}
+                    className={`product-card ${isSelected ? 'product-card--selected' : ''}`}
+                    onClick={() => handleRowSelection(item.Id)}
+                  >
+                    <div className="product-card__checkbox">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => { e.stopPropagation(); handleRowSelection(item.Id); }}
+                        aria-label="Select item"
+                      />
                     </div>
-                  </div>
-                </div>
-              ))}
+                    <span className={`product-card__badge product-card__badge--${(item.Status || 'ApiActive').toLowerCase()}`}>
+                      {item.Status || 'ApiActive'}
+                    </span>
+                    <div className="product-card__image-wrap">
+                      {imgUrl ? (
+                        <img src={imgUrl} alt={item.ProductName || 'Product'} className="product-card__image" />
+                      ) : (
+                        <div className="product-card__image-placeholder">
+                          <FaGem size={32} />
+                          <span>No Image</span>
+                        </div>
+                      )}
+                      <div className="product-card__actions">
+                        <button
+                          type="button"
+                          className="product-card__action product-card__action--view"
+                          onClick={(e) => { e.stopPropagation(); navigate('/product-details', { state: { product: item, apiFilterData } }); }}
+                          title="View Details"
+                        >
+                          <FaEye size={14} />
+                          <span>View</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="product-card__action product-card__action--print"
+                          onClick={(e) => { e.stopPropagation(); handlePrintSingleLabel(item, e); }}
+                          disabled={!selectedTemplate || previewLoading}
+                          title={!selectedTemplate ? 'Select template first' : 'Print Label'}
+                        >
+                          {previewLoading ? <FaSpinner className="spin" size={14} /> : <FaPrint size={14} />}
+                          <span>Print</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="product-card__body">
+                      <h3 className="product-card__title">{item.ProductName || 'Unknown'}</h3>
+                      <dl className="product-card__meta">
+                        <div className="product-card__meta-row">
+                          <dt>RFID</dt>
+                          <dd>{item.RFIDCode || '–'}</dd>
+                        </div>
+                        <div className="product-card__meta-row">
+                          <dt>Design</dt>
+                          <dd>{item.Design || item.DesignName || '–'}</dd>
+                        </div>
+                      </dl>
+                      <div className="product-card__footer">
+                        <span className="product-card__weight">
+                          {item.NetWt ? parseFloat(item.NetWt).toFixed(3) : '0.000'} g
+                        </span>
+                        <span className="product-card__purity">{item.Purity || '–'}</span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <div
@@ -5562,8 +5167,7 @@ const LabelStockList = () => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedProductForDetails(item);
-                            setShowProductDetails(true);
+                            navigate('/product-details', { state: { product: item, apiFilterData } });
                           }}
                           style={{
                             width: '32px',
@@ -5900,8 +5504,234 @@ const LabelStockList = () => {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
           }
+
+          /* E-commerce product grid */
+          .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+            padding: 4px 0;
+          }
+          @media (min-width: 1400px) {
+            .product-grid { grid-template-columns: repeat(5, 1fr); }
+          }
+          @media (min-width: 1024px) and (max-width: 1399px) {
+            .product-grid { grid-template-columns: repeat(4, 1fr); }
+          }
+          @media (min-width: 640px) and (max-width: 1023px) {
+            .product-grid { grid-template-columns: repeat(3, 1fr); gap: 16px; }
+          }
+          @media (max-width: 639px) {
+            .product-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+          }
+
+          .product-card {
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+          }
+          .product-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+          }
+          .product-card--selected {
+            border: 2px solid #4f46e5;
+            box-shadow: 0 8px 24px rgba(79, 70, 229, 0.2);
+          }
+          .product-card--selected:hover {
+            box-shadow: 0 12px 28px rgba(79, 70, 229, 0.25);
+          }
+
+          .product-card__checkbox {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 3;
+          }
+          .product-card__checkbox input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #4f46e5;
+          }
+
+          .product-card__badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 2;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 4px 8px;
+            border-radius: 6px;
+          }
+          .product-card__badge--apiactive {
+            background: #d1fae5;
+            color: #065f46;
+          }
+          .product-card__badge--sold {
+            background: #fee2e2;
+            color: #991b1b;
+          }
+          .product-card__badge:not([class*="--"]) {
+            background: #e0e7ff;
+            color: #3730a3;
+          }
+
+          .product-card__image-wrap {
+            position: relative;
+            aspect-ratio: 1;
+            background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+          }
+          .product-card__image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 12px;
+          }
+          .product-card__image-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            color: #94a3b8;
+            font-size: 12px;
+            font-weight: 500;
+          }
+          .product-card__image-placeholder svg {
+            opacity: 0.6;
+          }
+
+          .product-card__actions {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.6));
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 2;
+          }
+          .product-card:hover .product-card__actions {
+            opacity: 1;
+          }
+          .product-card__action {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+          }
+          .product-card__action--view {
+            background: rgba(255,255,255,0.95);
+            color: #5b21b6;
+          }
+          .product-card__action--view:hover {
+            background: #fff;
+            color: #4c1d95;
+          }
+          .product-card__action--print {
+            background: rgba(37, 99, 235, 0.9);
+            color: #fff;
+          }
+          .product-card__action--print:hover:not(:disabled) {
+            background: #2563eb;
+          }
+          .product-card__action--print:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+          }
+
+          .product-card__body {
+            padding: 14px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            min-height: 0;
+          }
+          .product-card__title {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e293b;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+          }
+          .product-card__meta {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+          }
+          .product-card__meta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+          }
+          .product-card__meta-row dt {
+            margin: 0;
+            color: #64748b;
+            font-weight: 500;
+          }
+          .product-card__meta-row dd {
+            margin: 0;
+            color: #334155;
+            font-weight: 600;
+            max-width: 65%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .product-card__footer {
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+          .product-card__weight {
+            font-size: 13px;
+            font-weight: 700;
+            color: #059669;
+          }
+          .product-card__purity {
+            font-size: 12px;
+            font-weight: 600;
+            color: #b45309;
+          }
           
           @media (max-width: 768px) {
+            .product-card__actions { opacity: 1; background: rgba(0,0,0,0.5); }
             /* Header responsive */
             .label-stock-header {
               flex-direction: column !important;

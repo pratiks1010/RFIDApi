@@ -19,6 +19,7 @@ import {
   AddStock,
   OrderList
 } from './components/inventory/components';
+import ProductDetailsPage from './components/inventory/ProductDetailsPage';
 import CreateLabel from './components/inventory/CreateLabel';
 import CreateInvoice from './components/inventory/CreateInvoice';
 import SampleOut from './components/inventory/SampleOut';
@@ -523,6 +524,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <LabelStockList />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/product-details"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <ProductDetailsPage />
                 </PageWrapper>
               </AuthGuard>
             }

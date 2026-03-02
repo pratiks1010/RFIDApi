@@ -25,7 +25,8 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaBoxes,
-  FaBarcode
+  FaBarcode,
+  FaTimes
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -999,271 +1000,360 @@ const StockVerification = () => {
     }
   };
 
-  // View Components for Page-Based Navigation
+  // Collect items from a node for total / matched / unmatched (for modal)
+  const collectItemsFromNode = (node, type, level) => {
+    const items = [];
+    const isMatched = (item) => (item.Status || '').toString().toLowerCase() === 'matched';
+    const isUnmatched = (item) => (item.Status || '').toString().toLowerCase() === 'unmatched';
+    const add = (list) => {
+      if (!Array.isArray(list)) return;
+      list.forEach((item) => {
+        if (type === 'total') items.push(item);
+        else if (type === 'matched' && isMatched(item)) items.push(item);
+        else if (type === 'unmatched' && isUnmatched(item)) items.push(item);
+      });
+    };
+    if (level === 'design' && node.Items) add(node.Items);
+    else if (level === 'product' && node.Designs) node.Designs.forEach(d => add(d.Items));
+    else if (level === 'category' && node.Products) node.Products.forEach(p => (p.Designs || []).forEach(d => add(d.Items)));
+    else if (level === 'branch' && node.Categories) node.Categories.forEach(c => (c.Products || []).forEach(p => (p.Designs || []).forEach(d => add(d.Items))));
+    return items;
+  };
+
+  const ITEMS_PAGE_SIZE = 50;
+
+  // Items detail modal: paginated list for large data (10k+)
+  const ItemsDetailModal = ({ open, onClose, title, items = [], type = 'total' }) => {
+    const [page, setPage] = useState(1);
+    const totalPages = Math.max(1, Math.ceil((items.length || 0) / ITEMS_PAGE_SIZE));
+    const start = (page - 1) * ITEMS_PAGE_SIZE;
+    const pageItems = (items || []).slice(start, start + ITEMS_PAGE_SIZE);
+
+    useEffect(() => { if (open) setPage(1); }, [open]);
+
+    if (!open) return null;
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+        <div style={{ background: '#fff', borderRadius: '16px', maxWidth: '95vw', width: '900px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>{title}</h3>
+            <button type="button" onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '8px', cursor: 'pointer', color: '#64748b' }}><FaTimes size={16} /></button>
+          </div>
+          <div style={{ padding: '12px', overflow: 'auto', flex: 1, minHeight: 0 }}>
+            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>{items.length.toLocaleString()} item(s)</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Item Code</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>RFID Code</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Category</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Product</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Design</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#475569' }}>Gross Wt (g)</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#475569' }}>Net Wt (g)</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 600, color: '#475569' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageItems.length === 0 ? (
+                    <tr><td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No items</td></tr>
+                  ) : pageItems.map((item, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px' }}>{item.ItemCode ?? '–'}</td>
+                      <td style={{ padding: '8px' }}>{item.RFIDCode ?? '–'}</td>
+                      <td style={{ padding: '8px' }}>{item.CategoryName ?? '–'}</td>
+                      <td style={{ padding: '8px' }}>{item.ProductName ?? '–'}</td>
+                      <td style={{ padding: '8px' }}>{item.DesignName ?? '–'}</td>
+                      <td style={{ padding: '8px', textAlign: 'right' }}>{(item.GrossWeight ?? 0).toFixed(2)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right' }}>{(item.NetWeight ?? 0).toFixed(2)}</td>
+                      <td style={{ padding: '8px', textAlign: 'center' }}>
+                        <span style={{ padding: '2px 6px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, background: (item.Status || '').toString().toLowerCase() === 'matched' ? '#dcfce7' : '#ffedd5', color: (item.Status || '').toString().toLowerCase() === 'matched' ? '#166534' : '#c2410c' }}>{item.Status ?? '–'}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '12px' }}>
+                <button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '8px', cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}><FaChevronLeft /></button>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Page {page} of {totalPages}</span>
+                <button type="button" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '8px', cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}><FaChevronRight /></button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // View Components for Page-Based Navigation — Tree: Branch → Category → Product → Design; cols: Total Inventory, Matched, Unmatched only
   const ConsolidatedTreeView = ({ branches }) => {
     const [expandedBranches, setExpandedBranches] = useState({});
     const [expandedCategories, setExpandedCategories] = useState({});
+    const [expandedProducts, setExpandedProducts] = useState({});
+    const [itemsModal, setItemsModal] = useState({ open: false, title: '', items: [], type: 'total' });
 
-    const toggleBranch = (branchId) => {
-      setExpandedBranches(prev => ({
-        ...prev,
-        [branchId]: !prev[branchId]
-      }));
-    };
+    const toggle = (setter, key) => setter(prev => ({ ...prev, [key]: !prev[key] }));
 
-    const toggleCategory = (categoryId) => {
-      setExpandedCategories(prev => ({
-        ...prev,
-        [categoryId]: !prev[categoryId]
-      }));
-    };
-
-    const StatPill = ({ value, color, weight, weightColor = '#64748b' }) => (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{
-          padding: '4px 10px',
-          borderRadius: '12px',
-          background: `${color}15`,
-          color: color,
-          fontWeight: 700,
-                  fontSize: '13px',
-          minWidth: '40px',
-          textAlign: 'center',
-          boxShadow: `0 1px 2px ${color}10`,
-          border: `1px solid ${color}20`
-              }}>
+    const StatPill = ({ value, color, weight, weightColor = '#64748b', onClick }) => (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }}
+          className="consolidation-tree-pill"
+          style={{
+            padding: '6px 14px',
+            borderRadius: '10px',
+            background: `linear-gradient(135deg, ${color}12 0%, ${color}08 100%)`,
+            color,
+            fontWeight: 700,
+            fontSize: '13px',
+            minWidth: '44px',
+            textAlign: 'center',
+            border: `1px solid ${color}25`,
+            cursor: onClick ? 'pointer' : 'default',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (onClick) { e.currentTarget.style.transform = 'scale(1.03)'; e.currentTarget.style.boxShadow = `0 4px 12px ${color}30`; }
+          }}
+          onMouseLeave={(e) => {
+            if (onClick) { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }
+          }}
+        >
           {value?.toLocaleString() ?? 0}
-              </div>
+        </div>
         {weight !== undefined && (
-          <div style={{ fontSize: '10px', color: weightColor, marginTop: '2px', fontWeight: 500, fontFamily: 'monospace' }}>
+          <div style={{ fontSize: '10px', color: weightColor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
             {weight ? `${Number(weight).toFixed(2)}g` : '0g'}
           </div>
         )}
       </div>
     );
 
-    return (
-        <div style={{
-        overflowX: 'auto', 
-              background: '#ffffff',
-        borderRadius: '16px', 
-              border: '1px solid #e2e8f0',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)'
-      }}>
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0', minWidth: '1000px', fontSize: '13px' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc' }}>
-              <th style={{ padding: '16px 20px', textAlign: 'left', width: '30%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Branch Name</th>
-              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Total Inventory</th>
-              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Scanned</th>
-              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Missing</th>
-              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Matched</th>
-              <th style={{ padding: '16px 12px', textAlign: 'center', width: '12%', color: '#64748b', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0' }}>Unmatched</th>
-            </tr>
-          </thead>
-          <tbody>
-            {branches.map((branch) => {
-              const isBranchExpanded = expandedBranches[branch.BranchId];
-            return (
-                <React.Fragment key={branch.BranchId}>
-                  {/* Branch Row */}
-                  <tr 
-                style={{
-                      background: isBranchExpanded ? '#eff6ff' : '#ffffff',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s ease',
-                      borderBottom: isBranchExpanded ? 'none' : '1px solid #f1f5f9'
-                }}
-                    onClick={() => toggleBranch(branch.BranchId)}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isBranchExpanded ? '#eff6ff' : '#ffffff'}
-                  >
-                    <td style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{
-                          width: '24px', 
-                          height: '24px', 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                          color: isBranchExpanded ? '#3b82f6' : '#94a3b8',
-                          background: isBranchExpanded ? '#dbeafe' : '#f1f5f9',
-                          borderRadius: '6px',
-                  transition: 'all 0.2s'
-                        }}>
-                          <FaChevronRight size={10} style={{ transform: isBranchExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
-              </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <FaLayerGroup style={{ color: '#3b82f6', fontSize: '16px' }} />
-                          <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '14px' }}>{branch.BranchName}</span>
-            </div>
-          </div>
-                    </td>
-                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                      <StatPill value={branch.TotalInventoryItems} color="#0ea5e9" />
-                    </td>
-                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                      <StatPill value={branch.TotalScannedItems} color="#16a34a" />
-                    </td>
-                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                      <StatPill value={branch.NotScannedItems} color="#dc2626" />
-                    </td>
-                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                      <StatPill value={branch.MatchedQty} color="#0d9488" weight={branch.MatchWeight} />
-                    </td>
-                    <td style={{ padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                      <StatPill value={branch.UnmatchQty} color="#ea580c" weight={branch.UnmatchWeight} />
-                    </td>
-                  </tr>
+    const openItemsModal = (title, node, level, type) => {
+      const items = collectItemsFromNode(node, type, level);
+      setItemsModal({ open: true, title, items, type });
+    };
 
-                  {/* Categories */}
-                  {isBranchExpanded && (branch.Categories || []).map((category) => {
-                    const categoryKey = `${branch.BranchId}_${category.CategoryId}`;
-                    const isCategoryExpanded = expandedCategories[categoryKey];
-    return (
-                      <React.Fragment key={categoryKey}>
-                        {/* Category Row */}
-                        <tr 
-            style={{
-              background: '#ffffff',
-              cursor: 'pointer',
-                            transition: 'background-color 0.2s ease'
-            }}
-                          onClick={() => toggleCategory(categoryKey)}
-                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'}
-                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
-                        >
-                          <td style={{ padding: '12px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingLeft: '32px' }}>
-          <div style={{
-                                position: 'absolute', 
-                                left: '32px', 
-                                height: '40px', 
-                                width: '2px', 
-                                background: '#e2e8f0',
-                                marginTop: '-28px'
-                              }} />
-        <div style={{
-                                width: '12px', 
-                                height: '12px', 
-                                borderLeft: '2px solid #e2e8f0', 
-                                borderBottom: '2px solid #e2e8f0',
-              position: 'absolute',
-                                left: '32px',
-                                marginTop: '-2px'
-                              }} />
-                              
-        <div style={{
-                                width: '20px', 
-                                height: '20px', 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                                color: isCategoryExpanded ? '#f59e0b' : '#94a3b8',
-                                transition: 'transform 0.2s'
-                  }}>
-                                <FaChevronRight size={9} style={{ transform: isCategoryExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
-                  </div>
-                              <FaChartBar style={{ color: '#f59e0b', fontSize: '14px' }} />
-                              <span style={{ fontWeight: 600, color: '#334155', fontSize: '13px' }}>{category.CategoryName}</span>
-                  </div>
-                          </td>
-                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
-                            <StatPill value={category.TotalInventoryItems} color="#0ea5e9" />
-                          </td>
-                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
-                            <StatPill value={category.TotalScannedItems} color="#16a34a" />
-                          </td>
-                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
-                            <StatPill value={category.NotScannedItems} color="#dc2626" />
-                          </td>
-                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
-                            <StatPill value={category.MatchedQty} color="#0d9488" weight={category.MatchWeight} />
-                          </td>
-                          <td style={{ padding: '10px', borderBottom: '1px solid #f1f5f9' }}>
-                            <StatPill value={category.UnmatchQty} color="#ea580c" weight={category.UnmatchWeight} />
-                          </td>
-                        </tr>
+    const rowBase = { transition: 'background 0.15s ease' };
+    const renderRow = (content, isExpanded, onToggle, hasChildren, rowKey) => (
+      <tr
+        key={rowKey}
+        className="consolidation-tree-row"
+        style={{
+          ...rowBase,
+          background: isExpanded ? 'linear-gradient(90deg, #f0f9ff 0%, #ffffff 100%)' : '#ffffff',
+          cursor: hasChildren ? 'pointer' : 'default',
+          borderBottom: '1px solid #f1f5f9'
+        }}
+        onClick={hasChildren ? () => onToggle() : undefined}
+        onMouseEnter={(e) => { if (hasChildren) e.currentTarget.style.background = isExpanded ? 'linear-gradient(90deg, #e0f2fe 0%, #f8fafc 100%)' : '#f8fafc'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = isExpanded ? 'linear-gradient(90deg, #f0f9ff 0%, #ffffff 100%)' : '#ffffff'; }}
+      >
+        {content}
+      </tr>
+    );
 
-                        {/* Products */}
-                        {isCategoryExpanded && (category.Products || []).map((product, pIndex, pArr) => (
-                          <tr 
-                            key={`${categoryKey}_${product.ProductId}`}
-                style={{
-                              background: '#ffffff',
-                              borderBottom: pIndex === pArr.length - 1 ? '1px solid #e2e8f0' : '1px solid #f8fafc'
-                            }}
-                          >
-                            <td style={{ padding: '10px 20px 10px 0', borderBottom: '1px solid #f8fafc' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '72px', position: 'relative' }}>
-              <div style={{
-                                  position: 'absolute', 
-                                  left: '32px', 
-                                  height: '100%', 
-                                  width: '2px', 
-                                  background: '#e2e8f0',
-                                  top: '-50%'
-                                }} />
-                                <div style={{ 
-                                  position: 'absolute', 
-                                  left: '68px', 
-                                  height: '40px', 
-                                  width: '2px', 
-                                  background: '#e2e8f0',
-                                  top: '-24px'
-                                }} />
-                                <div style={{ 
-                                  width: '12px', 
-                                  height: '12px', 
-                                  borderLeft: '2px solid #e2e8f0', 
-                                  borderBottom: '2px solid #e2e8f0',
-                                  position: 'absolute',
-                                  left: '68px',
-                                  marginTop: '-2px'
-                                }} />
-                                
-                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#cbd5e1' }}></div>
-                                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>{product.ProductName}</span>
+    return (
+      <>
+        <div
+          className="consolidation-tree-wrap"
+          style={{
+            overflowX: 'auto',
+            background: '#ffffff',
+            borderRadius: '20px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.04), 0 2px 4px -2px rgba(0,0,0,0.02)',
+            overflow: 'hidden'
+          }}
+        >
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px', fontSize: '13px' }}>
+            <thead>
+              <tr style={{
+                background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+                borderBottom: '2px solid #e2e8f0'
+              }}>
+                <th style={{ padding: '16px 20px', textAlign: 'left', width: '40%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Name</th>
+                <th style={{ padding: '16px 12px', textAlign: 'center', width: '20%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total Inventory</th>
+                <th style={{ padding: '16px 12px', textAlign: 'center', width: '20%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Matched</th>
+                <th style={{ padding: '16px 12px', textAlign: 'center', width: '20%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Unmatched</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(branches || []).map((branch) => {
+                const branchExp = expandedBranches[branch.BranchId];
+                return (
+                  <React.Fragment key={branch.BranchId}>
+                    {renderRow(
+                      <>
+                        <td style={{ padding: '14px 20px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{
+                              width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              color: branchExp ? '#2563eb' : '#64748b',
+                              background: branchExp ? 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)' : '#f1f5f9',
+                              borderRadius: '8px',
+                              transition: 'all 0.2s ease',
+                              border: `1px solid ${branchExp ? '#93c5fd' : '#e2e8f0'}`
+                            }}>
+                              <FaChevronRight size={12} style={{ transform: branchExp ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                            </div>
+                            <div style={{ width: 32, height: 32, borderRadius: '8px', background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <FaLayerGroup size={14} />
+                            </div>
+                            <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px', letterSpacing: '-0.01em' }}>{branch.BranchName}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
+                          <StatPill value={branch.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${branch.BranchName}`, branch, 'branch', 'total')} />
+                        </td>
+                        <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
+                          <StatPill value={branch.MatchedQty} color="#0d9488" weight={branch.MatchWeight} onClick={() => openItemsModal(`Matched – ${branch.BranchName}`, branch, 'branch', 'matched')} />
+                        </td>
+                        <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
+                          <StatPill value={branch.UnmatchQty} color="#ea580c" weight={branch.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${branch.BranchName}`, branch, 'branch', 'unmatched')} />
+                        </td>
+                      </>,
+                      branchExp, () => toggle(setExpandedBranches, branch.BranchId), true, `branch_${branch.BranchId}`
+                    )}
+                    {branchExp && (branch.Categories || []).map((category) => {
+                      const catKey = `${branch.BranchId}_${category.CategoryId}`;
+                      const catExp = expandedCategories[catKey];
+                      return (
+                        <React.Fragment key={catKey}>
+                          {renderRow(
+                            <>
+                              <td style={{ padding: '12px 20px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingLeft: '36px' }}>
+                                  <div style={{
+                                    width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: catExp ? '#d97706' : '#64748b',
+                                    background: catExp ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : '#f8fafc',
+                                    borderRadius: '6px',
+                                    transition: 'all 0.2s ease',
+                                    border: `1px solid ${catExp ? '#fcd34d' : '#e2e8f0'}`
+                                  }}>
+                                    <FaChevronRight size={10} style={{ transform: catExp ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                                  </div>
+                                  <div style={{ width: 28, height: 28, borderRadius: '6px', background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <FaChartBar size={12} />
+                                  </div>
+                                  <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>{category.CategoryName}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                <StatPill value={category.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${category.CategoryName}`, category, 'category', 'total')} />
+                              </td>
+                              <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                <StatPill value={category.MatchedQty} color="#0d9488" weight={category.MatchWeight} onClick={() => openItemsModal(`Matched – ${category.CategoryName}`, category, 'category', 'matched')} />
+                              </td>
+                              <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                <StatPill value={category.UnmatchQty} color="#ea580c" weight={category.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${category.CategoryName}`, category, 'category', 'unmatched')} />
+                              </td>
+                            </>,
+                            catExp, () => toggle(setExpandedCategories, catKey), true, catKey
+                          )}
+                          {catExp && (category.Products || []).map((product) => {
+                            const prodKey = `${catKey}_${product.ProductId}`;
+                            const prodExp = expandedProducts[prodKey];
+                            return (
+                              <React.Fragment key={prodKey}>
+                                {renderRow(
+                                  <>
+                                    <td style={{ padding: '10px 20px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '56px' }}>
+                                        <div style={{
+                                          width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          color: prodExp ? '#7c3aed' : '#64748b',
+                                          background: prodExp ? 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)' : '#f8fafc',
+                                          borderRadius: '6px',
+                                          transition: 'all 0.2s ease',
+                                          border: `1px solid ${prodExp ? '#c4b5fd' : '#e2e8f0'}`
+                                        }}>
+                                          <FaChevronRight size={9} style={{ transform: prodExp ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                                        </div>
+                                        <div style={{ width: 24, height: 24, borderRadius: '6px', background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                          <FaBoxes size={10} />
+                                        </div>
+                                        <span style={{ fontWeight: 600, color: '#334155', fontSize: '12px' }}>{product.ProductName}</span>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                      <StatPill value={product.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${product.ProductName}`, product, 'product', 'total')} />
+                                    </td>
+                                    <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                      <StatPill value={product.MatchedQty} color="#0d9488" weight={product.MatchWeight} onClick={() => openItemsModal(`Matched – ${product.ProductName}`, product, 'product', 'matched')} />
+                                    </td>
+                                    <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                      <StatPill value={product.UnmatchQty} color="#ea580c" weight={product.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${product.ProductName}`, product, 'product', 'unmatched')} />
+                                    </td>
+                                  </>,
+                                  prodExp, () => toggle(setExpandedProducts, prodKey), (product.Designs || []).length > 0, prodKey
+                                )}
+                                {prodExp && (product.Designs || []).map((design) => {
+                                  const designKey = `${prodKey}_${design.DesignId}`;
+                                  return (
+                                    <tr
+                                      key={designKey}
+                                      className="consolidation-tree-row"
+                                      style={{ ...rowBase, background: '#fff', borderBottom: '1px solid #f1f5f9' }}
+                                      onMouseEnter={(e) => { e.currentTarget.style.background = '#fafafa'; }}
+                                      onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+                                    >
+                                      <td style={{ padding: '10px 20px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '80px' }}>
+                                          <div style={{ width: 22, height: 22, borderRadius: '6px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <FaBarcode size={10} />
+                                          </div>
+                                          <span style={{ fontWeight: 500, color: '#64748b', fontSize: '12px' }}>{design.DesignName}</span>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                        <StatPill value={design.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${design.DesignName}`, design, 'design', 'total')} />
+                                      </td>
+                                      <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                        <StatPill value={design.MatchedQty} color="#0d9488" weight={design.MatchWeight} onClick={() => openItemsModal(`Matched – ${design.DesignName}`, design, 'design', 'matched')} />
+                                      </td>
+                                      <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
+                                        <StatPill value={design.UnmatchQty} color="#ea580c" weight={design.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${design.DesignName}`, design, 'design', 'unmatched')} />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          {(!branches || branches.length === 0) && (
+            <div style={{ padding: '56px 24px', textAlign: 'center' }}>
+              <div style={{ width: 56, height: 56, borderRadius: '16px', background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FaLayerGroup style={{ fontSize: '24px', color: '#94a3b8' }} />
               </div>
-                            </td>
-                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
-                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>{product.TotalInventoryItems?.toLocaleString() ?? 0}</div>
-                            </td>
-                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
-                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>{product.TotalScannedItems ?? product.ScannedCount ?? 0}</div>
-                            </td>
-                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
-                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>{product.NotScannedItems?.toLocaleString() ?? 0}</div>
-                            </td>
-                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
-                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>
-                                <div>{product.MatchedQty?.toLocaleString() ?? 0}</div>
-                                {product.MatchWeight > 0 && <div style={{ fontSize: '10px', color: '#cbd5e1', fontFamily: 'monospace' }}>{Number(product.MatchWeight).toFixed(2)}g</div>}
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>No data yet</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>No consolidation data available for this date</div>
             </div>
-                            </td>
-                            <td style={{ padding: '8px', borderBottom: '1px solid #f8fafc' }}>
-                              <div style={{ textAlign: 'center', fontSize: '12px', color: '#64748b' }}>
-                                <div>{product.UnmatchQty?.toLocaleString() ?? 0}</div>
-                                {product.UnmatchWeight > 0 && <div style={{ fontSize: '10px', color: '#cbd5e1', fontFamily: 'monospace' }}>{Number(product.UnmatchWeight).toFixed(2)}g</div>}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </React.Fragment>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-        {branches.length === 0 && (
-          <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
-            <FaLayerGroup style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }} />
-            <div style={{ fontSize: '14px', fontWeight: 500 }}>No consolidation data available</div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+        <ItemsDetailModal
+          open={itemsModal.open}
+          onClose={() => setItemsModal(prev => ({ ...prev, open: false }))}
+          title={itemsModal.title}
+          items={itemsModal.items}
+          type={itemsModal.type}
+        />
+      </>
     );
   };
 
@@ -3143,55 +3233,6 @@ const StockVerification = () => {
                       </div>
                         <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
                           {consolidationData.Totals.TotalInventoryWeight?.toLocaleString() ?? 0} g
-                        </div>
-                      </div>
-
-                      {/* Total Scanned Card */}
-                      <div style={{ 
-                        background: '#f0fdf4', 
-                        borderRadius: '12px', 
-                        padding: '20px', 
-                        border: '1px solid #dcfce7',
-                        boxShadow: '0 2px 4px rgba(34, 197, 94, 0.05)',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
-                          <FaBarcode size={80} color="#22c55e" />
-                        </div>
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#15803d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Scanned</h4>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#16a34a', lineHeight: 1 }}>
-                        {consolidationData.Totals.TotalScannedItems?.toLocaleString() ?? 0}
-                      </div>
-                        <div style={{ width: '100%', background: '#bbf7d0', height: '6px', borderRadius: '3px', marginTop: '12px' }}>
-                          <div style={{ 
-                            width: `${Math.min(100, ((consolidationData.Totals.TotalScannedItems || 0) / (consolidationData.Totals.TotalInventoryQty || 1)) * 100)}%`, 
-                            background: '#22c55e', 
-                            height: '100%', 
-                            borderRadius: '3px' 
-                          }}></div>
-                    </div>
-                      </div>
-
-                      {/* Not Scanned Card */}
-                      <div style={{ 
-                        background: '#fef2f2', 
-                        borderRadius: '12px', 
-                        padding: '20px', 
-                        border: '1px solid #fee2e2',
-                        boxShadow: '0 2px 4px rgba(239, 68, 68, 0.05)',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
-                          <FaExclamationTriangle size={80} color="#ef4444" />
-                        </div>
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#b91c1c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Not Scanned</h4>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#dc2626', lineHeight: 1 }}>
-                          {consolidationData.Totals.TotalNotScannedItems?.toLocaleString() ?? 0}
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#991b1b', marginTop: '8px', fontWeight: 500 }}>
-                          Missing Items
                         </div>
                       </div>
 

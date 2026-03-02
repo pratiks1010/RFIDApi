@@ -72,6 +72,44 @@ const APIDocumentation = () => {
       }
     },
     {
+      id: 'update-existing-products',
+      name: 'Update Existing Products',
+      endpoint: 'UpdateExistingProducts',
+      method: 'POST',
+      baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
+      description: 'Update one or more existing product/labelled stock items. Send an array of objects; each must include client_code, RFIDNumber, and itemcode. All other fields are optional—only include fields you want to change.',
+      sampleBody: [
+        {
+          client_code: "LS000123",
+          RFIDNumber: "CZ3506",
+          itemcode: "SAU124",
+          category_id: "Gold",
+          product_id: "Tops",
+          design_id: "Fancy Top",
+          purity_id: "22CT",
+          branch_id: "Branch1",
+          counter_id: "Counter1",
+          grosswt: "20.800",
+          netwt: "19.250",
+          stonewt: "0.500",
+          stoneamount: "20",
+          diamondAmount: "20",
+          diamondWeight: "0.250",
+          box_details: "Box A",
+          MRP: "5000",
+          HallmarkAmount: "35",
+          MakingPerGram: "10",
+          MakingPercentage: "5",
+          MakingFixedAmt: "37",
+          status: "ApiActive"
+        }
+      ],
+      responseFormat: {
+        status: "success",
+        message: "Product details updated successfully."
+      }
+    },
+    {
       id: 'get-transaction',
       name: 'Get Stock Details',
       endpoint: 'GetRFIDTransactionDetails',

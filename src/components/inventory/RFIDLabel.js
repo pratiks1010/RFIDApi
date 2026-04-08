@@ -38,6 +38,7 @@ import { useLoading } from '../../App';
 
 const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
 const DEFAULT_PAGE_SIZE = 500;
+const PRN_ENABLED_CLIENT_CODES = ['LS000224', 'LS000428', 'LS000431', 'LS000443'];
 
 const getUniqueOptions = (data, field) => {
   if (!data || !Array.isArray(data)) return ['All'];
@@ -57,6 +58,16 @@ const formatValue = (value) => {
   return value.toString();
 };
 
+// Save PRN using raw byte values so raster/control bytes remain unchanged.
+const prnToBytes = (prnContent) => {
+  const input = String(prnContent || '');
+  const bytes = new Uint8Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    bytes[i] = input.charCodeAt(i) & 0xff;
+  }
+  return bytes;
+};
+
 const RFIDLabel = () => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
@@ -64,7 +75,7 @@ const RFIDLabel = () => {
 
   // User Info
   const [userInfo, setUserInfo] = useState(null);
-  const clientCode = userInfo?.ClientCode || '';
+  const clientCode = (userInfo?.ClientCode || '').trim();
 
   // Responsive state
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -734,7 +745,7 @@ const RFIDLabel = () => {
       return;
     }
 
-    const blob = new Blob([label.GeneratedPrnCode], { type: 'text/plain' });
+    const blob = new Blob([prnToBytes(label.GeneratedPrnCode)], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -952,8 +963,7 @@ const RFIDLabel = () => {
 
   // Download Client Specific PRN
   const handleDownloadClientPrn = () => {
-    // Check if client code is supported
-    if (clientCode !== 'LS000428' && clientCode !== 'LS000443') {
+    if (!PRN_ENABLED_CLIENT_CODES.includes(clientCode)) {
       toast.error('Your PRN is not set yet. Please set PRN.');
       return;
     }
@@ -986,10 +996,10 @@ const RFIDLabel = () => {
       }
 
       // Combine all PRN contents into a single file
-      const combinedPrnContent = allPrnContents.join('\n\n');
+      const combinedPrnContent = allPrnContents.join('\r\n\r\n');
       
       // Create and download single file
-      const blob = new Blob([combinedPrnContent], { type: 'text/plain;charset=utf-8' });
+      const blob = new Blob([prnToBytes(combinedPrnContent)], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.style.display = 'none';
@@ -1025,8 +1035,7 @@ const RFIDLabel = () => {
   const handleSinglePrint = async (e, item) => {
     e.stopPropagation(); // Prevent row selection
 
-    // Check if client code is supported
-    if (clientCode !== 'LS000428' && clientCode !== 'LS000443') {
+    if (!PRN_ENABLED_CLIENT_CODES.includes(clientCode)) {
       toast.error('Your PRN is not set yet. Please set PRN.');
       return;
     }
@@ -1047,7 +1056,7 @@ const RFIDLabel = () => {
       const prnContent = generateClientPrn(item, clientCode);
       
       // Create and trigger download
-      const blob = new Blob([prnContent], { type: 'text/plain;charset=utf-8' });
+      const blob = new Blob([prnToBytes(prnContent)], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.style.display = 'none';
@@ -1739,8 +1748,8 @@ const RFIDLabel = () => {
                   </button>
                 )}
 
-                {/* Download OPJ PRN Button - Show for LS000443 and LS000428 */}
-                {(clientCode === 'LS000443' || clientCode === 'LS000428') && (
+                {/* Download OPJ PRN Button - Show for clients with PRN template */}
+                {PRN_ENABLED_CLIENT_CODES.includes(clientCode) && (
                   <button
                     onClick={handleDownloadClientPrn}
                     disabled={selectedItems.length === 0}

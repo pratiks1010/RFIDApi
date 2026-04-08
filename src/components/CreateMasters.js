@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import {
@@ -14,6 +14,11 @@ import {
   FaCheck,
   FaRedoAlt,
   FaTimes,
+  FaCubes,
+  FaSearch,
+  FaEdit,
+  FaTrashAlt,
+  FaRupeeSign,
 } from 'react-icons/fa';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstring.co.in';
@@ -26,8 +31,14 @@ const MASTER_OPTIONS = [
   { id: 'purity', label: 'Purity', icon: FaGem, color: '#d97706' },
   { id: 'counter', label: 'Counter', icon: FaCalculator, color: '#059669' },
   { id: 'box', label: 'Box', icon: FaArchive, color: '#dc2626' },
+  { id: 'packet', label: 'Packet', icon: FaCubes, color: '#8b5cf6' },
   { id: 'branch', label: 'Branch', icon: FaMapMarkerAlt, color: '#0891b2' },
+  { id: 'rates', label: 'Rates', icon: FaRupeeSign, color: '#0d9488' },
 ];
+
+const BRANCH_TYPES = [{ id: 'Main', name: 'Main' }, { id: 'Sub', name: 'Sub' }];
+const STATUS_OPTIONS = [{ id: 'Active', name: 'Active' }, { id: 'Inactive', name: 'Inactive' }];
+const COUNTRY_OPTIONS = [{ id: 'India', name: 'India' }];
 
 const getAuthHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -54,12 +65,227 @@ const CreateMasters = () => {
     purities: [],
     branches: [],
     counters: [],
+    boxes: [],
+    packets: [],
   });
   const [navOpen, setNavOpen] = useState(false);
+  const [boxPackets, setBoxPackets] = useState([]);
+  const [listSearch, setListSearch] = useState('');
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(10);
+  const [editingId, setEditingId] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const formCardRef = React.useRef(null);
 
   const clientCode = getClientCode();
 
-  useEffect(() => {
+  // Daily Rates (Category + Purity) module
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [ratesSaving, setRatesSaving] = useState(false);
+  const [dailyRatesRows, setDailyRatesRows] = useState([]);
+  const [ratesByPurityId, setRatesByPurityId] = useState({});
+  const [initialRatesByPurityId, setInitialRatesByPurityId] = useState({});
+
+  const fetchDailyRates = useCallback(async () => {
+    if (!clientCode) return;
+    setRatesLoading(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE}/api/ProductMaster/GetAllDailyRate`,
+        { ClientCode: clientCode },
+        { headers: getAuthHeaders() }
+      );
+      const raw = res?.data;
+      const rows =
+        Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : Array.isArray(raw?.Result) ? raw.Result : [];
+
+      setDailyRatesRows(rows);
+
+      // Initialize rates for all purities (blank for missing rows).
+      const nextRates = {};
+      const nextInitial = {};
+      (dropdownData.purities || []).forEach((p) => {
+        const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+        if (!pId) return;
+        nextRates[String(pId)] = '';
+        nextInitial[String(pId)] = '';
+      });
+
+      rows.forEach((r) => {
+        const pId = r.PurityId ?? r.purityId ?? r.Id ?? r.id ?? r.PurityID ?? '';
+        if (!pId) return;
+        const rate = r.Rate ?? '';
+        const num = typeof rate === 'number' ? rate : Number(rate);
+        const cleaned = rate === '' || rate == null || Number.isNaN(num) ? '' : String(Math.round(num));
+        nextRates[String(pId)] = cleaned;
+        nextInitial[String(pId)] = cleaned;
+      });
+
+      setRatesByPurityId(nextRates);
+      setInitialRatesByPurityId(nextInitial);
+    } catch (e) {
+      console.error('Error fetching daily rates:', e);
+      toast.error(e?.response?.data?.Message || 'Failed to load daily rates');
+      setDailyRatesRows([]);
+      setRatesByPurityId({});
+      setInitialRatesByPurityId({});
+    } finally {
+      setRatesLoading(false);
+    }
+  }, [clientCode, dropdownData.purities]);
+
+  const getCategoryNameById = useCallback((categoryId) => {
+    const id = String(categoryId ?? '');
+    if (!id) return '';
+    return (dropdownData.categories || []).find((c) => String(c.Id ?? c.id ?? c.CategoryId ?? '') === id)?.CategoryName
+      ?? (dropdownData.categories || []).find((c) => String(c.Id ?? c.id ?? c.CategoryId ?? '') === id)?.Name
+      ?? '';
+  }, [dropdownData.categories]);
+
+  const handleDailyRateChange = useCallback((row, nextValue) => {
+    const normalized = nextValue == null ? '' : String(nextValue).trim();
+    const purityId = row.Id ?? row.id ?? row.PurityId ?? row.PurityID ?? '';
+    const categoryId = row.CategoryId ?? row.categoryId ?? '';
+
+    if (!purityId || categoryId === '' || categoryId == null) return;
+
+    const catKey = String(categoryId);
+    const purityKey = String(purityId);
+
+    const categoryPurities = (dropdownData.purities || [])
+      .filter((p) => String(p.CategoryId ?? p.categoryId ?? '') === catKey);
+
+    if (categoryPurities.length === 0) return;
+
+    if (normalized === '') {
+      // Clear all rows for this category.
+      setRatesByPurityId((prev) => {
+        const next = { ...prev };
+        categoryPurities.forEach((p) => {
+          const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+          if (!pId) return;
+          next[String(pId)] = '';
+        });
+        return next;
+      });
+      return;
+    }
+
+    const inputRate = Number(normalized);
+    if (Number.isNaN(inputRate)) return;
+
+    const getFinePct = (p) => Number(p?.FinePercentage ?? p?.FinePercent ?? 0) || 0;
+    const base24 = categoryPurities.find((p) => String(p?.PurityName ?? p?.Name ?? '').trim().toUpperCase() === '24CT');
+    const baseRow = base24
+      ? base24
+      : categoryPurities.slice().sort((a, b) => getFinePct(b) - getFinePct(a))[0];
+
+    const basePurityId = baseRow ? (baseRow.Id ?? baseRow.id ?? baseRow.PurityId ?? baseRow.PurityID ?? '') : '';
+    const baseFine = baseRow ? getFinePct(baseRow) : 0;
+
+    const editedRow = categoryPurities.find((p) => {
+      const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+      return pId !== '' && String(pId) === purityKey;
+    });
+    const editedFine = editedRow ? getFinePct(editedRow) : 0;
+
+    // If Fine% is missing, just set typed row.
+    if (!baseFine || baseFine <= 0 || !basePurityId) {
+      setRatesByPurityId((prev) => ({ ...prev, [purityKey]: String(Math.round(inputRate)) }));
+      return;
+    }
+
+    const baseRateNum =
+      purityKey === String(basePurityId)
+        ? inputRate
+        : (editedFine > 0 ? inputRate * (baseFine / editedFine) : inputRate);
+
+    setRatesByPurityId((prev) => {
+      const next = { ...prev };
+      categoryPurities.forEach((p) => {
+        const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+        if (!pId) return;
+        const finePct = getFinePct(p);
+        const computedRate = baseRateNum * (finePct / baseFine);
+        next[String(pId)] = String(Math.round(computedRate));
+      });
+      return next;
+    });
+  }, [dropdownData.categories, dropdownData.purities]);
+
+  const handleSetRatesAdmin = useCallback(async () => {
+    const client = clientCode;
+    if (!client) {
+      toast.error('Client code not found');
+      return;
+    }
+    if (!dropdownData.purities?.length) {
+      toast.info('Purities not loaded');
+      return;
+    }
+
+    // Only send changed rows.
+    const payload = (dropdownData.purities || [])
+      .map((p) => {
+        const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+        if (!pId) return null;
+        const key = String(pId);
+        const cur = String(ratesByPurityId[key] ?? '');
+        const initial = String(initialRatesByPurityId[key] ?? '');
+        if (cur === initial) return null;
+
+        const catId = p.CategoryId ?? p.categoryId ?? '';
+        const catKey = catId !== '' && catId != null ? String(catId) : '';
+
+        return {
+          CategoryId: catKey,
+          EmployeeCode: client,
+          Rate: cur === '' ? '' : cur,
+          PurityId: key,
+          ClientCode: client,
+          CategoryName: getCategoryNameById(catKey),
+          PurityName: p.PurityName ?? p.Name ?? '',
+          FinePercentage: p.FinePercentage ?? p.FinePercent ?? '',
+        };
+      })
+      .filter(Boolean);
+
+    if (payload.length === 0) {
+      toast.info('No rate changes to save');
+      return;
+    }
+
+    setRatesSaving(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE}/api/ProductMaster/UpdateDailyRates`,
+        payload,
+        { headers: getAuthHeaders() }
+      );
+      const data = res?.data ?? {};
+      const ok =
+        data?.status === 'success' ||
+        data?.success === true ||
+        (res.status === 200 && data?.status !== 'failed');
+
+      if (!ok) {
+        const msg = data?.message ?? data?.Message ?? data?.error ?? 'UpdateDailyRates failed';
+        throw new Error(typeof msg === 'string' ? msg : 'Update failed');
+      }
+
+      toast.success('Daily rates updated successfully');
+      await fetchDailyRates();
+    } catch (e) {
+      console.error('UpdateDailyRates error:', e);
+      const msg = e?.response?.data?.Message || e?.response?.data?.message || e?.message || 'Failed to update daily rates';
+      toast.error(msg);
+    } finally {
+      setRatesSaving(false);
+    }
+  }, [clientCode, dropdownData.purities, getCategoryNameById, fetchDailyRates, initialRatesByPurityId, ratesByPurityId]);
+
+  const fetchDropdownData = useCallback(() => {
     if (!clientCode) return;
     const body = { ClientCode: clientCode };
     const headers = getAuthHeaders();
@@ -70,7 +296,9 @@ const CreateMasters = () => {
       axios.post(`${API_BASE}/api/ProductMaster/GetAllPurity`, body, { headers }).then(r => r.data?.data ?? r.data ?? []).catch(() => []),
       axios.post(`${API_BASE}/api/ClientOnboarding/GetAllBranchMaster`, body, { headers }).then(r => r.data?.data ?? r.data ?? []).catch(() => []),
       axios.post(`${API_BASE}/api/ClientOnboarding/GetAllCounters`, body, { headers }).then(r => r.data?.data ?? r.data ?? []).catch(() => []),
-    ]).then(([categories, products, designs, purities, branches, counters]) => {
+      axios.post(`${API_BASE}/api/ProductMaster/GetAllBoxMaster`, body, { headers }).then(r => r.data?.data ?? r.data ?? []).catch(() => []),
+      axios.post(`${API_BASE}/api/ProductMaster/GetAllPacketMaster`, body, { headers }).then(r => r.data?.data ?? r.data ?? []).catch(() => []),
+    ]).then(([categories, products, designs, purities, branches, counters, boxes, packets]) => {
       setDropdownData({
         categories: Array.isArray(categories) ? categories : [],
         products: Array.isArray(products) ? products : [],
@@ -78,13 +306,30 @@ const CreateMasters = () => {
         purities: Array.isArray(purities) ? purities : [],
         branches: Array.isArray(branches) ? branches : [],
         counters: Array.isArray(counters) ? counters : [],
+        boxes: Array.isArray(boxes) ? boxes : [],
+        packets: Array.isArray(packets) ? packets : [],
       });
     });
   }, [clientCode]);
 
   useEffect(() => {
+    fetchDropdownData();
+  }, [fetchDropdownData]);
+
+  useEffect(() => {
     setFormData({});
+    setBoxPackets([]);
+    setListSearch('');
+    setListPage(1);
+    setEditingId(null);
+    setDeleteConfirm(null);
   }, [activeOption]);
+
+  useEffect(() => {
+    if (activeOption === 'rates') {
+      fetchDailyRates();
+    }
+  }, [activeOption, fetchDailyRates]);
 
   const updateField = (key, value) => setFormData(prev => ({ ...prev, [key]: value }));
 
@@ -96,27 +341,34 @@ const CreateMasters = () => {
       case 'category':
         return [
           { key: 'name', label: 'Category Name', type: 'text', required: true, ...placeholder('Enter category name'), colSpan: 1 },
-          { key: 'code', label: 'Code', type: 'text', required: false, ...placeholder('Code (optional)'), colSpan: 1 },
+          { key: 'shortName', label: 'Short Name', type: 'text', required: true, ...placeholder('Enter short name'), colSpan: 1 },
+          { key: 'slug', label: 'Slug', type: 'text', required: false, ...placeholder('Enter slug'), colSpan: 1 },
           { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
+          { key: 'parentCategoryId', label: 'Parent Category', type: 'select', required: false, placeholder: 'Select an option', options: dropdownData.categories, optionLabel: 'CategoryName', optionValue: 'Id', colSpan: 1 },
+          { key: 'hsnCode', label: 'HSN Code', type: 'text', required: false, ...placeholder('Enter HSN code'), colSpan: 1 },
+          { key: 'status', label: 'Status', type: 'select', required: false, placeholder: 'Select', options: STATUS_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
         ];
       case 'product':
         return [
-          { key: 'categoryId', label: 'Category Name', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
+          { key: 'categoryId', label: 'Category', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
           { key: 'productName', label: 'Product Name', type: 'text', required: true, ...placeholder('Enter product name'), colSpan: 1 },
           { key: 'shortName', label: 'Short Name', type: 'text', required: true, ...placeholder('Enter short name'), colSpan: 1 },
-          { key: 'description', label: 'Description', type: 'textarea', required: false, ...placeholder('Enter description'), colSpan: 3 },
+          { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
           { key: 'slug', label: 'Slug', type: 'text', required: false, ...placeholder('Enter slug'), colSpan: 1 },
+          { key: 'status', label: 'Status', type: 'select', required: false, placeholder: 'Select', options: STATUS_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
         ];
       case 'design':
         return [
           { key: 'categoryId', label: 'Category Name', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
           { key: 'productId', label: 'Product Name', type: 'select', required: true, placeholder: 'Select an option', ...prods, colSpan: 1 },
           { key: 'designName', label: 'Design Name', type: 'text', required: true, ...placeholder('Enter design name'), colSpan: 1 },
+          { key: 'branchId', label: 'Branch', type: 'select', required: false, placeholder: 'Select an option', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', colSpan: 1 },
           { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
           { key: 'slug', label: 'Slug', type: 'text', required: false, ...placeholder('Enter slug'), colSpan: 1 },
           { key: 'labelCode', label: 'Label Code', type: 'text', required: true, placeholder: 'Only Capitals', colSpan: 1 },
-          { key: 'minQuantity', label: 'Min Quantity', type: 'number', required: false, ...placeholder('0'), colSpan: 1 },
-          { key: 'minWeight', label: 'Min Weight', type: 'number', required: false, ...placeholder('0'), colSpan: 1 },
+          { key: 'status', label: 'Status', type: 'select', required: false, placeholder: 'Select', options: STATUS_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
+          { key: 'minQuantity', label: 'Min Quantity', type: 'text', required: false, ...placeholder('0'), colSpan: 1 },
+          { key: 'minWeight', label: 'Min Weight', type: 'text', required: false, ...placeholder('0'), colSpan: 1 },
         ];
       case 'purity':
         return [
@@ -126,86 +378,559 @@ const CreateMasters = () => {
           { key: 'finePercentage', label: 'Fine Percentage', type: 'text', required: true, ...placeholder('Enter fine %'), colSpan: 1 },
           { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
           { key: 'todaysRate', label: "Today's Rate", type: 'text', required: false, ...placeholder("Enter today's rate"), colSpan: 1 },
+          { key: 'status', label: 'Status', type: 'select', required: false, placeholder: 'Select', options: STATUS_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
         ];
       case 'counter':
         return [
+          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
           { key: 'name', label: 'Counter Name', type: 'text', required: true, ...placeholder('Enter counter name'), colSpan: 1 },
-          { key: 'branchId', label: 'Branch', type: 'select', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', required: false, placeholder: 'Select branch', colSpan: 1 },
+          { key: 'counterDescription', label: 'Counter Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
+          { key: 'branchId', label: 'Branch ID', type: 'select', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', required: true, placeholder: 'Select an option', colSpan: 1 },
+          { key: 'counterNumber', label: 'Counter Number', type: 'text', required: true, ...placeholder('Enter counter number'), colSpan: 1 },
+          { key: 'financialYear', label: 'Financial Year', type: 'text', required: false, ...placeholder('Financial year'), colSpan: 1 },
         ];
       case 'box':
         return [
+          { key: 'companyId', label: 'Company', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
+          { key: 'categoryId', label: 'Category', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
           { key: 'name', label: 'Box Name', type: 'text', required: true, ...placeholder('Enter box name'), colSpan: 1 },
-          { key: 'code', label: 'Code', type: 'text', required: false, ...placeholder('Code (optional)'), colSpan: 1 },
-          { key: 'categoryId', label: 'Category', type: 'select', required: false, placeholder: 'Select an option', ...cats, colSpan: 1 },
+          { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
+          { key: 'branchId', label: 'Branch', type: 'select', required: true, placeholder: 'Select an option', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', colSpan: 1 },
+          { key: 'productId', label: 'Product', type: 'select', required: true, placeholder: 'Select an option', ...prods, colSpan: 1 },
+          { key: 'emptyWeight', label: 'Empty Weight', type: 'text', required: true, ...placeholder('Enter empty weight'), colSpan: 1 },
+          { key: 'productName', label: 'Product Name', type: 'text', required: false, ...placeholder('Product name'), colSpan: 1 },
+          { key: 'status', label: 'Status', type: 'select', required: true, placeholder: 'Select an option', options: STATUS_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
+          { key: 'packetIds', label: 'Packet IDs', type: 'text', required: false, ...placeholder('e.g. 1 or 1,2,3'), colSpan: 1 },
+        ];
+      case 'packet':
+        return [
+          { key: 'companyId', label: 'Company', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
+          { key: 'categoryId', label: 'Category', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
+          { key: 'designId', label: 'Design', type: 'select', required: false, placeholder: 'Select an option', options: dropdownData.designs, optionLabel: 'DesignName', optionValue: 'Id', colSpan: 1 },
+          { key: 'packetName', label: 'Packet Name', type: 'text', required: true, ...placeholder('Enter packet name'), colSpan: 1 },
+          { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
+          { key: 'boxId', label: 'Box', type: 'select', required: false, placeholder: 'Select an option', options: dropdownData.boxes, optionLabel: 'BoxName', optionValue: 'Id', colSpan: 1 },
+          { key: 'branchId', label: 'Branch', type: 'select', required: true, placeholder: 'Select an option', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', colSpan: 1 },
+          { key: 'productId', label: 'Product', type: 'select', required: true, placeholder: 'Select an option', ...prods, colSpan: 1 },
+          { key: 'sku', label: 'SKU', type: 'text', required: false, ...placeholder('SKU'), colSpan: 1 },
+          { key: 'emptyWeight', label: 'Empty Weight', type: 'text', required: true, ...placeholder('Enter empty weight'), colSpan: 1 },
+          { key: 'status', label: 'Status', type: 'select', required: true, placeholder: 'Select an option', options: STATUS_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
         ];
       case 'branch':
         return [
+          { key: 'code', label: 'Branch Code', type: 'text', required: false, ...placeholder('Branch code'), colSpan: 1 },
           { key: 'name', label: 'Branch Name', type: 'text', required: true, ...placeholder('Enter branch name'), colSpan: 1 },
-          { key: 'address', label: 'Address', type: 'textarea', required: false, ...placeholder('Address (optional)'), colSpan: 2 },
-          { key: 'code', label: 'Code', type: 'text', required: false, ...placeholder('Code (optional)'), colSpan: 1 },
+          { key: 'branchHead', label: 'Branch Head', type: 'text', required: false, ...placeholder('Branch head'), colSpan: 1 },
+          { key: 'phoneNumber', label: 'Phone Number', type: 'text', required: false, ...placeholder('Phone'), colSpan: 1 },
+          { key: 'faxNumber', label: 'Fax Number', type: 'text', required: false, ...placeholder('Fax'), colSpan: 1 },
+          { key: 'area', label: 'Area', type: 'text', required: false, ...placeholder('Area'), colSpan: 1 },
+          { key: 'city', label: 'City', type: 'text', required: false, ...placeholder('City'), colSpan: 1 },
+          { key: 'state', label: 'State', type: 'select', required: true, placeholder: 'Select an option', options: [{ id: '', name: 'Select state' }, ...['Andhra Pradesh', 'Karnataka', 'Maharashtra', 'Tamil Nadu', 'Telangana'].map(s => ({ id: s, name: s }))], optionLabel: 'name', optionValue: 'id', colSpan: 1 },
+          { key: 'gstin', label: 'GSTIN', type: 'text', required: false, ...placeholder('GSTIN'), colSpan: 1 },
+          { key: 'financialYear', label: 'Financial Year', type: 'text', required: false, ...placeholder('Financial year'), colSpan: 1 },
+          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
+          { key: 'branchType', label: 'Branch Type', type: 'select', required: true, placeholder: 'Select an option', options: BRANCH_TYPES, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
+          { key: 'address', label: 'Branch Address', type: 'textarea', required: false, ...placeholder('Address'), colSpan: 1 },
+          { key: 'mobileNumber', label: 'Mobile Number', type: 'text', required: false, ...placeholder('Mobile'), colSpan: 1 },
+          { key: 'street', label: 'Street', type: 'text', required: false, ...placeholder('Street'), colSpan: 1 },
+          { key: 'town', label: 'Town', type: 'text', required: false, ...placeholder('Town'), colSpan: 1 },
+          { key: 'country', label: 'Country', type: 'select', required: true, placeholder: 'Select an option', options: COUNTRY_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
+          { key: 'postalCode', label: 'Postal Code', type: 'text', required: false, ...placeholder('Postal code'), colSpan: 1 },
+          { key: 'branchEmail', label: 'Branch Email ID', type: 'text', required: false, ...placeholder('Email'), colSpan: 1 },
         ];
       default:
         return [{ key: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Enter name', colSpan: 1 }];
     }
   };
 
+  const LIST_PLURAL = {
+    category: 'Categories',
+    product: 'Products',
+    design: 'Designs',
+    purity: 'Purities',
+    counter: 'Counters',
+    box: 'Boxes',
+    packet: 'Packets',
+    branch: 'Branches',
+  };
+  const LIST_DATA_KEYS = {
+    category: 'categories',
+    product: 'products',
+    design: 'designs',
+    purity: 'purities',
+    counter: 'counters',
+    box: 'boxes',
+    packet: 'packets',
+    branch: 'branches',
+  };
+
+  const getListColumns = () => {
+    const cols = (arr) => arr.filter(Boolean);
+    const srNo = { key: 'srNo', label: 'Sr. No.', width: '64px' };
+    switch (activeOption) {
+      case 'category':
+        return cols([
+          srNo,
+          { key: 'CategoryName', label: 'Category Name' },
+          { key: 'ShortName', label: 'Short Name', width: '90px' },
+          { key: 'Slug', label: 'Slug', width: '100px' },
+          { key: 'HSNCode', label: 'HSN Code', width: '80px' },
+          { key: 'Status', label: 'Status', width: '70px' },
+        ]);
+      case 'product':
+        return cols([
+          srNo,
+          { key: 'ProductName', label: 'Product Name' },
+          { key: 'ShortName', label: 'Short Name', width: '90px' },
+          { key: 'CategoryName', label: 'Category', width: '100px' },
+          { key: 'Status', label: 'Status', width: '70px' },
+        ]);
+      case 'design':
+        return cols([
+          srNo,
+          { key: 'DesignName', label: 'Design Name' },
+          { key: 'LabelCode', label: 'Label Code', width: '90px' },
+          { key: 'CategoryName', label: 'Category', width: '90px' },
+          { key: 'ProductName', label: 'Product', width: '90px' },
+          { key: 'Status', label: 'Status', width: '70px' },
+        ]);
+      case 'purity':
+        return cols([
+          srNo,
+          { key: 'PurityName', label: 'Purity Name' },
+          { key: 'ShortName', label: 'Short Name', width: '90px' },
+          { key: 'FinePercentage', label: 'Fine %', width: '70px' },
+          { key: 'Status', label: 'Status', width: '70px' },
+        ]);
+      case 'counter':
+        return cols([
+          srNo,
+          { key: 'Name', label: 'Counter Name' },
+          { key: 'CounterNumber', label: 'Counter No', width: '90px' },
+          { key: 'BranchName', label: 'Branch', width: '100px' },
+          { key: 'Description', label: 'Description' },
+        ]);
+      case 'box':
+        return cols([
+          srNo,
+          { key: 'BoxName', label: 'Box Name' },
+          { key: 'CategoryName', label: 'Category', width: '90px' },
+          { key: 'ProductName', label: 'Product', width: '90px' },
+          { key: 'EmptyWeight', label: 'Empty Wt', width: '80px' },
+          { key: 'Status', label: 'Status', width: '70px' },
+        ]);
+      case 'packet':
+        return cols([
+          srNo,
+          { key: 'PacketName', label: 'Packet Name' },
+          { key: 'CategoryName', label: 'Category', width: '90px' },
+          { key: 'ProductName', label: 'Product', width: '90px' },
+          { key: 'Status', label: 'Status', width: '70px' },
+        ]);
+      case 'branch':
+        return cols([
+          srNo,
+          { key: 'BranchName', label: 'Branch Name' },
+          { key: 'Name', label: 'Name' },
+          { key: 'Code', label: 'Code', width: '80px' },
+          { key: 'City', label: 'City', width: '90px' },
+          { key: 'State', label: 'State', width: '90px' },
+          { key: 'BranchType', label: 'Type', width: '70px' },
+        ]);
+      default:
+        return [srNo, { key: 'Name', label: 'Name' }];
+    }
+  };
+
+  const listDataKey = LIST_DATA_KEYS[activeOption] || 'categories';
+  const rawList = useMemo(() => {
+    const arr = dropdownData[listDataKey] || [];
+    return [...arr].sort((a, b) => (Number(b?.Id ?? b?.id) || 0) - (Number(a?.Id ?? a?.id) || 0));
+  }, [dropdownData, listDataKey]);
+  const listColumns = useMemo(() => getListColumns(), [activeOption]);
+
+  const getCellDisplay = (row, colKey) => {
+    const fallbacks = { PacketName: 'Name', BranchName: 'Name', BoxName: 'Name' };
+    let v = row[colKey];
+    if ((v === null || v === undefined) && fallbacks[colKey]) v = row[fallbacks[colKey]];
+    if (v === null || v === undefined) return '—';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v).trim() || '—';
+  };
+
+  const filteredList = useMemo(() => {
+    if (!listSearch.trim()) return rawList;
+    const q = listSearch.trim().toLowerCase();
+    return rawList.filter((row) =>
+      listColumns.some((col) => {
+        if (col.key === 'srNo') return false;
+        const val = getCellDisplay(row, col.key);
+        return val !== '—' && val.toLowerCase().includes(q);
+      })
+    );
+  }, [rawList, listSearch, listColumns]);
+
+  const totalListPages = Math.max(1, Math.ceil(filteredList.length / listPageSize));
+  const safeListPage = Math.min(listPage, totalListPages) || 1;
+  const paginatedList = useMemo(() => {
+    const start = (safeListPage - 1) * listPageSize;
+    return filteredList.slice(start, start + listPageSize);
+  }, [filteredList, safeListPage, listPageSize]);
+
+  useEffect(() => {
+    if (listPage > totalListPages && totalListPages >= 1) setListPage(1);
+  }, [listPage, totalListPages]);
+
   const getEndpoint = () => {
-    const base = API_BASE_SONI;
+    const base = API_BASE;
+    const soni = API_BASE_SONI;
     const map = {
-      category: `${base}/api/ProductMaster/AddCategory`,
+      category: `${base}/api/ProductMaster/AddCategoryMaster`,
       product: `${base}/api/ProductMaster/AddProductMaster`,
       design: `${base}/api/ProductMaster/AddDesign`,
-      purity: `${base}/api/ProductMaster/AddPurity`,
-      counter: `${base}/api/ClientOnboarding/AddCounter`,
-      box: `${base}/api/ProductMaster/AddBox`,
-      branch: `${base}/api/ClientOnboarding/AddBranch`,
+      purity: `${base}/api/ProductMaster/AddPurityMaster`,
+      counter: `${soni}/api/ClientOnboarding/AddCounter`,
+      box: `${base}/api/ProductMaster/AddBoxMaster`,
+      packet: `${base}/api/ProductMaster/AddPacketMaster`,
+      branch: `${soni}/api/ClientOnboarding/AddBranch`,
     };
     return map[activeOption] || map.category;
   };
 
+  const getUpdateEndpoint = () => {
+    const base = API_BASE;
+    const soni = API_BASE_SONI;
+    const map = {
+      category: `${base}/api/ProductMaster/UpdateCategoryMaster`,
+      product: `${base}/api/ProductMaster/UpdateProductMaster`,
+      design: `${base}/api/ProductMaster/UpdateDesign`,
+      purity: `${base}/api/ProductMaster/UpdatePurityMaster`,
+      counter: `${soni}/api/ClientOnboarding/UpdateCounter`,
+      box: `${base}/api/ProductMaster/UpdateBoxMaster`,
+      packet: `${base}/api/ProductMaster/UpdatePacketMaster`,
+      branch: `${soni}/api/ClientOnboarding/UpdateBranch`,
+    };
+    return map[activeOption] || map.category;
+  };
+
+  const getDeleteEndpoint = () => {
+    const base = API_BASE;
+    const soni = API_BASE_SONI;
+    const map = {
+      category: `${base}/api/ProductMaster/DeleteCategoryMaster`,
+      product: `${base}/api/ProductMaster/DeleteProductMaster`,
+      design: `${base}/api/ProductMaster/DeleteDesign`,
+      purity: `${base}/api/ProductMaster/DeletePurityMaster`,
+      counter: `${soni}/api/ClientOnboarding/DeleteCounter`,
+      box: `${base}/api/ProductMaster/DeleteBoxMaster`,
+      packet: `${base}/api/ProductMaster/DeletePacketMaster`,
+      branch: `${soni}/api/ClientOnboarding/DeleteBranch`,
+    };
+    return map[activeOption] || map.category;
+  };
+
+  const rowToFormData = useCallback((row, option) => {
+    const id = row.Id ?? row.id;
+    const str = (v) => (v != null && String(v).trim() !== '' ? String(v).trim() : '');
+    switch (option) {
+      case 'category':
+        return {
+          name: row.CategoryName ?? row.Name ?? '',
+          shortName: row.ShortName ?? '',
+          slug: row.Slug ?? '',
+          description: row.Description ?? '',
+          parentCategoryId: row.ParentCategoryId ?? row.parentCategoryId ?? '',
+          hsnCode: row.HSNCode ?? '',
+          status: row.Status ?? 'Active',
+          _id: id,
+        };
+      case 'product':
+        return {
+          categoryId: row.CategoryId ?? row.categoryId ?? '',
+          productName: row.ProductName ?? row.Name ?? '',
+          shortName: row.ShortName ?? '',
+          description: row.Description ?? '',
+          slug: row.Slug ?? '',
+          status: row.Status ?? 'Active',
+          _id: id,
+        };
+      case 'design':
+        return {
+          categoryId: row.CategoryId ?? row.categoryId ?? '',
+          productId: row.ProductId ?? row.productId ?? '',
+          designName: row.DesignName ?? row.Name ?? '',
+          branchId: row.BranchId ?? row.branchId ?? '',
+          description: row.Description ?? '',
+          slug: row.Slug ?? '',
+          labelCode: row.LabelCode ?? '',
+          status: row.Status ?? 'Active',
+          minQuantity: row.MinQuantity ?? '0',
+          minWeight: row.MinWeight ?? '0',
+          _id: id,
+        };
+      case 'purity':
+        return {
+          categoryId: row.CategoryId ?? row.categoryId ?? '',
+          purityName: row.PurityName ?? row.Name ?? '',
+          shortName: row.ShortName ?? '',
+          finePercentage: row.FinePercentage ?? '',
+          description: row.Description ?? '',
+          todaysRate: row.TodaysRate ?? '',
+          status: row.Status ?? 'Active',
+          _id: id,
+        };
+      case 'counter':
+        return {
+          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          name: row.Name ?? '',
+          counterDescription: row.Description ?? '',
+          branchId: row.BranchId ?? row.branchId ?? '',
+          counterNumber: row.CounterNumber ?? '',
+          financialYear: row.FinancialYear ?? '',
+          _id: id,
+        };
+      case 'box':
+        return {
+          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          categoryId: row.CategoryId ?? row.categoryId ?? '',
+          name: row.BoxName ?? row.Name ?? '',
+          description: row.Description ?? '',
+          branchId: row.BranchId ?? row.branchId ?? '',
+          productId: row.ProductId ?? row.productId ?? '',
+          emptyWeight: row.EmptyWeight ?? '',
+          status: row.Status ?? 'Active',
+          packetIds: row.PacketIds ?? '',
+          _id: id,
+        };
+      case 'packet':
+        return {
+          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          categoryId: row.CategoryId ?? row.categoryId ?? '',
+          designId: row.DesignId ?? row.designId ?? '',
+          packetName: row.PacketName ?? row.Name ?? '',
+          description: row.Description ?? '',
+          boxId: row.BoxId ?? row.boxId ?? '',
+          branchId: row.BranchId ?? row.branchId ?? '',
+          productId: row.ProductId ?? row.productId ?? '',
+          sku: row.SKU ?? row.sku ?? '',
+          emptyWeight: row.EmptyWeight ?? '',
+          status: row.Status ?? 'Active',
+          _id: id,
+        };
+      case 'branch':
+        return {
+          code: row.Code ?? '',
+          name: row.BranchName ?? row.Name ?? '',
+          branchHead: row.BranchHead ?? '',
+          phoneNumber: row.PhoneNumber ?? '',
+          faxNumber: row.FaxNumber ?? '',
+          area: row.Area ?? '',
+          city: row.City ?? '',
+          state: row.State ?? '',
+          gstin: row.GSTIN ?? '',
+          financialYear: row.FinancialYear ?? '',
+          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          branchType: row.BranchType ?? '',
+          address: row.Address ?? '',
+          mobileNumber: row.MobileNumber ?? '',
+          street: row.Street ?? '',
+          town: row.Town ?? '',
+          country: row.Country ?? 'India',
+          postalCode: row.PostalCode ?? '',
+          branchEmail: row.BranchEmailId ?? row.branchEmail ?? '',
+          _id: id,
+        };
+      default:
+        return { name: row.Name ?? '', _id: id };
+    }
+  }, [clientCode]);
+
   const buildPayload = () => {
     const payload = { ClientCode: clientCode };
+    if (editingId != null) payload.Id = editingId;
     const str = (v) => (v != null && String(v).trim() !== '' ? String(v).trim() : null);
     const num = (v) => (v != null && v !== '' ? Number(v) : undefined);
+    if (activeOption === 'category') {
+      payload.CategoryName = str(formData.name) || '';
+      payload.Description = str(formData.description) || '';
+      payload.ShortName = str(formData.shortName) || '';
+      const parentCat = formData.parentCategoryId != null && formData.parentCategoryId !== ''
+        ? dropdownData.categories.find(c => String(c.Id) === String(formData.parentCategoryId))
+        : null;
+      payload.ParentCategory = parentCat ? (parentCat.CategoryName || parentCat.Name || '') : '';
+      payload.Slug = str(formData.slug) || '';
+      payload.Status = str(formData.status) || 'Active';
+      payload.HSNCode = str(formData.hsnCode) || '';
+      return payload;
+    }
     if (activeOption === 'product') {
-      if (formData.categoryId != null && formData.categoryId !== '') payload.CategoryId = formData.categoryId;
-      if (str(formData.productName)) payload.Name = str(formData.productName);
-      if (str(formData.shortName)) payload.ShortName = str(formData.shortName);
-      if (str(formData.description)) payload.Description = str(formData.description);
-      if (str(formData.slug)) payload.Slug = str(formData.slug);
+      payload.CategoryId = formData.categoryId != null && formData.categoryId !== '' ? String(formData.categoryId) : '';
+      payload.ProductName = str(formData.productName) || '';
+      payload.StoneName = str(formData.stoneName) ?? payload.ProductName;
+      payload.ShortName = str(formData.shortName) || '';
+      payload.Description = str(formData.description) || '';
+      payload.Slug = str(formData.slug) || '';
+      payload.Status = str(formData.status) || 'Active';
+      payload.Shape = str(formData.shape) || '';
+      payload.ShapeName = str(formData.shapeName) || '';
+      payload.Clarity = str(formData.clarity) || '';
+      payload.ClarityName = str(formData.clarityName) || '';
+      payload.Color = str(formData.color) || '';
+      payload.ColorName = str(formData.colorName) || '';
+      payload.StoneWeightType = str(formData.stoneWeightType) || 'Gram';
+      payload.StonePieces = num(formData.stonePieces) !== undefined ? num(formData.stonePieces) : 1;
+      payload.StoneWeight = str(formData.stoneWeight) || '';
+      payload.StoneRate = str(formData.stoneRate) || '';
+      payload.StoneRatePerPiece = str(formData.stoneRatePerPiece) || '';
+      payload.StoneShape = num(formData.stoneShape) !== undefined ? num(formData.stoneShape) : 0;
+      payload.StoneColour = num(formData.stoneColour) !== undefined ? num(formData.stoneColour) : 0;
+      payload.StoneSize = num(formData.stoneSize) !== undefined ? num(formData.stoneSize) : 0;
+      payload.StoneSettingType = num(formData.stoneSettingType) !== undefined ? num(formData.stoneSettingType) : 0;
+      payload.StoneStatusType = num(formData.stoneStatusType) !== undefined ? num(formData.stoneStatusType) : 0;
       return payload;
     }
     if (activeOption === 'design') {
-      if (formData.categoryId != null && formData.categoryId !== '') payload.CategoryId = formData.categoryId;
-      if (formData.productId != null && formData.productId !== '') payload.ProductId = formData.productId;
-      if (str(formData.designName)) payload.Name = str(formData.designName);
-      if (str(formData.description)) payload.Description = str(formData.description);
-      if (str(formData.slug)) payload.Slug = str(formData.slug);
-      if (str(formData.labelCode)) payload.LabelCode = str(formData.labelCode);
-      if (num(formData.minQuantity) !== undefined) payload.MinQuantity = num(formData.minQuantity);
-      if (num(formData.minWeight) !== undefined) payload.MinWeight = num(formData.minWeight);
+      payload.CategoryId = formData.categoryId != null && formData.categoryId !== '' ? String(formData.categoryId) : '';
+      payload.ProductId = formData.productId != null && formData.productId !== '' ? String(formData.productId) : '';
+      payload.DesignName = str(formData.designName) || '';
+      payload.BranchId = formData.branchId != null && formData.branchId !== '' ? Number(formData.branchId) : 0;
+      payload.Description = str(formData.description) || '';
+      payload.Slug = str(formData.slug) || '';
+      payload.LabelCode = str(formData.labelCode) || '';
+      payload.Status = str(formData.status) || 'Active';
+      payload.MinQuantity = str(formData.minQuantity) ?? '0';
+      payload.MinWeight = str(formData.minWeight) ?? '0';
       return payload;
     }
     if (activeOption === 'purity') {
+      payload.PurityName = str(formData.purityName) || '';
+      payload.CategoryId = formData.categoryId != null && formData.categoryId !== '' ? String(formData.categoryId) : '';
+      payload.ShortName = str(formData.shortName) || '';
+      payload.Description = str(formData.description) || '';
+      payload.FinePercentage = str(formData.finePercentage) || '';
+      payload.TodaysRate = str(formData.todaysRate) || '';
+      payload.Status = str(formData.status) || 'Active';
+      return payload;
+    }
+    if (activeOption === 'counter') {
+      if (str(formData.name)) payload.Name = str(formData.name);
+      if (formData.branchId != null && formData.branchId !== '') payload.BranchId = formData.branchId;
+      if (str(formData.counterNumber)) payload.CounterNumber = str(formData.counterNumber);
+      if (str(formData.counterDescription)) payload.Description = str(formData.counterDescription);
+      if (str(formData.financialYear)) payload.FinancialYear = str(formData.financialYear);
+      if (formData.companyId != null && formData.companyId !== '') payload.CompanyId = formData.companyId;
+      return payload;
+    }
+    if (activeOption === 'box') {
+      payload.CategoryId = formData.categoryId != null && formData.categoryId !== '' ? String(formData.categoryId) : '';
+      payload.BoxName = str(formData.name) || '';
+      payload.EmptyWeight = str(formData.emptyWeight) || '0';
+      payload.ProductId = formData.productId != null && formData.productId !== '' ? String(formData.productId) : '';
+      payload.CompanyId = formData.companyId != null && formData.companyId !== '' ? String(formData.companyId) : '';
+      payload.BranchId = formData.branchId != null && formData.branchId !== '' ? String(formData.branchId) : '';
+      payload.Description = str(formData.description) || '';
+      payload.Status = str(formData.status) || 'Active';
+      payload.PacketIds = str(formData.packetIds) || '';
+      return payload;
+    }
+    if (activeOption === 'packet') {
+      if (str(formData.packetName)) payload.Name = str(formData.packetName);
       if (formData.categoryId != null && formData.categoryId !== '') payload.CategoryId = formData.categoryId;
-      if (str(formData.purityName)) payload.Name = str(formData.purityName);
-      if (str(formData.shortName)) payload.ShortName = str(formData.shortName);
-      if (str(formData.finePercentage)) payload.FinePercentage = str(formData.finePercentage);
+      if (formData.productId != null && formData.productId !== '') payload.ProductId = formData.productId;
+      if (formData.designId != null && formData.designId !== '') payload.DesignId = formData.designId;
+      if (formData.boxId != null && formData.boxId !== '') payload.BoxId = formData.boxId;
+      if (formData.branchId != null && formData.branchId !== '') payload.BranchId = formData.branchId;
+      if (str(formData.emptyWeight)) payload.EmptyWeight = str(formData.emptyWeight);
       if (str(formData.description)) payload.Description = str(formData.description);
-      if (str(formData.todaysRate)) payload.TodaysRate = str(formData.todaysRate);
+      if (str(formData.sku)) payload.SKU = str(formData.sku);
+      if (str(formData.status)) payload.Status = str(formData.status);
+      return payload;
+    }
+    if (activeOption === 'branch') {
+      if (str(formData.name)) payload.Name = str(formData.name);
+      if (str(formData.code)) payload.Code = str(formData.code);
+      if (str(formData.address)) payload.Address = str(formData.address);
+      if (str(formData.branchHead)) payload.BranchHead = str(formData.branchHead);
+      if (str(formData.phoneNumber)) payload.PhoneNumber = str(formData.phoneNumber);
+      if (str(formData.faxNumber)) payload.FaxNumber = str(formData.faxNumber);
+      if (str(formData.area)) payload.Area = str(formData.area);
+      if (str(formData.city)) payload.City = str(formData.city);
+      if (str(formData.state)) payload.State = str(formData.state);
+      if (str(formData.gstin)) payload.GSTIN = str(formData.gstin);
+      if (str(formData.financialYear)) payload.FinancialYear = str(formData.financialYear);
+      if (formData.companyId != null && formData.companyId !== '') payload.CompanyId = formData.companyId;
+      if (str(formData.branchType)) payload.BranchType = str(formData.branchType);
+      if (str(formData.mobileNumber)) payload.MobileNumber = str(formData.mobileNumber);
+      if (str(formData.street)) payload.Street = str(formData.street);
+      if (str(formData.town)) payload.Town = str(formData.town);
+      if (str(formData.country)) payload.Country = str(formData.country);
+      if (str(formData.postalCode)) payload.PostalCode = str(formData.postalCode);
+      if (str(formData.branchEmail)) payload.BranchEmailId = str(formData.branchEmail);
       return payload;
     }
     if (str(formData.name)) payload.Name = str(formData.name);
     if (str(formData.code)) payload.Code = str(formData.code);
+    if (str(formData.shortName)) payload.ShortName = str(formData.shortName);
+    if (str(formData.slug)) payload.Slug = str(formData.slug);
     if (str(formData.description)) payload.Description = str(formData.description);
     if (str(formData.address)) payload.Address = str(formData.address);
     if (formData.categoryId != null && formData.categoryId !== '') payload.CategoryId = formData.categoryId;
+    if (formData.parentCategoryId != null && formData.parentCategoryId !== '') payload.ParentCategoryId = formData.parentCategoryId;
+    if (str(formData.hsnCode)) payload.HSNCode = str(formData.hsnCode);
     if (formData.branchId != null && formData.branchId !== '') payload.BranchId = formData.branchId;
     return payload;
   };
 
-  const handleResetForm = () => setFormData({});
-  const handleCancel = () => setFormData({});
+  const handleResetForm = () => {
+    setFormData({});
+    setEditingId(null);
+  };
+  const handleCancel = () => {
+    setFormData({});
+    setEditingId(null);
+  };
+
+  const handleEdit = (row) => {
+    const data = rowToFormData(row, activeOption);
+    const { _id, ...rest } = data;
+    setFormData(rest);
+    setEditingId(_id ?? null);
+    formCardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleDeleteClick = (row) => setDeleteConfirm({
+    row,
+    masterLabel: MASTER_OPTIONS.find(o => o.id === activeOption)?.label ?? activeOption,
+  });
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm || !clientCode) return;
+    const id = deleteConfirm.row.Id ?? deleteConfirm.row.id;
+    if (id == null) {
+      toast.error('Cannot delete: no id.');
+      setDeleteConfirm(null);
+      return;
+    }
+    setDeletingId(id);
+    try {
+      const res = await axios.post(getDeleteEndpoint(), { ClientCode: clientCode, Id: id }, { headers: getAuthHeaders() });
+      const data = res.data;
+      const ok = data?.status === 'success' || data?.success === true || (res.status === 200 && data?.status !== 'failed');
+      if (ok) {
+        toast.success(data?.message ?? data?.Message ?? 'Deleted successfully.');
+        fetchDropdownData();
+        setDeleteConfirm(null);
+      } else {
+        toast.error(data?.message ?? data?.Message ?? data?.error ?? 'Delete failed.');
+      }
+    } catch (err) {
+      const resData = err.response?.data;
+      const msg = resData?.message ?? resData?.Message ?? resData?.error ?? err.message ?? 'Delete failed.';
+      toast.error(typeof msg === 'string' ? msg : 'Delete failed.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -219,20 +944,38 @@ const CreateMasters = () => {
       toast.warning(`${missing.label} is required.`);
       return;
     }
+    const successMessages = {
+      category: 'Category created successfully.',
+      product: 'Product created successfully.',
+      design: 'Design created successfully.',
+      purity: 'Purity created successfully.',
+      counter: 'Counter created successfully.',
+      box: 'Box created successfully.',
+      packet: 'Packet created successfully.',
+      branch: 'Branch created successfully.',
+    };
     setLoading(true);
     try {
       const payload = buildPayload();
-      const res = await axios.post(getEndpoint(), payload, { headers: getAuthHeaders() });
+      const isEdit = editingId != null;
+      const url = isEdit ? getUpdateEndpoint() : getEndpoint();
+      const res = await axios.post(url, payload, { headers: getAuthHeaders() });
       const data = res.data;
-      if (data?.status === 'success' || data?.success === true || res.status === 200) {
-        toast.success(data?.message || 'Created successfully.');
+      const serverMsg = data?.message ?? data?.Message ?? data?.msg ?? '';
+      const serverErr = data?.error ?? data?.Error ?? data?.message ?? data?.Message ?? '';
+      const ok = data?.status === 'success' || data?.success === true || (res.status === 200 && data?.status !== 'failed');
+      if (ok) {
+        toast.success(serverMsg || (isEdit ? 'Updated successfully.' : successMessages[activeOption] || 'Saved successfully.'));
         setFormData({});
+        setEditingId(null);
+        fetchDropdownData();
       } else {
-        toast.error(data?.message || data?.error || 'Create failed.');
+        toast.error(serverErr || (isEdit ? 'Update failed.' : 'Create failed.'));
       }
     } catch (err) {
-      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Request failed.';
-      toast.error(msg);
+      const resData = err.response?.data;
+      const msg = resData?.message ?? resData?.Message ?? resData?.error ?? resData?.Error ?? err.message ?? 'Request failed.';
+      toast.error(typeof msg === 'string' ? msg : (resData?.message || 'Request failed.'));
     } finally {
       setLoading(false);
     }
@@ -244,43 +987,48 @@ const CreateMasters = () => {
 
   const baseStyles = {
     page: {
-      minHeight: '100%',
-      background: '#f5f6f8',
+      minHeight: '100vh',
+      height: '100%',
+      background: '#f1f5f9',
       display: 'flex',
       flexDirection: 'column',
+      overflow: 'hidden',
     },
     topBar: {
-      background: '#fff',
-      borderBottom: '1px solid #e4e6eb',
-      padding: '14px 24px',
+      background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+      borderBottom: '1px solid #e2e8f0',
+      padding: '12px 20px',
       flexShrink: 0,
+      boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
     },
-    title: { margin: 0, fontSize: 20, fontWeight: 600, color: '#1f2933' },
-    subtitle: { margin: '4px 0 0', fontSize: 13, color: '#6b7280' },
+    title: { margin: 0, fontSize: 16, fontWeight: 600, color: '#0f172a' },
+    subtitle: { margin: '2px 0 0', fontSize: 11, color: '#64748b' },
     layout: {
       flex: 1,
       display: 'flex',
       flexDirection: 'row',
       minHeight: 0,
+      overflow: 'hidden',
     },
     nav: {
-      width: 240,
+      width: 180,
       flexShrink: 0,
-      background: '#fff',
-      borderRight: '1px solid #e4e6eb',
-      padding: '8px 0',
+      background: '#ffffff',
+      borderRight: '1px solid #e2e8f0',
+      padding: '6px 0',
+      overflowY: 'auto',
     },
     navItem: (active, color) => ({
       display: 'flex',
       alignItems: 'center',
-      gap: 12,
+      gap: 8,
       width: '100%',
-      padding: '10px 20px',
+      padding: '6px 12px',
       border: 'none',
       borderLeft: active ? `3px solid ${color}` : '3px solid transparent',
       background: active ? `${color}14` : 'transparent',
-      color: active ? color : '#4a5568',
-      fontSize: 14,
+      color: active ? color : '#475569',
+      fontSize: 12,
       fontWeight: active ? 600 : 500,
       cursor: 'pointer',
       textAlign: 'left',
@@ -288,117 +1036,243 @@ const CreateMasters = () => {
     }),
     content: {
       flex: 1,
-      padding: 24,
+      padding: 16,
       overflow: 'auto',
       display: 'flex',
       flexDirection: 'column',
       minHeight: 0,
+      background: '#f1f5f9',
     },
     card: {
-      background: '#fff',
-      borderRadius: 8,
-      border: '1px solid #e4e6eb',
-      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-      padding: 24,
+      background: '#ffffff',
+      borderRadius: 10,
+      border: '1px solid #e2e8f0',
+      padding: 16,
       width: '100%',
-      flex: 1,
+      flex: '0 0 auto',
       minHeight: 0,
       display: 'flex',
       flexDirection: 'column',
+      overflow: 'hidden',
+      boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
     },
     cardTitle: {
-      fontSize: 16,
+      fontSize: 13,
       fontWeight: 600,
-      color: '#1f2933',
-      marginBottom: 20,
-      paddingBottom: 12,
-      borderBottom: '1px solid #e4e6eb',
+      color: '#111827',
+      marginBottom: 10,
+      paddingBottom: 8,
+      borderBottom: '1px solid #e5e7eb',
       flexShrink: 0,
     },
-    fieldGroup: { marginBottom: 18 },
+    fieldGroup: { marginBottom: 10 },
     label: {
       display: 'block',
-      fontSize: 13,
+      fontSize: 11,
       fontWeight: 500,
-      color: '#4a5568',
-      marginBottom: 6,
+      color: '#4b5563',
+      marginBottom: 3,
     },
     input: {
       width: '100%',
-      padding: '9px 12px',
-      fontSize: 14,
-      border: '1px solid #d1d5db',
+      padding: '6px 10px',
+      fontSize: 12,
+      border: '1px solid #cbd5e1',
       borderRadius: 6,
       background: '#fff',
-      color: '#1f2933',
+      color: '#1e293b',
       boxSizing: 'border-box',
     },
     textarea: {
       width: '100%',
-      padding: '9px 12px',
-      fontSize: 14,
+      padding: '5px 8px',
+      fontSize: 12,
       border: '1px solid #d1d5db',
-      borderRadius: 6,
+      borderRadius: 4,
       background: '#fff',
-      color: '#1f2933',
+      color: '#111827',
       resize: 'vertical',
-      minHeight: 80,
+      minHeight: 52,
       fontFamily: 'inherit',
       boxSizing: 'border-box',
     },
     select: {
       width: '100%',
-      padding: '9px 12px',
-      fontSize: 14,
-      border: '1px solid #d1d5db',
+      padding: '6px 10px',
+      fontSize: 12,
+      border: '1px solid #cbd5e1',
       borderRadius: 6,
       background: '#fff',
-      color: '#1f2933',
+      color: '#1e293b',
       cursor: 'pointer',
       boxSizing: 'border-box',
     },
     btnPrimary: (color) => ({
       display: 'inline-flex',
       alignItems: 'center',
-      gap: 8,
-      padding: '9px 20px',
-      fontSize: 14,
+      gap: 6,
+      padding: '6px 14px',
+      fontSize: 12,
       fontWeight: 600,
       color: '#fff',
       background: loading ? '#94a3b8' : color,
       border: 'none',
-      borderRadius: 6,
+      borderRadius: 4,
       cursor: loading ? 'not-allowed' : 'pointer',
-      marginTop: 8,
     }),
     btnSecondary: {
       display: 'inline-flex',
       alignItems: 'center',
-      gap: 8,
-      padding: '9px 18px',
-      fontSize: 14,
-      fontWeight: 600,
-      color: '#4a5568',
+      gap: 6,
+      padding: '6px 12px',
+      fontSize: 12,
+      fontWeight: 500,
+      color: '#4b5563',
       background: '#fff',
       border: '1px solid #d1d5db',
-      borderRadius: 6,
+      borderRadius: 4,
       cursor: 'pointer',
-      marginTop: 8,
     },
     mobileNavTrigger: {
       display: 'none',
       alignItems: 'center',
       justifyContent: 'space-between',
       width: '100%',
-      padding: '12px 16px',
+      padding: '8px 12px',
       background: '#fff',
-      border: '1px solid #e4e6eb',
-      borderRadius: 6,
-      fontSize: 14,
+      border: '1px solid #e5e7eb',
+      borderRadius: 4,
+      fontSize: 12,
       fontWeight: 500,
-      color: '#4a5568',
+      color: '#4b5563',
       cursor: 'pointer',
-      marginBottom: 16,
+      marginBottom: 8,
+    },
+    listCard: {
+      marginTop: 16,
+      flex: '1 1 200px',
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      background: '#ffffff',
+      borderRadius: 10,
+      border: '1px solid #e2e8f0',
+      overflow: 'hidden',
+      boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
+    },
+    listCardTitle: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: '#334155',
+      padding: '10px 14px',
+      borderBottom: '1px solid #e2e8f0',
+      background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+    },
+    listHeader: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      gap: 10,
+      padding: '10px 14px',
+      borderBottom: '1px solid #e2e8f0',
+      background: '#f8fafc',
+    },
+    listSearchInput: {
+      flex: '1 1 200px',
+      minWidth: 140,
+      maxWidth: 280,
+      padding: '6px 10px 6px 32px',
+      fontSize: 12,
+      border: '1px solid #cbd5e1',
+      borderRadius: 6,
+      background: '#fff',
+    },
+    listTableWrap: {
+      flex: 1,
+      minHeight: 0,
+      overflowX: 'auto',
+      overflowY: 'auto',
+    },
+    listTable: {
+      width: '100%',
+      borderCollapse: 'collapse',
+      fontSize: 11,
+    },
+    listTh: {
+      textAlign: 'left',
+      padding: '8px 10px',
+      fontWeight: 600,
+      color: '#334155',
+      background: 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)',
+      borderBottom: '1px solid #cbd5e1',
+      whiteSpace: 'nowrap',
+      fontSize: 11,
+    },
+    listTd: {
+      padding: '6px 10px',
+      borderBottom: '1px solid #f1f5f9',
+      color: '#1e293b',
+      fontSize: 12,
+    },
+    listPagination: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      padding: '8px 14px',
+      borderTop: '1px solid #e2e8f0',
+      background: '#f8fafc',
+      fontSize: 12,
+      color: '#64748b',
+    },
+    actionBtnEdit: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 28,
+      height: 28,
+      padding: 0,
+      margin: '0 2px',
+      border: 'none',
+      borderRadius: 6,
+      background: '#dbeafe',
+      color: '#1d4ed8',
+      cursor: 'pointer',
+      transition: 'background 0.15s, color 0.15s, transform 0.1s',
+    },
+    actionBtnDelete: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 28,
+      height: 28,
+      padding: 0,
+      margin: '0 2px',
+      border: 'none',
+      borderRadius: 6,
+      background: '#fee2e2',
+      color: '#b91c1c',
+      cursor: 'pointer',
+      transition: 'background 0.15s, color 0.15s, transform 0.1s',
+    },
+    modalOverlay: {
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0,0,0,0.4)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1100,
+      padding: 16,
+    },
+    modalCard: {
+      background: '#fff',
+      borderRadius: 8,
+      boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+      maxWidth: 400,
+      width: '100%',
+      padding: 20,
     },
   };
 
@@ -438,16 +1312,16 @@ const CreateMasters = () => {
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              background: `${current.color}20`,
+              width: 26,
+              height: 26,
+              borderRadius: 6,
+              background: `${current.color}18`,
               color: current.color,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}>
-              <CurrentIcon size={16} />
+              <CurrentIcon size={12} />
             </span>
             {current.label}
           </span>
@@ -488,17 +1362,17 @@ const CreateMasters = () => {
                 }}
               >
                 <span style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  background: isActive ? opt.color : `${opt.color}20`,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 6,
+                  background: isActive ? opt.color : `${opt.color}18`,
                   color: isActive ? '#fff' : opt.color,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
                 }}>
-                  <Icon size={16} />
+                  <Icon size={12} />
                 </span>
                 <span style={{ flex: 1, textAlign: 'left' }}>{opt.label}</span>
               </button>
@@ -507,79 +1381,268 @@ const CreateMasters = () => {
         </nav>
 
         <div style={baseStyles.content} className="create-masters-layout-content">
-          <div style={{ ...baseStyles.card, ['--create-masters-accent']: current.color }} className="create-masters-form-card">
-            <h2 style={baseStyles.cardTitle}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                <span style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 8,
-                  background: `${current.color}18`,
-                  color: current.color,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <CurrentIcon size={18} />
-                </span>
-                ADD {current.label.toUpperCase()}
-              </span>
-            </h2>
-            <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'auto' }}>
-              <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px 24px', alignContent: 'start' }} className="create-masters-fields-grid">
-                {fields.map((f) => (
-                  <div key={f.key} data-colspan={f.colSpan || 1} style={{ ...baseStyles.fieldGroup }}>
-                    <label style={baseStyles.label}>
-                      {f.label} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
-                    </label>
-                    {f.type === 'select' ? (
-                      <select
-                        value={formData[f.key] ?? ''}
-                        onChange={(e) => updateField(f.key, e.target.value)}
-                        style={baseStyles.select}
-                      >
-                        <option value="">{f.placeholder || `Select ${f.label}`}</option>
-                        {(f.options || []).map((opt, i) => (
-                          <option key={i} value={opt[f.optionValue] ?? opt.Id ?? opt.id ?? ''}>
-                            {opt[f.optionLabel] ?? opt.Name ?? opt.CategoryName ?? opt.ProductName ?? opt.DesignName ?? opt.PurityName ?? opt.BranchName ?? opt.CounterName ?? ''}
-                          </option>
-                        ))}
-                      </select>
-                    ) : f.type === 'textarea' ? (
-                      <textarea
-                        value={formData[f.key] ?? ''}
-                        onChange={(e) => updateField(f.key, e.target.value)}
-                        placeholder={f.placeholder}
-                        style={{ ...baseStyles.textarea, minHeight: f.colSpan === 3 ? 88 : 72 }}
-                      />
-                    ) : (
-                      <input
-                        type={f.type || 'text'}
-                        value={formData[f.key] ?? ''}
-                        onChange={(e) => updateField(f.key, e.target.value)}
-                        placeholder={f.placeholder}
-                        style={baseStyles.input}
-                      />
-                    )}
+          {activeOption === 'rates' ? (
+            <div style={{ ...baseStyles.card, padding: 14, flex: '1 1 auto', minHeight: 0 }}>
+              <div style={baseStyles.cardTitle}>Daily Rates (Category & Purity)</div>
+
+              <div style={{ maxHeight: 520, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                {ratesLoading ? (
+                  <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 10, color: '#64748b', fontWeight: 700 }}>
+                    <FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} />
+                    Loading daily rates...
                   </div>
-                ))}
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', textAlign: 'left', padding: '6px 8px' }}>Category</th>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', textAlign: 'left', padding: '6px 8px' }}>Purity</th>
+                        <th style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', textAlign: 'right', padding: '6px 8px' }}>Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(dropdownData.purities || [])
+                        .slice()
+                        .sort((a, b) => {
+                          const catA = Number(a.CategoryId ?? a.categoryId ?? -1) || 0;
+                          const catB = Number(b.CategoryId ?? b.categoryId ?? -1) || 0;
+                          if (catA !== catB) return catA - catB;
+                          const pA = Number(a.Id ?? a.id ?? a.PurityId ?? a.PurityID ?? 0) || 0;
+                          const pB = Number(b.Id ?? b.id ?? b.PurityId ?? b.PurityID ?? 0) || 0;
+                          return pA - pB;
+                        })
+                        .map((p) => {
+                          const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+                          const catId = p.CategoryId ?? p.categoryId ?? '';
+                          const categoryName = (dropdownData.categories || []).find((c) => String(c.Id ?? c.id ?? '') === String(catId))?.CategoryName ?? (dropdownData.categories || []).find((c) => String(c.Id ?? c.id ?? '') === String(catId))?.Name ?? '';
+
+                          return (
+                            <tr key={String(pId)} style={{ borderBottom: '1px solid #eef2f6' }}>
+                              <td style={{ padding: '6px 8px', fontWeight: 700, color: '#0f172a' }}>{categoryName}</td>
+                              <td style={{ padding: '6px 8px', fontWeight: 700, color: '#0f172a' }}>{p.PurityName ?? p.Name ?? ''}</td>
+                              <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                                <input
+                                  type="text"
+                                  value={ratesByPurityId[String(pId)] ?? ''}
+                                  onChange={(e) => handleDailyRateChange(p, e.target.value)}
+                                  style={{ width: 160, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 800, outline: 'none' }}
+                                  disabled={ratesSaving}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                )}
               </div>
-              <div style={{ flexShrink: 0, paddingTop: 24, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'flex-end' }}>
-                <button type="button" onClick={handleResetForm} style={baseStyles.btnSecondary}>
-                  <FaRedoAlt size={14} />
-                  Reset Form
-                </button>
-                <button type="button" onClick={handleCancel} style={baseStyles.btnSecondary}>
-                  <FaTimes size={14} />
-                  Cancel
-                </button>
-                <button type="submit" disabled={loading} style={baseStyles.btnPrimary(current.color)}>
-                  {loading ? <FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={14} />}
-                  {loading ? 'Saving…' : 'Save'}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={handleSetRatesAdmin}
+                  disabled={ratesLoading || ratesSaving}
+                  style={baseStyles.btnPrimary('#0d9488')}
+                >
+                  {ratesSaving ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
+                  Set Rates
                 </button>
               </div>
-            </form>
-          </div>
+            </div>
+          ) : (
+            <>
+              <div ref={formCardRef} style={{ ...baseStyles.card, ['--create-masters-accent']: current.color }} className="create-masters-form-card">
+                <h2 style={baseStyles.cardTitle}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 6,
+                      background: `${current.color}14`,
+                      color: current.color,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <CurrentIcon size={14} />
+                    </span>
+                    {editingId ? `Edit ${current.label}` : `Add ${current.label}`}
+                  </span>
+                </h2>
+                <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'auto' }}>
+                  <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', alignContent: 'start' }} className="create-masters-fields-grid">
+                    {fields.map((f) => (
+                      <div key={f.key} data-colspan={f.colSpan || 1} style={{ ...baseStyles.fieldGroup }}>
+                        <label style={baseStyles.label}>
+                          {f.label} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
+                        </label>
+                        {f.type === 'select' ? (
+                          <select
+                            value={formData[f.key] ?? ''}
+                            onChange={(e) => updateField(f.key, e.target.value)}
+                            style={baseStyles.select}
+                          >
+                            <option value="">{f.placeholder || `Select ${f.label}`}</option>
+                            {(f.options || []).map((opt, i) => (
+                              <option key={i} value={opt[f.optionValue] ?? opt.Id ?? opt.id ?? ''}>
+                                {opt[f.optionLabel] ?? opt.Name ?? opt.CategoryName ?? opt.ProductName ?? opt.DesignName ?? opt.PurityName ?? opt.BranchName ?? opt.CounterName ?? ''}
+                              </option>
+                            ))}
+                          </select>
+                        ) : f.type === 'textarea' ? (
+                          <textarea
+                            value={formData[f.key] ?? ''}
+                            onChange={(e) => updateField(f.key, e.target.value)}
+                            placeholder={f.placeholder}
+                            style={{ ...baseStyles.textarea, minHeight: f.colSpan === 3 ? 56 : 48 }}
+                          />
+                        ) : (
+                          <input
+                            type={f.type || 'text'}
+                            value={formData[f.key] ?? ''}
+                            onChange={(e) => updateField(f.key, e.target.value)}
+                            placeholder={f.placeholder}
+                            style={baseStyles.input}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="create-masters-form-actions" style={{ flexShrink: 0, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+                    <div className="create-masters-form-actions-inner">
+                      <button type="button" onClick={handleCancel} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-cancel">
+                        <FaTimes size={12} />
+                        Cancel
+                      </button>
+                      <button type="button" onClick={handleResetForm} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-reset">
+                        <FaRedoAlt size={12} />
+                        Reset
+                      </button>
+                      <button type="submit" disabled={loading} style={baseStyles.btnPrimary(current.color)} className="create-masters-btn create-masters-btn-save">
+                        {loading ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
+                        {loading ? (editingId ? 'Updating…' : 'Saving…') : (editingId ? 'Update' : 'Save')}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              <div style={baseStyles.listCard} className="create-masters-list-card">
+                <div style={baseStyles.listCardTitle}>List of {LIST_PLURAL[activeOption] ?? `${current.label}s`}</div>
+                <div style={baseStyles.listHeader} className="create-masters-list-header">
+                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
+                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+                    <input
+                      type="text"
+                      placeholder={`Search ${current.label} list...`}
+                      value={listSearch}
+                      onChange={(e) => { setListSearch(e.target.value); setListPage(1); }}
+                      style={baseStyles.listSearchInput}
+                      aria-label={`Search ${current.label} list`}
+                    />
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
+                    Total: {filteredList.length} record{filteredList.length !== 1 ? 's' : ''}
+                  </span>
+                  <select
+                    value={listPageSize}
+                    onChange={(e) => { setListPageSize(Number(e.target.value)); setListPage(1); }}
+                    style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
+                    aria-label="Rows per page"
+                  >
+                    {[5, 10, 20, 50].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={baseStyles.listTableWrap}>
+                  <table style={baseStyles.listTable} className="create-masters-list-table">
+                    <thead>
+                      <tr>
+                        {listColumns.map((col) => (
+                          <th key={col.key} style={{ ...baseStyles.listTh, width: col.width }}>{col.label}</th>
+                        ))}
+                        <th key="_action" style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedList.length === 0 ? (
+                        <tr>
+                          <td colSpan={listColumns.length + 1} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
+                            {rawList.length === 0 ? `No ${current.label} data. Add one above.` : 'No matches for search.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedList.map((row, idx) => {
+                          const rowId = row.Id ?? row.id ?? idx;
+                          const isDeleting = deletingId === rowId;
+                          const srNoVal = (safeListPage - 1) * listPageSize + idx + 1;
+                          return (
+                            <tr key={rowId} className="create-masters-list-row">
+                              {listColumns.map((col) => (
+                                <td key={col.key} style={baseStyles.listTd} title={col.key === 'srNo' ? undefined : getCellDisplay(row, col.key)}>
+                                  {col.key === 'srNo' ? srNoVal : getCellDisplay(row, col.key)}
+                                </td>
+                              ))}
+                              <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
+                                <span className="create-masters-action-cell">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEdit(row)}
+                                    title="Edit"
+                                    aria-label={`Edit ${current.label}`}
+                                    style={baseStyles.actionBtnEdit}
+                                    className="create-masters-btn-icon create-masters-btn-edit"
+                                  >
+                                    <FaEdit size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteClick(row)}
+                                    disabled={isDeleting}
+                                    title="Delete"
+                                    aria-label={`Delete ${current.label}`}
+                                    style={{ ...baseStyles.actionBtnDelete, opacity: isDeleting ? 0.6 : 1 }}
+                                    className="create-masters-btn-icon create-masters-btn-delete"
+                                  >
+                                    {isDeleting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaTrashAlt size={12} />}
+                                  </button>
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
+                  <span>
+                    Showing {(safeListPage - 1) * listPageSize + 1}–{Math.min(safeListPage * listPageSize, filteredList.length)} of {filteredList.length}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                      disabled={safeListPage <= 1}
+                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                    >
+                      Prev
+                    </button>
+                    <span style={{ padding: '0 6px' }}>Page {safeListPage} of {totalListPages}</span>
+                    <button
+                      type="button"
+                      onClick={() => setListPage((p) => Math.min(totalListPages, p + 1))}
+                      disabled={safeListPage >= totalListPages}
+                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                    >
+                      Next
+                    </button>
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -588,29 +1651,45 @@ const CreateMasters = () => {
         .create-masters-zoho .create-masters-form-card select:focus,
         .create-masters-zoho .create-masters-form-card textarea:focus {
           outline: none;
-          border-color: var(--create-masters-accent, #2164eb);
-          box-shadow: 0 0 0 2px rgba(33, 100, 235, 0.18);
+          border-color: var(--create-masters-accent, #0d9488);
+          box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15);
         }
         @keyframes create-masters-spin { to { transform: rotate(360deg); } }
+        .create-masters-form-actions-inner {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          justify-content: flex-end;
+        }
+        @media (max-width: 480px) {
+          .create-masters-form-actions-inner {
+            flex-direction: column;
+            width: 100%;
+          }
+          .create-masters-form-actions .create-masters-btn {
+            width: 100%;
+            justify-content: center;
+          }
+        }
         .create-masters-zoho .create-masters-fields-grid {
-          grid-template-columns: 1fr 1fr 1fr;
+          grid-template-columns: repeat(4, 1fr);
         }
         .create-masters-zoho .create-masters-fields-grid > [data-colspan="2"] { grid-column: span 2; }
-        .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: 1 / -1; }
-        @media (max-width: 900px) {
-          .create-masters-zoho .create-masters-fields-grid {
-            grid-template-columns: 1fr 1fr;
-          }
+        .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: span 3; }
+        @media (max-width: 1024px) {
+          .create-masters-zoho .create-masters-fields-grid { grid-template-columns: repeat(3, 1fr); }
           .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: 1 / -1; }
         }
-        @media (max-width: 560px) {
-          .create-masters-zoho .create-masters-fields-grid {
-            grid-template-columns: 1fr;
-          }
+        @media (max-width: 640px) {
+          .create-masters-zoho .create-masters-fields-grid { grid-template-columns: 1fr 1fr; }
           .create-masters-zoho .create-masters-fields-grid > [data-colspan="2"],
-          .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] {
-            grid-column: span 1;
-          }
+          .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: 1 / -1; }
+        }
+        @media (max-width: 480px) {
+          .create-masters-zoho .create-masters-fields-grid { grid-template-columns: 1fr; }
+          .create-masters-zoho .create-masters-fields-grid > [data-colspan="2"],
+          .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: span 1; }
         }
         @media (max-width: 768px) {
           .create-masters-zoho .create-masters-nav {
@@ -619,8 +1698,8 @@ const CreateMasters = () => {
             left: 0;
             bottom: 0;
             z-index: 1001;
-            width: 260px;
-            box-shadow: 4px 0 16px rgba(0,0,0,0.12);
+            width: 220px;
+            box-shadow: 4px 0 12px rgba(0,0,0,0.08);
             transform: translateX(-100%);
             transition: transform 0.2s ease;
           }
@@ -631,14 +1710,80 @@ const CreateMasters = () => {
             display: block !important;
           }
           .create-masters-zoho .create-masters-mobile-trigger { display: flex !important; }
-          .create-masters-zoho .create-masters-layout-content { padding: 16px !important; }
+          .create-masters-zoho .create-masters-layout-content { padding: 10px !important; }
           .create-masters-zoho .create-masters-layout .create-masters-nav { display: flex !important; flex-direction: column !important; }
           .create-masters-zoho .create-masters-layout { flex-direction: column !important; }
         }
         @media (min-width: 769px) {
           .create-masters-zoho .create-masters-mobile-trigger { display: none !important; }
         }
+        .create-masters-list-card { min-height: 180px; }
+        .create-masters-list-table { border-radius: 6px; overflow: hidden; }
+        .create-masters-list-table thead th { position: sticky; top: 0; z-index: 1; background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%) !important; box-shadow: 0 1px 0 #cbd5e1; }
+        .create-masters-list-table th,
+        .create-masters-list-table td { white-space: nowrap; }
+        .create-masters-list-row { transition: background 0.12s ease; }
+        .create-masters-list-row:hover { background: #f1f5f9; }
+        .create-masters-action-cell { display: inline-flex; align-items: center; justify-content: center; gap: 2px; }
+        .create-masters-btn-edit:hover { background: #bfdbfe !important; color: #1e40af !important; transform: scale(1.05); }
+        .create-masters-btn-delete:hover { background: #fecaca !important; color: #991b1b !important; transform: scale(1.05); }
+        .create-masters-btn-icon:disabled { cursor: not-allowed; }
+        .create-masters-list-pagination { flex-wrap: wrap; }
+        @media (max-width: 640px) {
+          .create-masters-list-header {
+            flex-direction: column;
+            align-items: stretch;
+          }
+          .create-masters-list-header input { max-width: none; }
+          .create-masters-list-pagination {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .create-masters-btn-icon { min-width: 32px; min-height: 32px; }
+        }
+        @media (max-width: 480px) {
+          .create-masters-zoho .create-masters-layout-content { padding: 10px; }
+          .create-masters-list-card .create-masters-list-table { font-size: 10px; }
+          .create-masters-action-cell { flex-wrap: wrap; justify-content: center; }
+        }
       `}</style>
+
+      {deleteConfirm && (
+        <div
+          style={baseStyles.modalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+          onClick={(e) => e.target === e.currentTarget && setDeleteConfirm(null)}
+        >
+          <div style={baseStyles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <h3 id="delete-dialog-title" style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 600, color: '#111827' }}>
+              Delete {deleteConfirm.masterLabel}?
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6b7280' }}>
+              This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                style={baseStyles.btnSecondary}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteConfirm}
+                disabled={deletingId != null}
+                style={{ ...baseStyles.btnPrimary('#dc2626') }}
+              >
+                {deletingId != null ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaTrashAlt size={12} />}
+                {deletingId != null ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

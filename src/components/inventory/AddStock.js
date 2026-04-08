@@ -17,7 +17,8 @@ import {
   FaColumns,
   FaChevronDown,
   FaTimes,
-  FaList
+  FaList,
+  FaImage
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { rfidService } from '../../services/rfidService';
@@ -34,12 +35,15 @@ const SearchableDropdown = ({
   label = '',
   style = {},
   tabIndex,
-  inputStyle = {}
+  inputStyle = {},
+  hideArrow = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const dropdownRef = useRef(null);
   const inputRef = useRef(null);
+  const listRef = useRef(null);
 
   // Filter options based on search term
   const filteredOptions = options.filter(option =>
@@ -54,6 +58,7 @@ const SearchableDropdown = ({
     onChange(option);
     setSearchTerm('');
     setIsOpen(false);
+    setHighlightedIndex(-1);
   };
 
   // Handle input change
@@ -61,7 +66,7 @@ const SearchableDropdown = ({
     const newValue = e.target.value;
     setSearchTerm(newValue);
     setIsOpen(true);
-    // If user clears the input, clear the selection
+    setHighlightedIndex(0);
     if (!newValue && value) {
       onChange('');
     }
@@ -71,7 +76,24 @@ const SearchableDropdown = ({
   const handleFocus = () => {
     setIsOpen(true);
     setSearchTerm(value || '');
+    setHighlightedIndex(0);
   };
+
+  // Sync highlighted index when filtered options or value change
+  useEffect(() => {
+    if (isOpen && filteredOptions.length > 0) {
+      const idx = filteredOptions.indexOf(value);
+      setHighlightedIndex(idx >= 0 ? idx : 0);
+    }
+  }, [isOpen, value, searchTerm]);
+
+  // Scroll highlighted option into view
+  useEffect(() => {
+    if (isOpen && highlightedIndex >= 0 && listRef.current) {
+      const child = listRef.current.children[highlightedIndex];
+      if (child) child.scrollIntoView({ block: 'nearest' });
+    }
+  }, [highlightedIndex, isOpen]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -79,6 +101,7 @@ const SearchableDropdown = ({
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsOpen(false);
         setSearchTerm('');
+        setHighlightedIndex(-1);
       }
     };
 
@@ -100,7 +123,7 @@ const SearchableDropdown = ({
 
   const defaultInputStyle = {
     width: '100%',
-    padding: '8px 32px 8px 12px',
+    padding: hideArrow ? '8px 12px' : '8px 32px 8px 12px',
     fontSize: '13px',
     border: '1px solid #f1f1f1',
     borderRadius: '8px',
@@ -153,79 +176,109 @@ const SearchableDropdown = ({
             }
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !isOpen && filteredOptions.length > 0) {
+            if (e.key === 'ArrowDown') {
               e.preventDefault();
-              handleSelect(filteredOptions[0]);
-            } else if (e.key === 'Enter') {
+              if (!isOpen && filteredOptions.length > 0) {
+                setIsOpen(true);
+                setSearchTerm(value || '');
+                setHighlightedIndex(0);
+              } else if (isOpen && filteredOptions.length > 0) {
+                setHighlightedIndex(i => (i < filteredOptions.length - 1 ? i + 1 : i));
+              }
+              return;
+            }
+            if (e.key === 'ArrowUp') {
               e.preventDefault();
+              if (isOpen && filteredOptions.length > 0) {
+                setHighlightedIndex(i => (i > 0 ? i - 1 : 0));
+              }
+              return;
+            }
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (isOpen && filteredOptions.length > 0 && highlightedIndex >= 0) {
+                handleSelect(filteredOptions[highlightedIndex]);
+                return;
+              }
+              if (!isOpen && filteredOptions.length > 0) {
+                handleSelect(filteredOptions[0]);
+                return;
+              }
               const form = e.target.form || e.target.closest('form') || document.querySelector('form');
               if (form) {
-                const inputs = Array.from(form.querySelectorAll('input, select, textarea, button')).filter(
+                const inputs = Array.from(form.querySelectorAll('input, select, textarea, [tabindex]')).filter(
                   el => !el.disabled && el.tabIndex >= 0
                 );
                 const currentIndex = inputs.indexOf(e.target);
-                if (currentIndex < inputs.length - 1) {
-                  inputs[currentIndex + 1].focus();
-                }
+                if (currentIndex < inputs.length - 1) inputs[currentIndex + 1].focus();
               }
-            } else if (e.key === 'Escape') {
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
               setIsOpen(false);
               setSearchTerm('');
+              setHighlightedIndex(-1);
             }
           }}
         />
-        <div style={{
-          position: 'absolute',
-          right: '8px',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          pointerEvents: 'none',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
-        }}>
-          {value && !disabled && (
-            <FaTimes
-              onClick={(e) => {
-                e.stopPropagation();
-                onChange('');
-                setSearchTerm('');
-              }}
+        {!hideArrow && (
+          <div style={{
+            position: 'absolute',
+            right: '8px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            pointerEvents: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}>
+            {value && !disabled && (
+              <FaTimes
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange('');
+                  setSearchTerm('');
+                }}
+                style={{
+                  cursor: 'pointer',
+                  fontSize: '10px',
+                  color: '#94a3b8',
+                  pointerEvents: 'auto'
+                }}
+              />
+            )}
+            <FaChevronDown
               style={{
-                cursor: 'pointer',
                 fontSize: '10px',
                 color: '#94a3b8',
-                pointerEvents: 'auto'
+                transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s'
               }}
             />
-          )}
-          <FaChevronDown
-            style={{
-              fontSize: '10px',
-              color: '#94a3b8',
-              transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-              transition: 'transform 0.2s'
-            }}
-          />
-        </div>
+          </div>
+        )}
       </div>
 
       {isOpen && !disabled && (
-        <div style={{
-          position: 'absolute',
-          top: '100%',
-          left: 0,
-          right: 0,
-          marginTop: '4px',
-          background: '#ffffff',
-          border: '1px solid #e2e8f0',
-          borderRadius: '6px',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-          zIndex: 1000,
-          maxHeight: '200px',
-          overflowY: 'auto',
-          overflowX: 'hidden'
-        }}>
+        <div
+          ref={listRef}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            marginTop: '4px',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            zIndex: 1000,
+            maxHeight: '200px',
+            overflowY: 'auto',
+            overflowX: 'hidden'
+          }}
+        >
           {filteredOptions.length > 0 ? (
             filteredOptions.map((option, index) => (
               <div
@@ -237,19 +290,11 @@ const SearchableDropdown = ({
                   cursor: 'pointer',
                   color: '#1e293b',
                   transition: 'background-color 0.15s',
-                  backgroundColor: value === option ? '#eff6ff' : 'transparent',
+                  backgroundColor: index === highlightedIndex ? '#dbeafe' : value === option ? '#eff6ff' : 'transparent',
                   borderBottom: index < filteredOptions.length - 1 ? '1px solid #f1f5f9' : 'none'
                 }}
-                onMouseEnter={(e) => {
-                  if (value !== option) {
-                    e.target.style.backgroundColor = '#f8fafc';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (value !== option) {
-                    e.target.style.backgroundColor = 'transparent';
-                  }
-                }}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onMouseLeave={() => {}}
               >
                 {option}
               </div>
@@ -908,6 +953,8 @@ const AddStock = () => {
   const [addedRecords, setAddedRecords] = useState([]); // Records added via "+ Add", submitted together on "Add Stock"
   const [addedRecordTids, setAddedRecordTids] = useState([]); // per-row { tid: string|null, loading: boolean } for RFID check in table
   const [addStockQuantity, setAddStockQuantity] = useState(1); // Quantity: add N rows with same details
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsPageSize, setRecordsPageSize] = useState(50); // 25 | 50 | 100 for user-friendly large lists (e.g. 500)
   const [addFormValidationErrors, setAddFormValidationErrors] = useState([]); // Why data was not added (shown below Add button)
   const [showStoneDiamondModal, setShowStoneDiamondModal] = useState(false);
   const [stoneDiamondData, setStoneDiamondData] = useState({ type: 'stone', productIndex: null }); // 'stone' or 'diamond', productIndex for multiple entry
@@ -928,12 +975,16 @@ const AddStock = () => {
     product_id: '',
     design_id: '',
     purity_id: '',
+    box_id: '',
+    packet_id: '',
     grosswt: '',
     stonewt: '',
+    diamondweight: '',
     netwt: '',
     box_details: '',
     size: 0,
     stoneamount: '',
+    diamondAmount: '',
     HallmarkAmount: '',
     MakingPerGram: '',
     MakingPercentage: '',
@@ -941,7 +992,8 @@ const AddStock = () => {
     MRP: '',
     imageurl: '',
     status: 'ApiActive',
-    stoneList: []
+    stoneList: [],
+    diamondList: []
   });
 
   // Multiple Products Form State
@@ -956,19 +1008,25 @@ const AddStock = () => {
     product_id: '',
     design_id: '',
     purity_id: '',
+    box_id: '',
+    packet_id: '',
     grosswt: '',
     stonewt: '',
+    diamondweight: '',
     netwt: '',
     box_details: '',
     size: 0,
     stoneamount: '',
+    diamondAmount: '',
     HallmarkAmount: '',
     MakingPerGram: '',
     MakingPercentage: '',
     MakingFixedAmt: '',
     MRP: '',
     imageurl: '',
-    status: 'ApiActive' // Always ApiActive, non-editable
+    status: 'ApiActive',
+    stoneList: [],
+    diamondList: []
   });
 
   // Helper function to generate sequential codes
@@ -1023,11 +1081,17 @@ const AddStock = () => {
   const [uploading, setUploading] = useState(false);
   const [batchErrors, setBatchErrors] = useState([]);
   const [serverMessages, setServerMessages] = useState([]);
+  const [singleProductImage, setSingleProductImage] = useState(null);
+  const [addedRecordImages, setAddedRecordImages] = useState([]);
+  const [singleProductImagePreview, setSingleProductImagePreview] = useState(null);
+  const [addedRecordImagePreviews, setAddedRecordImagePreviews] = useState([]);
 
-  // Common shared state
+  // Common shared state (top section: Branch, Counter, Box, Packet)
   const [sharedData, setSharedData] = useState({
     branch_name: '',
     counter_name: '',
+    box_name: '',
+    packet_name: '',
     Itemcode: ''
   });
 
@@ -1038,6 +1102,8 @@ const AddStock = () => {
   const [products, setProducts] = useState([]);
   const [designs, setDesigns] = useState([]);
   const [purities, setPurities] = useState([]);
+  const [boxes, setBoxes] = useState([]);
+  const [packets, setPackets] = useState([]);
   const [loadingBranchesCounters, setLoadingBranchesCounters] = useState(false);
   const [loadingMasterData, setLoadingMasterData] = useState(false);
 
@@ -1048,12 +1114,15 @@ const AddStock = () => {
   const [localProducts, setLocalProducts] = useState([]);
   const [localDesigns, setLocalDesigns] = useState([]);
   const [localPurities, setLocalPurities] = useState([]);
+  const [localBoxes, setLocalBoxes] = useState([]);
+  const [localPackets, setLocalPackets] = useState([]);
 
-  // Normalize response data helper
+  const MASTER_API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstring.co.in';
+
   const normalizeArray = (data) => {
     if (Array.isArray(data)) return data;
     if (data && typeof data === 'object') {
-      return data.data || data.items || data.results || data.list || [];
+      return data.data || data.Data || data.items || data.results || data.list || [];
     }
     return [];
   };
@@ -1089,10 +1158,9 @@ const AddStock = () => {
     }
   };
 
-  // Fetch master data (Category, Product, Design, Purity)
+  // Fetch master data (Category, Product, Design, Purity, Box, Packet) – all POST with ClientCode
   const fetchMasterData = async () => {
     if (!userInfo?.ClientCode) return;
-    
     setLoadingMasterData(true);
     try {
       const headers = {
@@ -1100,24 +1168,29 @@ const AddStock = () => {
         'Content-Type': 'application/json'
       };
       const requestBody = { ClientCode: userInfo.ClientCode };
-      
 
       const [
         categoriesResponse,
         productsResponse,
         designsResponse,
-        puritiesResponse
+        puritiesResponse,
+        boxesResponse,
+        packetsResponse
       ] = await Promise.all([
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllCategory', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllDesign', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllPurity', requestBody, { headers })
+        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllCategory`, requestBody, { headers }),
+        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllProductMaster`, requestBody, { headers }),
+        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllDesign`, requestBody, { headers }),
+        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllPurity`, requestBody, { headers }),
+        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllBoxMaster`, requestBody, { headers }),
+        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllPacketMaster`, requestBody, { headers })
       ]);
 
       setCategories(normalizeArray(categoriesResponse.data));
       setProducts(normalizeArray(productsResponse.data));
       setDesigns(normalizeArray(designsResponse.data));
       setPurities(normalizeArray(puritiesResponse.data));
+      setBoxes(normalizeArray(boxesResponse.data));
+      setPackets(normalizeArray(packetsResponse.data));
     } catch (error) {
       console.error('Error fetching master data:', error);
       addNotification({
@@ -1177,6 +1250,16 @@ const AddStock = () => {
     }
     const names = apiPurities.map(p => p.name);
     return [...new Set([...names, ...localPurities])].sort();
+  };
+
+  const getBoxOptions = () => {
+    const apiBoxes = boxes.map(b => b.BoxName || b.Name || b.boxName || b.name || b.BoxCode || b.boxCode || '').filter(Boolean);
+    return [...new Set([...apiBoxes, ...localBoxes])].sort();
+  };
+
+  const getPacketOptions = () => {
+    const apiPackets = packets.map(p => p.PacketName || p.Name || p.packetName || p.name || p.PacketCode || p.packetCode || '').filter(Boolean);
+    return [...new Set([...apiPackets, ...localPackets])].sort();
   };
 
   // Handle adding new entries
@@ -1303,6 +1386,37 @@ const AddStock = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Image preview URLs (create/revoke object URLs for thumbnails)
+  useEffect(() => {
+    if (singleProductImage) {
+      const url = URL.createObjectURL(singleProductImage);
+      setSingleProductImagePreview(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setSingleProductImagePreview(null);
+    return () => {};
+  }, [singleProductImage]);
+
+  const addedRecordPreviewsRef = useRef([]);
+  useEffect(() => {
+    addedRecordPreviewsRef.current.forEach(u => { if (u) URL.revokeObjectURL(u); });
+    const urls = addedRecordImages.map(f => (f ? URL.createObjectURL(f) : null));
+    addedRecordPreviewsRef.current = urls;
+    setAddedRecordImagePreviews(urls);
+    return () => urls.forEach(u => { if (u) URL.revokeObjectURL(u); });
+  }, [addedRecordImages]);
+
+  // Keep records page in valid range when list size changes
+  useEffect(() => {
+    const total = addedRecords.length;
+    if (total === 0) {
+      setRecordsPage(1);
+      return;
+    }
+    const maxPage = Math.max(1, Math.ceil(total / recordsPageSize));
+    setRecordsPage(prev => Math.min(prev, maxPage));
+  }, [addedRecords.length, recordsPageSize]);
 
   // Fetch templates
   const fetchTemplates = async () => {
@@ -1451,11 +1565,11 @@ const AddStock = () => {
     const preview = [];
     const errors = [];
 
-    const stoneBaseKeys = ['StoneName', 'StoneWeight', 'StonePieces', 'StoneRate', 'StoneAmount', 'StoneDescription', 'StoneLessPercent', 'StoneCertificate', 'StoneSettingType', 'StoneRatePerPiece', 'StoneRateKarate', 'StoneStatusType'];
-    const diamondBaseKeys = ['DiamondName', 'DiamondWeight', 'DiamondSellRate', 'DiamondPieces', 'DiamondClarity', 'DiamondColour', 'DiamondCut', 'DiamondShape', 'DiamondSize', 'DiamondCertificate', 'DiamondSettingType', 'DiamondSellAmount', 'DiamondPurchaseAmount', 'DiamondDescription', 'DiamondMargin', 'TotalDiamondWeight'];
-    const numericFields = ['grosswt', 'stonewt', 'diamondheight', 'diamondweight', 'netwt', 'stoneamount', 'diamondAmount', 'HallmarkAmount', 'MakingPerGram', 'MakingPercentage', 'MakingFixedAmt', 'MRP'];
-    const stoneNumericFields = ['StoneWeight', 'StonePieces', 'StoneRate', 'StoneAmount', 'StoneLessPercent', 'StoneRatePerPiece', 'StoneRateKarate'];
-    const diamondNumericFields = ['DiamondWeight', 'DiamondSellRate', 'DiamondPieces', 'DiamondSize', 'DiamondSellAmount', 'DiamondPurchaseAmount', 'DiamondMargin', 'TotalDiamondWeight'];
+    const stoneBaseKeys = ['StoneName', 'StoneWeight', 'StonePieces', 'StoneRate', 'StoneDescription'];
+    const diamondBaseKeys = ['DiamondName', 'DiamondWeight', 'DiamondSellRate', 'DiamondPieces', 'DiamondClarity', 'DiamondColour', 'DiamondCut', 'DiamondShape', 'DiamondSize', 'DiamondCertificate', 'DiamondSettingType', 'DiamondPurchaseAmount', 'DiamondDescription', 'DiamondMargin', 'TotalDiamondWeight'];
+    const numericFields = ['grosswt', 'stonewt', 'diamondheight', 'diamondweight', 'netwt', 'HallmarkAmount', 'MakingPerGram', 'MakingPercentage', 'MakingFixedAmt', 'MRP'];
+    const stoneNumericFields = ['StoneWeight', 'StonePieces', 'StoneRate'];
+    const diamondNumericFields = ['DiamondWeight', 'DiamondSellRate', 'DiamondPieces', 'DiamondSize', 'DiamondPurchaseAmount', 'DiamondMargin', 'TotalDiamondWeight'];
 
     const getStoneBaseKey = (key) => {
       const m = key.match(/^(Stone\w+)(?:_(\d+))?$/);
@@ -1569,6 +1683,72 @@ const AddStock = () => {
         }
       });
 
+      // Template expansion: auto-fill 2nd, 3rd, ... stone/diamond from Excel columns like "Stone Name 2", "Stone Weight 2"
+      const stoneBaseMapped = stoneBaseKeys.some(bk => mappings[bk]);
+      const stoneExplicitMulti = stoneBaseKeys.some(bk => mappings[bk + '_2']);
+      const diamondBaseMapped = diamondBaseKeys.some(bk => mappings[bk]);
+      const diamondExplicitMulti = diamondBaseKeys.some(bk => mappings[bk + '_2']);
+
+      const resolveColumnValue = (rowObj, baseCol, index, trySuffixes = [' ' + index, '' + index, '_' + index]) => {
+        if (index === 1) return rowObj[baseCol];
+        for (const suf of trySuffixes) {
+          const key = baseCol + suf;
+          if (rowObj[key] !== undefined && rowObj[key] !== null && rowObj[key] !== '') return rowObj[key];
+        }
+        const rowKeys = Object.keys(rowObj);
+        const baseColTrim = baseCol.trim();
+        for (const k of rowKeys) {
+          const match = k.trim().match(new RegExp('^' + baseColTrim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[_\\s]*(\\d+)$', 'i'));
+          if (match && parseInt(match[1], 10) === index) return rowObj[k];
+        }
+        return undefined;
+      };
+
+      const findMaxIndexFromRow = (rowObj, baseCol) => {
+        const rowKeys = Object.keys(rowObj);
+        let maxIdx = 1;
+        const baseColTrim = (baseCol || '').trim();
+        if (!baseColTrim) return 1;
+        for (const k of rowKeys) {
+          const trimmed = k.trim();
+          if (trimmed === baseColTrim) maxIdx = Math.max(maxIdx, 1);
+          else if (trimmed.startsWith(baseColTrim)) {
+            const suffix = trimmed.slice(baseColTrim.length).replace(/^[\s_]+/, '');
+            const n = parseInt(suffix, 10);
+            if (!isNaN(n) && n >= 1) maxIdx = Math.max(maxIdx, n);
+          }
+        }
+        return maxIdx;
+      };
+
+      if (stoneBaseMapped && !stoneExplicitMulti && mappings.StoneName) {
+        const baseCol = mappings.StoneName;
+        const maxStoneIdx = findMaxIndexFromRow(row, baseCol);
+        for (let i = 2; i <= maxStoneIdx; i++) {
+          if (!stoneEntries[i]) stoneEntries[i] = {};
+          stoneBaseKeys.forEach(baseKey => {
+            const col = mappings[baseKey];
+            if (!col) return;
+            const value = resolveColumnValue(row, col, i);
+            if (value !== undefined && value !== null) setStoneValue(stoneEntries[i], baseKey, value);
+          });
+        }
+      }
+
+      if (diamondBaseMapped && !diamondExplicitMulti && mappings.DiamondName) {
+        const baseCol = mappings.DiamondName;
+        const maxDiaIdx = findMaxIndexFromRow(row, baseCol);
+        for (let i = 2; i <= maxDiaIdx; i++) {
+          if (!diamondEntries[i]) diamondEntries[i] = {};
+          diamondBaseKeys.forEach(baseKey => {
+            const col = mappings[baseKey];
+            if (!col) return;
+            const value = resolveColumnValue(row, col, i);
+            if (value !== undefined && value !== null) setDiamondValue(diamondEntries[i], baseKey, value);
+          });
+        }
+      }
+
       const sortedStoneIndexes = Object.keys(stoneEntries).map(Number).sort((a, b) => a - b);
       sortedStoneIndexes.forEach(i => {
         if (Object.keys(stoneEntries[i]).length > 0) product.Stones.push(stoneEntries[i]);
@@ -1577,6 +1757,33 @@ const AddStock = () => {
       sortedDiamondIndexes.forEach(i => {
         if (Object.keys(diamondEntries[i]).length > 0) product.Diamonds.push(diamondEntries[i]);
       });
+
+      const totalStoneWtExcel = product.Stones.reduce((s, e) => s + (parseFloat(e.StoneWeight) || 0), 0);
+      const totalDiaWtExcel = product.Diamonds.reduce((s, e) => s + (parseFloat(e.DiamondWeight) || parseFloat(e.TotalDiamondWeight) || 0), 0);
+      // Fallback: if Stones[] / Diamonds[] were not populated from the sheet mapping,
+      // still honor any mapped top-level values (stonewt / diamondweight) from Excel.
+      const mappedStoneWt = parseFloat(product.stonewt) || 0;
+      const mappedDiaWt = parseFloat(product.diamondweight) || 0;
+      const finalStoneWt = totalStoneWtExcel > 0 ? totalStoneWtExcel : mappedStoneWt;
+      const finalDiaWt = totalDiaWtExcel > 0 ? totalDiaWtExcel : mappedDiaWt;
+      product.stonewt = String(finalStoneWt);
+      product.diamondweight = String(finalDiaWt);
+      product.netwt = calculateNetWeight(product.grosswt, product.stonewt, product.diamondweight);
+
+      product.Stones.forEach((s) => {
+        const pieces = parseFloat(s.StonePieces) || 0;
+        const rate = parseFloat(s.StoneRate) || 0;
+        const weight = parseFloat(s.StoneWeight) || 0;
+        s.StoneAmount = (pieces > 0 && rate > 0) ? String((pieces * rate).toFixed(2)) : (weight > 0 && rate > 0) ? String((weight * rate).toFixed(2)) : '0';
+      });
+      product.Diamonds.forEach((d) => {
+        const pieces = parseFloat(d.DiamondPieces) || 0;
+        const rate = parseFloat(d.DiamondSellRate) || 0;
+        const weight = parseFloat(d.DiamondWeight) || parseFloat(d.TotalDiamondWeight) || 0;
+        d.DiamondSellAmount = (pieces > 0 && rate > 0) ? String((pieces * rate).toFixed(2)) : (weight > 0 && rate > 0) ? String((weight * rate).toFixed(2)) : '0';
+      });
+      product.stoneamount = String(product.Stones.reduce((sum, s) => sum + (parseFloat(s.StoneAmount) || 0), 0));
+      product.diamondAmount = String(product.Diamonds.reduce((sum, d) => sum + (parseFloat(d.DiamondSellAmount) || 0), 0));
 
       // Use shared data for branch and counter if not mapped
       if (!product.branch_id && sharedData.branch_name) {
@@ -1681,6 +1888,22 @@ const AddStock = () => {
     return purity ? (purity.Id || purity.id || purity.PurityId || purityName) : purityName;
   };
 
+  const getBoxId = (boxName) => {
+    if (!boxName) return '';
+    const box = boxes.find(b =>
+      (b.BoxName || b.Name || b.boxName || b.name) === boxName
+    );
+    return box ? (box.Id || box.id || box.BoxId || '') : '';
+  };
+
+  const getPacketId = (packetName) => {
+    if (!packetName) return '';
+    const packet = packets.find(p =>
+      (p.PacketName || p.Name || p.packetName || p.name) === packetName
+    );
+    return packet ? (packet.Id || packet.id || packet.PacketId || '') : '';
+  };
+
   // Reset single product form
   const resetSingleForm = () => {
     setSingleProduct({
@@ -1691,12 +1914,16 @@ const AddStock = () => {
       product_id: '',
       design_id: '',
       purity_id: '',
+      box_id: '',
+      packet_id: '',
       grosswt: '',
       stonewt: '',
+      diamondweight: '',
       netwt: '',
       box_details: '',
       size: 0,
       stoneamount: '',
+      diamondAmount: '',
       HallmarkAmount: '',
       MakingPerGram: '',
       MakingPercentage: '',
@@ -1704,13 +1931,15 @@ const AddStock = () => {
       MRP: '',
       imageurl: '',
       status: 'ApiActive',
-      stoneList: []
+      stoneList: [],
+      diamondList: []
     });
     // Clear field errors
     setFieldErrors({
       RFIDNumber: '',
       Itemcode: ''
     });
+    setSingleProductImage(null);
   };
 
   // Add products based on quantity
@@ -1804,6 +2033,8 @@ const AddStock = () => {
       product_id: '',
       design_id: '',
       purity_id: '',
+      box_id: '',
+      packet_id: '',
       grosswt: '',
       stonewt: '',
       diamondweight: '',
@@ -1840,32 +2071,39 @@ const AddStock = () => {
   const buildRecordFromForm = (rfidOverride, itemCodeOverride) => {
     const rfidValue = rfidOverride != null ? rfidOverride : singleProduct.RFIDNumber || '';
     const itemCodeValue = itemCodeOverride != null ? itemCodeOverride : singleProduct.Itemcode || '';
+    const stoneList = Array.isArray(singleProduct.stoneList) ? singleProduct.stoneList : [];
+    const diamondList = Array.isArray(singleProduct.diamondList) ? singleProduct.diamondList : [];
+    const totalStoneWt = stoneList.reduce((s, e) => s + (parseFloat(e.StoneWeight) || 0), 0);
+    const totalDiaWt = diamondList.reduce((s, e) => s + (parseFloat(e.DiamondWeight) || parseFloat(e.TotalDiamondWeight) || 0), 0);
+    const stonewt = totalStoneWt || parseFloat(singleProduct.stonewt) || 0;
+    const diamondweight = totalDiaWt || parseFloat(singleProduct.diamondweight) || 0;
     const record = {
     category_id: String(singleProduct.category_id || ''),
     product_id: String(singleProduct.product_id || ''),
     design_id: String(singleProduct.design_id || ''),
     purity_id: String(singleProduct.purity_id || ''),
+    box_id: String(sharedData.box_name || ''),
+    packet_id: String(sharedData.packet_name || ''),
     grosswt: String(singleProduct.grosswt || '0'),
-    stonewt: String(singleProduct.stonewt || '0'),
-    netwt: String(singleProduct.netwt || '0'),
+    stonewt: String(stonewt),
+    diamondweight: String(diamondweight),
+    netwt: String(calculateNetWeight(singleProduct.grosswt, String(stonewt), String(diamondweight))),
     box_details: String(singleProduct.box_details || ''),
     size: Number(singleProduct.size || 0),
     stoneamount: String(singleProduct.stoneamount || '0'),
+    diamondAmount: String(singleProduct.diamondAmount || '0'),
     HallmarkAmount: String(singleProduct.HallmarkAmount || '0'),
     MakingPerGram: String(singleProduct.MakingPerGram || '0'),
     MakingPercentage: String(singleProduct.MakingPercentage || '0'),
     MakingFixedAmt: String(singleProduct.MakingFixedAmt || '0'),
     MRP: String(singleProduct.MRP || '0'),
     status: 'ApiActive',
-    stoneList: Array.isArray(singleProduct.stoneList) ? singleProduct.stoneList : []
+    stoneList: Array.isArray(singleProduct.stoneList) ? singleProduct.stoneList : [],
+    diamondList: Array.isArray(singleProduct.diamondList) ? singleProduct.diamondList : []
   };
-    // Only add RFIDNumber and Itemcode if they have values
-    if (rfidValue.trim()) {
-      record.RFIDNumber = String(rfidValue);
-    }
-    if (itemCodeValue.trim()) {
-      record.Itemcode = String(itemCodeValue);
-    }
+    // API accepts RFIDNumber as "" when not given; always send key
+    record.RFIDNumber = String(rfidValue ?? '').trim();
+    record.Itemcode = String(itemCodeValue ?? '').trim();
     return record;
   };
 
@@ -1898,6 +2136,7 @@ const AddStock = () => {
     }
     setAddedRecords(prev => [...prev, ...newRecords]);
     setAddedRecordTids(prev => [...prev, ...newRecords.map(() => ({ tid: null, loading: false }))]);
+    setAddedRecordImages(prev => [...prev, ...newRecords.map((_, i) => (i === 0 && singleProductImage) ? singleProductImage : null)]);
     resetSingleForm();
     setAddStockQuantity(1);
     addNotification({ type: 'success', title: 'Added', message: qty === 1 ? '1 record added. You can edit RFID and Item Code in the table.' : `${qty} rows added. Enter RFID and Item Code for each row in the table below.` });
@@ -1905,7 +2144,14 @@ const AddStock = () => {
 
   // Update a single field of an added record (e.g. RFIDNumber, Itemcode)
   const updateAddedRecordField = (index, field, value) => {
-    setAddedRecords(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
+    setAddedRecords(prev => prev.map((r, i) => {
+      if (i !== index) return r;
+      const updated = { ...r, [field]: value };
+      if (field === 'grosswt' || field === 'stonewt' || field === 'diamondweight') {
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
+      }
+      return updated;
+    }));
     if (field === 'RFIDNumber' && (value || '').trim().length <= 4) {
       setAddedRecordTids(prev => prev.map((t, i) => i === index ? { tid: null, loading: false } : t));
     }
@@ -1949,12 +2195,14 @@ const AddStock = () => {
   const handleRemoveFromRecordList = (index) => {
     setAddedRecords(prev => prev.filter((_, i) => i !== index));
     setAddedRecordTids(prev => prev.filter((_, i) => i !== index));
+    setAddedRecordImages(prev => prev.filter((_, i) => i !== index));
   };
 
   // Clear all added records
   const clearAddedRecords = () => {
     setAddedRecords([]);
     setAddedRecordTids([]);
+    setAddedRecordImages([]);
     addNotification({ type: 'info', title: 'Cleared', message: 'All records cleared.' });
   };
 
@@ -1984,7 +2232,6 @@ const AddStock = () => {
     if (!sharedData.counter_name?.trim()) errors.push('• Counter is not selected. Please select Counter above.');
     addedRecords.forEach((record, idx) => {
       const row = idx + 1;
-      if (!(record.RFIDNumber || '').trim()) errors.push(`• Row ${row}: RFID Number is required.`);
       if (!(record.Itemcode || '').trim()) errors.push(`• Row ${row}: Item Code is required.`);
       if (!(record.category_id || '').trim()) errors.push(`• Row ${row}: Category is required.`);
       if (!(record.product_id || '').trim()) errors.push(`• Row ${row}: Product is required.`);
@@ -2018,25 +2265,31 @@ const AddStock = () => {
       );
       return;
     }
+    // Build payload per API: RFIDGunTransaction (client_code, category_id, product_id, itemcode required; box, packet optional; Stones, Diamonds arrays)
     const validProducts = addedRecords.map(record => {
       const { Stones, Diamonds } = rfidService.getStonesAndDiamondsForApi(
         record.stoneList,
         record.diamondList
       );
+      const totalStoneWt = (Stones || []).reduce((s, e) => s + (parseFloat(e.StoneWeight) || 0), 0);
+      const totalDiaWt = (Diamonds || []).reduce((s, e) => s + (parseFloat(e.DiamondWeight) || parseFloat(e.TotalDiamondWeight) || 0), 0);
+      const itemcodeVal = String(record.Itemcode || record.itemcode || '').trim();
       return {
         client_code: String(userInfo?.ClientCode || ''),
         branch_id: String(sharedData.branch_name || ''),
         counter_id: String(sharedData.counter_name || ''),
         RFIDNumber: String(record.RFIDNumber || ''),
-        Itemcode: String(record.Itemcode || ''),
+        itemcode: itemcodeVal,
         category_id: String(record.category_id || ''),
         product_id: String(record.product_id || ''),
         design_id: String(record.design_id || ''),
         purity_id: String(record.purity_id || ''),
+        box: String(record.box_id || sharedData.box_name || ''),
+        packet: String(record.packet_id || sharedData.packet_name || ''),
         grosswt: String(record.grosswt || '0'),
-        stonewt: String(record.stonewt || '0'),
+        stonewt: String(totalStoneWt),
         diamondheight: String(record.diamondheight || '0'),
-        diamondweight: String(record.diamondweight || '0'),
+        diamondweight: String(totalDiaWt),
         netwt: String(record.netwt || '0'),
         box_details: String(record.box_details || ''),
         size: Number(record.size || 0),
@@ -2049,29 +2302,45 @@ const AddStock = () => {
         MRP: String(record.MRP || '0'),
         imageurl: String(record.imageurl || ''),
         status: 'ApiActive',
-        Stones,
-        Diamonds
+        Stones: Array.isArray(Stones) ? Stones : [],
+        Diamonds: Array.isArray(Diamonds) ? Diamonds : []
       };
     });
     setLoading(true);
     try {
-      const response = await axios.post(
-        'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails',
-        validProducts,
-        { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' } }
-      );
-      if (response.data?.Status === 400 || response.data?.status === 400) {
-        throw new Error(response.data?.Message || response.data?.message || 'Failed to add stock.');
+      const response = await rfidService.saveRFIDTransactionWithUpload(validProducts, addedRecordImages);
+      const resBody = response && typeof response === 'object' ? response : {};
+      const status = resBody.status ?? resBody.Status;
+      const message = resBody.message ?? resBody.Message ?? '';
+
+      if (resBody.Message && typeof resBody.Message === 'string' && /error|exception|failed/i.test(resBody.Message)) {
+        throw new Error(resBody.Message);
       }
-      const successMsg = response.data?.message || `${validProducts.length} stock item(s) added successfully!`;
+
+      if (status === 'failed') {
+        const errList = (resBody.errors && Array.isArray(resBody.errors))
+          ? resBody.errors.map(e => e.error || e.message || (e.itemIndex != null ? `Item ${e.itemIndex + 1}: ${e.error || e.message || ''}` : '')).filter(Boolean)
+          : [];
+        const fullMsg = errList.length ? `${message} ${errList.join('; ')}` : message;
+        throw new Error(fullMsg || 'Add stock failed.');
+      }
+
+      const successMsg = message || (status === 'partial'
+        ? `${resBody.successfulItems ?? 0} item(s) saved; ${resBody.failedItems ?? 0} failed.`
+        : `${validProducts.length} stock item(s) added successfully!`);
       addNotification({ type: 'success', title: 'Success', message: successMsg });
-      toast.success('Stock added successfully!', {
-        position: toast.POSITION.TOP_RIGHT,
-        autoClose: 3000
-      });
+      toast.success(successMsg, { position: toast.POSITION.TOP_RIGHT, autoClose: 3000 });
+
+      if (status === 'partial' && resBody.errors?.length) {
+        const partialErrMsg = resBody.errors.map(e => `Row ${(e.itemIndex ?? 0) + 1}${e.itemcode ? ` (${e.itemcode})` : ''}: ${e.error || e.message || ''}`).join('; ');
+        addNotification({ type: 'warning', title: 'Partial success', message: partialErrMsg });
+        toast.warning(partialErrMsg, { position: toast.POSITION.TOP_RIGHT, autoClose: 5000 });
+      }
+
       setAddedRecords([]);
+      setAddedRecordImages([]);
       resetSingleForm();
-      setSharedData({ branch_name: '', counter_name: '', Itemcode: '' });
+      setSharedData(prev => ({ ...prev, branch_name: '', counter_name: '', Itemcode: '' }));
     } catch (error) {
       const errorList = collectErrorMessages(error);
       const title = 'Add Stock Failed';
@@ -2108,11 +2377,12 @@ const AddStock = () => {
     setMultipleProducts(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Calculate net weight: grosswt - stonewt
-  const calculateNetWeight = (grosswt, stonewt) => {
+  // Net = gross - stone - dia (gross is combination of stone wt + dia wt + net wt)
+  const calculateNetWeight = (grosswt, stonewt, diamondweight = 0) => {
     const gross = parseFloat(grosswt) || 0;
     const stone = parseFloat(stonewt) || 0;
-    const net = gross - stone;
+    const dia = parseFloat(diamondweight) || 0;
+    const net = gross - stone - dia;
     return net >= 0 ? net.toFixed(3) : '0';
   };
 
@@ -2267,12 +2537,46 @@ const AddStock = () => {
         }
       }
       
-      // Auto-calculate net weight when grosswt or stonewt changes
-      if (field === 'grosswt' || field === 'stonewt') {
-        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt);
+      // Auto-calculate net weight when grosswt, stonewt or diamondweight changes
+      if (field === 'grosswt' || field === 'stonewt' || field === 'diamondweight') {
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
       }
-      
+
       return updated;
+    });
+  };
+
+  const removeStoneFromSingle = (index) => {
+    setSingleProduct(prev => {
+      const list = Array.isArray(prev.stoneList) ? prev.stoneList : [];
+      if (index < 0 || index >= list.length) return prev;
+      const nextList = list.filter((_, i) => i !== index);
+      const totalStoneWt = nextList.reduce((s, e) => s + (parseFloat(e.StoneWeight) || 0), 0);
+      const totalStoneAmt = nextList.reduce((s, e) => s + (parseFloat(e.StoneAmount) || 0), 0);
+      return {
+        ...prev,
+        stoneList: nextList,
+        stonewt: String(totalStoneWt),
+        stoneamount: String(totalStoneAmt),
+        netwt: calculateNetWeight(prev.grosswt, String(totalStoneWt), prev.diamondweight)
+      };
+    });
+  };
+
+  const removeDiamondFromSingle = (index) => {
+    setSingleProduct(prev => {
+      const list = Array.isArray(prev.diamondList) ? prev.diamondList : [];
+      if (index < 0 || index >= list.length) return prev;
+      const nextList = list.filter((_, i) => i !== index);
+      const totalDiaWt = nextList.reduce((s, e) => s + (parseFloat(e.DiamondWeight) || 0), 0);
+      const totalDiaAmt = nextList.reduce((s, e) => s + (parseFloat(e.DiamondSellAmount) || 0), 0);
+      return {
+        ...prev,
+        diamondList: nextList,
+        diamondweight: String(totalDiaWt),
+        diamondAmount: String(totalDiaAmt),
+        netwt: calculateNetWeight(prev.grosswt, prev.stonewt, String(totalDiaWt))
+      };
     });
   };
 
@@ -2333,12 +2637,12 @@ const AddStock = () => {
       if (i !== index) return product;
       
       const updated = { ...product, [field]: value };
-      
-      // Auto-calculate net weight when grosswt or stonewt changes
-      if (field === 'grosswt' || field === 'stonewt') {
-        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt);
+
+      // Auto-calculate net weight when grosswt, stonewt or diamondweight changes
+      if (field === 'grosswt' || field === 'stonewt' || field === 'diamondweight') {
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
       }
-      
+
       return updated;
     }));
   };
@@ -2352,12 +2656,12 @@ const AddStock = () => {
     
     setProductTemplate(prev => {
       const updated = { ...prev, [field]: value };
-      
-      // Auto-calculate net weight when grosswt or stonewt changes
-      if (field === 'grosswt' || field === 'stonewt') {
-        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt);
+
+      // Auto-calculate net weight when grosswt, stonewt or diamondweight changes
+      if (field === 'grosswt' || field === 'stonewt' || field === 'diamondweight') {
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
       }
-      
+
       return updated;
     });
   };
@@ -2411,8 +2715,7 @@ const AddStock = () => {
 
     setLoading(true);
     try {
-      // Use rfidService to save transaction
-      const response = await rfidService.saveRFIDTransaction({
+      const singleData = {
         clientCode: singleProduct.client_code || userInfo?.ClientCode || '',
         branchId: sharedData.branch_name || '',
         counterId: sharedData.counter_name || '',
@@ -2422,6 +2725,8 @@ const AddStock = () => {
         productId: singleProduct.product_id || '',
         designId: singleProduct.design_id || '',
         purityId: singleProduct.purity_id || '',
+        box: sharedData.box_name || '',
+        packet: sharedData.packet_name || '',
         grossWeight: singleProduct.grosswt || '0',
         stoneWeight: singleProduct.stonewt || '0',
         diamondHeight: singleProduct.diamondheight || '0',
@@ -2440,14 +2745,39 @@ const AddStock = () => {
         status: singleProduct.status || 'ApiActive',
         stoneList: Array.isArray(singleProduct.stoneList) ? singleProduct.stoneList : [],
         diamondList: Array.isArray(singleProduct.diamondList) ? singleProduct.diamondList : []
-      });
+      };
+      const payload = rfidService.buildPayloadFromData(singleData);
+      const response = await rfidService.saveRFIDTransactionWithUpload(
+        [payload],
+        singleProductImage ? [singleProductImage] : []
+      );
 
-      // Handle response - could be object or array
-      const responseData = Array.isArray(response) ? response[0] : response;
-      
-      // Debug: Log response to see structure
-      console.log('SaveRFIDTransactionDetails Response:', responseData);
-      
+      const responseData = response && typeof response === 'object' ? response : {};
+      const apiStatus = responseData.status ?? responseData.Status;
+      const apiMessage = responseData.message ?? responseData.Message ?? '';
+
+      if (responseData.Message && typeof responseData.Message === 'string' && /error|exception|failed/i.test(responseData.Message)) {
+        throw new Error(responseData.Message);
+      }
+
+      if (apiStatus === 'failed') {
+        const errList = (responseData.errors && Array.isArray(responseData.errors))
+          ? responseData.errors.map(e => e.error || e.message || '').filter(Boolean)
+          : [];
+        const errorMessage = errList.length ? `${apiMessage} ${errList.join('; ')}` : (apiMessage || 'Failed to add stock item.');
+        setFieldErrors(parseFieldErrors(errorMessage));
+        toast.error('Validation failed. Please check the form fields for details.', { position: 'top-right', autoClose: 5000 });
+        addNotification({ type: 'error', title: 'Error', message: errorMessage });
+        return;
+      }
+
+      if (responseData?.Status === 400 || responseData?.status === 400) {
+        const errorMessage = responseData?.Message || responseData?.message || apiMessage || 'Failed to add stock item.';
+        toast.error(errorMessage, { position: 'top-right', autoClose: 5000 });
+        addNotification({ type: 'error', title: 'Error', message: errorMessage });
+        return;
+      }
+
       // Check for validation errors in the response (backend returns errors array)
       if (responseData?.errors && Array.isArray(responseData.errors) && responseData.errors.length > 0) {
         // Extract all error messages from the errors array
@@ -2532,21 +2862,13 @@ const AddStock = () => {
         return;
       }
 
-      // Check for success status (200) or if no error status, assume success
-      const isSuccess = responseData?.Status === 200 || 
-                       responseData?.status === 200 || 
-                       responseData?.successfulItems > 0 || // Backend returns successfulItems
-                       (!responseData?.Status && !responseData?.status && !responseData?.errors && !responseData?.failedItems) || // No error indicators
-                       response === null || // Some APIs return null on success
-                       (Array.isArray(response) && response.length > 0); // Array response means success
+      const isSuccess = apiStatus === 'success' || apiStatus === 'partial' ||
+                       responseData?.Status === 200 || responseData?.status === 200 ||
+                       responseData?.successfulItems > 0 ||
+                       (!responseData?.Status && !responseData?.status && !responseData?.errors?.length && responseData?.failedItems !== responseData?.totalItems);
 
       if (isSuccess) {
-        // Extract success message from backend
-        const successMessage = responseData?.Message || 
-                              responseData?.message || 
-                              responseData?.SuccessMessage ||
-                              responseData?.successMessage ||
-                              'Stock item added successfully!';
+        const successMessage = apiMessage || responseData?.SuccessMessage || responseData?.successMessage || 'Stock item added successfully!';
         
         // Show success toast popup
         toast.success(successMessage, {
@@ -2564,6 +2886,7 @@ const AddStock = () => {
           message: successMessage
         });
         resetSingleForm();
+        setSingleProductImage(null);
       } else {
         // Fallback: if we got here and no error, show generic success
         const fallbackMessage = 'Stock item added successfully!';
@@ -2583,6 +2906,7 @@ const AddStock = () => {
           message: fallbackMessage
         });
         resetSingleForm();
+        setSingleProductImage(null);
       }
     } catch (error) {
       console.error('Error adding stock:', error);
@@ -2828,7 +3152,6 @@ const AddStock = () => {
   // Download Excel template - templateType: 'normal' | 'withStoneDiamond'
   const downloadExcelTemplate = (templateType = 'normal') => {
     const baseRow = {
-      'client_code': userInfo?.ClientCode || 'LS000123',
       'branch_id': '',
       'counter_id': '',
       'RFIDNumber': 'CZ3506',
@@ -2843,15 +3166,12 @@ const AddStock = () => {
       'netwt': '19.250',
       'box_details': 'Box A',
       'size': '0',
-      'stoneamount': '20',
-      'diamondAmount': '20',
       'HallmarkAmount': '35',
       'MakingPerGram': '10',
       'MakingPercentage': '5',
       'MakingFixedAmt': '37',
       'MRP': '5000',
-      'imageurl': '',
-      'status': 'ApiActive'
+      'imageurl': ''
     };
 
     let templateData;
@@ -2860,12 +3180,12 @@ const AddStock = () => {
 
     if (templateType === 'withStoneDiamond') {
       // Add Stock template (Stone & Diamond): multiple stones/diamonds per product via StoneName_2, StoneName_3, DiamondName_2, DiamondName_3, etc.
-      const stone1 = { StoneName: 'Ruby', StoneWeight: '1.5', StonePieces: '5', StoneRate: '1000', StoneAmount: '5000', StoneDescription: 'Premium Ruby', StoneLessPercent: '2', StoneCertificate: 'Cert123', StoneSettingType: 'Prong', StoneRatePerPiece: '1000', StoneRateKarate: '500', StoneStatusType: 'Active' };
-      const stone2 = { StoneName_2: 'Emerald', StoneWeight_2: '0.80', StonePieces_2: '3', StoneRate_2: '2500', StoneAmount_2: '6000', StoneDescription_2: 'Natural Emerald', StoneLessPercent_2: '1.5', StoneCertificate_2: 'Cert456', StoneSettingType_2: 'Bezel', StoneRatePerPiece_2: '2000', StoneRateKarate_2: '7500', StoneStatusType_2: 'Active' };
-      const stone3 = { StoneName_3: 'Sapphire', StoneWeight_3: '1.20', StonePieces_3: '4', StoneRate_3: '1800', StoneAmount_3: '8640', StoneDescription_3: 'Blue Sapphire', StoneLessPercent_3: '2', StoneCertificate_3: 'Cert789', StoneSettingType_3: 'Pave', StoneRatePerPiece_3: '2160', StoneRateKarate_3: '1800', StoneStatusType_3: 'Active' };
-      const diamond1 = { DiamondName: 'Round Diamond', DiamondWeight: '0.5', DiamondSellRate: '50000', DiamondPieces: '1', DiamondClarity: 'VS1', DiamondColour: 'D', DiamondCut: 'Excellent', DiamondShape: 'Round', DiamondSize: '0.5', DiamondCertificate: 'GIA123', DiamondSettingType: 'Prong', DiamondSellAmount: '25000', DiamondPurchaseAmount: '20000', DiamondDescription: 'Premium Diamond', DiamondMargin: '25', TotalDiamondWeight: '0.5' };
-      const diamond2 = { DiamondName_2: 'Princess Cut', DiamondWeight_2: '0.75', DiamondSellRate_2: '60000', DiamondPieces_2: '1', DiamondClarity_2: 'VVS2', DiamondColour_2: 'E', DiamondCut_2: 'Very Good', DiamondShape_2: 'Princess', DiamondSize_2: '0.75', DiamondCertificate_2: 'GIA456', DiamondSettingType_2: 'Channel', DiamondSellAmount_2: '45000', DiamondPurchaseAmount_2: '38000', DiamondDescription_2: 'Princess Cut', DiamondMargin_2: '18', TotalDiamondWeight_2: '0.75' };
-      const diamond3 = { DiamondName_3: 'Oval Diamond', DiamondWeight_3: '0.30', DiamondSellRate_3: '35000', DiamondPieces_3: '2', DiamondClarity_3: 'SI1', DiamondColour_3: 'G', DiamondCut_3: 'Good', DiamondShape_3: 'Oval', DiamondSize_3: '0.30', DiamondCertificate_3: 'GIA789', DiamondSettingType_3: 'Prong', DiamondSellAmount_3: '21000', DiamondPurchaseAmount_3: '17500', DiamondDescription_3: 'Oval Pair', DiamondMargin_3: '20', TotalDiamondWeight_3: '0.60' };
+      const stone1 = { StoneName: 'Ruby', StoneWeight: '1.5', StonePieces: '5', StoneRate: '1000', StoneDescription: 'Premium Ruby' };
+      const stone2 = { StoneName_2: 'Emerald', StoneWeight_2: '0.80', StonePieces_2: '3', StoneRate_2: '2500', StoneDescription_2: 'Natural Emerald' };
+      const stone3 = { StoneName_3: 'Sapphire', StoneWeight_3: '1.20', StonePieces_3: '4', StoneRate_3: '1800', StoneDescription_3: 'Blue Sapphire' };
+      const diamond1 = { DiamondName: 'Round Diamond', DiamondWeight: '0.5', DiamondSellRate: '50000', DiamondPieces: '1', DiamondClarity: 'VS1', DiamondColour: 'D', DiamondCut: 'Excellent', DiamondShape: 'Round', DiamondSize: '0.5', DiamondCertificate: 'GIA123', DiamondSettingType: 'Prong', DiamondPurchaseAmount: '20000', DiamondDescription: 'Premium Diamond', DiamondMargin: '25', TotalDiamondWeight: '0.5' };
+      const diamond2 = { DiamondName_2: 'Princess Cut', DiamondWeight_2: '0.75', DiamondSellRate_2: '60000', DiamondPieces_2: '1', DiamondClarity_2: 'VVS2', DiamondColour_2: 'E', DiamondCut_2: 'Very Good', DiamondShape_2: 'Princess', DiamondSize_2: '0.75', DiamondCertificate_2: 'GIA456', DiamondSettingType_2: 'Channel', DiamondPurchaseAmount_2: '38000', DiamondDescription_2: 'Princess Cut', DiamondMargin_2: '18', TotalDiamondWeight_2: '0.75' };
+      const diamond3 = { DiamondName_3: 'Oval Diamond', DiamondWeight_3: '0.30', DiamondSellRate_3: '35000', DiamondPieces_3: '2', DiamondClarity_3: 'SI1', DiamondColour_3: 'G', DiamondCut_3: 'Good', DiamondShape_3: 'Oval', DiamondSize_3: '0.30', DiamondCertificate_3: 'GIA789', DiamondSettingType_3: 'Prong', DiamondPurchaseAmount_3: '17500', DiamondDescription_3: 'Oval Pair', DiamondMargin_3: '20', TotalDiamondWeight_3: '0.60' };
 
       const row1 = { ...baseRow, RFIDNumber: 'CZ3506', Itemcode: 'SAU124', ...stone1, ...stone2, ...diamond1, ...diamond2 };
       const row2 = { ...baseRow, RFIDNumber: 'CZ3507', Itemcode: 'SAU125', ...stone1, ...stone2, ...stone3, ...diamond1, ...diamond2 };
@@ -2891,10 +3211,9 @@ const AddStock = () => {
         ['Add Stock template (Stone & Diamond) – Instructions'],
         [],
         ['One row = one product. You can add multiple stones and multiple diamonds per product in the same row.'],
-        ['• Use columns Stone Name, Stone Weight, … for the 1st stone.'],
-        ['• Use Stone Name (2nd), Stone Weight (2nd), … for the 2nd stone; Stone Name (3rd), … for the 3rd.'],
-        ['• Same for diamonds: Diamond Name, … for 1st; Diamond Name (2nd), … for 2nd; Diamond Name (3rd), … for 3rd.'],
-        ['• Leave 2nd/3rd stone or diamond columns blank if a product has only one.'],
+        ['• Map Stone Name, Stone Weight, … once in Map Excel Columns; columns "Stone Name 2", "Stone Weight 2" in Excel map to 2nd stone automatically (same for 3rd, 4th…).'],
+        ['• Same for diamonds: map once; "Diamond Name 2", "Diamond Weight 2" map to 2nd diamond.'],
+        ['• Leave extra stone/diamond columns blank in Excel if a product has only one.'],
         ['Sample rows in the data sheet show 2 stones + 2 diamonds (row 1) and 3 stones + 2 diamonds (row 2).']
       ];
       const wsInstructions = XLSX.utils.aoa_to_sheet(instructionRows);
@@ -3035,8 +3354,21 @@ const AddStock = () => {
         const batchNumber = Math.floor(i / batchSize) + 1;
         const chunk = preview.slice(i, i + batchSize).map(product => {
           // Get branch and counter names (send names as strings, not IDs)
-          const branchValue = product.branch_id || sharedData.branch_name || '';
-          const counterValue = product.counter_id || sharedData.counter_name || '';
+          const normalizeName = (v) => (v === 0 ? '0' : String(v ?? '').trim());
+          const branchValue =
+            normalizeName(sharedData.branch_name) ||
+            normalizeName(product.branch_id) ||
+            normalizeName(product.branch_name) ||
+            normalizeName(product.BranchName) ||
+            normalizeName(product.branch) ||
+            '';
+          const counterValue =
+            normalizeName(sharedData.counter_name) ||
+            normalizeName(product.counter_id) ||
+            normalizeName(product.counter_name) ||
+            normalizeName(product.CounterName) ||
+            normalizeName(product.counter) ||
+            '';
 
           // Ensure product_id is always a valid string (not null, undefined, or number)
           let productIdValue = product.product_id;
@@ -3400,10 +3732,25 @@ const AddStock = () => {
 
         // Match exact API payload structure from documentation
         // Send names directly (not IDs) for branch, counter, category, product, design, and purity
+        const normalizeName = (v) => (v === 0 ? '0' : String(v ?? '').trim());
         const batchPayload = batch.map(product => ({
           client_code: String(product.client_code || userInfo?.ClientCode || ''),
-          branch_id: String(product.branch_id || sharedData.branch_name || ''), // Send branch name as string, not ID
-          counter_id: String(product.counter_id || sharedData.counter_name || ''), // Send counter name as string, not ID
+          branch_id: String(
+            normalizeName(sharedData.branch_name) ||
+            normalizeName(product.branch_id) ||
+            normalizeName(product.branch_name) ||
+            normalizeName(product.BranchName) ||
+            normalizeName(product.branch) ||
+            ''
+          ), // Send branch name as string, not ID
+          counter_id: String(
+            normalizeName(sharedData.counter_name) ||
+            normalizeName(product.counter_id) ||
+            normalizeName(product.counter_name) ||
+            normalizeName(product.CounterName) ||
+            normalizeName(product.counter) ||
+            ''
+          ), // Send counter name as string, not ID
           RFIDNumber: String(product.RFIDNumber || product.RFIDCode || ''),
           Itemcode: String(product.Itemcode || ''),
           category_id: String(product.category_id || ''),
@@ -3548,57 +3895,37 @@ const AddStock = () => {
     { key: 'counter_id', label: 'Counter ID', type: 'text', required: false, placeholder: 'Enter counter name' },
     { key: 'design_id', label: 'Design', type: 'select', required: false, options: 'designs' },
     { key: 'purity_id', label: 'Purity', type: 'select', required: false, options: 'purities' },
+    { key: 'box_id', label: 'Box', type: 'select', required: false, options: 'boxes' },
+    { key: 'packet_id', label: 'Packet', type: 'select', required: false, options: 'packets' },
     { key: 'grosswt', label: 'Gross Weight', type: 'number', required: false, placeholder: 'Enter gross wt', step: '0.001' },
     { key: 'stonewt', label: 'Stone Weight', type: 'number', required: false, placeholder: 'Enter stone wt', step: '0.001' },
-    { key: 'netwt', label: 'Net Weight', type: 'number', required: false, placeholder: 'Auto-calculated', step: '0.001', readOnly: true },
+    { key: 'diamondweight', label: 'Dia Weight', type: 'number', required: false, placeholder: 'Enter dia wt', step: '0.001' },
+    { key: 'netwt', label: 'Net Weight', type: 'number', required: false, placeholder: 'Enter net wt', step: '0.001' },
     { key: 'box_details', label: 'Box Details', type: 'text', required: false, placeholder: 'Enter box details' },
     { key: 'size', label: 'Size', type: 'number', required: false, placeholder: 'Enter size', step: '1' },
-    { key: 'stoneamount', label: 'Stone Amount', type: 'number', required: false, placeholder: 'Enter stone amount', step: '0.01' },
     { key: 'HallmarkAmount', label: 'Hallmark Amount', type: 'number', required: false, placeholder: 'Enter hallmark amount', step: '0.01' },
     { key: 'MakingPerGram', label: 'Making Per Gram', type: 'number', required: false, placeholder: 'Enter making per gram', step: '0.01' },
     { key: 'MakingPercentage', label: 'Making Percentage', type: 'number', required: false, placeholder: 'Enter making percentage', step: '0.01' },
     { key: 'MakingFixedAmt', label: 'Making Fixed Amount', type: 'number', required: false, placeholder: 'Enter making fixed amount', step: '0.01' },
     { key: 'MRP', label: 'MRP', type: 'number', required: false, placeholder: 'Enter MRP', step: '0.01' },
-    { key: 'status', label: 'Status', type: 'select', required: false, options: ['ApiActive'], disabled: true },
     // Stone fields (for first stone entry)
     { key: 'StoneName', label: 'Stone Name', type: 'text', required: false, placeholder: 'e.g., Ruby', group: 'stone' },
     { key: 'StoneWeight', label: 'Stone Weight (Detail)', type: 'number', required: false, placeholder: 'e.g., 1.5', step: '0.001', group: 'stone' },
     { key: 'StonePieces', label: 'Stone Pieces', type: 'number', required: false, placeholder: 'e.g., 5', step: '1', group: 'stone' },
     { key: 'StoneRate', label: 'Stone Rate', type: 'number', required: false, placeholder: 'e.g., 1000', step: '0.01', group: 'stone' },
-    { key: 'StoneAmount', label: 'Stone Amount (Detail)', type: 'number', required: false, placeholder: 'e.g., 5000', step: '0.01', group: 'stone' },
     { key: 'StoneDescription', label: 'Stone Description', type: 'text', required: false, placeholder: 'e.g., Premium Ruby', group: 'stone' },
-    { key: 'StoneLessPercent', label: 'Stone Less Percent', type: 'number', required: false, placeholder: 'e.g., 2', step: '0.01', group: 'stone' },
-    { key: 'StoneCertificate', label: 'Stone Certificate', type: 'text', required: false, placeholder: 'e.g., Cert123', group: 'stone' },
-    { key: 'StoneSettingType', label: 'Stone Setting Type', type: 'text', required: false, placeholder: 'e.g., Prong', group: 'stone' },
-    { key: 'StoneRatePerPiece', label: 'Stone Rate Per Piece', type: 'number', required: false, placeholder: 'e.g., 1000', step: '0.01', group: 'stone' },
-    { key: 'StoneRateKarate', label: 'Stone Rate Karate', type: 'number', required: false, placeholder: 'e.g., 500', step: '0.01', group: 'stone' },
-    { key: 'StoneStatusType', label: 'Stone Status Type', type: 'text', required: false, placeholder: 'e.g., Active', group: 'stone' },
     // Stone 2 (multiple stones per product)
     { key: 'StoneName_2', label: 'Stone Name (2nd)', type: 'text', required: false, placeholder: 'e.g., Emerald', group: 'stone' },
     { key: 'StoneWeight_2', label: 'Stone Weight (2nd)', type: 'number', required: false, placeholder: 'e.g., 0.8', step: '0.001', group: 'stone' },
     { key: 'StonePieces_2', label: 'Stone Pieces (2nd)', type: 'number', required: false, placeholder: 'e.g., 3', step: '1', group: 'stone' },
     { key: 'StoneRate_2', label: 'Stone Rate (2nd)', type: 'number', required: false, placeholder: 'e.g., 2500', step: '0.01', group: 'stone' },
-    { key: 'StoneAmount_2', label: 'Stone Amount (2nd)', type: 'number', required: false, placeholder: 'e.g., 6000', step: '0.01', group: 'stone' },
     { key: 'StoneDescription_2', label: 'Stone Description (2nd)', type: 'text', required: false, placeholder: 'e.g., Natural Emerald', group: 'stone' },
-    { key: 'StoneLessPercent_2', label: 'Stone Less % (2nd)', type: 'number', required: false, placeholder: 'e.g., 1.5', step: '0.01', group: 'stone' },
-    { key: 'StoneCertificate_2', label: 'Stone Certificate (2nd)', type: 'text', required: false, placeholder: 'e.g., Cert456', group: 'stone' },
-    { key: 'StoneSettingType_2', label: 'Stone Setting (2nd)', type: 'text', required: false, placeholder: 'e.g., Bezel', group: 'stone' },
-    { key: 'StoneRatePerPiece_2', label: 'Stone Rate/Piece (2nd)', type: 'number', required: false, placeholder: 'e.g., 2000', step: '0.01', group: 'stone' },
-    { key: 'StoneRateKarate_2', label: 'Stone Rate/Karate (2nd)', type: 'number', required: false, placeholder: 'e.g., 7500', step: '0.01', group: 'stone' },
-    { key: 'StoneStatusType_2', label: 'Stone Status (2nd)', type: 'text', required: false, placeholder: 'e.g., Active', group: 'stone' },
     // Stone 3
     { key: 'StoneName_3', label: 'Stone Name (3rd)', type: 'text', required: false, placeholder: 'e.g., Sapphire', group: 'stone' },
     { key: 'StoneWeight_3', label: 'Stone Weight (3rd)', type: 'number', required: false, placeholder: 'e.g., 1.2', step: '0.001', group: 'stone' },
     { key: 'StonePieces_3', label: 'Stone Pieces (3rd)', type: 'number', required: false, placeholder: 'e.g., 4', step: '1', group: 'stone' },
     { key: 'StoneRate_3', label: 'Stone Rate (3rd)', type: 'number', required: false, placeholder: 'e.g., 1800', step: '0.01', group: 'stone' },
-    { key: 'StoneAmount_3', label: 'Stone Amount (3rd)', type: 'number', required: false, placeholder: 'e.g., 8640', step: '0.01', group: 'stone' },
     { key: 'StoneDescription_3', label: 'Stone Description (3rd)', type: 'text', required: false, placeholder: 'e.g., Blue Sapphire', group: 'stone' },
-    { key: 'StoneLessPercent_3', label: 'Stone Less % (3rd)', type: 'number', required: false, placeholder: 'e.g., 2', step: '0.01', group: 'stone' },
-    { key: 'StoneCertificate_3', label: 'Stone Certificate (3rd)', type: 'text', required: false, placeholder: 'e.g., Cert789', group: 'stone' },
-    { key: 'StoneSettingType_3', label: 'Stone Setting (3rd)', type: 'text', required: false, placeholder: 'e.g., Pave', group: 'stone' },
-    { key: 'StoneRatePerPiece_3', label: 'Stone Rate/Piece (3rd)', type: 'number', required: false, placeholder: 'e.g., 2160', step: '0.01', group: 'stone' },
-    { key: 'StoneRateKarate_3', label: 'Stone Rate/Karate (3rd)', type: 'number', required: false, placeholder: 'e.g., 1800', step: '0.01', group: 'stone' },
-    { key: 'StoneStatusType_3', label: 'Stone Status (3rd)', type: 'text', required: false, placeholder: 'e.g., Active', group: 'stone' },
     // Diamond fields (for first diamond entry)
     { key: 'DiamondName', label: 'Diamond Name', type: 'text', required: false, placeholder: 'e.g., Round Diamond', group: 'diamond' },
     { key: 'DiamondWeight', label: 'Diamond Weight (Detail)', type: 'number', required: false, placeholder: 'e.g., 0.5', step: '0.001', group: 'diamond' },
@@ -3611,7 +3938,6 @@ const AddStock = () => {
     { key: 'DiamondSize', label: 'Diamond Size', type: 'number', required: false, placeholder: 'e.g., 0.5', step: '0.01', group: 'diamond' },
     { key: 'DiamondCertificate', label: 'Diamond Certificate', type: 'text', required: false, placeholder: 'e.g., GIA123', group: 'diamond' },
     { key: 'DiamondSettingType', label: 'Diamond Setting Type', type: 'text', required: false, placeholder: 'e.g., Prong', group: 'diamond' },
-    { key: 'DiamondSellAmount', label: 'Diamond Sell Amount', type: 'number', required: false, placeholder: 'e.g., 25000', step: '0.01', group: 'diamond' },
     { key: 'DiamondPurchaseAmount', label: 'Diamond Purchase Amount', type: 'number', required: false, placeholder: 'e.g., 20000', step: '0.01', group: 'diamond' },
     { key: 'DiamondDescription', label: 'Diamond Description', type: 'text', required: false, placeholder: 'e.g., Premium Diamond', group: 'diamond' },
     { key: 'DiamondMargin', label: 'Diamond Margin', type: 'number', required: false, placeholder: 'e.g., 25', step: '0.01', group: 'diamond' },
@@ -3628,7 +3954,6 @@ const AddStock = () => {
     { key: 'DiamondSize_2', label: 'Diamond Size (2nd)', type: 'number', required: false, placeholder: 'e.g., 0.75', step: '0.01', group: 'diamond' },
     { key: 'DiamondCertificate_2', label: 'Diamond Certificate (2nd)', type: 'text', required: false, placeholder: 'e.g., GIA456', group: 'diamond' },
     { key: 'DiamondSettingType_2', label: 'Diamond Setting (2nd)', type: 'text', required: false, placeholder: 'e.g., Channel', group: 'diamond' },
-    { key: 'DiamondSellAmount_2', label: 'Diamond Sell Amount (2nd)', type: 'number', required: false, placeholder: 'e.g., 45000', step: '0.01', group: 'diamond' },
     { key: 'DiamondPurchaseAmount_2', label: 'Diamond Purchase Amount (2nd)', type: 'number', required: false, placeholder: 'e.g., 38000', step: '0.01', group: 'diamond' },
     { key: 'DiamondDescription_2', label: 'Diamond Description (2nd)', type: 'text', required: false, placeholder: 'e.g., Princess Cut', group: 'diamond' },
     { key: 'DiamondMargin_2', label: 'Diamond Margin (2nd)', type: 'number', required: false, placeholder: 'e.g., 18', step: '0.01', group: 'diamond' },
@@ -3645,12 +3970,33 @@ const AddStock = () => {
     { key: 'DiamondSize_3', label: 'Diamond Size (3rd)', type: 'number', required: false, placeholder: 'e.g., 0.30', step: '0.01', group: 'diamond' },
     { key: 'DiamondCertificate_3', label: 'Diamond Certificate (3rd)', type: 'text', required: false, placeholder: 'e.g., GIA789', group: 'diamond' },
     { key: 'DiamondSettingType_3', label: 'Diamond Setting (3rd)', type: 'text', required: false, placeholder: 'e.g., Prong', group: 'diamond' },
-    { key: 'DiamondSellAmount_3', label: 'Diamond Sell Amount (3rd)', type: 'number', required: false, placeholder: 'e.g., 21000', step: '0.01', group: 'diamond' },
     { key: 'DiamondPurchaseAmount_3', label: 'Diamond Purchase Amount (3rd)', type: 'number', required: false, placeholder: 'e.g., 17500', step: '0.01', group: 'diamond' },
     { key: 'DiamondDescription_3', label: 'Diamond Description (3rd)', type: 'text', required: false, placeholder: 'e.g., Oval Pair', group: 'diamond' },
     { key: 'DiamondMargin_3', label: 'Diamond Margin (3rd)', type: 'number', required: false, placeholder: 'e.g., 20', step: '0.01', group: 'diamond' },
     { key: 'TotalDiamondWeight_3', label: 'Total Diamond Wt (3rd)', type: 'number', required: false, placeholder: 'e.g., 0.60', step: '0.001', group: 'diamond' }
   ];
+
+  // Single template for Stone/Diamond mapping: map once; Excel columns "Stone Name 2", "Stone Name 3" etc. auto-map to 2nd, 3rd entry
+  const stoneTemplateFields = formFields.filter(f => f.group === 'stone' && !f.key.includes('_2') && !f.key.includes('_3'));
+  const diamondTemplateFields = formFields.filter(f => f.group === 'diamond' && !f.key.includes('_2') && !f.key.includes('_3'));
+
+  // Friendly label for Excel column in mapping dropdown (StoneName_2 → "Stone Name (2nd)", "Stone Name 2" → "Stone Name (2nd)")
+  const getColumnDisplayLabel = (column) => {
+    if (!column || typeof column !== 'string') return column;
+    const numMatch = column.match(/_(\d+)$/) || column.match(/\s+(\d+)$/);
+    let base = column;
+    let suffix = '';
+    if (numMatch) {
+      const n = parseInt(numMatch[1], 10);
+      base = column.slice(0, column.length - numMatch[0].length).trim();
+      suffix = n === 2 ? ' (2nd)' : n === 3 ? ' (3rd)' : n <= 20 ? ` (${n}th)` : ` (${n})`;
+    }
+    if (!base) return column;
+    const hasSpaces = base.includes(' ');
+    const withSpaces = hasSpaces ? base : base.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim();
+    const title = withSpaces ? withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1) : base;
+    return title + suffix;
+  };
 
   const renderField = (field, value, onChange, isMultiple = false, index = null, tabIndex = null) => {
     const fieldId = isMultiple ? `${field.key}_${index}` : field.key;
@@ -3668,6 +4014,10 @@ const AddStock = () => {
         dataArray = designs;
       } else if (field.options === 'purities') {
         dataArray = purities;
+      } else if (field.options === 'boxes') {
+        dataArray = boxes;
+      } else if (field.options === 'packets') {
+        dataArray = packets;
       }
       
       // Extract names from data array - specific to each type
@@ -3680,6 +4030,10 @@ const AddStock = () => {
           return item.DesignName || item.Name || item.Design || item.designName || item.name || item.design || '';
         } else if (field.options === 'purities') {
           return item.PurityName || item.Name || item.Purity || item.purityName || item.name || item.purity || '';
+        } else if (field.options === 'boxes') {
+          return item.BoxName || item.Name || item.boxName || item.name || '';
+        } else if (field.options === 'packets') {
+          return item.PacketName || item.Name || item.packetName || item.name || '';
         }
         return '';
       }).filter(Boolean).sort();
@@ -3793,8 +4147,37 @@ const AddStock = () => {
 
     const [entries, setEntries] = useState(list.length > 0 ? list.map(e => ({ ...emptyEntry, ...e })) : [{ ...emptyEntry }]);
 
+    const calcStoneAmount = (entry) => {
+      const pieces = parseFloat(entry.StonePieces) || 0;
+      const ratePerPiece = parseFloat(entry.StoneRatePerPiece) || 0;
+      const weight = parseFloat(entry.StoneWeight) || 0;
+      const ratePerWeight = parseFloat(entry.StoneRateKarate) || 0;
+      if (pieces > 0 && ratePerPiece > 0) return String((pieces * ratePerPiece).toFixed(2));
+      if (weight > 0 && ratePerWeight > 0) return String((weight * ratePerWeight).toFixed(2));
+      return '';
+    };
+    const calcDiamondAmount = (entry) => {
+      const pieces = parseFloat(entry.DiamondPieces) || 0;
+      const rate = parseFloat(entry.DiamondSellRate) || 0;
+      if (pieces > 0 && rate > 0) return String((pieces * rate).toFixed(2));
+      const weight = parseFloat(entry.DiamondWeight) || 0;
+      if (weight > 0 && rate > 0) return String((weight * rate).toFixed(2));
+      return '';
+    };
+
     const updateEntry = (index, key, value) => {
-      setEntries(prev => prev.map((e, i) => i === index ? { ...e, [key]: value } : e));
+      setEntries(prev => prev.map((e, i) => {
+        if (i !== index) return e;
+        const updated = { ...e, [key]: value };
+        if (isStone) {
+          if (['StonePieces', 'StoneRatePerPiece', 'StoneWeight', 'StoneRateKarate'].includes(key))
+            updated.StoneAmount = calcStoneAmount(updated);
+        } else {
+          if (['DiamondPieces', 'DiamondSellRate', 'DiamondWeight'].includes(key))
+            updated.DiamondSellAmount = calcDiamondAmount(updated);
+        }
+        return updated;
+      }));
     };
 
     const addRow = () => setEntries(prev => [...prev, { ...emptyEntry }]);
@@ -3804,30 +4187,44 @@ const AddStock = () => {
 
     const handleSave = () => {
       const totalStoneWt = isStone ? entries.reduce((s, e) => s + (parseFloat(e.StoneWeight) || 0), 0) : 0;
-      const totalStonePcs = isStone ? entries.reduce((s, e) => s + (parseInt(e.StonePieces) || 0), 0) : 0;
+      const totalStoneAmt = isStone ? entries.reduce((s, e) => s + (parseFloat(e.StoneAmount) || 0), 0) : 0;
       const totalDiaWt = !isStone ? entries.reduce((s, e) => s + (parseFloat(e.DiamondWeight) || 0), 0) : 0;
-      const totalDiaPcs = !isStone ? entries.reduce((s, e) => s + (parseInt(e.DiamondPieces) || 0), 0) : 0;
+      const totalDiaAmt = !isStone ? entries.reduce((s, e) => s + (parseFloat(e.DiamondSellAmount) || 0), 0) : 0;
 
       if (addedIdx !== null && addedIdx !== undefined) {
-        setAddedRecords(prev => prev.map((r, i) => i !== addedIdx ? r : {
-          ...r,
-          [listKey]: entries,
-          ...(isStone ? { stonewt: String(totalStoneWt), stoneamount: String(totalStonePcs) } : { diamondweight: String(totalDiaWt), diamondAmount: String(totalDiaPcs) })
+        setAddedRecords(prev => prev.map((r, i) => {
+          if (i !== addedIdx) return r;
+          const updated = { ...r, [listKey]: entries };
+          if (isStone) {
+            updated.stonewt = String(totalStoneWt);
+            updated.stoneamount = String(totalStoneAmt);
+          } else {
+            updated.diamondweight = String(totalDiaWt);
+            updated.diamondAmount = String(totalDiaAmt);
+          }
+          updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
+          return updated;
         }));
       } else if (stoneDiamondData.productIndex !== null) {
         const updatedProducts = [...multipleProducts];
-        updatedProducts[stoneDiamondData.productIndex] = {
-          ...updatedProducts[stoneDiamondData.productIndex],
-          [listKey]: entries,
-          ...(isStone ? { stonewt: String(totalStoneWt), stoneamount: String(totalStonePcs) } : { diamondweight: String(totalDiaWt), diamondAmount: String(totalDiaPcs) })
-        };
+        const prod = updatedProducts[stoneDiamondData.productIndex];
+        const updated = { ...prod, [listKey]: entries };
+        if (isStone) {
+          updated.stonewt = String(totalStoneWt);
+          updated.stoneamount = String(totalStoneAmt);
+        } else {
+          updated.diamondweight = String(totalDiaWt);
+          updated.diamondAmount = String(totalDiaAmt);
+        }
+        updated.netwt = calculateNetWeight(updated.grosswt, updated.stonewt, updated.diamondweight);
+        updatedProducts[stoneDiamondData.productIndex] = updated;
         setMultipleProducts(updatedProducts);
       } else {
         setSingleProduct(prev => ({
           ...prev,
           [listKey]: entries,
-          ...(isStone ? { stonewt: String(totalStoneWt), stoneamount: String(totalStonePcs) } : { diamondweight: String(totalDiaWt), diamondAmount: String(totalDiaPcs) }),
-          netwt: calculateNetWeight(prev.grosswt, isStone ? String(totalStoneWt) : prev.stonewt)
+          ...(isStone ? { stonewt: String(totalStoneWt), stoneamount: String(totalStoneAmt) } : { diamondweight: String(totalDiaWt), diamondAmount: String(totalDiaAmt) }),
+          netwt: calculateNetWeight(prev.grosswt, prev.stonewt, isStone ? prev.diamondweight : String(totalDiaWt))
         }));
       }
       setShowStoneDiamondModal(false);
@@ -3962,42 +4359,46 @@ const AddStock = () => {
                   <button
                     type="button"
                     onClick={addRow}
-                    title="Add new row"
+                    title="Add row"
                     style={{
                       width: '28px',
                       height: '26px',
                       padding: 0,
                       border: '1px solid #cbd5e1',
                       borderRadius: '4px',
-                      background: '#e2e8f0',
+                      background: '#f1f5f9',
                       color: '#475569',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '12px'
+                      fontSize: '11px'
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; e.currentTarget.style.borderColor = '#94a3b8'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
                   >
                     <FaPlus />
                   </button>
                   <button
                     type="button"
                     onClick={() => removeRow(idx)}
-                    title="Delete this row"
+                    title="Remove row"
                     style={{
                       width: '28px',
                       height: '26px',
                       padding: 0,
-                      border: '1px solid #cbd5e1',
+                      border: '1px solid #fecaca',
                       borderRadius: '4px',
-                      background: '#e2e8f0',
-                      color: '#475569',
+                      background: '#fef2f2',
+                      color: '#b91c1c',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '12px'
+                      fontSize: '11px'
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#dc2626'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#b91c1c'; }}
                   >
                     <FaTrash />
                   </button>
@@ -4062,7 +4463,7 @@ const AddStock = () => {
 
   return (
     <div style={{ 
-      padding: '32px', 
+      padding: '10px 12px', 
       fontFamily: 'Inter, Poppins, sans-serif', 
       background: '#ffffff', 
       minHeight: '100vh',
@@ -4093,6 +4494,21 @@ const AddStock = () => {
             gap: 20px;
           }
         }
+        .addstock-location-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 8px;
+        }
+        @media (max-width: 900px) {
+          .addstock-location-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+        @media (max-width: 500px) {
+          .addstock-location-grid {
+            grid-template-columns: 1fr;
+          }
+        }
         /* Zoho-style focus ring */
         input:focus-visible,
         select:focus-visible,
@@ -4116,27 +4532,59 @@ const AddStock = () => {
         ::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
         }
+        /* Tablet: stack Location + Image, table full width */
+        @media (max-width: 1024px) {
+          .addstock-top-section {
+            flex-direction: column !important;
+          }
+          .addstock-top-section > div:first-child {
+            flex: 1 1 100% !important;
+          }
+          .addstock-top-section > div:last-child {
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+          }
+          .addstock-location-2rows {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+        }
+        @media (max-width: 600px) {
+          .addstock-location-2rows {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        .addstock-table-wrap {
+          overflow: auto;
+          max-height: min(60vh, 480px);
+        }
+        .addstock-table-wrap thead th {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          background: #f1f5f9;
+          box-shadow: 0 1px 0 #e2e8f0;
+        }
       `}</style>
       {/* Header with Toggle Buttons */}
       <div style={{
         background: '#ffffff',
-        borderRadius: '12px',
-        padding: '20px 24px',
-        marginBottom: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        borderRadius: '8px',
+        padding: '8px 12px',
+        marginBottom: '8px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         border: '1px solid #e0e7ef',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: '16px',
+        gap: '8px',
         flexShrink: 0
       }}>
         {/* Left Side - Title */}
         <div>
           <h2 style={{ 
             margin: 0, 
-            fontSize: '24px', 
+            fontSize: '16px', 
             fontWeight: 700, 
             color: '#232a36',
             letterSpacing: '-0.01em',
@@ -4145,8 +4593,8 @@ const AddStock = () => {
             Add Stock
           </h2>
           <p style={{ 
-            margin: '6px 0 0', 
-            fontSize: '13px', 
+            margin: '2px 0 0', 
+            fontSize: '11px', 
             color: '#64748b',
             fontWeight: 400
           }}>
@@ -4155,33 +4603,33 @@ const AddStock = () => {
         </div>
 
         {/* Right Side - Toggle Buttons */}
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Main Section Toggle */}
           <div style={{ 
             display: 'flex', 
             background: '#f1f5f9', 
-            padding: '4px', 
-            borderRadius: '10px', 
-            gap: '4px',
+            padding: '2px', 
+            borderRadius: '6px', 
+            gap: '2px',
             boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)'
           }}>
             <button
               onClick={() => setActiveSection(1)}
               tabIndex={3}
               style={{
-                padding: '10px 20px',
-                fontSize: '13px',
+                padding: '5px 10px',
+                fontSize: '11px',
                 fontWeight: 600,
-                borderRadius: '8px',
+                borderRadius: '6px',
                 border: 'none',
                 background: activeSection === 1 ? '#ffffff' : 'transparent',
                 color: activeSection === 1 ? '#0077d4' : '#64748b',
-                boxShadow: activeSection === 1 ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
+                boxShadow: activeSection === 1 ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '4px',
                 fontFamily: 'Inter, Poppins, sans-serif'
               }}
               onMouseEnter={(e) => {
@@ -4201,19 +4649,19 @@ const AddStock = () => {
               onClick={() => setActiveSection(3)}
               tabIndex={4}
               style={{
-                padding: '10px 20px',
-                fontSize: '13px',
+                padding: '5px 10px',
+                fontSize: '11px',
                 fontWeight: 600,
-                borderRadius: '8px',
+                borderRadius: '6px',
                 border: 'none',
                 background: activeSection === 3 ? '#ffffff' : 'transparent',
                 color: activeSection === 3 ? '#0077d4' : '#64748b',
-                boxShadow: activeSection === 3 ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
+                boxShadow: activeSection === 3 ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '4px',
                 fontFamily: 'Inter, Poppins, sans-serif'
               }}
               onMouseEnter={(e) => {
@@ -4231,21 +4679,21 @@ const AddStock = () => {
             </button>
           </div>
           {activeSection === 3 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '4px', flexWrap: 'wrap' }}>
             <button
                 onClick={() => downloadExcelTemplate('normal')}
               style={{
-                  padding: '10px 16px',
-                fontSize: '13px',
+                  padding: '5px 10px',
+                fontSize: '11px',
                 fontWeight: 600,
-                borderRadius: '8px',
+                borderRadius: '6px',
                   border: '1px solid #10b981',
                   background: '#ffffff',
                   color: '#10b981',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '4px',
                   transition: 'all 0.2s',
                   whiteSpace: 'nowrap'
               }}
@@ -4263,17 +4711,17 @@ const AddStock = () => {
             <button
                 onClick={() => downloadExcelTemplate('withStoneDiamond')}
               style={{
-                padding: '10px 16px',
-                fontSize: '13px',
+                padding: '5px 10px',
+                fontSize: '11px',
                 fontWeight: 600,
-                borderRadius: '8px',
+                borderRadius: '6px',
                   border: '1px solid #3b82f6',
                 background: '#ffffff',
                   color: '#3b82f6',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '4px',
                 transition: 'all 0.2s',
                   whiteSpace: 'nowrap'
               }}
@@ -4299,300 +4747,415 @@ const AddStock = () => {
       {/* Section 1: Stock Entry (Single or Multiple) */}
       {activeSection === 1 && (
         <>
-          {/* Single Entry Mode */}
+          {/* Single Entry Mode - compact single view */}
         <div style={{
           background: '#ffffff',
-          borderRadius: '12px',
-          padding: '16px 20px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          borderRadius: '8px',
+          padding: '10px 12px',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
           border: '1px solid #e0e7ef',
           flex: 1,
+          minHeight: 0,
           overflowY: 'auto',
           overflowX: 'hidden'
         }}>
 
-          {/* Common Information - single line, proper alignment */}
-          <div style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
-          
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 80px)',
-              gap: '12px',
-              alignItems: 'end'
-            }}>
-              <div style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>
-                  RFID Number <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                {(() => {
-                  const rfidTrim = (singleProduct.RFIDNumber || '').trim();
-                  const hasRfidMoreThan4 = rfidTrim.length > 4;
-                  const showTidPresent = tidByBarcode != null;
-                  const showTidMissing = hasRfidMoreThan4 && !tidLoading && tidByBarcode === null;
-                  const isGreen = showTidPresent && !fieldErrors.RFIDNumber;
-                  const isRed = fieldErrors.RFIDNumber || showTidMissing;
-                  const isReadOnly = false;
-                  return (
-                    <>
-                <input
-                  type="text"
-                  value={singleProduct.RFIDNumber}
-                        readOnly={isReadOnly}
-                        onChange={(e) => !isReadOnly && updateSingleField('RFIDNumber', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-                        onBlur={(e) => {
-                          e.target.style.borderColor = isRed ? '#dc2626' : isGreen ? '#16a34a' : '#f1f1f1';
-                          e.target.style.background = isRed ? '#fef2f2' : isGreen ? '#f0fdf4' : '#f1f1f1';
-                          e.target.style.boxShadow = 'none';
-                          if ((singleProduct.RFIDNumber || '').trim().length > 4) fetchTidForRfid(singleProduct.RFIDNumber);
-                        }}
-                        placeholder="e.g., CZ5898"
-                  required
-                  tabIndex={10}
-                  style={{
-                    width: '100%',
-                          padding: '6px 10px',
-                          fontSize: '12px',
-                          border: isRed ? '1px solid #dc2626' : isGreen ? '1px solid #16a34a' : '1px solid #e2e8f0',
-                          borderRadius: '6px',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                          height: '30px',
-                          minHeight: '30px',
-                          background: isRed ? '#fef2f2' : isGreen ? '#f0fdf4' : '#f8fafc',
-                          color: '#1e293b',
-                    fontFamily: 'Inter, Poppins, sans-serif',
-                          cursor: isReadOnly ? 'default' : 'text'
-                  }}
-                  onFocus={(e) => {
-                          e.target.style.borderColor = isRed ? '#dc2626' : isGreen ? '#16a34a' : '#0077d4';
-                          e.target.style.background = isRed ? '#fef2f2' : isGreen ? '#f0fdf4' : '#ffffff';
-                          e.target.style.boxShadow = isRed
-                      ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
-                            : isGreen ? '0 0 0 3px rgba(22, 163, 74, 0.1)' : '0 0 0 3px rgba(0, 119, 212, 0.1)';
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                            const nextGridCell = e.target.closest('div[style*="minWidth"]')?.parentElement?.nextElementSibling;
-                            const nextInput = nextGridCell?.querySelector('input, [role="combobox"]');
-                      if (nextInput) nextInput.focus();
-                    }
-                  }}
-                />
-                {fieldErrors.RFIDNumber && (
-                  <div style={{
-                    marginTop: '4px',
-                          fontSize: '11px',
-                    color: '#dc2626',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}>
-                          <FaExclamationTriangle style={{ fontSize: '11px' }} />
-                    <span>{fieldErrors.RFIDNumber}</span>
-                  </div>
-                )}
-                    </>
-                  );
-                })()}
+          {/* Single block: Location & Identification (left) + Product Image (right) side by side - tablet friendly */}
+          <div className="addstock-top-section" style={{
+            marginBottom: '8px',
+            padding: '10px 12px',
+            background: '#f8fafc',
+            borderRadius: '8px',
+            border: '1px solid #e2e8f0',
+            display: 'flex',
+            gap: '16px',
+            alignItems: 'stretch',
+            flexWrap: 'wrap'
+          }}>
+            {/* Left: Location & Identification - 2 rows x 4 fields */}
+            <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '3px', height: '12px', borderRadius: '2px', background: '#0077d4' }} />
+                Location &amp; Identification
               </div>
-              <div style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>TID</label>
-                <div
-                  title={tidByBarcode != null ? tidByBarcode : ''}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                  fontSize: '12px', 
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    background: '#f8fafc',
-                    color: '#475569',
-                    height: '30px',
-                    minHeight: '30px',
-                    boxSizing: 'border-box',
-                    display: 'flex',
-                    alignItems: 'center',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {tidLoading ? '...' : (tidByBarcode != null ? tidByBarcode : '—')}
+              <div className="addstock-location-2rows" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px 12px', alignItems: 'end' }}>
+                {/* Row 1 */}
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>
+                    RFID Number <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  {(() => {
+                    const rfidTrim = (singleProduct.RFIDNumber || '').trim();
+                    const hasRfidMoreThan4 = rfidTrim.length > 4;
+                    const showTidPresent = tidByBarcode != null;
+                    const showTidMissing = hasRfidMoreThan4 && !tidLoading && tidByBarcode === null;
+                    const isGreen = showTidPresent && !fieldErrors.RFIDNumber;
+                    const isRed = fieldErrors.RFIDNumber || showTidMissing;
+                    const isReadOnly = false;
+                    return (
+                      <>
+                        <input
+                          type="text"
+                          value={singleProduct.RFIDNumber}
+                          readOnly={isReadOnly}
+                          onChange={(e) => !isReadOnly && updateSingleField('RFIDNumber', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = isRed ? '#dc2626' : isGreen ? '#16a34a' : '#c7d2fe';
+                            e.target.style.background = isRed ? '#fef2f2' : isGreen ? '#f0fdf4' : '#eef2ff';
+                            e.target.style.boxShadow = 'none';
+                            if ((singleProduct.RFIDNumber || '').trim().length > 4) fetchTidForRfid(singleProduct.RFIDNumber);
+                          }}
+                          placeholder="e.g., CZ5898"
+                          required
+                          tabIndex={10}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px 6px 10px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            border: isRed ? '2px solid #dc2626' : isGreen ? '2px solid #16a34a' : '2px solid #6366f1',
+                            borderLeft: isRed ? '3px solid #dc2626' : isGreen ? '3px solid #16a34a' : '3px solid #0077d4',
+                            borderRadius: '6px',
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                            height: '32px',
+                            minHeight: '32px',
+                            background: isRed ? '#fef2f2' : isGreen ? '#f0fdf4' : '#eef2ff',
+                            color: '#1e293b',
+                            fontFamily: 'Inter, Poppins, sans-serif',
+                            cursor: isReadOnly ? 'default' : 'text'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = isRed ? '#dc2626' : isGreen ? '#16a34a' : '#0077d4';
+                            e.target.style.borderLeftColor = isRed ? '#dc2626' : isGreen ? '#16a34a' : '#0077d4';
+                            e.target.style.background = isRed ? '#fef2f2' : isGreen ? '#f0fdf4' : '#ffffff';
+                            e.target.style.boxShadow = isRed ? '0 0 0 3px rgba(220, 38, 38, 0.1)' : isGreen ? '0 0 0 3px rgba(22, 163, 74, 0.1)' : '0 0 0 3px rgba(0, 119, 212, 0.1)';
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const nextGridCell = e.target.closest('div[style*="minWidth"]')?.parentElement?.nextElementSibling;
+                              const nextInput = nextGridCell?.querySelector('input, select, [role="combobox"]');
+                              if (nextInput) nextInput.focus();
+                            }
+                          }}
+                        />
+                        {fieldErrors.RFIDNumber && (
+                          <div style={{ marginTop: '4px', fontSize: '11px', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <FaExclamationTriangle style={{ fontSize: '11px' }} />
+                            <span>{fieldErrors.RFIDNumber}</span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>TID</label>
+                  <div
+                    title={tidByBarcode != null ? tidByBarcode : ''}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      background: '#f8fafc',
+                      color: '#475569',
+                      height: '32px',
+                      minHeight: '32px',
+                      boxSizing: 'border-box',
+                      display: 'flex',
+                      alignItems: 'center',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {tidLoading ? '...' : (tidByBarcode != null ? tidByBarcode : '—')}
+                  </div>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>
+                    Item Code (Must be Unique) <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={singleProduct.Itemcode}
+                    onChange={(e) => updateSingleField('Itemcode', e.target.value)}
+                    placeholder="e.g., SAU124"
+                    required
+                    tabIndex={11}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px 6px 10px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      border: fieldErrors.Itemcode ? '2px solid #dc2626' : '2px solid #0d9488',
+                      borderLeft: fieldErrors.Itemcode ? '3px solid #dc2626' : '3px solid #0d9488',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                      height: '32px',
+                      minHeight: '32px',
+                      background: fieldErrors.Itemcode ? '#fef2f2' : '#f0fdfa',
+                      color: '#1e293b',
+                      fontFamily: 'Inter, Poppins, sans-serif'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = fieldErrors.Itemcode ? '#dc2626' : '#0d9488';
+                      e.target.style.borderLeftColor = fieldErrors.Itemcode ? '#dc2626' : '#0d9488';
+                      e.target.style.background = fieldErrors.Itemcode ? '#fef2f2' : '#ffffff';
+                      e.target.style.boxShadow = fieldErrors.Itemcode ? '0 0 0 3px rgba(220, 38, 38, 0.1)' : '0 0 0 3px rgba(13, 148, 136, 0.15)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = fieldErrors.Itemcode ? '#dc2626' : '#99f6e4';
+                      e.target.style.borderLeftColor = fieldErrors.Itemcode ? '#dc2626' : '#0d9488';
+                      e.target.style.background = fieldErrors.Itemcode ? '#fef2f2' : '#f0fdfa';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const nextInput = e.target.closest('div[style*="minWidth"]')?.parentElement?.nextElementSibling?.querySelector('input, select, [role="combobox"]');
+                        if (nextInput) nextInput.focus();
+                      }
+                    }}
+                  />
+                  {fieldErrors.Itemcode && (
+                    <div style={{ marginTop: '4px', fontSize: '11px', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <FaExclamationTriangle style={{ fontSize: '11px' }} />
+                      <span>{fieldErrors.Itemcode}</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Branch Name</label>
+                  <SearchableDropdownWithAdd
+                    options={getBranchOptions()}
+                    value={sharedData.branch_name}
+                    onChange={(value) => setSharedData(prev => ({ ...prev, branch_name: value }))}
+                    placeholder="Select Branch"
+                    disabled={loadingBranchesCounters}
+                    allowAdd={true}
+                    fieldType="branch"
+                    userInfo={userInfo}
+                    onAddNew={handleAddNewEntry}
+                    onOptionsUpdate={handleOptionsUpdate}
+                    tabIndex={12}
+                    inputStyle={{ height: '32px', minHeight: '32px', padding: '6px 28px 6px 8px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif' }}
+                  />
+                </div>
+                {/* Row 2 */}
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Counter Name</label>
+                  <SearchableDropdownWithAdd
+                    options={getCounterOptions()}
+                    value={sharedData.counter_name}
+                    onChange={(value) => setSharedData(prev => ({ ...prev, counter_name: value }))}
+                    placeholder="Select Counter"
+                    disabled={loadingBranchesCounters}
+                    allowAdd={true}
+                    fieldType="counter"
+                    userInfo={userInfo}
+                    onAddNew={handleAddNewEntry}
+                    onOptionsUpdate={handleOptionsUpdate}
+                    tabIndex={13}
+                    inputStyle={{ height: '32px', minHeight: '32px', padding: '6px 28px 6px 8px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif' }}
+                  />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Box</label>
+                  <SearchableDropdown
+                    options={getBoxOptions()}
+                    value={sharedData.box_name}
+                    onChange={(v) => setSharedData(prev => ({ ...prev, box_name: v }))}
+                    placeholder="Select Box"
+                    disabled={loadingMasterData}
+                    tabIndex={14}
+                    hideArrow
+                    inputStyle={{ height: '32px', minHeight: '32px', padding: '6px 12px 6px 8px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif' }}
+                  />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Packet</label>
+                  <SearchableDropdown
+                    options={getPacketOptions()}
+                    value={sharedData.packet_name}
+                    onChange={(v) => setSharedData(prev => ({ ...prev, packet_name: v }))}
+                    placeholder="Select Packet"
+                    disabled={loadingMasterData}
+                    tabIndex={15}
+                    hideArrow
+                    inputStyle={{ height: '32px', minHeight: '32px', padding: '6px 12px 6px 8px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif' }}
+                  />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Quantity</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={addStockQuantity}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setAddStockQuantity(isNaN(v) || v < 1 ? 1 : v);
+                    }}
+                    placeholder="1"
+                    tabIndex={16}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                      height: '32px',
+                      minHeight: '32px',
+                      background: '#ffffff',
+                      color: '#1e293b',
+                      fontFamily: 'Inter, Poppins, sans-serif'
+                    }}
+                  />
                 </div>
               </div>
-              <div style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>
-                  Item Code (Must be Unique) <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  value={singleProduct.Itemcode}
-                  onChange={(e) => updateSingleField('Itemcode', e.target.value)}
-                  placeholder="e.g., SAU124"
-                  required
-                  tabIndex={11}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '12px',
-                    border: fieldErrors.Itemcode ? '1px solid #dc2626' : '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    height: '30px',
-                    minHeight: '30px',
-                    background: fieldErrors.Itemcode ? '#fef2f2' : '#f8fafc',
-                    color: '#1e293b',
-                    fontFamily: 'Inter, Poppins, sans-serif'
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = fieldErrors.Itemcode ? '#dc2626' : '#0077d4';
-                    e.target.style.background = fieldErrors.Itemcode ? '#fef2f2' : '#ffffff';
-                    e.target.style.boxShadow = fieldErrors.Itemcode 
-                      ? '0 0 0 3px rgba(220, 38, 38, 0.1)' 
-                      : '0 0 0 3px rgba(0, 119, 212, 0.1)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = fieldErrors.Itemcode ? '#dc2626' : '#f1f1f1';
-                    e.target.style.background = fieldErrors.Itemcode ? '#fef2f2' : '#f1f1f1';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      const nextInput = e.target.parentElement.nextElementSibling?.querySelector('input, select');
-                      if (nextInput) nextInput.focus();
-                    }
-                  }}
-                />
-                {fieldErrors.Itemcode && (
-                  <div style={{
-                    marginTop: '4px',
-                    fontSize: '12px',
-                    color: '#dc2626',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}>
-                    <FaExclamationTriangle style={{ fontSize: '12px' }} />
-                    <span>{fieldErrors.Itemcode}</span>
-                  </div>
-                )}
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Branch Name</label>
-                <SearchableDropdownWithAdd
-                  options={getBranchOptions()}
-                  value={sharedData.branch_name}
-                  onChange={(value) => setSharedData(prev => ({ ...prev, branch_name: value }))}
-                  placeholder="Select Branch"
-                  disabled={loadingBranchesCounters}
-                  allowAdd={true}
-                  fieldType="branch"
-                  userInfo={userInfo}
-                  onAddNew={handleAddNewEntry}
-                  onOptionsUpdate={handleOptionsUpdate}
-                  tabIndex={12}
-                  inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif' }}
-                />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Counter Name</label>
-                <SearchableDropdownWithAdd
-                  options={getCounterOptions()}
-                  value={sharedData.counter_name}
-                  onChange={(value) => setSharedData(prev => ({ ...prev, counter_name: value }))}
-                  placeholder="Select Counter"
-                  disabled={loadingBranchesCounters}
-                  allowAdd={true}
-                  fieldType="counter"
-                  userInfo={userInfo}
-                  onAddNew={handleAddNewEntry}
-                  onOptionsUpdate={handleOptionsUpdate}
-                  tabIndex={13}
-                  inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif' }}
-                />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Quantity</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={addStockQuantity}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    setAddStockQuantity(isNaN(v) || v < 1 ? 1 : v);
-                  }}
-                  placeholder="1"
-                  tabIndex={14}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                  fontSize: '12px', 
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    height: '30px',
-                    minHeight: '30px',
-                    background: '#f8fafc',
-                    color: '#1e293b',
-                    fontFamily: 'Inter, Poppins, sans-serif'
-                  }}
-                />
-              </div>
             </div>
-              </div>
 
-          {/* Product Details & Weights - 11 fields per row, 2 rows; Stone/Diamond after Status; responsive */}
-          <div style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
-            <h4 style={{ marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#232a36' }}>Product Details & Weights</h4>
+            {/* Right: Product Image */}
+            <div style={{ flex: '0 0 200px', minWidth: 180, display: 'flex', flexDirection: 'column', alignSelf: 'stretch' }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <FaImage style={{ fontSize: '12px', color: '#0077d4' }} />
+                Product Image (optional)
+              </div>
+              {singleProductImage ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#ffffff', flex: 1, minHeight: 0 }}>
+                  {singleProductImagePreview && (
+                    <img src={singleProductImagePreview} alt="Preview" style={{ width: '100%', maxWidth: 160, height: 120, objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0', alignSelf: 'center' }} />
+                  )}
+                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={singleProductImage.name}>{singleProductImage.name}</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <label style={{ padding: '5px 10px', fontSize: '11px', fontWeight: 600, border: '1px solid #0077d4', borderRadius: '6px', background: '#fff', color: '#0077d4', cursor: 'pointer' }}>
+                      Change
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; setSingleProductImage(f || null); e.target.value = ''; }} />
+                    </label>
+                    <button type="button" onClick={() => setSingleProductImage(null)} title="Remove image" style={{ width: '28px', height: '28px', padding: 0, border: '1px solid #fecaca', borderRadius: '6px', background: '#fff', color: '#dc2626', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FaTimes style={{ fontSize: '12px' }} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '16px 12px',
+                    border: '2px dashed #cbd5e1',
+                    borderRadius: '8px',
+                    background: '#ffffff',
+                    cursor: 'pointer',
+                    flex: 1,
+                    minHeight: 120,
+                    transition: 'border-color 0.2s, background 0.2s'
+                  }}
+                  className="addstock-image-dropzone"
+                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = '#0077d4'; e.currentTarget.style.background = '#eff6ff'; }}
+                  onDragLeave={(e) => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = '#ffffff'; }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                    e.currentTarget.style.background = '#ffffff';
+                    const f = e.dataTransfer.files?.[0];
+                    if (f && f.type.startsWith('image/')) setSingleProductImage(f);
+                  }}
+                >
+                  <FaUpload style={{ fontSize: '24px', color: '#94a3b8' }} />
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569', textAlign: 'center' }}>Drop image or click to upload</span>
+                  <span style={{ fontSize: '10px', color: '#64748b' }}>PNG, JPG up to 10MB</span>
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; setSingleProductImage(f || null); e.target.value = ''; }} />
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* Section 3: Product Details & Weights */}
+          <div style={{
+            marginBottom: '8px',
+            padding: '10px 12px',
+            background: '#f8fafc',
+            borderRadius: '8px',
+            border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '3px', height: '12px', borderRadius: '2px', background: '#0077d4' }} />
+              Product Details &amp; Weights
+            </div>
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(125px, 1fr))',
-              gap: '10px',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+              gap: '8px',
               alignItems: 'end'
             }}>
-              {/* Row 1: Category, Product, Design, Purity, Gross Wt, Stone Wt, Diamond Ht, Diamond Wt, Net Wt, Box Details, Size (11) */}
+              {/* Row 1: Category, Product, Design, Purity, Gross Wt, ... — tabIndex 17–31 so Tab goes Category → Product → Design → Purity → rest */}
               <div style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '3px' }}>Category <span style={{ color: '#dc2626' }}>*</span></label>
-                <SearchableDropdownWithAdd options={getCategoryOptions()} value={singleProduct.category_id} onChange={(v) => updateSingleField('category_id', v)} placeholder="Category" disabled={loadingMasterData} required allowAdd fieldType="category" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={14} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
+                <SearchableDropdownWithAdd options={getCategoryOptions()} value={singleProduct.category_id} onChange={(v) => updateSingleField('category_id', v)} placeholder="Category" disabled={loadingMasterData} required allowAdd fieldType="category" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={17} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '3px' }}>Product <span style={{ color: '#dc2626' }}>*</span></label>
-                <SearchableDropdownWithAdd options={getProductOptions()} value={singleProduct.product_id} onChange={(v) => updateSingleField('product_id', v)} placeholder="Product" disabled={loadingMasterData} required allowAdd fieldType="product" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={15} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
+                <SearchableDropdownWithAdd options={getProductOptions()} value={singleProduct.product_id} onChange={(v) => updateSingleField('product_id', v)} placeholder="Product" disabled={loadingMasterData} required allowAdd fieldType="product" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={18} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '3px' }}>Design</label>
-                <SearchableDropdownWithAdd options={getDesignOptions(singleProduct.product_id)} value={singleProduct.design_id} onChange={(v) => updateSingleField('design_id', v)} placeholder="Design" disabled={loadingMasterData} allowAdd fieldType="design" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={16} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
+                <SearchableDropdownWithAdd options={getDesignOptions(singleProduct.product_id)} value={singleProduct.design_id} onChange={(v) => updateSingleField('design_id', v)} placeholder="Design" disabled={loadingMasterData} allowAdd fieldType="design" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={19} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div style={{ minWidth: 0 }}>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '3px' }}>Purity</label>
-                <SearchableDropdownWithAdd options={getPurityOptions(singleProduct.category_id, singleProduct.product_id)} value={singleProduct.purity_id} onChange={(v) => updateSingleField('purity_id', v)} placeholder="Purity" disabled={loadingMasterData} allowAdd fieldType="purity" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={17} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
+                <SearchableDropdownWithAdd options={getPurityOptions(singleProduct.category_id, singleProduct.product_id)} value={singleProduct.purity_id} onChange={(v) => updateSingleField('purity_id', v)} placeholder="Purity" disabled={loadingMasterData} allowAdd fieldType="purity" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={20} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
               </div>
-              {['grosswt', 'stonewt', 'netwt', 'box_details', 'size'].map((key, i) => {
+              {((singleProduct.category_id || '').toLowerCase().includes('diamond')
+                ? ['grosswt', 'stonewt', 'diamondweight', 'netwt', 'box_details', 'size']
+                : ['grosswt', 'stonewt', 'netwt', 'box_details', 'size']
+              ).map((key, i) => {
                 const field = formFields.find(f => f.key === key);
-                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 18 + i)}</div> : null;
+                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 21 + i)}</div> : null;
               })}
-              {/* Row 2: Stone Amount, Hallmark, Making Per Gram, Making %, Making Fixed Amt, MRP - Status always ApiActive, not shown */}
+              {/* Row 2: Stone Amount, Hallmark, Making Per Gram, Making %, Making Fixed Amt, MRP */}
               {['stoneamount', 'HallmarkAmount', 'MakingPerGram', 'MakingPercentage', 'MakingFixedAmt', 'MRP'].map((key, i) => {
                 const field = formFields.find(f => f.key === key);
-                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 26 + i)}</div> : null;
+                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 27 + i)}</div> : null;
               })}
             </div>
-              </div>
+          </div>
 
-          {/* Stone section - below Product Details & Weights */}
-          <div style={{ marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
-            <h4 style={{ marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#232a36' }}>Stone</h4>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
-              <button type="button" tabIndex={35} onClick={() => { setStoneDiamondData({ type: 'stone', productIndex: null, addedRecordIndex: null }); setShowStoneDiamondModal(true); }} style={{ padding: '8px 20px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: '1px solid #fbbf24', background: '#fef3c7', color: '#92400e', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'Inter, Poppins, sans-serif' }}>💎 Stone</button>
+          {/* Section 4: Stone / Diamond */}
+          <div style={{
+            marginBottom: '8px',
+            padding: '10px 12px',
+            background: '#f8fafc',
+            borderRadius: '8px',
+            border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '3px', height: '12px', borderRadius: '2px', background: '#d97706' }} />
+              Stone / Diamond (optional)
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" tabIndex={35} onClick={() => { setStoneDiamondData({ type: 'stone', productIndex: null, addedRecordIndex: null }); setShowStoneDiamondModal(true); }} style={{ padding: '5px 10px', fontSize: '11px', fontWeight: 600, borderRadius: '6px', border: '1px solid #f59e0b', background: '#fffbeb', color: '#92400e', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'Inter, Poppins, sans-serif', minHeight: '28px' }}>
+                💎 Add Stone
+              </button>
+              {(singleProduct.category_id || '').toLowerCase().includes('diamond') && (
+                <button type="button" tabIndex={36} onClick={() => { setStoneDiamondData({ type: 'diamond', productIndex: null, addedRecordIndex: null }); setShowStoneDiamondModal(true); }} style={{ padding: '5px 10px', fontSize: '11px', fontWeight: 600, borderRadius: '6px', border: '1px solid #7c3aed', background: '#f5f3ff', color: '#5b21b6', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'Inter, Poppins, sans-serif', minHeight: '28px' }}>
+                  💎 Add Diamond
+                </button>
+              )}
             </div>
             {/* Show added stone data below buttons */}
             {singleProduct.stoneList && singleProduct.stoneList.length > 0 && (
-              <div style={{ marginTop: '12px', padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', fontWeight: 600, color: '#92400e', marginBottom: '6px' }}>💎 Stone details ({singleProduct.stoneList.length})</div>
+              <div style={{ marginTop: '8px', padding: '6px 8px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '10px', fontWeight: 600, color: '#92400e', marginBottom: '4px' }}>💎 Stone details ({singleProduct.stoneList.length})</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                   {singleProduct.stoneList.map((entry, idx) => (
                     <div key={`stone-${idx}`} style={{ fontSize: '11px', padding: '6px 10px', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d' }}>
@@ -4605,15 +5168,66 @@ const AddStock = () => {
                 </div>
               </div>
             )}
+            {/* Show added diamond data when category has diamond */}
+            {singleProduct.diamondList && singleProduct.diamondList.length > 0 && (
+              <div style={{ marginTop: '8px', padding: '6px 8px', background: '#f5f3ff', borderRadius: '6px', border: '1px solid #c4b5fd' }}>
+                <div style={{ fontSize: '10px', fontWeight: 600, color: '#5b21b6', marginBottom: '4px' }}>💎 Diamond details ({singleProduct.diamondList.length})</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {singleProduct.diamondList.map((entry, idx) => (
+                    <div key={`diamond-${idx}`} style={{ fontSize: '11px', padding: '6px 10px', background: '#ede9fe', borderRadius: '6px', border: '1px solid #a78bfa' }}>
+                      {entry.DiamondName && <span>{entry.DiamondName}</span>}
+                      {entry.DiamondWeight != null && entry.DiamondWeight !== '' && <span> · {entry.DiamondWeight}g</span>}
+                      {entry.DiamondPieces != null && entry.DiamondPieces !== '' && <span> · {entry.DiamondPieces} pcs</span>}
+                      {(!entry.DiamondName && (entry.DiamondWeight == null || entry.DiamondWeight === '') && (entry.DiamondPieces == null || entry.DiamondPieces === '')) && <span>Entry #{idx + 1}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+          {/* Images summary - when any image is attached */}
+          {(singleProductImage || addedRecordImages.some(Boolean)) && (
+            <div style={{ marginBottom: '8px', padding: '8px 10px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '11px', fontWeight: 600, color: '#1e40af' }}>
+                <FaImage style={{ fontSize: '12px' }} /> Images to be uploaded with stock
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                {singleProductImage && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #93c5fd' }}>
+                    {singleProductImagePreview && <img src={singleProductImagePreview} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: '4px' }} />}
+                    <span style={{ fontSize: '10px', fontWeight: 500, color: '#1e293b' }}>Current product</span>
+                  </div>
+                )}
+                {addedRecordImages.map((file, idx) => file && (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #93c5fd' }}>
+                    {addedRecordImagePreviews[idx] && <img src={addedRecordImagePreviews[idx]} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: '4px' }} />}
+                    <span style={{ fontSize: '10px', fontWeight: 500, color: '#1e293b' }}>Row {idx + 1}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Section 5: Actions */}
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            marginTop: '10px',
+            padding: '10px 12px',
+            background: '#ffffff',
+            borderRadius: '8px',
+            border: '1px solid #e2e8f0',
+            flexWrap: 'wrap'
+          }}>
             <button
               onClick={() => navigate('/label-stock')}
               tabIndex={100}
               style={{
-                padding: '8px 18px',
-                fontSize: '12px',
+                padding: '6px 12px',
+                fontSize: '11px',
                 fontWeight: 600,
                 borderRadius: '6px',
                 border: '1px solid #10b981',
@@ -4622,7 +5236,8 @@ const AddStock = () => {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '4px',
+                minHeight: '28px',
                 transition: 'all 0.2s ease',
                 fontFamily: 'Inter, Poppins, sans-serif'
               }}
@@ -4643,8 +5258,8 @@ const AddStock = () => {
               onClick={handleAddToRecordList}
               tabIndex={101}
               style={{
-                padding: '8px 18px',
-                fontSize: '12px',
+                padding: '6px 12px',
+                fontSize: '11px',
                 fontWeight: 600,
                 borderRadius: '6px',
                 border: 'none',
@@ -4653,10 +5268,11 @@ const AddStock = () => {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '4px',
+                minHeight: '28px',
                 transition: 'all 0.2s ease',
                 fontFamily: 'Inter, Poppins, sans-serif',
-                boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)'
+                boxShadow: '0 1px 3px rgba(16, 185, 129, 0.2)'
               }}
               onMouseEnter={(e) => {
                 e.target.style.background = '#059669';
@@ -4673,14 +5289,15 @@ const AddStock = () => {
               onClick={resetSingleForm}
               tabIndex={102}
               style={{
-                padding: '8px 18px',
-                fontSize: '12px',
+                padding: '6px 12px',
+                fontSize: '11px',
                 fontWeight: 600,
                 borderRadius: '6px',
                 border: '1px solid #e2e8f0',
                 background: '#ffffff',
                 color: '#64748b',
                 cursor: 'pointer',
+                minHeight: '28px',
                 transition: 'all 0.2s ease',
                 fontFamily: 'Inter, Poppins, sans-serif'
               }}
@@ -4701,14 +5318,15 @@ const AddStock = () => {
             <button
                 onClick={clearAddedRecords}
               style={{
-                  padding: '8px 18px',
-                  fontSize: '12px',
+                  padding: '6px 12px',
+                  fontSize: '11px',
                 fontWeight: 600,
                   borderRadius: '6px',
                   border: '1px solid #fecaca',
                   background: '#ffffff',
                   color: '#dc2626',
                   cursor: 'pointer',
+                  minHeight: '28px',
                   transition: 'all 0.2s ease',
                   fontFamily: 'Inter, Poppins, sans-serif'
                 }}
@@ -4729,8 +5347,8 @@ const AddStock = () => {
               disabled={loading || addedRecords.length === 0}
               tabIndex={103}
               style={{
-                padding: '8px 18px',
-                fontSize: '12px',
+                padding: '6px 14px',
+                fontSize: '11px',
                 fontWeight: 600,
                 borderRadius: '6px',
                 border: 'none',
@@ -4739,10 +5357,11 @@ const AddStock = () => {
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '4px',
+                minHeight: '28px',
                 transition: 'all 0.2s ease',
                 fontFamily: 'Inter, Poppins, sans-serif',
-                boxShadow: loading ? 'none' : '0 2px 4px rgba(0, 119, 212, 0.2)'
+                boxShadow: loading ? 'none' : '0 1px 3px rgba(0, 119, 212, 0.2)'
               }}
               onMouseEnter={(e) => {
                 if (!loading) {
@@ -4761,58 +5380,111 @@ const AddStock = () => {
             </button>
           </div>
 
-          {/* Why data was not added - validation messages below Add button */}
+          {/* Validation errors - shown when Add fails */}
           {addFormValidationErrors.length > 0 && (
             <div
               style={{
-                marginTop: '12px',
-                padding: '12px 14px',
+                marginTop: '8px',
+                padding: '8px 10px',
                 background: '#fef2f2',
                 border: '1px solid #fecaca',
                 borderRadius: '8px',
                 fontFamily: 'Inter, Poppins, sans-serif'
               }}
             >
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#b91c1c', marginBottom: '6px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#b91c1c', marginBottom: '4px' }}>
                 Data was not added because:
               </div>
-              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: '#991b1b', lineHeight: 1.6 }}>
+              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', color: '#991b1b', lineHeight: 1.5 }}>
                 {addFormValidationErrors.map((msg, i) => (
                   <li key={i}>{msg}</li>
                 ))}
               </ul>
-        </div>
-      )}
+            </div>
+          )}
 
-          {/* Added Records Table */}
-          {addedRecords.length > 0 && (
-            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
-              <h4 style={{ marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#232a36' }}>
-                Added Records ({addedRecords.length})
-              </h4>
-              <div style={{ overflowX: 'auto', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+          {/* Section 6: Added Records Table - paginated, sticky header, tablet-friendly for 500+ rows */}
+          {addedRecords.length > 0 && (() => {
+            const total = addedRecords.length;
+            const totalPages = Math.max(1, Math.ceil(total / recordsPageSize));
+            const start = (recordsPage - 1) * recordsPageSize;
+            const end = Math.min(start + recordsPageSize, total);
+            const pageRecords = addedRecords.slice(start, end);
+            return (
+            <div style={{
+              marginTop: '10px',
+              padding: '10px 12px',
+              background: '#f8fafc',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '3px', height: '12px', borderRadius: '2px', background: '#10b981' }} />
+                  Added Records ({total})
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>
+                    Show
+                    <select
+                      value={recordsPageSize}
+                      onChange={(e) => { setRecordsPageSize(Number(e.target.value)); setRecordsPage(1); }}
+                      style={{ margin: '0 4px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff' }}
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                    per page
+                  </span>
+                  <span style={{ fontSize: '11px', color: '#475569' }}>
+                    {start + 1}–{end} of {total}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={recordsPage <= 1}
+                    onClick={() => setRecordsPage(p => Math.max(1, p - 1))}
+                    style={{ padding: '4px 8px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', background: recordsPage <= 1 ? '#f1f5f9' : '#fff', cursor: recordsPage <= 1 ? 'not-allowed' : 'pointer', color: recordsPage <= 1 ? '#94a3b8' : '#475569' }}
+                  >
+                    Prev
+                  </button>
+                  <span style={{ fontSize: '11px', color: '#475569' }}>Page {recordsPage} of {totalPages}</span>
+                  <button
+                    type="button"
+                    disabled={recordsPage >= totalPages}
+                    onClick={() => setRecordsPage(p => Math.min(totalPages, p + 1))}
+                    style={{ padding: '4px 8px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', background: recordsPage >= totalPages ? '#f1f5f9' : '#fff', cursor: recordsPage >= totalPages ? 'not-allowed' : 'pointer', color: recordsPage >= totalPages ? '#94a3b8' : '#475569' }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+              <div className="addstock-table-wrap" style={{ overflowX: 'auto', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#ffffff', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
                   <thead>
-                    <tr style={{ background: '#e2e8f0', borderBottom: '1px solid #cbd5e1' }}>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Sr.No.</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>RFID Code</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Item Code</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Branch (From)</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Counter (From)</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Category</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Product</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Design</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Gross Wt</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Stones</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Net Wt</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>MRP</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'center', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Stone / Diamond</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'center', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Action</th>
+                    <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>#</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>RFID</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Item Code</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Branch</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Counter</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Category</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Product</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Design</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Gross Wt</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Stones</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Dia</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Net Wt</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', fontSize: '11px' }}>MRP</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Image</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Stone / Diamond</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 600, color: '#475569', fontSize: '11px' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {addedRecords.map((record, index) => {
-                      const rowTid = addedRecordTids[index] || { tid: null, loading: false };
+                    {pageRecords.map((record, idx) => {
+                      const realIndex = start + idx;
+                      const rowTid = addedRecordTids[realIndex] || { tid: null, loading: false };
                       const rfidTrim = (record.RFIDNumber || '').trim();
                       const hasRfidMoreThan4 = rfidTrim.length > 4;
                       const showTidPresent = rowTid.tid != null;
@@ -4822,16 +5494,18 @@ const AddStock = () => {
                       const rfidReadOnly = false;
                       const recordCategory = (record.category_id || '').toLowerCase();
                       const canAddDiamond = recordCategory.includes('diamond');
+                      const stoneList = Array.isArray(record.stoneList) ? record.stoneList : [];
+                      const diamondList = Array.isArray(record.diamondList) ? record.diamondList : [];
                       return (
-                      <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', background: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{index + 1}</td>
-                        <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>
+                      <tr key={realIndex} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                        <td style={{ padding: '6px 8px', color: '#1e293b', fontSize: '11px', fontWeight: 500 }}>{realIndex + 1}</td>
+                        <td style={{ padding: '4px 8px', verticalAlign: 'middle' }}>
                           <input
                             type="text"
                             value={record.RFIDNumber || ''}
                             readOnly={rfidReadOnly}
-                            onChange={(e) => !rfidReadOnly && updateAddedRecordField(index, 'RFIDNumber', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-                            onBlur={() => { if ((record.RFIDNumber || '').trim().length > 4) fetchTidForAddedRecord(index, record.RFIDNumber); }}
+                            onChange={(e) => !rfidReadOnly && updateAddedRecordField(realIndex, 'RFIDNumber', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                            onBlur={() => { if ((record.RFIDNumber || '').trim().length > 4) fetchTidForAddedRecord(realIndex, record.RFIDNumber); }}
                             placeholder="RFID"
                             style={{
                               width: '100%',
@@ -4852,7 +5526,7 @@ const AddStock = () => {
                           <input
                             type="text"
                             value={record.Itemcode || ''}
-                            onChange={(e) => updateAddedRecordField(index, 'Itemcode', e.target.value)}
+                            onChange={(e) => updateAddedRecordField(realIndex, 'Itemcode', e.target.value)}
                             placeholder="Item Code"
                             style={{
                               width: '100%',
@@ -4868,60 +5542,106 @@ const AddStock = () => {
                             }}
                           />
                         </td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>
-                          {sharedData.branch_name || <span style={{ color: '#94a3b8' }}>Select Branch above</span>}
+                        <td style={{ padding: '6px 8px', color: '#1e293b', fontSize: '11px' }}>{sharedData.branch_name || <span style={{ color: '#94a3b8' }}>—</span>}</td>
+                        <td style={{ padding: '6px 8px', color: '#1e293b', fontSize: '11px' }}>{sharedData.counter_name || <span style={{ color: '#94a3b8' }}>—</span>}</td>
+                        <td style={{ padding: '6px 8px', color: '#1e293b', fontSize: '11px' }}>{record.category_id}</td>
+                        <td style={{ padding: '6px 8px', color: '#1e293b', fontSize: '11px' }}>{record.product_id}</td>
+                        <td style={{ padding: '6px 8px', color: '#1e293b', fontSize: '11px' }}>{record.design_id}</td>
+                        <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={record.grosswt ?? ''}
+                            onChange={(e) => updateAddedRecordField(realIndex, 'grosswt', e.target.value)}
+                            placeholder="Gross"
+                            style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
+                          />
                         </td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>
-                          {sharedData.counter_name || <span style={{ color: '#94a3b8' }}>Select Counter above</span>}
+                        <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={record.stonewt ?? ''}
+                            onChange={(e) => updateAddedRecordField(realIndex, 'stonewt', e.target.value)}
+                            placeholder="Stone"
+                            style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
+                          />
                         </td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.category_id}</td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.product_id}</td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.design_id}</td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.grosswt}</td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.stonewt || record.stoneamount || '-'}</td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.diamondweight || record.diamondAmount || '-'}</td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.netwt}</td>
-                        <td style={{ padding: '6px 10px', color: '#1e293b', fontSize: '11px' }}>{record.MRP}</td>
+                        <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={record.diamondweight ?? ''}
+                            onChange={(e) => updateAddedRecordField(realIndex, 'diamondweight', e.target.value)}
+                            placeholder="Dia"
+                            style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={record.netwt ?? ''}
+                            onChange={(e) => updateAddedRecordField(realIndex, 'netwt', e.target.value)}
+                            placeholder="Net"
+                            style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px', verticalAlign: 'middle' }}>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={record.MRP ?? ''}
+                            onChange={(e) => updateAddedRecordField(realIndex, 'MRP', e.target.value)}
+                            placeholder="MRP"
+                            style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                          {addedRecordImages[realIndex] ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                              {addedRecordImagePreviews[realIndex] && (
+                                <img src={addedRecordImagePreviews[realIndex]} alt="" style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }} title={addedRecordImages[realIndex].name} />
+                              )}
+                              <span style={{ fontSize: '9px', color: '#64748b', maxWidth: 56, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={addedRecordImages[realIndex].name}>{addedRecordImages[realIndex].name}</span>
+                              <div style={{ display: 'flex', gap: '2px' }}>
+                                <button type="button" onClick={() => setAddedRecordImages(prev => { const n = [...prev]; n[realIndex] = null; return n; })} title="Remove" style={{ padding: '2px 4px', fontSize: '9px', border: 'none', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', borderRadius: '2px' }}>×</button>
+                                <label style={{ padding: '2px 4px', fontSize: '9px', border: '1px solid #0077d4', borderRadius: '2px', background: '#fff', color: '#0077d4', cursor: 'pointer' }}>Change<input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; setAddedRecordImages(prev => { const n = [...prev]; n[realIndex] = f || null; return n; }); e.target.value = ''; }} /></label>
+                              </div>
+                            </div>
+                          ) : (
+                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', fontSize: '10px', border: '1px dashed #94a3b8', borderRadius: '4px', background: '#f8fafc', cursor: 'pointer', color: '#64748b' }}>
+                              <FaUpload style={{ fontSize: '10px' }} /> Upload
+                              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; setAddedRecordImages(prev => { const n = [...prev]; n[realIndex] = f || null; return n; }); e.target.value = ''; }} />
+                            </label>
+                          )}
+                        </td>
                         <td style={{ padding: '4px 6px', textAlign: 'center', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                            <button
-                              type="button"
-                              onClick={() => { setStoneDiamondData({ type: 'stone', productIndex: null, addedRecordIndex: index }); setShowStoneDiamondModal(true); }}
-                              style={{ padding: '4px 8px', fontSize: '10px', fontWeight: 600, borderRadius: '4px', border: '1px solid #fbbf24', background: '#fef3c7', color: '#92400e', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                            >
-                              💎 Stone
-                            </button>
-                            {canAddDiamond && (
-                              <button
-                                type="button"
-                                onClick={() => { setStoneDiamondData({ type: 'diamond', productIndex: null, addedRecordIndex: index }); setShowStoneDiamondModal(true); }}
-                                style={{ padding: '4px 8px', fontSize: '10px', fontWeight: 600, borderRadius: '4px', border: '1px solid #60a5fa', background: '#dbeafe', color: '#1e40af', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                              >
-                                💠 Diamond
-                              </button>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                            {(stoneList.length > 0 || diamondList.length > 0) && (
+                              <div style={{ fontSize: '9px', color: '#475569', display: 'flex', flexWrap: 'wrap', gap: '2px', justifyContent: 'center' }}>
+                                {stoneList.length > 0 && <span style={{ padding: '2px 4px', background: '#fef3c7', borderRadius: '4px', color: '#92400e' }}>💎 {stoneList.length}</span>}
+                                {diamondList.length > 0 && <span style={{ padding: '2px 4px', background: '#dbeafe', borderRadius: '4px', color: '#1e40af' }}>💠 {diamondList.length}</span>}
+                              </div>
                             )}
+                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                              <button type="button" onClick={() => { setStoneDiamondData({ type: 'stone', productIndex: null, addedRecordIndex: realIndex }); setShowStoneDiamondModal(true); }} style={{ padding: '4px 8px', fontSize: '10px', fontWeight: 600, borderRadius: '4px', border: '1px solid #fbbf24', background: '#fef3c7', color: '#92400e', cursor: 'pointer', whiteSpace: 'nowrap' }}>💎 Stone</button>
+                              {canAddDiamond && (
+                                <button type="button" onClick={() => { setStoneDiamondData({ type: 'diamond', productIndex: null, addedRecordIndex: realIndex }); setShowStoneDiamondModal(true); }} style={{ padding: '4px 8px', fontSize: '10px', fontWeight: 600, borderRadius: '4px', border: '1px solid #60a5fa', background: '#dbeafe', color: '#1e40af', cursor: 'pointer', whiteSpace: 'nowrap' }}>💠 Diamond</button>
+                              )}
+                            </div>
                           </div>
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                           <button
-                            onClick={() => handleRemoveFromRecordList(index)}
-                            style={{
-                              padding: '4px 10px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              borderRadius: '6px',
-                              border: '1px solid #ef4444',
-                              background: '#ffffff',
-                              color: '#ef4444',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                            onMouseEnter={(e) => { e.target.style.background = '#ef4444'; e.target.style.color = '#ffffff'; }}
-                            onMouseLeave={(e) => { e.target.style.background = '#ffffff'; e.target.style.color = '#ef4444'; }}
+                            type="button"
+                            onClick={() => handleRemoveFromRecordList(realIndex)}
+                            title="Remove row"
+                            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#fecaca'; e.currentTarget.style.color = '#dc2626'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#64748b'; }}
                           >
-                            <FaTrash /> Remove
+                            <FaTrash style={{ fontSize: '11px' }} />
                           </button>
                         </td>
                       </tr>
@@ -4930,7 +5650,8 @@ const AddStock = () => {
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
         </div>
 
           {/* Multiple Entry Mode - REMOVED - unified into single flow above */}
@@ -6840,7 +7561,7 @@ const AddStock = () => {
                               {excelColumns.map((column, idx) => {
                                 const isSelected = selectedValue === column;
                                 const isUsedByOther = usedColumns.includes(column) && !isSelected;
-                                
+                                const displayLabel = getColumnDisplayLabel(column);
                                 return (
                                   <option
                                     key={idx}
@@ -6851,7 +7572,7 @@ const AddStock = () => {
                                       color: isUsedByOther ? '#94a3b8' : '#1e293b'
                                     }}
                                   >
-                                    {column} {isSelected ? '✓' : ''}
+                                    {displayLabel} {isSelected ? '✓' : ''}
                                   </option>
                                 );
                               })}
@@ -6862,17 +7583,20 @@ const AddStock = () => {
                     </div>
                   </div>
 
-                  {/* Stone Fields */}
+                  {/* Stone Fields - single template: map once; "Stone Name 2", "Stone Name 3" in Excel auto-map to 2nd, 3rd stone */}
                   <div style={{ marginBottom: '20px' }}>
                     <h5 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 600, color: '#f59e0b', borderBottom: '2px solid #f59e0b', paddingBottom: '6px' }}>
                       Stone Details (Optional)
                     </h5>
+                    <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#64748b' }}>
+                      Map once. If your Excel has columns like &quot;Stone Name 2&quot;, &quot;Stone Weight 2&quot;, they map to 2nd stone automatically (same for 3rd, 4th…).
+                    </p>
                     <div style={{ 
                       display: 'grid', 
                       gridTemplateColumns: windowWidth <= 480 ? 'repeat(1, 1fr)' : windowWidth <= 768 ? 'repeat(2, 1fr)' : windowWidth <= 1024 ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', 
                       gap: '12px'
                     }}>
-                      {formFields.filter(field => field.group === 'stone').map(field => {
+                      {stoneTemplateFields.map(field => {
                         const selectedValue = fieldMappings[field.key] || '';
                         const usedColumns = Object.values(fieldMappings).filter(Boolean);
                         const isMapped = !!selectedValue;
@@ -6926,7 +7650,7 @@ const AddStock = () => {
                               {excelColumns.map((column, idx) => {
                                 const isSelected = selectedValue === column;
                                 const isUsedByOther = usedColumns.includes(column) && !isSelected;
-                                
+                                const displayLabel = getColumnDisplayLabel(column);
                                 return (
                                   <option
                                     key={idx}
@@ -6937,7 +7661,7 @@ const AddStock = () => {
                                       color: isUsedByOther ? '#94a3b8' : '#1e293b'
                                     }}
                                   >
-                                    {column} {isSelected ? '✓' : ''}
+                                    {displayLabel} {isSelected ? '✓' : ''}
                                   </option>
                                 );
                               })}
@@ -6948,17 +7672,20 @@ const AddStock = () => {
                     </div>
                   </div>
 
-                  {/* Diamond Fields */}
+                  {/* Diamond Fields - single template: map once; "Diamond Name 2", etc. auto-map to 2nd, 3rd diamond */}
                   <div style={{ marginBottom: '20px' }}>
                     <h5 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 600, color: '#8b5cf6', borderBottom: '2px solid #8b5cf6', paddingBottom: '6px' }}>
                       Diamond Details (Optional)
                     </h5>
+                    <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#64748b' }}>
+                      Map once. Columns like &quot;Diamond Name 2&quot;, &quot;Diamond Weight 2&quot; in Excel map to 2nd diamond automatically.
+                    </p>
                     <div style={{ 
                       display: 'grid', 
                       gridTemplateColumns: windowWidth <= 480 ? 'repeat(1, 1fr)' : windowWidth <= 768 ? 'repeat(2, 1fr)' : windowWidth <= 1024 ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', 
                       gap: '12px'
                     }}>
-                      {formFields.filter(field => field.group === 'diamond').map(field => {
+                      {diamondTemplateFields.map(field => {
                         const selectedValue = fieldMappings[field.key] || '';
                         const usedColumns = Object.values(fieldMappings).filter(Boolean);
                         const isMapped = !!selectedValue;

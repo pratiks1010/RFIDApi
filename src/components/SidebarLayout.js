@@ -63,6 +63,7 @@ const SidebarLayout = ({ children }) => {
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupError, setBackupError] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [rfidPlanInfo, setRfidPlanInfo] = useState(null);
 
   const notificationsRef = useRef(null);
 
@@ -75,7 +76,7 @@ const SidebarLayout = ({ children }) => {
   // Section 1: Inventory Management
   const inventorySession = [
     { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
-    // { path: '/create-masters', icon: FaLayerGroup, label: 'Create Masters', color: '#7c3aed', section: 'Inventory Management' },
+     { path: '/create-masters', icon: FaLayerGroup, label: 'Create Masters', color: '#7c3aed', section: 'Inventory Management' },
     { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management' },
     { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
     { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management' },
@@ -119,6 +120,23 @@ const SidebarLayout = ({ children }) => {
     } catch (err) {
       setUserInfo({});
     }
+  }, []);
+
+  useEffect(() => {
+    const fetchMyPlan = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const response = await axios.get(
+          'https://soni.loyalstring.co.in/api/ProductMaster/GetMyRFIDPlan',
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setRfidPlanInfo(response?.data || null);
+      } catch (_) {
+        setRfidPlanInfo(null);
+      }
+    };
+    fetchMyPlan();
   }, []);
 
   useEffect(() => {
@@ -291,6 +309,18 @@ const SidebarLayout = ({ children }) => {
   const username = userInfo.Username || userInfo.UserName || userInfo.name || 'User';
   const tcode = userInfo.TCode || userInfo.tcode || userInfo.TCODE || '';
   const avatarLetter = username ? username[0].toUpperCase() : 'U';
+  const planName = (rfidPlanInfo?.PlanName || '').trim();
+  const planExpiryRaw = rfidPlanInfo?.PlanExpiryDate;
+  const formattedPlanExpiry = (() => {
+    if (!planExpiryRaw) return '';
+    const parsed = new Date(planExpiryRaw);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  })();
 
   const sidebarWidth = sidebarOpen
     ? (isMobile ? '280px' : (sidebarCollapsed ? '72px' : '220px'))
@@ -445,6 +475,12 @@ const SidebarLayout = ({ children }) => {
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }}></span>
                     {clientCode}
                   </div>
+                  {(planName || formattedPlanExpiry) && (
+                    <div style={{ fontSize: 9, color: '#7c3aed', fontWeight: 700, marginTop: 2, lineHeight: 1.25 }}>
+                      {planName ? `Plan: ${planName}` : ''}
+                      {formattedPlanExpiry ? `${planName ? ' • ' : ''}Exp: ${formattedPlanExpiry}` : ''}
+                    </div>
+                  )}
                 </div>
               )}
             </button>
@@ -740,7 +776,7 @@ const SidebarLayout = ({ children }) => {
             paddingLeft: isMobile ? 12 : 20,
             paddingRight: isMobile ? 12 : 20,
             minHeight: '100vh',
-            background: '#f9fafb',
+            background: '#ffffff',
             width: '100%',
             boxSizing: 'border-box',
             overflowX: 'auto',

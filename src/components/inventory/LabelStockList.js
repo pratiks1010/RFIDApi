@@ -60,14 +60,15 @@ const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
 const DEFAULT_PAGE_SIZE = 500;
 const IMAGE_BASE_URL = 'https://rrgold.loyalstring.co.in/';
 
-/** Get display image URL for an item: from API "Images" (comma-separated paths) or Image1/imageurl/ImageUrl */
+/** Get display image URL for an item: from API "Images" (comma-separated paths) use last image, or Image1/imageurl/ImageUrl */
 const getItemImageUrl = (item) => {
   if (!item) return null;
   if (item.Images && typeof item.Images === 'string') {
-    const firstPath = item.Images.split(',')[0]?.trim();
-    if (firstPath) {
+    const paths = item.Images.split(',').map((s) => s.trim()).filter(Boolean);
+    const lastPath = paths.length > 0 ? paths[paths.length - 1] : null;
+    if (lastPath) {
       const base = IMAGE_BASE_URL.replace(/\/$/, '');
-      const path = firstPath.replace(/^\//, '');
+      const path = lastPath.replace(/^\//, '');
       return `${base}/${path}`;
     }
   }
@@ -409,7 +410,7 @@ const LabelStockList = () => {
           FixedWastage: item.MakingFixedWastage !== undefined && item.MakingFixedWastage !== null ? item.MakingFixedWastage : (item.FixedWastage || ''),
           FixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.FixedAmt || ''),
           // Map other fields that might have different names
-          CounterName: item.CounterName || '',
+          CounterName: item.CounterName || item.Counter || item.counter_id || item.CounterId || item.counterId || '',
           BoxName: item.BoxName || '',
           Vendor: item.VendorName || item.Vendor || '',
           Branch: item.BranchName || item.Branch || '',
@@ -785,7 +786,7 @@ const LabelStockList = () => {
           FixedWastage: item.MakingFixedWastage !== undefined && item.MakingFixedWastage !== null ? item.MakingFixedWastage : (item.FixedWastage || ''),
           FixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.FixedAmt || ''),
           // Map other fields that might have different names
-          CounterName: item.CounterName || '',
+          CounterName: item.CounterName || item.Counter || item.counter_id || item.CounterId || item.counterId || '',
           BoxName: item.BoxName || '',
           Vendor: item.VendorName || item.Vendor || '',
           Branch: item.BranchName || item.Branch || '',
@@ -1101,7 +1102,7 @@ const LabelStockList = () => {
         labelData.BranchName = item.BranchName || item.Branch || '';
       }
       if (!labelData.CounterName || labelData.CounterName === '' || labelData.CounterName === null) {
-        labelData.CounterName = item.CounterName || item.Counter || '';
+        labelData.CounterName = item.CounterName || item.Counter || item.counter_id || item.CounterId || item.counterId || '';
       }
       if (!labelData.MRP || labelData.MRP === '' || labelData.MRP === null) {
         labelData.MRP = item.MRP || '';
@@ -2696,7 +2697,7 @@ const LabelStockList = () => {
           labelData.BranchName = item.BranchName || item.Branch || '';
         }
         if (!labelData.CounterName || labelData.CounterName === '' || labelData.CounterName === null) {
-          labelData.CounterName = item.CounterName || item.Counter || '';
+          labelData.CounterName = item.CounterName || item.Counter || item.counter_id || item.CounterId || item.counterId || '';
         }
         if (!labelData.MRP || labelData.MRP === '' || labelData.MRP === null) {
           labelData.MRP = item.MRP || '';
@@ -3265,7 +3266,8 @@ const LabelStockList = () => {
     { key: 'DiamondWt', label: 'Diamond Wt', width: '90px' },
     { key: 'NetWt', label: 'Net Wt', width: '85px' },
     { key: 'Vendor', label: 'Vendor', width: '100px' },
-    { key: 'Branch', label: 'Branch', width: '100px' }
+    { key: 'Branch', label: 'Branch', width: '100px' },
+    { key: 'BoxName', label: 'Box', width: '90px' }
   ];
 
   const generateAndShowReport = () => {
@@ -3784,7 +3786,7 @@ const LabelStockList = () => {
 
   /* product details moved to ProductDetailsPage - navigate to /product-details with state: { product, apiFilterData } */
   return (
-    <div className="container-fluid p-3" style={{ position: 'relative' }}>
+    <div className="container-fluid p-3" style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <SuccessNotification
         title={successMessage.title}
         message={successMessage.message}
@@ -3792,7 +3794,7 @@ const LabelStockList = () => {
         onClose={() => setShowSuccess(false)}
       />
 
-      <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div style={{ fontFamily: 'Inter, system-ui, sans-serif', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Unified Header & Action Section - Sticky */}
         <div
           role="banner"
@@ -4253,6 +4255,7 @@ const LabelStockList = () => {
             </div>
           </div>
 
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {showReportView && (
           <div style={{
             background: '#fff',
@@ -4470,14 +4473,25 @@ const LabelStockList = () => {
           marginTop: '16px',
           boxShadow: isGridView ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
           border: isGridView ? 'none' : '1px solid #e5e7eb',
-          overflow: isGridView ? 'visible' : 'visible',
+          overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          height: isGridView ? 'auto' : 'calc(100vh - 280px)',
-          minHeight: isGridView ? 'auto' : '400px'
+          flex: 1,
+          minHeight: 0,
+          maxHeight: 'calc(100vh - 320px)'
         }}>
           {isGridView ? (
-            <div className="product-grid">
+            <div
+              className="grid-scroll-container"
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                paddingRight: 4
+              }}
+            >
+              <div className="product-grid">
               {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item) => {
                 const imgUrl = getItemImageUrl(item);
                 const isSelected = selectedRows.includes(item.Id);
@@ -4511,7 +4525,7 @@ const LabelStockList = () => {
                         <button
                           type="button"
                           className="product-card__action product-card__action--view"
-                          onClick={(e) => { e.stopPropagation(); navigate('/product-details', { state: { product: item, apiFilterData } }); }}
+                          onClick={(e) => { e.stopPropagation(); navigate('/product-details', { state: { product: item, apiFilterData, labelStockList: (showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems) } }); }}
                           title="View Details"
                         >
                           <FaEye size={14} />
@@ -4551,18 +4565,19 @@ const LabelStockList = () => {
                   </article>
                 );
               })}
+              </div>
             </div>
           ) : (
             <div
               className="table-scroll-container"
               style={{
                 overflowX: 'auto',
-                overflowY: 'scroll',
+                overflowY: 'auto',
                 width: '100%',
                 maxWidth: '100%',
                 position: 'relative',
-                height: '100%',
                 flex: 1,
+                minHeight: 0,
                 scrollbarWidth: 'thin',
                 scrollbarColor: '#888 #f1f1f1'
               }}>
@@ -4570,7 +4585,7 @@ const LabelStockList = () => {
                 width: '100%',
                 minWidth: '1400px',
                 borderCollapse: 'collapse',
-                fontSize: '12px',
+                fontSize: '11px',
                 tableLayout: 'auto'
               }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -4579,10 +4594,10 @@ const LabelStockList = () => {
                     borderBottom: '2px solid #e5e7eb'
                   }}>
                     <th style={{
-                      padding: '12px',
+                      padding: '6px 8px',
                       textAlign: 'center',
                       width: '40px',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       fontWeight: 600,
                       color: '#475569'
                     }}>
@@ -4607,9 +4622,9 @@ const LabelStockList = () => {
                         <th
                           key={column.key}
                           style={{
-                            padding: '10px 8px',
+                            padding: '6px 8px',
                             textAlign: 'left',
-                            fontSize: '12px',
+                            fontSize: '11px',
                             fontWeight: 600,
                             color: '#475569',
                             whiteSpace: 'nowrap',
@@ -4641,9 +4656,9 @@ const LabelStockList = () => {
                         </th>
                       ))}
                     <th style={{
-                      padding: '10px 8px',
+                      padding: '6px 8px',
                       textAlign: 'center',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       fontWeight: 600,
                       color: '#475569',
                       whiteSpace: 'nowrap',
@@ -4656,9 +4671,9 @@ const LabelStockList = () => {
                       borderLeft: '1px solid #e5e7eb'
                     }}>View</th>
                     <th style={{
-                      padding: '10px 8px',
+                      padding: '6px 8px',
                       textAlign: 'center',
-                      fontSize: '12px',
+                      fontSize: '11px',
                       fontWeight: 600,
                       color: '#475569',
                       whiteSpace: 'nowrap',
@@ -4708,9 +4723,9 @@ const LabelStockList = () => {
                       }}
                     >
                       <td style={{
-                        padding: '12px',
+                        padding: '6px 8px',
                         textAlign: 'center',
-                        fontSize: '12px'
+                        fontSize: '11px'
                       }}>
                         <input
                           type="checkbox"
@@ -4719,16 +4734,16 @@ const LabelStockList = () => {
                           onClick={(e) => e.stopPropagation()}
                           style={{
                             cursor: 'pointer',
-                            width: '16px',
-                            height: '16px',
+                            width: '14px',
+                            height: '14px',
                             accentColor: '#4f46e5'
                           }}
                         />
                       </td>
                       {columns.map(column => (
                         <td key={column.key} style={{
-                          padding: '10px 8px',
-                          fontSize: '12px',
+                          padding: '6px 8px',
+                          fontSize: '11px',
                           color: '#1e293b',
                           whiteSpace: 'nowrap'
                         }}>
@@ -4746,7 +4761,7 @@ const LabelStockList = () => {
                       ))}
                       {/* View Details Button */}
                       <td style={{
-                        padding: '8px 4px',
+                        padding: '4px',
                         textAlign: 'center',
                         position: 'sticky',
                         right: '50px',
@@ -4763,11 +4778,11 @@ const LabelStockList = () => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate('/product-details', { state: { product: item, apiFilterData } });
+                            navigate('/product-details', { state: { product: item, apiFilterData, labelStockList: (showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems) } });
                           }}
                           style={{
-                            width: '32px',
-                            height: '32px',
+                            width: '28px',
+                            height: '28px',
                             padding: 0,
                             borderRadius: '6px',
                             border: 'none',
@@ -4791,12 +4806,12 @@ const LabelStockList = () => {
                           }}
                           title="View Product Details"
                         >
-                          <FaEye size={14} />
+                          <FaEye size={12} />
                         </button>
                       </td>
                       {/* Print Label Button */}
                       <td style={{
-                        padding: '8px 4px',
+                        padding: '4px',
                         textAlign: 'center',
                         position: 'sticky',
                         right: 0,
@@ -4817,8 +4832,8 @@ const LabelStockList = () => {
                           }}
                           disabled={!selectedTemplate || previewLoading}
                           style={{
-                            width: '32px',
-                            height: '32px',
+                            width: '28px',
+                            height: '28px',
                             padding: 0,
                             borderRadius: '6px',
                             border: 'none',
@@ -4847,9 +4862,9 @@ const LabelStockList = () => {
                           title={!selectedTemplate ? "Please select a template first" : "Print Label"}
                         >
                           {previewLoading ? (
-                            <FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={14} />
+                            <FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={12} />
                           ) : (
-                            <FaPrint size={14} />
+                            <FaPrint size={12} />
                           )}
                         </button>
                       </td>
@@ -4860,15 +4875,18 @@ const LabelStockList = () => {
             </div>
           )}
 
-          {/* Pagination */}
-          <div style={{
+          {/* Pagination - always visible below table */}
+          <div className="label-stock-pagination" style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             padding: '16px 20px',
             borderTop: '1px solid #e5e7eb',
             flexWrap: 'wrap',
-            gap: '12px'
+            gap: '12px',
+            flexShrink: 0,
+            background: '#ffffff',
+            borderRadius: '0 0 12px 12px'
           }}>
             <div style={{
               display: 'flex',
@@ -5091,6 +5109,7 @@ const LabelStockList = () => {
               </div>
             )}
           </div>
+        </div>
         </div>
         </div>
 
@@ -5784,10 +5803,29 @@ const LabelStockList = () => {
           .table-scroll-container {
             scrollbar-width: thin !important;
             scrollbar-color: #888 #f1f1f1 !important;
-            overflow-y: scroll !important;
             overflow-x: auto !important;
           }
+          .table-scroll-container {
+            overflow-y: auto !important;
+            min-height: 0 !important;
+          }
+          .grid-scroll-container {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            min-height: 0 !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: #888 #f1f1f1 !important;
+          }
+          .data-display-container {
+            display: flex !important;
+            flex-direction: column !important;
+          }
+          .label-stock-pagination {
+            flex-shrink: 0 !important;
+            min-height: 52px;
+          }
           .data-display-container > div::-webkit-scrollbar,
+          .grid-scroll-container::-webkit-scrollbar,
           .table-scroll-container::-webkit-scrollbar {
             width: 12px !important;
             height: 12px !important;
@@ -5795,12 +5833,14 @@ const LabelStockList = () => {
             display: block !important;
           }
           .data-display-container > div::-webkit-scrollbar-track,
+          .grid-scroll-container::-webkit-scrollbar-track,
           .table-scroll-container::-webkit-scrollbar-track {
             background: #f1f1f1 !important;
             border-radius: 6px !important;
             -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.1) !important;
           }
           .data-display-container > div::-webkit-scrollbar-thumb,
+          .grid-scroll-container::-webkit-scrollbar-thumb,
           .table-scroll-container::-webkit-scrollbar-thumb {
             background: #888 !important;
             border-radius: 6px !important;
@@ -5808,10 +5848,12 @@ const LabelStockList = () => {
             -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.3) !important;
           }
           .data-display-container > div::-webkit-scrollbar-thumb:hover,
+          .grid-scroll-container::-webkit-scrollbar-thumb:hover,
           .table-scroll-container::-webkit-scrollbar-thumb:hover {
             background: #555 !important;
           }
           .data-display-container > div::-webkit-scrollbar-corner,
+          .grid-scroll-container::-webkit-scrollbar-corner,
           .table-scroll-container::-webkit-scrollbar-corner {
             background: #f1f1f1 !important;
           }

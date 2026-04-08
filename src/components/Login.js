@@ -4,6 +4,75 @@ import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
+import { getAuthLoginUrl } from '../services/authApiConfig';
+import {
+  createFingerprintChallenge,
+  verifyLogin,
+  completeFingerprintLogin,
+  captureRdFingerprint,
+  getRdDeviceInfo,
+} from '../services/fingerprintAuthService';
+import {
+  fetchPasskeyLoginOptions,
+  verifyPasskeyLogin,
+  toPublicKeyRequestOptions,
+  extractJwtFromLoginPayload,
+} from '../services/passkeyAuthService';
+
+const modalOverlayStyle = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(15, 23, 42, 0.38)',
+  zIndex: 9998,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 16,
+  backdropFilter: 'blur(5px)',
+};
+
+const modalCardStyle = {
+  width: '100%',
+  maxWidth: 428,
+  background: '#fff',
+  borderRadius: 18,
+  border: '1px solid #e8eef7',
+  boxShadow: '0 24px 52px rgba(15, 23, 42, 0.14)',
+  padding: 22,
+};
+
+const modalInputStyle = {
+  width: '100%',
+  border: '1px solid #d5deeb',
+  borderRadius: 11,
+  padding: '11px 13px',
+  marginBottom: 12,
+  fontSize: '0.88rem',
+  outline: 'none',
+  transition: 'border-color 0.2s, box-shadow 0.2s',
+};
+
+const modalBtnPrimary = {
+  border: 'none',
+  background: 'linear-gradient(135deg, #0d9488 0%, #6366f1 100%)',
+  color: '#fff',
+  borderRadius: 11,
+  padding: '10px 16px',
+  fontWeight: 700,
+  cursor: 'pointer',
+  fontSize: '0.85rem',
+};
+
+const modalBtnGhost = {
+  border: '1px solid #d5deeb',
+  background: '#fff',
+  color: '#334155',
+  borderRadius: 11,
+  padding: '10px 16px',
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontSize: '0.85rem',
+};
 
 const sliderData = [
   {
@@ -123,13 +192,40 @@ const infoSlides = [
 ];
 
 const Login = () => {
+  const getFingerprintHint = () => {
+    try {
+      const raw = localStorage.getItem('fingerprintLoginHint');
+      const parsed = raw ? JSON.parse(raw) : {};
+      return {
+        loginName: String(parsed?.loginName || '').trim(),
+        clientCode: String(parsed?.clientCode || '').trim(),
+      };
+    } catch {
+      return { loginName: '', clientCode: '' };
+    }
+  };
+
+  const fingerprintHint = getFingerprintHint();
   const [formData, setFormData] = useState({
     LoginName: '',
     Password: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fingerprintLoading, setFingerprintLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showFingerprintPrompt, setShowFingerprintPrompt] = useState(false);
+  const [fingerprintLoginName, setFingerprintLoginName] = useState(fingerprintHint.loginName);
+  const [fingerprintClientCode, setFingerprintClientCode] = useState(fingerprintHint.clientCode);
+  const [showSecondFactorPrompt, setShowSecondFactorPrompt] = useState(false);
+  const [fingerprintTransactionId, setFingerprintTransactionId] = useState('');
+  const [secondFactorOtp, setSecondFactorOtp] = useState('');
+  const [secondFactorPin, setSecondFactorPin] = useState('');
+  const [secondFactorLoading, setSecondFactorLoading] = useState(false);
+  const [showPasskeyPrompt, setShowPasskeyPrompt] = useState(false);
+  const [pkLoginName, setPkLoginName] = useState(fingerprintHint.loginName);
+  const [pkClientCode, setPkClientCode] = useState(fingerprintHint.clientCode);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [slide, setSlide] = useState(0);
   const [animating, setAnimating] = useState(false);
   const prevSlide = useRef(slide);
@@ -166,55 +262,55 @@ const Login = () => {
     });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const finalizeLogin = (token, resolvedUsername) => {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const tokenPayload = JSON.parse(window.atob(base64));
+
+    const userInfo = {
+      Username: resolvedUsername || formData.LoginName,
+      ClientCode: tokenPayload.ClientCode || tokenPayload.clientcode || tokenPayload.sub
+    };
+
+    if (!userInfo.ClientCode) {
+      throw new Error('Client code not found in token');
+    }
+
+    localStorage.setItem('token', token);
+    localStorage.setItem('userInfo', JSON.stringify(userInfo));
+    const loginTime = new Date().toLocaleString();
+    localStorage.setItem('lastLoginTime', loginTime);
+    localStorage.setItem('showWelcomeToast', 'true');
+    window.dispatchEvent(new Event('rfid-welcome'));
+
+    toast.success(`Welcome ${userInfo.Username}!`, {
+      position: "top-right",
+      autoClose: 2500,
+      closeButton: false,
+      icon: false,
+      style: { background: 'transparent', boxShadow: 'none', padding: 0 },
+      bodyStyle: { padding: 0 },
+      render: ({ closeToast, toastProps }) => (
+        <ZohoToast closeToast={closeToast} toastProps={toastProps} message={`Welcome ${userInfo.Username}!`} />
+      )
+    });
+
+    navigate('/analytics');
+  };
+
+  const doPasswordLogin = async () => {
     if (loading) return;
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post('https://soni.loyalstring.co.in/api/ProductMaster/AuthLogin', formData);
-      
+      const response = await axios.post(getAuthLoginUrl(), formData);
+
       if (!response.data?.Token) {
         throw new Error('No token received from server');
       }
 
-      const token = response.data.Token;
-      
       try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const tokenPayload = JSON.parse(window.atob(base64));
-        
-        const userInfo = {
-          Username: formData.LoginName,
-          ClientCode: tokenPayload.ClientCode || tokenPayload.clientcode || tokenPayload.sub
-        };
-
-        if (!userInfo.ClientCode) {
-          throw new Error('Client code not found in token');
-        }
-
-        localStorage.setItem('token', token);
-        localStorage.setItem('userInfo', JSON.stringify(userInfo));
-        const loginTime = new Date().toLocaleString();
-        localStorage.setItem('lastLoginTime', loginTime);
-        localStorage.setItem('showWelcomeToast', 'true');
-
-        window.dispatchEvent(new Event('rfid-welcome'));
-
-        toast.success(`Welcome ${userInfo.Username}!`, {
-          position: "top-right",
-          autoClose: 2500,
-          closeButton: false,
-          icon: false,
-          style: { background: 'transparent', boxShadow: 'none', padding: 0 },
-          bodyStyle: { padding: 0 },
-          render: ({ closeToast, toastProps }) => (
-            <ZohoToast closeToast={closeToast} toastProps={toastProps} message={`Welcome ${userInfo.Username}!`} />
-          )
-        });
-
-        navigate('/analytics');
+        finalizeLogin(response.data.Token);
       } catch (tokenError) {
         console.error('Token parsing error:', tokenError);
         throw new Error('Invalid token format received from server');
@@ -236,6 +332,263 @@ const Login = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    await doPasswordLogin();
+  };
+
+  const runPasskeyLogin = async (loginName, clientCode) => {
+    if (!window.PublicKeyCredential) {
+      toast.error('Passkeys require a browser with WebAuthn support.', { position: 'top-right', theme: 'colored' });
+      return;
+    }
+    setPasskeyLoading(true);
+    setError('');
+    try {
+      const optRes = await fetchPasskeyLoginOptions({ loginName, clientCode });
+      const sessionId = optRes.sessionId || optRes.SessionId;
+      const rawOptions = optRes.options ?? optRes.Options;
+      if (!sessionId || !rawOptions) {
+        throw new Error(optRes?.message || optRes?.Message || 'Passkey login options failed.');
+      }
+      const publicKey = toPublicKeyRequestOptions(rawOptions);
+      const credential = await navigator.credentials.get({ publicKey });
+      if (!credential) {
+        throw new Error('Passkey sign-in was cancelled.');
+      }
+      const verifyRes = await verifyPasskeyLogin({ sessionId, credential });
+      const token = extractJwtFromLoginPayload(verifyRes);
+      if (!token) {
+        throw new Error('Passkey verified but no token was returned.');
+      }
+      localStorage.setItem(
+        'fingerprintLoginHint',
+        JSON.stringify({
+          loginName,
+          clientCode,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+      setShowPasskeyPrompt(false);
+      finalizeLogin(token, loginName);
+    } catch (err) {
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.Message;
+      const message = backendMessage || err?.message || 'Passkey login failed.';
+      if (err?.name === 'NotAllowedError' || String(message).toLowerCase().includes('cancel')) {
+        toast.info('Passkey sign-in was cancelled.', { position: 'top-right', autoClose: 2200 });
+      } else {
+        setError(message);
+        toast.error(message, { position: 'top-right', autoClose: 4000, theme: 'colored' });
+      }
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (passkeyLoading || loading || fingerprintLoading) return;
+    const effectiveLogin = (formData.LoginName || pkLoginName || fingerprintHint.loginName || '').trim();
+    const effectiveClient = (pkClientCode || fingerprintHint.clientCode || '').trim();
+    if (!effectiveLogin || !effectiveClient) {
+      setPkLoginName(effectiveLogin || pkLoginName);
+      setPkClientCode(effectiveClient || pkClientCode);
+      setShowPasskeyPrompt(true);
+      return;
+    }
+    await runPasskeyLogin(effectiveLogin, effectiveClient);
+  };
+
+  const startPasskeyFromPrompt = async () => {
+    if (!pkLoginName.trim()) {
+      toast.error('Please enter username.', { position: 'top-right', theme: 'colored' });
+      return;
+    }
+    if (!pkClientCode.trim()) {
+      toast.error('Please enter client code.', { position: 'top-right', theme: 'colored' });
+      return;
+    }
+    setFormData((prev) => ({ ...prev, LoginName: pkLoginName.trim() }));
+    setShowPasskeyPrompt(false);
+    await runPasskeyLogin(pkLoginName.trim(), pkClientCode.trim());
+  };
+
+  const handleFingerprintLogin = async () => {
+    if (fingerprintLoading || loading || passkeyLoading) return;
+
+    const effectiveClientCode = (
+      fingerprintClientCode ||
+      fingerprintHint.clientCode
+    ).trim();
+
+    if (!effectiveClientCode) {
+      setShowFingerprintPrompt(true);
+      return;
+    }
+
+    setFingerprintLoading(true);
+    setError('');
+    try {
+      const parsedUserInfo = (() => {
+        try {
+          const raw = localStorage.getItem('userInfo');
+          return raw ? JSON.parse(raw) : {};
+        } catch {
+          return {};
+        }
+      })();
+      const clientCode = (
+        parsedUserInfo?.ClientCode ||
+        parsedUserInfo?.clientCode ||
+        parsedUserInfo?.clientcode ||
+        fingerprintClientCode ||
+        fingerprintHint.clientCode
+      || '').trim();
+
+      if (!clientCode) {
+        throw new Error('Client code is required for fingerprint login.');
+      }
+
+      const challengeRes = await createFingerprintChallenge({
+        loginName: (formData.LoginName || fingerprintLoginName || '').trim(),
+        clientCode,
+      });
+      const challengeId = challengeRes?.challengeId || challengeRes?.ChallengeId;
+      if (!challengeId) throw new Error('Unable to create fingerprint challenge.');
+
+      let deviceInfoXml = '';
+      try {
+        const devInfoRes = await getRdDeviceInfo();
+        deviceInfoXml = String(devInfoRes?.data || '');
+      } catch (_) {
+        deviceInfoXml = '';
+      }
+
+      const captureRes = await captureRdFingerprint({
+        env: 'P',
+        fCount: 1,
+        fType: 0,
+        format: 0,
+        pidVer: '2.0',
+        timeout: 10000,
+      });
+      const pidXml = captureRes?.rawResponse || '';
+      if (!pidXml) throw new Error('Fingerprint capture response is empty.');
+
+      const verifyRes = await verifyLogin({
+        loginName: (formData.LoginName || fingerprintLoginName || '').trim(),
+        challengeId,
+        pidXml,
+        deviceInfoXml,
+        clientCode,
+      });
+
+      const requiresSecondFactor = !!(
+        verifyRes?.requiresSecondFactor
+      );
+      const transactionId =
+        verifyRes?.transactionId ||
+        '';
+
+      if (!requiresSecondFactor || !transactionId) {
+        throw new Error('Fingerprint capture accepted but second-factor transaction was not returned.');
+      }
+      const resolvedLoginName = (formData.LoginName || fingerprintLoginName || '').trim();
+      setFingerprintTransactionId(transactionId);
+      setSecondFactorOtp('');
+      setSecondFactorPin('');
+      setShowSecondFactorPrompt(true);
+      setFingerprintClientCode(clientCode);
+      localStorage.setItem('fingerprintLoginHint', JSON.stringify({
+        loginName: resolvedLoginName,
+        clientCode,
+        updatedAt: new Date().toISOString(),
+      }));
+      setShowFingerprintPrompt(false);
+    } catch (err) {
+      const backendMessage = err?.response?.data?.Message || err?.response?.data?.message;
+      const message = backendMessage || err.message || 'Fingerprint login failed.';
+      setError(message);
+      toast.error(message, { position: 'top-right', autoClose: 3500, theme: 'colored' });
+
+      if (formData.Password?.trim()) {
+        toast.info('Fingerprint failed. Trying password login fallback.', {
+          position: 'top-right',
+          autoClose: 2200,
+          theme: 'colored',
+        });
+        await doPasswordLogin();
+      }
+    } finally {
+      setFingerprintLoading(false);
+    }
+  };
+
+  const completeSecondFactorLogin = async () => {
+    const loginName = (formData.LoginName || fingerprintLoginName || '').trim();
+    if (!loginName || !fingerprintTransactionId) {
+      toast.error('Missing fingerprint transaction context. Please retry fingerprint login.', {
+        position: 'top-right',
+        autoClose: 3000,
+        theme: 'colored',
+      });
+      return;
+    }
+    if (!secondFactorOtp.trim() && !secondFactorPin.trim()) {
+      toast.error('Enter OTP or PIN to complete login.', {
+        position: 'top-right',
+        autoClose: 2500,
+        theme: 'colored',
+      });
+      return;
+    }
+
+    setSecondFactorLoading(true);
+    try {
+      const completeRes = await completeFingerprintLogin({
+        loginName,
+        transactionId: fingerprintTransactionId,
+        otp: secondFactorOtp.trim() || undefined,
+        pin: secondFactorPin.trim() || undefined,
+      });
+      const token = completeRes?.Token || completeRes?.token || completeRes?.jwtToken;
+      if (!token) throw new Error('Second-factor verification succeeded but token was not returned.');
+      setShowSecondFactorPrompt(false);
+      finalizeLogin(token, loginName);
+    } catch (err) {
+      const backendMessage = err?.response?.data?.Message || err?.response?.data?.message;
+      toast.error(backendMessage || err?.message || 'Second-factor verification failed.', {
+        position: 'top-right',
+        autoClose: 3500,
+        theme: 'colored',
+      });
+    } finally {
+      setSecondFactorLoading(false);
+    }
+  };
+
+  const startFingerprintLoginFromPrompt = async () => {
+    if (!fingerprintLoginName.trim()) {
+      toast.error('Please enter username for fingerprint login.', {
+        position: 'top-right',
+        autoClose: 2500,
+        theme: 'colored',
+      });
+      return;
+    }
+    if (!fingerprintClientCode.trim()) {
+      toast.error('Please enter client code for fingerprint login.', {
+        position: 'top-right',
+        autoClose: 2500,
+        theme: 'colored',
+      });
+      return;
+    }
+    if (fingerprintLoginName.trim()) {
+      setFormData((prev) => ({ ...prev, LoginName: fingerprintLoginName.trim() }));
+    }
+    await handleFingerprintLogin();
   };
 
   const glassCard = {
@@ -288,6 +641,211 @@ const Login = () => {
           background: 'linear-gradient(135deg, #e0e7ff 0%, #f5f3ff 25%, #faf5ff 50%, #fef3f2 75%, #eff6ff 100%)',
         }}
       >
+        {showFingerprintPrompt && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.35)',
+            zIndex: 9998,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}>
+            <div style={{
+              width: '100%',
+              maxWidth: 430,
+              background: '#fff',
+              borderRadius: 16,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 20px 45px rgba(2, 6, 23, 0.2)',
+              padding: 20,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <i className="fas fa-fingerprint" style={{ color: '#4f46e5', fontSize: 20 }} />
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.08rem' }}>Fingerprint Login</h3>
+              </div>
+              <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: '0.85rem' }}>
+                Enter username and client code to continue fingerprint verification.
+              </p>
+              <input
+                type="text"
+                value={fingerprintLoginName}
+                onChange={(e) => setFingerprintLoginName(e.target.value)}
+                placeholder="Username"
+                style={{
+                  width: '100%',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  marginBottom: 14,
+                  fontSize: '0.9rem',
+                }}
+              />
+              <input
+                type="text"
+                value={fingerprintClientCode}
+                onChange={(e) => setFingerprintClientCode(e.target.value)}
+                placeholder="Client Code (e.g. LS000410)"
+                style={{
+                  width: '100%',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  marginBottom: 14,
+                  fontSize: '0.9rem',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowFingerprintPrompt(false)}
+                  style={{
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    color: '#334155',
+                    borderRadius: 10,
+                    padding: '9px 14px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={startFingerprintLoginFromPrompt}
+                  style={{
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                    color: '#fff',
+                    borderRadius: 10,
+                    padding: '9px 14px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSecondFactorPrompt && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.35)',
+            zIndex: 9998,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}>
+            <div style={{
+              width: '100%',
+              maxWidth: 430,
+              background: '#fff',
+              borderRadius: 16,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 20px 45px rgba(2, 6, 23, 0.2)',
+              padding: 20,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <i className="fas fa-shield-alt" style={{ color: '#4f46e5', fontSize: 20 }} />
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.08rem' }}>Complete Secure Login</h3>
+              </div>
+              <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: '0.85rem' }}>
+                Fingerprint accepted. Enter OTP or PIN to complete login.
+              </p>
+              <input
+                type="text"
+                value={secondFactorOtp}
+                onChange={(e) => setSecondFactorOtp(e.target.value)}
+                placeholder="OTP"
+                style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: '10px 12px', marginBottom: 10, fontSize: '0.9rem' }}
+              />
+              <input
+                type="password"
+                value={secondFactorPin}
+                onChange={(e) => setSecondFactorPin(e.target.value)}
+                placeholder="PIN"
+                style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: '0.9rem' }}
+              />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowSecondFactorPrompt(false)}
+                  style={{ border: '1px solid #cbd5e1', background: '#fff', color: '#334155', borderRadius: 10, padding: '9px 14px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={completeSecondFactorLogin}
+                  disabled={secondFactorLoading}
+                  style={{ border: 'none', background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', color: '#fff', borderRadius: 10, padding: '9px 14px', fontWeight: 700, cursor: 'pointer', opacity: secondFactorLoading ? 0.8 : 1 }}
+                >
+                  {secondFactorLoading ? 'Verifying...' : 'Verify & Login'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showPasskeyPrompt && (
+          <div style={modalOverlayStyle}>
+            <div style={modalCardStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <i className="fas fa-key" style={{ color: '#0d9488', fontSize: 20 }} />
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.05rem' }}>Sign in with passkey</h3>
+              </div>
+              <p style={{ margin: '0 0 14px', color: '#64748b', fontSize: '0.84rem', lineHeight: 1.45 }}>
+                Enter the same username and client code as your Sparkle account. Your browser will ask you to use your saved passkey or security key.
+              </p>
+              <input
+                type="text"
+                value={pkLoginName}
+                onChange={(e) => setPkLoginName(e.target.value)}
+                placeholder="Username"
+                style={modalInputStyle}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#5eead4';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(45, 212, 191, 0.2)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#d5deeb';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              <input
+                type="text"
+                value={pkClientCode}
+                onChange={(e) => setPkClientCode(e.target.value)}
+                placeholder="Client code (e.g. LS000410)"
+                style={modalInputStyle}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#a5b4fc';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(99, 102, 241, 0.18)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#d5deeb';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                <button type="button" onClick={() => setShowPasskeyPrompt(false)} style={modalBtnGhost}>
+                  Cancel
+                </button>
+                <button type="button" onClick={startPasskeyFromPrompt} style={modalBtnPrimary}>
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <ToastContainer
           position="bottom-center"
           hideProgressBar
@@ -453,7 +1011,7 @@ const Login = () => {
 
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || fingerprintLoading || passkeyLoading}
                     style={{
                       width: '100%',
                       padding: '12px',
@@ -467,8 +1025,8 @@ const Login = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 8,
-                      cursor: loading ? 'not-allowed' : 'pointer',
-                      opacity: loading ? 0.8 : 1,
+                      cursor: (loading || fingerprintLoading || passkeyLoading) ? 'not-allowed' : 'pointer',
+                      opacity: (loading || fingerprintLoading || passkeyLoading) ? 0.8 : 1,
                       transition: 'all 0.2s',
                       fontFamily: 'inherit',
                       marginTop: 4,
@@ -484,6 +1042,78 @@ const Login = () => {
                       <>
                         <i className="fas fa-sign-in-alt" style={{ fontSize: 12 }}></i>
                         <span>Login</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleFingerprintLogin}
+                    disabled={loading || fingerprintLoading || passkeyLoading}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      background: 'rgba(255,255,255,0.68)',
+                      color: '#1e1b4b',
+                      border: '1px solid rgba(99, 102, 241, 0.35)',
+                      borderRadius: 12,
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      cursor: (loading || fingerprintLoading || passkeyLoading) ? 'not-allowed' : 'pointer',
+                      opacity: (loading || fingerprintLoading || passkeyLoading) ? 0.8 : 1,
+                      transition: 'all 0.2s',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {fingerprintLoading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
+                        <span>Verifying fingerprint...</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-fingerprint" style={{ fontSize: 13 }}></i>
+                        <span>Login with Fingerprint</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePasskeyLogin}
+                    disabled={loading || fingerprintLoading || passkeyLoading}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      background: 'linear-gradient(135deg, rgba(13,148,136,0.08) 0%, rgba(99,102,241,0.1) 100%)',
+                      color: '#0f766e',
+                      border: '1px solid rgba(13, 148, 136, 0.35)',
+                      borderRadius: 12,
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      cursor: (loading || fingerprintLoading || passkeyLoading) ? 'not-allowed' : 'pointer',
+                      opacity: (loading || fingerprintLoading || passkeyLoading) ? 0.75 : 1,
+                      transition: 'all 0.2s',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {passkeyLoading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
+                        <span>Waiting for passkey…</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-key" style={{ fontSize: 13 }}></i>
+                        <span>Sign in with passkey</span>
                       </>
                     )}
                   </button>

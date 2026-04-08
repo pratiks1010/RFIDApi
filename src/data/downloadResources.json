@@ -12,7 +12,7 @@
       "id": "sparkle-rfid-app",
       "title": "Sparkle RFID App Download",
       "description": "Mobile application for RFID tag scanning, inventory tracking, and real-time stock management on Android devices.",
-      "driveLink": "",
+      "driveLink": "https://drive.google.com/file/d/15lA5zpd8Bm3TrCewgn6qPT2VBM9dXeLt/view?usp=drive_link",
       "icon": "FaMobileAlt",
       "color": "#0ea5e9"
     },
@@ -28,7 +28,7 @@
       "id": "sparkle-autopush",
       "title": "Sparkle AutoPush Data to Server EXE Installation",
       "description": "Automated background service that pushes local data to the server at scheduled intervals without manual intervention.",
-      "driveLink": "",
+      "driveLink": "https://drive.google.com/file/d/1_NEy7GPrllnnJP9GiZ1zrziLKt7QCpO1/view?usp=sharing",
       "icon": "FaCloudUploadAlt",
       "color": "#8b5cf6"
     }

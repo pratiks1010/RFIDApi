@@ -5,6 +5,8 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import { getAuthLoginUrl } from '../services/authApiConfig';
+import { useAppDispatch } from '../store/hooks';
+import { setCredentials } from '../store/slices/authSlice';
 import {
   createFingerprintChallenge,
   verifyLogin,
@@ -73,9 +75,6 @@ const modalBtnGhost = {
   cursor: 'pointer',
   fontSize: '0.85rem',
 };
-import { useAppDispatch } from '../store/hooks';
-import { setCredentials } from '../store/slices/authSlice';
-import { userManagementService } from '../services/userManagementService';
 
 const sliderData = [
   {
@@ -266,111 +265,79 @@ const Login = () => {
     });
   };
 
-  const finalizeLogin = (token, resolvedUsername) => {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const tokenPayload = JSON.parse(window.atob(base64));
+  const decodeJwtPayload = (jwt) => {
+    try {
+      const base64Url = String(jwt || '').split('.')[1];
+      if (!base64Url) return {};
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      return JSON.parse(window.atob(base64));
+    } catch {
+      return {};
+    }
+  };
+
+  const finalizeLogin = (token, resolvedUsername, authData = {}) => {
+    const tokenPayload = decodeJwtPayload(token);
 
     const userInfo = {
       Username: resolvedUsername || formData.LoginName,
-      ClientCode: tokenPayload.ClientCode || tokenPayload.clientcode || tokenPayload.sub
+      ClientCode: tokenPayload.ClientCode || tokenPayload.clientcode || tokenPayload.sub,
     };
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (loading) return;
-    setLoading(true);
-    setError('');
-    try {
-      const response = await axios.post('https://soni.loyalstring.co.in/api/ProductMaster/AuthLogin', formData);
-      
-      if (!response.data?.Token) {
-        throw new Error('No token received from server');
-      }
-
-      // Extract all data from API response
-      const { Token, IsSubUser, RoleType, Permissions, AllowedBranchIds, HasAllBranchAccess } = response.data;
-      const token = Token;
-      
-      try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const tokenPayload = JSON.parse(window.atob(base64));
-        
-        const userInfo = {
-          Username: formData.LoginName,
-          ClientCode: tokenPayload.ClientCode || tokenPayload.clientcode || tokenPayload.sub
-        };
 
     if (!userInfo.ClientCode) {
       throw new Error('Client code not found in token');
     }
 
+    const {
+      IsSubUser,
+      RoleType,
+      Permissions,
+      AllowedBranchIds,
+      HasAllBranchAccess,
+    } = authData || {};
+
+    const permissions = {
+      CanViewStock: !!Permissions?.CanViewStock,
+      CanAddStock: !!Permissions?.CanAddStock,
+      CanEditStock: !!Permissions?.CanEditStock,
+      CanDeleteStock: !!Permissions?.CanDeleteStock,
+      CanManageUsers: !!Permissions?.CanManageUsers,
+      CanViewReports: !!Permissions?.CanViewReports,
+      CanExportData: !!Permissions?.CanExportData,
+      CanViewAllBranches: !!Permissions?.CanViewAllBranches,
+      CanManageBranches: !!Permissions?.CanManageBranches,
+    };
+
+    const isSubUser = !!IsSubUser;
+    const isSuperAdmin = !isSubUser;
+
     localStorage.setItem('token', token);
     localStorage.setItem('userInfo', JSON.stringify(userInfo));
-    const loginTime = new Date().toLocaleString();
-    localStorage.setItem('lastLoginTime', loginTime);
+    localStorage.setItem('isSubUser', JSON.stringify(isSubUser));
+    localStorage.setItem('roleType', JSON.stringify(RoleType || null));
+    localStorage.setItem('permissions', JSON.stringify(Permissions || {}));
+    localStorage.setItem('allowedBranchIds', JSON.stringify(AllowedBranchIds || null));
+    localStorage.setItem('hasAllBranchAccess', JSON.stringify(!!HasAllBranchAccess));
+    localStorage.setItem('lastLoginTime', new Date().toLocaleString());
     localStorage.setItem('showWelcomeToast', 'true');
+
+    dispatch(
+      setCredentials({
+        user: userInfo,
+        token,
+        permissions,
+        roleType: RoleType || null,
+        isSuperAdmin,
+        isSubUser,
+        allowedBranchIds: AllowedBranchIds || null,
+        hasAllBranchAccess: !!HasAllBranchAccess,
+      })
+    );
+
     window.dispatchEvent(new Event('rfid-welcome'));
-        // Store all authentication data in localStorage
-        localStorage.setItem('token', token);
-        localStorage.setItem('userInfo', JSON.stringify(userInfo));
-        localStorage.setItem('isSubUser', JSON.stringify(IsSubUser || false));
-        localStorage.setItem('roleType', JSON.stringify(RoleType || null));
-        localStorage.setItem('permissions', JSON.stringify(Permissions || {}));
-        localStorage.setItem('allowedBranchIds', JSON.stringify(AllowedBranchIds || null));
-        localStorage.setItem('hasAllBranchAccess', JSON.stringify(HasAllBranchAccess || false));
-        
-        const loginTime = new Date().toLocaleString();
-        localStorage.setItem('lastLoginTime', loginTime);
-        localStorage.setItem('showWelcomeToast', 'true');
-
-        // Determine user permissions and role from API response
-        let permissions = Permissions || {
-          CanViewStock: false,
-          CanAddStock: false,
-          CanEditStock: false,
-          CanDeleteStock: false,
-          CanManageUsers: false,
-          CanViewReports: false,
-          CanExportData: false,
-          CanViewAllBranches: false,
-          CanManageBranches: false,
-        };
-        
-        // Ensure all permission fields are present
-        permissions = {
-          CanViewStock: permissions.CanViewStock || false,
-          CanAddStock: permissions.CanAddStock || false,
-          CanEditStock: permissions.CanEditStock || false,
-          CanDeleteStock: permissions.CanDeleteStock || false,
-          CanManageUsers: permissions.CanManageUsers || false,
-          CanViewReports: permissions.CanViewReports || false,
-          CanExportData: permissions.CanExportData || false,
-          CanViewAllBranches: permissions.CanViewAllBranches || false,
-          CanManageBranches: permissions.CanManageBranches || false,
-        };
-        
-        const roleType = RoleType || null;
-        const isSubUser = IsSubUser || false;
-        // Super Admin is determined by IsSubUser being false
-        const isSuperAdmin = !isSubUser;
-
-        // Store credentials in Redux with all data
-        dispatch(setCredentials({
-          user: userInfo,
-          token: token,
-          permissions: permissions,
-          roleType: roleType,
-          isSuperAdmin: isSuperAdmin,
-          isSubUser: isSubUser,
-          allowedBranchIds: AllowedBranchIds,
-          hasAllBranchAccess: HasAllBranchAccess || false,
-        }));
-
-        window.dispatchEvent(new Event('rfid-welcome'));
 
     toast.success(`Welcome ${userInfo.Username}!`, {
-      position: "top-right",
+      position: 'top-right',
       autoClose: 2500,
       closeButton: false,
       icon: false,
@@ -378,7 +345,7 @@ const Login = () => {
       bodyStyle: { padding: 0 },
       render: ({ closeToast, toastProps }) => (
         <ZohoToast closeToast={closeToast} toastProps={toastProps} message={`Welcome ${userInfo.Username}!`} />
-      )
+      ),
     });
 
     navigate('/analytics');
@@ -396,7 +363,7 @@ const Login = () => {
       }
 
       try {
-        finalizeLogin(response.data.Token);
+        finalizeLogin(response.data.Token, formData.LoginName, response.data);
       } catch (tokenError) {
         console.error('Token parsing error:', tokenError);
         throw new Error('Invalid token format received from server');

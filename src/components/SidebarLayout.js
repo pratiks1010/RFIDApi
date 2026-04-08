@@ -30,6 +30,7 @@ import {
   FaChartPie,
   FaThLarge,
   FaCog,
+  FaLayerGroup,
 } from 'react-icons/fa';
 import {
   HiDocumentText,

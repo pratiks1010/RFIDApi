@@ -44,6 +44,8 @@ import CreateMasters from './components/CreateMasters';
 import DownloadApiDoc from './components/DownloadApiDoc';
 import DownloadResources from './components/DownloadResources';
 import ProfileMenuPage from './components/ProfileMenuPage';
+import FingerprintSettingsPage from './components/FingerprintSettingsPage';
+import PasskeySettingsPage from './components/PasskeySettingsPage';
 import UserProfile from './components/UserProfile';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
@@ -184,7 +186,9 @@ const useAuthProtection = () => {
         '/download-api-doc',
         '/download-resources',
         '/single-use-tags',
-        '/profile-menu'
+        '/profile-menu',
+        '/fingerprint-register',
+        '/passkey-settings'
       ];
       const adminRoutes = ['/admin-dashboard'];
 
@@ -203,7 +207,7 @@ const useAuthProtection = () => {
     }
 
     // If admin is authenticated but tries to access user routes
-    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'].includes(currentPath)) {
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/passkey-settings'].includes(currentPath)) {
       navigate('/admin-dashboard', { replace: true });
     }
   }, [location.pathname, navigate]);
@@ -237,7 +241,9 @@ const useAuthProtection = () => {
         '/download-api-doc',
         '/download-resources',
         '/single-use-tags',
-        '/profile-menu'
+        '/profile-menu',
+        '/fingerprint-register',
+        '/passkey-settings'
       ];
       const adminRoutes = ['/admin-dashboard'];
 
@@ -444,7 +450,7 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu'];
+      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/passkey-settings'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -668,6 +674,26 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <ProfileMenuPage />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/fingerprint-register"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <FingerprintSettingsPage />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/passkey-settings"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <PasskeySettingsPage />
                 </PageWrapper>
               </AuthGuard>
             }
@@ -953,8 +979,8 @@ function App() {
               <RoutesWrapper />
             </div>
             <ToastContainer
-              position="bottom-right"
-              autoClose={3000}
+              position="top-right"
+              autoClose={4000}
               hideProgressBar={false}
               newestOnTop
               closeOnClick
@@ -963,7 +989,7 @@ function App() {
               draggable
               pauseOnHover
               theme="light"
-              className="smooth-scroll"
+              style={{ top: 16 }}
             />
               </Router>
             </AuthInitializer>

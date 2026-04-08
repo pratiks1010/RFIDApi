@@ -81,10 +81,37 @@ const DashboardAnalytics = () => {
   const [tagUsageLoading, setTagUsageLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [dummyTagUsage, setDummyTagUsage] = useState({ used: 350, unused: 180 });
+  const [soldItemsApiCount, setSoldItemsApiCount] = useState(null);
+  const [ratesModalOpen, setRatesModalOpen] = useState(false);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [ratesSaving, setRatesSaving] = useState(false);
+  const [categoriesMaster, setCategoriesMaster] = useState([]);
+  const [puritiesMaster, setPuritiesMaster] = useState([]);
+  const [dailyRatesRows, setDailyRatesRows] = useState([]);
+  const [ratesByPurityId, setRatesByPurityId] = useState({});
+  const [initialRatesByPurityId, setInitialRatesByPurityId] = useState({});
+  const [basePurityIdByCategoryId, setBasePurityIdByCategoryId] = useState({});
+  const [baseFineByCategoryId, setBaseFineByCategoryId] = useState({});
   const [analyticsData, setAnalyticsData] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const itemsPerPage = 6;
   const { addNotification } = useNotifications();
+
+  const ratesCategoryColorPalette = [
+    '#0d9488', // teal
+    '#6366f1', // indigo
+    '#f59e0b', // amber
+    '#3b82f6', // blue
+    '#ef4444', // red
+    '#8b5cf6', // violet
+    '#14b8a6', // emerald
+    '#10b981', // green
+  ];
+
+  const getCategoryAccentColor = (categoryId) => {
+    const n = Number(categoryId) || 0;
+    return ratesCategoryColorPalette[n % ratesCategoryColorPalette.length];
+  };
 
   // Get client code from localStorage
   const getClientCode = () => {
@@ -168,6 +195,385 @@ const DashboardAnalytics = () => {
     }
   };
 
+  const fetchSoldItemsCount = async () => {
+    try {
+      const clientCode = getClientCode();
+      if (!clientCode) return;
+
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
+        {
+          ClientCode: clientCode,
+          Status: 'Sold',
+        }
+      );
+
+      const responseData = response?.data;
+      let totalCount = 0;
+
+      if (Array.isArray(responseData)) {
+        totalCount = responseData.length;
+      } else if (responseData && typeof responseData === 'object') {
+        if (Array.isArray(responseData.data)) {
+          totalCount = Number(
+            responseData.TotalCount ??
+            responseData.totalCount ??
+            responseData.TotalRecords ??
+            responseData.totalRecords ??
+            responseData.data?.[0]?.TotalCount ??
+            responseData.data?.[0]?.totalCount ??
+            responseData.data.length
+          ) || 0;
+        } else if (Array.isArray(responseData.Result)) {
+          totalCount = Number(
+            responseData.TotalCount ??
+            responseData.totalCount ??
+            responseData.TotalRecords ??
+            responseData.totalRecords ??
+            responseData.Result?.[0]?.TotalCount ??
+            responseData.Result?.[0]?.totalCount ??
+            responseData.Result.length
+          ) || 0;
+        } else {
+          totalCount = Number(
+            responseData.TotalCount ??
+            responseData.totalCount ??
+            responseData.TotalRecords ??
+            responseData.totalRecords ??
+            0
+          ) || 0;
+        }
+      }
+
+      setSoldItemsApiCount(totalCount);
+    } catch (err) {
+      console.error('Error fetching sold items count:', err);
+      setSoldItemsApiCount(null);
+    }
+  };
+
+  const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstring.co.in';
+
+  const getAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('token')}`,
+    'Content-Type': 'application/json',
+  });
+
+  const fetchRatesMasters = async () => {
+    const clientCode = getClientCode();
+    if (!clientCode) {
+      toast.error('Client code not found');
+      return { cats: [], purities: [] };
+    }
+    setRatesLoading(true);
+    try {
+      const body = { ClientCode: clientCode };
+      const [catsRes, purRes] = await Promise.all([
+        axios.post(`${API_BASE}/api/ProductMaster/GetAllCategory`, body, { headers: getAuthHeaders() }).catch(() => ({ data: [] })),
+        axios.post(`${API_BASE}/api/ProductMaster/GetAllPurity`, body, { headers: getAuthHeaders() }).catch(() => ({ data: [] })),
+      ]);
+
+      const normalize = (res) => {
+        if (!res) return [];
+        const d = res.data ?? res;
+        if (Array.isArray(d)) return d;
+        if (d && Array.isArray(d.data)) return d.data;
+        if (d && Array.isArray(d.Data)) return d.Data;
+        return [];
+      };
+
+      const cats = normalize(catsRes);
+      const purities = normalize(purRes);
+      setCategoriesMaster(cats);
+      setPuritiesMaster(purities);
+
+      // Base purity per category for auto-calculation.
+      // Prefer 24CT; otherwise pick the purity with highest FinePercentage.
+      const nextBasePurityIdByCategory = {};
+      const nextBaseFineByCategory = {};
+      const byCategory = {};
+      purities.forEach((p) => {
+        const catId = p.CategoryId ?? p.categoryId ?? '';
+        if (!catId && catId !== 0) return;
+        const key = String(catId);
+        if (!byCategory[key]) byCategory[key] = [];
+        byCategory[key].push(p);
+      });
+      Object.entries(byCategory).forEach(([catKey, list]) => {
+        const base24 = list.find((p) => String(p.PurityName ?? p.Name ?? '').trim().toUpperCase() === '24CT');
+        const baseRow = base24
+          ? base24
+          : list.slice().sort((a, b) => (Number(b.FinePercentage ?? b.FinePercent ?? 0) || 0) - (Number(a.FinePercentage ?? a.FinePercent ?? 0) || 0))[0];
+        if (!baseRow) return;
+        const purityId = baseRow.Id ?? baseRow.id ?? baseRow.PurityId ?? baseRow.PurityID ?? '';
+        const fine = Number(baseRow.FinePercentage ?? baseRow.FinePercent ?? 0) || 0;
+        if (!purityId) return;
+        nextBasePurityIdByCategory[catKey] = String(purityId);
+        nextBaseFineByCategory[catKey] = fine;
+      });
+
+      setBasePurityIdByCategoryId(nextBasePurityIdByCategory);
+      setBaseFineByCategoryId(nextBaseFineByCategory);
+
+      return { cats, purities };
+    } catch (e) {
+      console.error('Error fetching rates masters:', e);
+      toast.error('Failed to load rates');
+      return { cats: [], purities: [] };
+    } finally {
+      setRatesLoading(false);
+    }
+  };
+
+  const ensureRatesLoaded = async () => {
+    if (categoriesMaster.length > 0 && puritiesMaster.length > 0) {
+      return { cats: categoriesMaster, purities: puritiesMaster };
+    }
+    return await fetchRatesMasters();
+  };
+
+  const getCategoryNameForPurity = (purity) => {
+    const categoryId = purity.CategoryId ?? purity.categoryId ?? purity.CategoryID;
+    const cat = categoriesMaster.find(
+      (c) => String(c.Id ?? c.id ?? '') === String(categoryId ?? '')
+    );
+    return cat ? (cat.CategoryName ?? cat.Name ?? cat.CategoryName ?? '') : (String(categoryId ?? '') || '—');
+  };
+
+  const normalizeRatesResponse = (res) => {
+    const d = res?.data ?? res;
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.data)) return d.data;
+    if (d && Array.isArray(d.Data)) return d.Data;
+    if (d && Array.isArray(d.Result)) return d.Result;
+    return [];
+  };
+
+  const fetchDailyRates = async (puritiesOverride) => {
+    const purities = puritiesOverride ?? puritiesMaster;
+    const clientCode = getClientCode();
+    if (!clientCode) {
+      toast.error('Client code not found');
+      return;
+    }
+
+    setRatesLoading(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE}/api/ProductMaster/GetAllDailyRate`,
+        { ClientCode: clientCode },
+        { headers: getAuthHeaders() }
+      );
+
+      const rows = normalizeRatesResponse(res);
+      setDailyRatesRows(rows);
+
+      // Fill rates map for *all* purities; missing ones stay empty so UI shows blank.
+      const nextRates = {};
+      const nextInitialRates = {};
+      purities.forEach((p) => {
+        const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+        if (!pId) return;
+        nextRates[String(pId)] = '';
+        nextInitialRates[String(pId)] = '';
+      });
+
+      rows.forEach((r) => {
+        const pId = r.PurityId ?? r.purityId ?? r.Id ?? r.id ?? r.PurityID ?? '';
+        if (!pId) return;
+        const rateVal = r.Rate ?? '';
+        const n = typeof rateVal === 'number' ? rateVal : Number(rateVal);
+        const cleaned = rateVal === '' || rateVal == null || Number.isNaN(n) ? (rateVal ?? '') : String(Math.round(n));
+        nextRates[String(pId)] = cleaned;
+        nextInitialRates[String(pId)] = cleaned;
+      });
+
+      setRatesByPurityId(nextRates);
+      setInitialRatesByPurityId(nextInitialRates);
+    } catch (e) {
+      console.error('Error fetching daily rates:', e);
+      const msg = e?.response?.data?.message || e?.response?.data?.Message || e?.message || 'Failed to load daily rates';
+      toast.error(msg);
+      setDailyRatesRows([]);
+      const emptyRates = {};
+      purities.forEach((p) => {
+        const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+        if (!pId) return;
+        emptyRates[String(pId)] = '';
+      });
+      setRatesByPurityId(emptyRates);
+      setInitialRatesByPurityId(emptyRates);
+    } finally {
+      setRatesLoading(false);
+    }
+  };
+
+  const handleOpenRates = async () => {
+    setRatesModalOpen(true);
+    const { purities } = await ensureRatesLoaded();
+    await fetchDailyRates(purities);
+  };
+
+  const handleRateChange = (row, nextValue) => {
+    const normalizedValue = nextValue == null ? '' : String(nextValue).trim();
+    const purityId = row.PurityId ?? row.purityId ?? row.Id ?? row.id ?? row.PurityID ?? '';
+    const categoryId = row.CategoryId ?? row.categoryId ?? row.Id ?? row.id ?? '';
+
+    if (!purityId || !categoryId) return;
+
+    const catKey = String(categoryId);
+    const purityKey = String(purityId);
+
+    const getFinePct = (p) => Number(p?.FinePercentage ?? p?.FinePercent ?? 0) || 0;
+
+    const categoryPurities = puritiesMaster.filter((p) => String(p.CategoryId ?? p.categoryId ?? '') === catKey);
+    if (categoryPurities.length === 0) return;
+
+    if (normalizedValue === '' || normalizedValue == null) {
+      // Clear all rates for this category.
+      setRatesByPurityId((prev) => {
+        const next = { ...prev };
+        categoryPurities.forEach((p) => {
+          const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+          if (!pId) return;
+          next[String(pId)] = '';
+        });
+        return next;
+      });
+      return;
+    }
+
+    const inputRate = Number(normalizedValue);
+    if (Number.isNaN(inputRate)) return;
+
+    // Pick base purity row for the category (prefer 24CT, else highest fine%).
+    const base24 = categoryPurities.find((p) => String(p?.PurityName ?? p?.Name ?? '').trim().toUpperCase() === '24CT');
+    const baseRow = base24
+      ? base24
+      : categoryPurities.slice().sort((a, b) => getFinePct(b) - getFinePct(a))[0];
+
+    const basePurityId = baseRow ? (baseRow.Id ?? baseRow.id ?? baseRow.PurityId ?? baseRow.PurityID ?? '') : '';
+    const baseFine = baseRow ? getFinePct(baseRow) : 0;
+
+    const editedRow = categoryPurities.find((p) => {
+      const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+      return pId !== '' && String(pId) === purityKey;
+    });
+    const editedFine = editedRow ? getFinePct(editedRow) : 0;
+
+    // If base fine% is missing, just set the typed row.
+    if (!baseFine || baseFine <= 0) {
+      setRatesByPurityId((prev) => ({ ...prev, [purityKey]: inputRate.toFixed(0) }));
+      return;
+    }
+
+    // Determine base rate in terms of the selected base purity.
+    const baseRateNum =
+      purityKey === String(basePurityId)
+        ? inputRate
+        : (editedFine > 0 ? inputRate * (baseFine / editedFine) : inputRate);
+
+    setRatesByPurityId((prev) => {
+      const next = { ...prev };
+      categoryPurities.forEach((p) => {
+        const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+        if (!pId) return;
+        const finePct = getFinePct(p);
+        const computedRate = baseRateNum * (finePct / baseFine);
+        next[String(pId)] = computedRate.toFixed(0);
+      });
+      return next;
+    });
+  };
+
+  const handleSetRates = async () => {
+    const clientCode = getClientCode();
+    if (!clientCode) {
+      toast.error('Client code not found');
+      return;
+    }
+
+    if (!dailyRatesRows.length) {
+      toast.info('No daily rates to update');
+      return;
+    }
+
+    setRatesSaving(true);
+    try {
+      // Send only changed purity rows to avoid accidental clearing of untouched categories.
+      const categoryNameById = {};
+      categoriesMaster.forEach((c) => {
+        const cId = c.Id ?? c.id ?? c.CategoryId ?? c.CategoryID ?? '';
+        if (!cId) return;
+        categoryNameById[String(cId)] = c.CategoryName ?? c.Name ?? '';
+      });
+
+      const payload = puritiesMaster
+        .map((p) => {
+          const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+          if (!pId) return null;
+          const key = String(pId);
+          const cur = String(ratesByPurityId[key] ?? '');
+          const initial = String(initialRatesByPurityId[key] ?? '');
+          if (cur === initial) return null;
+
+          const catId = p.CategoryId ?? p.categoryId ?? '';
+          const catKey = catId !== '' && catId != null ? String(catId) : '';
+          return {
+            CategoryId: catKey,
+            EmployeeCode: clientCode,
+            Rate: cur === '' ? '' : cur,
+            PurityId: key,
+            ClientCode: clientCode,
+            CategoryName: categoryNameById[catKey] ?? '',
+            PurityName: p.PurityName ?? p.Name ?? '',
+            FinePercentage: p.FinePercentage ?? p.FinePercent ?? '',
+          };
+        })
+        .filter(Boolean);
+
+      if (payload.length === 0) {
+        toast.info('No rate changes to save');
+        return;
+      }
+
+      const res = await axios.post(
+        `${API_BASE}/api/ProductMaster/UpdateDailyRates`,
+        payload,
+        { headers: getAuthHeaders() }
+      );
+
+      const data = res?.data ?? {};
+      const ok =
+        data?.status === 'success' ||
+        data?.success === true ||
+        (res.status === 200 && data?.status !== 'failed');
+
+      if (!ok) {
+        const msg = data?.message ?? data?.Message ?? data?.error ?? 'Update failed';
+        throw new Error(typeof msg === 'string' ? msg : 'Update failed');
+      }
+
+      toast.success('Daily rates updated successfully');
+      await fetchDailyRates(puritiesMaster);
+    } catch (e) {
+      console.error('Error updating daily rates:', e);
+      const msg = e?.response?.data?.message || e?.response?.data?.Message || e?.message || 'Failed to update daily rates';
+      toast.error(msg);
+    } finally {
+      setRatesSaving(false);
+    }
+  };
+
+  const dailyRatesChangedCount = puritiesMaster.reduce((acc, p) => {
+    const pId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+    if (!pId) return acc;
+    const key = String(pId);
+    const cur = ratesByPurityId[key] ?? '';
+    const initial = initialRatesByPurityId[key] ?? '';
+    return acc + (String(cur) !== String(initial) ? 1 : 0);
+  }, 0);
+
   // Fetch tag usage data
   const fetchTagUsageData = async () => {
     try {
@@ -209,7 +615,7 @@ const DashboardAnalytics = () => {
   // Refresh data
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchAnalyticsData(), fetchTagUsageData()]);
+    await Promise.all([fetchAnalyticsData(), fetchTagUsageData(), fetchSoldItemsCount()]);
     setRefreshing(false);
     const userInfo = JSON.parse(localStorage.getItem('userInfo'));
     addNotification({
@@ -240,6 +646,7 @@ const DashboardAnalytics = () => {
       // Add a small delay to ensure analytics data is loaded first
       setTimeout(() => {
         fetchTagUsageData();
+        fetchSoldItemsCount();
       }, 500);
     };
     
@@ -748,15 +1155,10 @@ const DashboardAnalytics = () => {
                      analyticsData?.CategoryAnalytics?.TotalCategoryWeight || 
                      filteredData.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0);
   const totalRfidNew = (tagUsageData && (tagUsageData.UnusedCount != null)) ? (tagUsageData.UnusedCount || 0) : 0;
-  const soldItems = analyticsData?.OverallSummary?.TotalSoldStockItems ||
-                   analyticsData?.ProductStatistics?.SoldProducts || 
-                   filteredData.filter(item => item.Status === 'Sold').length;
-  const availableItems = analyticsData?.OverallSummary?.TotalActiveStockItems ||
-                         analyticsData?.ProductStatistics?.ActiveProducts || 
-                         filteredData.filter(item => item.Status !== 'Sold').length;
-  const uniqueCounters = analyticsData?.OverallSummary?.TotalCounters ||
-                        analyticsData?.CounterAnalytics?.CounterDetails?.length || 
-                        [...new Set(filteredData.map(item => item.CounterName || item.Counter || 'Unassigned'))].length;
+  const soldItems = filteredData.filter(item => item.Status === 'Sold').length;
+  const soldItemsCount = soldItemsApiCount != null ? soldItemsApiCount : soldItems;
+  const availableItems = filteredData.filter(item => item.Status !== 'Sold').length;
+  const uniqueCounters = [...new Set(filteredData.map(item => item.CounterName || item.Counter || 'Unassigned'))].length;
 
   const chartOptions = {
     responsive: true,
@@ -2257,6 +2659,354 @@ const DashboardAnalytics = () => {
         </div>
       )}
 
+      {/* Header Row: SparkleRFID Dashboard + Rates */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          marginBottom: '18px',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            minWidth: 240,
+          }}
+        >
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 14,
+              background: 'linear-gradient(135deg, #0d9488 0%, #6366f1 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              boxShadow: '0 8px 24px rgba(13,148,136,0.18)',
+              border: '1px solid rgba(255,255,255,0.3)',
+            }}
+          >
+            <FaCoins size={18} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+              SparkleRFID Dashboard
+            </div>
+          
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleOpenRates}
+          disabled={ratesLoading || ratesSaving}
+          style={{
+            padding: '10px 16px',
+            fontSize: 13,
+            fontWeight: 800,
+            color: '#fff',
+            background: ratesSaving ? '#94a3b8' : '#0d9488',
+            border: 'none',
+            borderRadius: 12,
+            cursor: ratesLoading || ratesSaving ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            boxShadow: '0 10px 26px rgba(13,148,136,0.18)',
+          }}
+        >
+          {ratesLoading ? <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> : <FaCoins />}
+          Rates
+        </button>
+      </div>
+
+      {/* Rates Modal */}
+      {ratesModalOpen && (
+        <div
+          // Do not close on overlay click; Close button only.
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 3000,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px 12px',
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(760px, 92vw)',
+              background: '#fff',
+              borderRadius: 14,
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 30px 90px rgba(0,0,0,0.25)',
+              overflow: 'hidden',
+              maxHeight: 'calc(100vh - 140px)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              style={{
+                padding: '8px 12px',
+                borderBottom: '1px solid #e5e7eb',
+                background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 10,
+                    background: '#0d94880f',
+                    border: '1px solid #0d948830',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#0d9488',
+                    flexShrink: 0,
+                  }}
+                >
+                  <FaCoins size={13} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#0f172a' }}>Set Rates</div>
+                  <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600 }}>Edit Today&apos;s Rate</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setRatesModalOpen(false)}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 10,
+                    border: '1px solid #e5e7eb',
+                    background: '#fff',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                  }}
+                  disabled={ratesSaving}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: '4px 8px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
+              {ratesLoading ? (
+                <div style={{ padding: '16px 0', display: 'flex', alignItems: 'center', gap: 10, color: '#64748b', fontWeight: 700 }}>
+                  <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> Loading rates...
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table
+                    style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      fontSize: 10,
+                      minWidth: 520,
+                      tableLayout: 'fixed',
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ background: '#f3f4f6' }}>
+                        <th
+                          style={{
+                            textAlign: 'left',
+                            padding: '5px 7px',
+                            borderBottom: '1px solid #e5e7eb',
+                            color: '#5b6776',
+                            fontWeight: 900,
+                            width: '42%',
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 2,
+                          }}
+                        >
+                          Category
+                        </th>
+                        <th
+                          style={{
+                            textAlign: 'left',
+                            padding: '5px 7px',
+                            borderBottom: '1px solid #e5e7eb',
+                            color: '#5b6776',
+                            fontWeight: 900,
+                            width: '38%',
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 2,
+                          }}
+                        >
+                          Purity
+                        </th>
+                        <th
+                          style={{
+                            textAlign: 'right',
+                            padding: '5px 7px',
+                            borderBottom: '1px solid #e5e7eb',
+                            color: '#5b6776',
+                            fontWeight: 900,
+                            width: '20%',
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 2,
+                          }}
+                        >
+                          Rate
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {puritiesMaster.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} style={{ padding: '10px 10px', color: '#64748b', fontWeight: 700 }}>
+                            No purity data found
+                          </td>
+                        </tr>
+                      ) : (
+                        puritiesMaster
+                          .slice()
+                          .sort((a, b) => {
+                            const catA = Number(a.CategoryId ?? a.categoryId ?? -1) || 0;
+                            const catB = Number(b.CategoryId ?? b.categoryId ?? -1) || 0;
+                            if (catA !== catB) return catA - catB;
+                            const purityA = Number(a.Id ?? a.id ?? a.PurityId ?? a.PurityID ?? 0) || 0;
+                            const purityB = Number(b.Id ?? b.id ?? b.PurityId ?? b.PurityID ?? 0) || 0;
+                            return purityA - purityB;
+                          })
+                          .map((p, idx) => {
+                            const purityId = p.Id ?? p.id ?? p.PurityId ?? p.PurityID ?? '';
+                            const categoryId = p.CategoryId ?? p.categoryId ?? '';
+                            const catKey = categoryId !== '' && categoryId != null ? String(categoryId) : '';
+                            const purityKey = purityId !== '' && purityId != null ? String(purityId) : '';
+
+                            const catName = getCategoryNameForPurity(p);
+                            const purityName = p.PurityName ?? p.Name ?? '';
+                            const value = ratesByPurityId[purityKey] ?? '';
+
+                            return (
+                              <tr
+                                key={String(purityId)}
+                                style={{
+                                  borderBottom: '1px solid #eef2f6',
+                                  background: idx % 2 === 0 ? '#ffffff' : '#fcfdff',
+                                }}
+                              >
+                                <td
+                                  style={{
+                                    padding: '4px 7px',
+                                    fontWeight: 900,
+                                    color: '#0f172a',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    background: 'transparent',
+                                  }}
+                                >
+                                  {catName}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: '4px 7px',
+                                    fontWeight: 900,
+                                    color: '#0f172a',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {purityName}
+                                </td>
+                                <td style={{ padding: '4px 7px', textAlign: 'right' }}>
+                                  <input
+                                    type="text"
+                                    value={value === '' || value == null ? '' : String(value)}
+                                    onChange={(e) => handleRateChange(p, e.target.value)}
+                                  disabled={ratesSaving}
+                                    style={{
+                                      width: 145,
+                                      height: 28,
+                                      padding: '4px 8px',
+                                      borderRadius: 9,
+                                      border: '1px solid #e2e8f0',
+                                      outline: 'none',
+                                      fontWeight: 800,
+                                      textAlign: 'right',
+                                      fontSize: 10.5,
+                                      boxSizing: 'border-box',
+                                    background: ratesSaving ? '#f1f5f9' : '#fff',
+                                    }}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                padding: '8px 10px',
+                borderTop: '1px solid #e5e7eb',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700 }}>
+                {dailyRatesChangedCount > 0 ? `${dailyRatesChangedCount} updated row(s)` : ''}
+              </div>
+              <button
+                type="button"
+                onClick={handleSetRates}
+                disabled={ratesLoading || ratesSaving || puritiesMaster.length === 0 || dailyRatesChangedCount === 0}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  fontWeight: 900,
+                  color: '#fff',
+                  background: ratesSaving ? '#94a3b8' : '#6366f1',
+                  border: 'none',
+                  borderRadius: 12,
+                  cursor: ratesLoading || ratesSaving ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                {ratesSaving ? <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> : <FaCheck />}
+                {ratesSaving ? 'Saving...' : 'Set Rates'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Compact Summary Cards - Responsive Grid */}
       <div 
         className="metrics-cards-grid"
@@ -2296,7 +3046,7 @@ const DashboardAnalytics = () => {
           { 
             icon: FaShoppingCart, 
             label: t('analytics.soldItems'), 
-            value: soldItems,
+            value: soldItemsCount,
             suffix: '',
             decimals: 0,
             color: '#dc2626'

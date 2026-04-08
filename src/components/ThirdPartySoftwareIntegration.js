@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { FaPlug, FaLock, FaInfoCircle, FaSync, FaSpinner, FaCheckCircle, FaExclamationCircle, FaCloudUploadAlt } from 'react-icons/fa';
+import { FaPlug, FaLock, FaInfoCircle, FaSync, FaSpinner, FaCheckCircle, FaExclamationCircle, FaCloudUploadAlt, FaEdit } from 'react-icons/fa';
 import { HiChip, HiDocumentText, HiLightningBolt } from 'react-icons/hi';
 import { getTestService, getStockOnHand, hasGatiAuthToken } from '../services/tamannaahBSGatiService';
 
 const LOYALSTRING_SAVE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails';
+const LOYALSTRING_DELETE_ALL_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient';
+const UPDATE_EXISTING_API = 'https://soni.loyalstring.co.in/api/ProductMaster/UpdateExistingProducts';
 const PUSH_CHUNK_SIZE = 50;
 
+// Save RFID API: send all rows; RFIDNumber may be empty when Gati has no RFID.
 const mapGatiToLoyalstringPayload = (row, clientCode) => ({
   client_code: String(clientCode || ''),
   branch_id: '',
@@ -33,6 +36,31 @@ const mapGatiToLoyalstringPayload = (row, clientCode) => ({
   MRP: String(row.MRP ?? '0'),
   imageurl: String(row.Description ?? ''),
   status: 'ApiActive',
+});
+
+const mapGatiToUpdateExistingPayload = (row, clientCode) => ({
+  client_code: String(clientCode || ''),
+  RFIDNumber: String(row.RFIDCode ?? ''),
+  itemcode: String(row.ItemCode ?? ''),
+  branch_id: '',
+  counter_id: '',
+  category_id: String(row.MetalName ?? ''),
+  product_id: String(row.ProductName ?? ''),
+  design_id: String(row.ProductCode ?? row.DesignName ?? ''),
+  purity_id: String(row.PurityName ?? ''),
+  grosswt: String(row.GrossWt ?? '0'),
+  netwt: String(row.NetWt ?? '0'),
+  stonewt: String(row.TotalStoneWeight ?? '0'),
+  stoneamount: String(row.TotalStonePieces ?? '0'),
+  diamondAmount: String(row.TotalDiamondPieces ?? '0'),
+  diamondWeight: String(row.TotalDiamondWeight ?? '0'),
+  box_details: String(row.Description ?? ''),
+  MRP: String(row.MRP ?? '0'),
+  HallmarkAmount: String(row.HSNCode ?? '0'),
+  MakingPerGram: '0',
+  MakingPercentage: '0',
+  MakingFixedAmt: '0',
+  status: String('ApiActive'),
 });
 
 const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
@@ -78,6 +106,9 @@ const ThirdPartySoftwareIntegration = () => {
   const [pushLoading, setPushLoading] = useState(false);
   const [pushProgress, setPushProgress] = useState(0);
   const [pushResult, setPushResult] = useState(null);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateResult, setUpdateResult] = useState(null);
 
   useEffect(() => {
     const code = getClientCodeFromAuth();
@@ -107,10 +138,11 @@ const ThirdPartySoftwareIntegration = () => {
     setStockError('');
     setStockData([]);
     setPushResult(null);
+    setUpdateResult(null);
     try {
       const res = await getStockOnHand();
       if (res?.status && Array.isArray(res?.data)) {
-        setStockData(res.data);
+        setStockData(res.data.map((row) => ({ ...row, Status: 'ApiActive' })));
       } else if (res?.status === false && res?.message) {
         setStockError(res.message);
       } else {
@@ -137,9 +169,47 @@ const ThirdPartySoftwareIntegration = () => {
     setPushLoading(true);
     setPushResult(null);
     setPushProgress(0);
+    let deleteOk = false;
     let successCount = 0;
     let errorCount = 0;
     const errors = [];
+
+    // Phase 1: Delete old stock first
+    try {
+      setPushProgress(1);
+      const deleteRes = await axios.delete(LOYALSTRING_DELETE_ALL_URL, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        data: { ClientCode: clientCode },
+      });
+
+      // If API uses `success` flag, respect it; otherwise treat 2xx as success.
+      const deleteBody = deleteRes?.data;
+      deleteOk = deleteBody?.success !== false;
+      setPushProgress(20);
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'DeleteAllStockForClient failed';
+      setPushLoading(false);
+      setPushProgress(0);
+      setPushResult({ success: false, message: msg });
+      return;
+    }
+
+    if (!deleteOk) {
+      setPushLoading(false);
+      setPushProgress(0);
+      setPushResult({ success: false, message: 'DeleteAllStockForClient returned failure.' });
+      return;
+    }
+
+    // Phase 2: Push fresh stock
+    // Include all rows for Save RFID API (with or without RFID).
     const payloads = stockData.map((row) => mapGatiToLoyalstringPayload(row, clientCode));
     const total = payloads.length;
     const totalChunks = Math.ceil(total / PUSH_CHUNK_SIZE);
@@ -168,7 +238,11 @@ const ThirdPartySoftwareIntegration = () => {
         const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Request failed';
         errors.push(`Batch ${chunkNum}: ${msg}`);
       }
-      setPushProgress(Math.round(((i + chunk.length) / total) * 100));
+
+      // Map [0..total] -> [20..100] so the bar shows delete + push phases
+      const pushedRatio = (i + chunk.length) / total;
+      const progress = 20 + Math.round(pushedRatio * 80);
+      setPushProgress(progress);
     }
 
     setPushLoading(false);
@@ -178,6 +252,80 @@ const ThirdPartySoftwareIntegration = () => {
       successCount,
       errorCount,
       total,
+      errors: errors.length ? errors : null,
+    });
+  };
+
+  const updateStocksDetails = async () => {
+    if (!stockData.length || !clientCode) {
+      setUpdateResult({ success: false, message: 'No data to update or client code missing.' });
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setUpdateResult({ success: false, message: 'Please log in again.' });
+      return;
+    }
+    setUpdateLoading(true);
+    setUpdateResult(null);
+    setUpdateProgress(0);
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    const payloads = stockData
+      .filter((row) => {
+        // Backend UpdateExistingProducts: itemcode is mandatory; RFIDNumber optional.
+        const itemCode = String(row.ItemCode ?? '').trim();
+        return itemCode !== '';
+      })
+      .map((row) => mapGatiToUpdateExistingPayload(row, clientCode));
+    const skippedCount = stockData.length - payloads.length;
+    const total = payloads.length;
+    if (total === 0) {
+      setUpdateLoading(false);
+      setUpdateResult({
+        success: false,
+        message: skippedCount > 0
+          ? `All ${stockData.length} rows are missing Item Code; nothing to send.`
+          : 'No valid rows to update.',
+      });
+      return;
+    }
+    for (let i = 0; i < payloads.length; i += PUSH_CHUNK_SIZE) {
+      const chunk = payloads.slice(i, i + PUSH_CHUNK_SIZE);
+      const chunkNum = Math.floor(i / PUSH_CHUNK_SIZE) + 1;
+      try {
+        const res = await axios.post(UPDATE_EXISTING_API, chunk, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        const data = res.data || {};
+        const hasError = data.errors?.length || (typeof data.message === 'string' && /error|failed|invalid|duplicate|not found/i.test(data.message));
+        if (hasError) {
+          errorCount += chunk.length;
+          const msg = data.message || (data.errors && data.errors.map((e) => e.error || e.message).join('; ')) || 'Validation error';
+          errors.push(`Batch ${chunkNum}: ${msg}`);
+        } else {
+          successCount += chunk.length;
+        }
+      } catch (err) {
+        errorCount += chunk.length;
+        const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Request failed';
+        errors.push(`Batch ${chunkNum}: ${msg}`);
+      }
+      setUpdateProgress(Math.round(((i + chunk.length) / total) * 100));
+    }
+    setUpdateLoading(false);
+    setUpdateProgress(100);
+    setUpdateResult({
+      success: errorCount === 0,
+      successCount,
+      errorCount,
+      total,
+      skippedCount: skippedCount > 0 ? skippedCount : null,
+      totalRows: stockData.length,
       errors: errors.length ? errors : null,
     });
   };
@@ -397,6 +545,27 @@ const ThirdPartySoftwareIntegration = () => {
               {pushLoading ? <FaSpinner size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <FaCloudUploadAlt size={14} />}
               Push to Loyalstring Server
             </button>
+            <button
+              type="button"
+              onClick={updateStocksDetails}
+              disabled={stockLoading || updateLoading || stockData.length === 0}
+              style={{
+                padding: '8px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#fff',
+                background: stockData.length === 0 || updateLoading ? '#94a3b8' : '#0f766e',
+                border: 'none',
+                borderRadius: 8,
+                cursor: stockData.length === 0 || updateLoading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              {updateLoading ? <FaSpinner size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <FaEdit size={14} />}
+              Update stocks details
+            </button>
           </div>
         </div>
 
@@ -466,6 +635,64 @@ const ThirdPartySoftwareIntegration = () => {
                     <li key={i}>{e}</li>
                   ))}
                   {pushResult.errors.length > 10 && <li>... and {pushResult.errors.length - 10} more</li>}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+
+        {updateLoading && (
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>Updating stock details...</span>
+              <span style={{ fontSize: 13, color: '#64748b' }}>{updateProgress}%</span>
+            </div>
+            <div style={{ height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${updateProgress}%`,
+                  background: 'linear-gradient(90deg, #0d9488 0%, #0f766e 100%)',
+                  borderRadius: 4,
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {updateResult && !updateLoading && (
+          <div style={{
+            padding: 16,
+            margin: 12,
+            background: updateResult.success ? '#f0fdf4' : '#fef2f2',
+            borderRadius: 10,
+            border: `1px solid ${updateResult.success ? '#86efac' : '#fecaca'}`
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              {updateResult.success ? (
+                <FaCheckCircle size={20} style={{ color: '#16a34a' }} />
+              ) : (
+                <FaExclamationCircle size={20} style={{ color: '#dc2626' }} />
+              )}
+              <span style={{ fontWeight: 600, fontSize: 14, color: updateResult.success ? '#166534' : '#991b1b' }}>
+                {updateResult.success ? 'Update completed' : 'Update completed with errors'}
+              </span>
+            </div>
+            <p style={{ fontSize: 13, color: updateResult.success ? '#15803d' : '#b91c1c', margin: '0 0 8px 0' }}>
+              {updateResult.total != null && (
+                <>Processed {updateResult.successCount} of {updateResult.total} items successfully.{updateResult.errorCount > 0 && ` ${updateResult.errorCount} failed.`}{updateResult.skippedCount > 0 && ` ${updateResult.skippedCount} skipped (missing RFID Code).`}</>
+              )}
+              {updateResult.message && !updateResult.total && updateResult.message}
+            </p>
+            {updateResult.errors && updateResult.errors.length > 0 && (
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ fontSize: 12, cursor: 'pointer', color: '#64748b' }}>View errors</summary>
+                <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: 12, color: '#991b1b', maxHeight: 120, overflowY: 'auto' }}>
+                  {updateResult.errors.slice(0, 10).map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                  {updateResult.errors.length > 10 && <li>... and {updateResult.errors.length - 10} more</li>}
                 </ul>
               </details>
             )}

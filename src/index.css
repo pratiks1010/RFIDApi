@@ -22,6 +22,7 @@
 
 html {
   font-family: var(--font-family) !important;
+  background-color: #ffffff;
 }
 
 body {
@@ -32,6 +33,11 @@ body {
   font-size: var(--font-size-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  background-color: #ffffff;
+  min-height: 100vh;
 }
 
 code {

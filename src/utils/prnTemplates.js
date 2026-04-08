@@ -63,6 +63,60 @@ const calculateEpcMemory = (hexCode) => {
   return { epcBits, pcValue, epcHex };
 };
 
+// Generate PRN for LS000224
+const generateLS000224Prn = (item) => {
+  const code = item.ItemCode || item.RFIDCode || '';
+  const epcHex = toHex(code);
+  const epcPadded = epcHex.padStart(12, '0').substring(0, 12);
+  const design = item.DesignName || item.ProductName || item.CategoryName || '';
+  const grossWt = item.GrossWt != null && item.GrossWt !== '' ? String(item.GrossWt) : '0.000';
+  const netWt = item.NetWt != null && item.NetWt !== '' ? String(item.NetWt) : '0.000';
+  const mrp = item.MRP != null && item.MRP !== '' ? String(item.MRP) : '0';
+
+  return `!PTX_SETUP
+ENGINE-WIDTH;1478:LENGTH;710:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~CONFIG
+CHECK DYNAMIC BCD;0
+END
+~CREATE;FORM-0;51
+SCALE;DOT;203;203
+ISET;'UTF8'
+RFWTAG;16;PC
+16;H;*1C00*
+STOP
+RFWTAG;48;EPC
+48;H;*${epcPadded}*
+STOP
+VERT
+3;180;8;135
+STOP
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+INV;POINT;39;284;9;11;"${code}"
+STOP
+BARCODE
+QRCODE;INV;XD3;T2;E0;M0;I0;72;207
+"${code}"
+STOP
+ALPHA
+INV;POINT;115;148;9;9;"${design}"
+INV;POINT;83;148;9;10;"G : ${grossWt}"
+INV;POINT;51;148;9;10;"N : ${netWt}"
+INV;POINT;21;150;9;9;"${mrp}"
+STOP
+END
+~EXECUTE;FORM-0;1
+
+~NORMAL
+~DELETE FORM;FORM-0
+`;
+};
+
 // Generate PRN for LS000428 (Original template)
 const generateLS000428Prn = (item) => {
   // Use MRP if available, otherwise fallback to FixedAmt, then '0'
@@ -278,6 +332,33 @@ END
 `;
 };
 
+// Exact LS000431 baseline PRN from DELHILOGOOPNew (1).prn (byte-preserved via base64)
+const LS000431_BASE_PRN_B64 = "PHhwbWw+PHBhZ2UgcXVhbnRpdHk9JzAnIHBpdGNoPScyNy4wIG1tJz48L3hwbWw+IVBUWF9TRVRVUA0KRU5HSU5FLVdJRFRIOzI0ODM6TEVOR1RIOzEwNjU6TUlSUk9SOzAuDQpQVFhfRU5EDQp+UEFQRVI7Uk9UQVRFIDANCn5DT05GSUcNClVQQyBERVNDRU5ERVJTOzANCkVORA0KflBBUEVSO0xBQkVMUyAyO01FRElBIDENCn5QQVBFUjtGRUVEIFNISUZUIDA7SU5URU5TSVRZIDA7U1BFRUQgSVBTIDY7U0xFVyBJUFMgNjtUWVBFIDANCn5QQVBFUjtDVVQgMDtQQVVTRSAwO1RFQVIgMA0KfkNPTkZJRw0KQ0hFQ0sgRFlOQU1JQyBCQ0Q7MA0KU0xBU0ggWkVSTzswDQpVUFBFUkNBU0U7MA0KQVVUTyBXUkFQOzANCkhPU1QgRk9STSBMRU5HVEg7MQ0KRU5EDQo8eHBtbD48L3BhZ2U+PC94cG1sPjx4cG1sPjxwYWdlIHF1YW50aXR5PScxJyBwaXRjaD0nMjcuMCBtbSc+PC94cG1sPn5MT0dPO0xPR08tMDtQQ1gNCgoFAQEAAAAAKQAdACwBLAEAAAD///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQYAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwcDEAMH/gMQAf7/B/bd/wf9/f8H3t1/B/7/G/8HwAMH/wcADwf/BwAB/gADB/4AAP8IAf4AAHsIAf4AADMIAf4DEAH/BwB/B4cH+AMH/weAfweHB/gHB/8HwH8HAwf4Dwf/B+A/BwMH8B8H/wfwHwcDB+A/B/8H+A8HhwfAfwf/B/wHB88HgP8H/wf+Awf/BwH/B/8H/wcB/gML/wf/B4D8Bwv/B/8HwHgPC/8H/wfgMB8L/wf/B/AAPwv/B/8H+AB/C/8L/AD/C/8L/gH/C/8L/wcDD/8L/weHD/8L/wfPD/35SQVNURVJFTkQNCkVORA0KfkNSRUFURTtGT1JNLTA7NzYNClNDQUxFO0RPVDsyMDM7MjAzDQpJU0VUOydVVEY4Jw0KUkZXVEFHOzE2O1BDDQoxNjtIOyoxQzAwKg0KU1RPUA0KUkZXVEFHOzQ4O0VQQw0KNDg7SDsqNTM0NjQ5MzMzOTM3Kg0KU1RPUA0KRk9OVDtGQUNFIDkyMjUwO0JPTEQgMDtTTEFOVCAwDQpBTFBIQQ0KSU5WO1BPSU5UOzE2MDsxOTQ7Njs4OyJPUEoiDQpJTlY7UE9JTlQ7MTYwOzEwMzs2OzExOyJESVYiDQpJTlY7UE9JTlQ7MTMyOzE5NDs2Ozk7IlNGSTM5NyINCklOVjtQT0lOVDsxMzI7MTAzOzY7OTsiMVBDIg0KSU5WO1BPSU5UOzE4ODsxOTU7Njs4OyJTSUxWRVIgRkFOQ1kgSVRFTSINClNUT1ANCkJBUkNPREUNCkMxMjhCO0lOVjtYUkQxOjE6MjoyOjM6Mzo0OjQ7SDMuMTc7MzE7MzMNCiIOJlNGSTM5NyINClNUT1ANCkFMUEhBDQpJTlY7UE9JTlQ7Nzc7MTk3OzY7OTsiTVNSUDoiDQpJTlY7UE9JTlQ7Nzk7MTE3OzY7MTA7IlJzIg0KSU5WO1BPSU5UOzc5OzgwOzY7ODsiMjAxMDAvLSINCklOVjtQT0lOVDs4Ozk5OzY7ODsiOTk5Ig0KU1RPUA0KTE9HTw0KMzA7MTUyO0xPR08tMA0KU1RPUA0KRU5EDQp+RVhFQ1VURTtGT1JNLTA7MQ0KPHhwbWw+PC9wYWdlPjwveHBtbD4NCn5OT1JNQUwNCn5ERUxFVEUgRk9STTtGT1JNLTANCn5ERUxFVEUgTE9HTztMT0dPLTANCg==";
+
+const decodeBase64Latin1 = (base64) => {
+  const binary = atob(base64);
+  return Array.from(binary, (ch) => String.fromCharCode(ch.charCodeAt(0))).join('');
+};
+
+// Generate PRN for LS000431 by replacing only dynamic fields in exact base file
+const generateLS000431Prn = (item) => {
+  const price = item.MRP || item.FixedAmt || '0';
+  const purity = item.Purity || item.PurityName || '';
+  const itemCode = item.ItemCode || '';
+  const productName = item.ProductName || '';
+  const epcHex = toHex(itemCode).padStart(12, '0').substring(0, 12);
+  const barcodePrefix = String.fromCharCode(14);
+
+  let prn = decodeBase64Latin1(LS000431_BASE_PRN_B64);
+  prn = prn.replace("*534649333937*", `*${epcHex}*`);
+  prn = prn.replaceAll('"SFI397"', `"${itemCode}"`);
+  prn = prn.replace('"SILVER FANCY ITEM"', `"${productName}"`);
+  prn = prn.replace('"20100/-"', `"${price}/-"`);
+  prn = prn.replace('"999"', `"${purity}"`);
+  prn = prn.replace(`${barcodePrefix}&SFI397`, `${barcodePrefix}&${itemCode}`);
+  return prn;
+};
+
 // Generate PRN for LS000443 - Silver Category (New template)
 const generateLS000443SilverPrn = (item) => {
   const itemCode = item.ItemCode || '';
@@ -353,10 +434,14 @@ END
 
 // Main function to generate client-specific PRN
 export const generateClientPrn = (item, clientCode) => {
-  // Route to appropriate template based on client code
-  switch (clientCode) {
+  const code = (clientCode || '').trim();
+  switch (code) {
+    case 'LS000224':
+      return generateLS000224Prn(item);
     case 'LS000428':
       return generateLS000428Prn(item);
+    case 'LS000431':
+      return generateLS000431Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection
@@ -370,9 +455,9 @@ export const generateClientPrn = (item, clientCode) => {
       } else if (categoryUpper === 'DIAMOND' || categoryUpper.includes('DIAMOND')) {
         return generateLS000443DiamondPrn(item);
       } else {
-        throw new Error(`PRN template for client ${clientCode} is only available for Gold, Silver, or Diamond category. Current category: ${category || 'N/A'}`);
+        throw new Error(`PRN template for client ${code} is only available for Gold, Silver, or Diamond category. Current category: ${category || 'N/A'}`);
       }
     default:
-      throw new Error(`PRN template not configured for client code: ${clientCode}`);
+      throw new Error(`PRN template not configured for client code: ${code}`);
   }
 };

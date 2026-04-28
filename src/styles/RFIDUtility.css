@@ -1,0 +1,245 @@
+.rfid-utility-page {
+  min-height: calc(100vh - 96px);
+  width: 100%;
+  padding: clamp(12px, 2vw, 24px);
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+}
+
+.rfid-utility-header {
+  margin-bottom: clamp(12px, 1.8vw, 20px);
+}
+
+.rfid-utility-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: clamp(6px, 0.9vw, 8px) clamp(10px, 1.2vw, 14px);
+  border-radius: 999px;
+  font-size: clamp(10px, 0.8vw, 12px);
+  font-weight: 700;
+  color: #4f46e5;
+  background: #e0e7ff;
+}
+
+.rfid-utility-header h1 {
+  margin: clamp(8px, 1.2vw, 12px) 0 clamp(4px, 0.7vw, 6px);
+  font-size: clamp(20px, 2.4vw, 30px);
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.rfid-utility-header p {
+  margin: 0;
+  font-size: clamp(12px, 1vw, 14px);
+  color: #64748b;
+}
+
+.rfid-utility-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  align-content: start;
+  flex: 1;
+  gap: clamp(12px, 1.4vw, 18px);
+}
+
+.rfid-utility-card {
+  position: relative;
+  min-height: 218px;
+  border: 1px solid var(--card-border, #e6ebf2);
+  border-radius: 16px;
+  background: var(--card-bg, #ffffff);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+  will-change: transform;
+}
+
+.rfid-utility-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+  border-color: var(--card-border-hover, #d5deea);
+}
+
+.rfid-utility-card:active {
+  transform: translateY(0) scale(0.995);
+}
+
+.rfid-card-content {
+  height: 100%;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  color: #1f2937;
+}
+
+.rfid-card-content h3 {
+  margin: 14px 0 8px;
+  font-size: clamp(20px, 1.3vw, 28px);
+  line-height: 1.25;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.rfid-card-content p {
+  margin: 0;
+  font-size: clamp(14px, 0.9vw, 16px);
+  line-height: 1.5;
+  font-weight: 500;
+  color: #64748b;
+  max-width: 95%;
+}
+
+.rfid-card-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+.rfid-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  transition: transform 0.22s ease;
+}
+
+.rfid-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #6366f1;
+  white-space: nowrap;
+  transition: transform 0.22s ease;
+}
+
+.rfid-utility-card:hover .rfid-card-icon {
+  transform: translateY(-1px) scale(1.04);
+}
+
+.rfid-utility-card:hover .rfid-card-action {
+  transform: translateX(3px);
+}
+
+.rfid-card-purple {
+  --card-bg: linear-gradient(135deg, #fcf9ff 0%, #f4f0ff 100%);
+  --card-border: #e7dcff;
+  --card-border-hover: #d8c7ff;
+  --icon-bg: #efe7ff;
+  --icon-color: #7c3aed;
+  --action-color: #7c3aed;
+}
+
+.rfid-card-blue {
+  --card-bg: linear-gradient(135deg, #f8fcff 0%, #edf7ff 100%);
+  --card-border: #d8ebff;
+  --card-border-hover: #c1deff;
+  --icon-bg: #e5f4ff;
+  --icon-color: #0284c7;
+  --action-color: #0284c7;
+}
+
+.rfid-card-coral {
+  --card-bg: linear-gradient(135deg, #f6fffe 0%, #edfdfb 100%);
+  --card-border: #d0f4ef;
+  --card-border-hover: #b8e9e1;
+  --icon-bg: #e8fbf8;
+  --icon-color: #0f766e;
+  --action-color: #0f766e;
+}
+
+.rfid-card-green {
+  --card-bg: linear-gradient(135deg, #f8fff9 0%, #effdf2 100%);
+  --card-border: #d4f3dd;
+  --card-border-hover: #bbe9ca;
+  --icon-bg: #e9f9ee;
+  --icon-color: #15803d;
+  --action-color: #15803d;
+}
+
+.rfid-card-indigo {
+  --card-bg: linear-gradient(135deg, #fafbff 0%, #f0f4ff 100%);
+  --card-border: #dde4ff;
+  --card-border-hover: #ccd8ff;
+  --icon-bg: #e9edff;
+  --icon-color: #4f46e5;
+  --action-color: #4f46e5;
+}
+
+.rfid-card-orange {
+  --card-bg: linear-gradient(135deg, #fffaf7 0%, #fff2e9 100%);
+  --card-border: #ffe1cc;
+  --card-border-hover: #ffd2b3;
+  --icon-bg: #fff1e8;
+  --icon-color: #ea580c;
+  --action-color: #ea580c;
+}
+
+.rfid-card-rose {
+  --card-bg: linear-gradient(135deg, #fff9fc 0%, #fff0f7 100%);
+  --card-border: #ffdcec;
+  --card-border-hover: #ffc8e0;
+  --icon-bg: #ffe9f2;
+  --icon-color: #c026d3;
+  --action-color: #c026d3;
+}
+
+.rfid-card-teal {
+  --card-bg: linear-gradient(135deg, #f7fffe 0%, #ebfbfa 100%);
+  --card-border: #d2f3f1;
+  --card-border-hover: #bde8e4;
+  --icon-bg: #e6f8f8;
+  --icon-color: #0d9488;
+  --action-color: #0d9488;
+}
+
+.rfid-card-icon {
+  background: var(--icon-bg, #eef2ff);
+  color: var(--icon-color, #4f46e5);
+}
+
+.rfid-card-action {
+  color: var(--action-color, #4f46e5);
+}
+
+@media (max-width: 1280px) {
+  .rfid-utility-grid {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .rfid-utility-page {
+    padding: 16px;
+    min-height: calc(100vh - 70px);
+  }
+
+  .rfid-utility-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .rfid-utility-card {
+    min-height: 190px;
+  }
+
+  .rfid-card-content h3 {
+    font-size: clamp(21px, 6vw, 25px);
+  }
+
+  .rfid-card-content p {
+    max-width: 100%;
+    min-height: auto;
+  }
+}

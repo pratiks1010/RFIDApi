@@ -66,7 +66,8 @@ const API_GROUPS = [
     icon: FaServer,
     apis: [
       { id: 'save-transaction', name: 'Save RFID Transaction (Add Stock)', endpoint: 'SaveRFIDTransactionDetails', method: 'POST', description: 'Save new RFID transaction with product details, weights, Stones & Diamonds.', sampleBody: { client_code: 'LS000123', branch_id: 'PUNE', counter_id: 'Counter1', RFIDNumber: 'CZ3506', Itemcode: 'SAU124', category_id: 'Gold', product_id: 'Bracelet', design_id: 'Simple', purity_id: '22CT', grosswt: '20.800', stonewt: '0.500', diamondweight: '0.250', netwt: '19.250', box_details: 'Box A', size: 0, stoneamount: '20', diamondAmount: '20', HallmarkAmount: '35', MakingPerGram: '10', MakingPercentage: '5', MakingFixedAmt: '37', MRP: '5000', imageurl: '', status: 'ApiActive', Stones: [], Diamonds: [] } },
-      { id: 'update-transaction', name: 'Update RFID Transaction', endpoint: 'UpdateRFIDTransactionDetails', method: 'POST', description: 'Update status of an RFID transaction (e.g. mark as Sold).', sampleBody: { client_code: 'LS000123', RFIDNumber: 'CZ3581', Itemcode: 'SAU124', status: 'Sold' } },
+      { id: 'get-saved-rfid-product-details', name: 'Get Saved RFID Product Details', endpoint: 'GetSavedRFIDProductDetails', method: 'POST', description: 'Fetch one saved product by item code or RFID number. Client code is enforced from JWT token and must match if sent in body.', sampleBody: { clientCode: 'LS000123', itemCode: 'ITM12345', rfidNo: 'RFID998877', status: 'ApiActive' }, responseFormat: { success: { status: 'success', message: 'Product details retrieved successfully.', data: { client_code: 'LS000123', itemcode: 'ITM12345', RFIDNumber: 'RFID998877', status: 'ApiActive', description: 'Gold ring', category_id: 'Rings', product_id: 'Ladies Ring', design_id: 'Floral', purity_id: '22K', branch_id: 'Main Branch', branch_name: 'Main Branch', counter_id: 'Counter 1', counter_name: 'Counter 1', vendor_id: 'Vendor A', box_details: 'BOX-12', box_name: 'BOX-12', packet: 'PACK-1', grosswt: '10.250', stonewt: '0.500', stoneamount: '2500', diamondWeight: '0.100', diamondAmount: '3000', netwt: '9.650', imageurl: 'org/ProductImage/file.jpg', tid_value: 'TID12345', HallmarkAmount: '200', MakingPerGram: '500', MakingPercentage: '12', MakingFixedAmt: '1000', MRP: '75000', created_datetime: '2026-04-17T08:35:12.123Z', updated_datetime: '2026-04-17T09:10:45.567Z' } }, failed: { status: 'failed', message: 'No product found for provided filters.' } } },
+      { id: 'update-transaction', name: 'Update RFID Transaction', endpoint: 'UpdateRFIDTransactionDetails', method: 'POST', description: 'Update RFID transactions in bulk. itemcode is required; RFIDNumber is optional.', sampleBody: [{ client_code: 'LS000123', itemcode: 'LS002' }, { client_code: 'LS000123', itemcode: 'LS003' }, { client_code: 'LS000123', itemcode: 'LS004', RFIDNumber: 'RGP0425' }] },
       { id: 'get-transaction', name: 'Get RFID Transaction Details', endpoint: 'GetRFIDTransactionDetails', method: 'POST', description: 'Retrieve all RFID transactions for a client.', sampleBody: { client_code: 'LS000123', status: 'ApiActive' } },
       { id: 'delete-labelled-stock', name: 'Delete Labelled Stock Items', endpoint: 'DeleteLabelledStockItems', method: 'POST', description: 'Remove specific items from labelled stock by item codes.', sampleBody: { ClientCode: 'LS000123', ItemCodes: ['SAU124', 'SAU125'] } },
       { id: 'delete-all-stock', name: 'Delete All Stock for Client', endpoint: 'DeleteAllStockForClient', method: 'DELETE', description: 'Delete all stock items for a client. Irreversible.', sampleBody: null, urlParams: '?ClientCode=LS000123' },
@@ -193,10 +194,27 @@ const Dashboard = () => {
     setResponse(null);
     setResponseMeta(null);
     let body = {};
-    if (fullApi.sampleBody) body = { ...fullApi.sampleBody };
+    if (fullApi.sampleBody) {
+      if (Array.isArray(fullApi.sampleBody)) {
+        body = fullApi.sampleBody.map((item) => ({ ...item }));
+      } else {
+        body = { ...fullApi.sampleBody };
+      }
+    }
     if (fullApi.urlParams) body = {};
-    if (body.client_code !== undefined) body.client_code = userInfo.ClientCode || body.client_code;
-    if (body.ClientCode !== undefined) body.ClientCode = userInfo.ClientCode || body.ClientCode;
+    if (Array.isArray(body)) {
+      body = body.map((item) => {
+        const next = { ...item };
+        if (next.client_code !== undefined) next.client_code = userInfo.ClientCode || next.client_code;
+        if (next.ClientCode !== undefined) next.ClientCode = userInfo.ClientCode || next.ClientCode;
+        if (next.clientCode !== undefined) next.clientCode = userInfo.ClientCode || next.clientCode;
+        return next;
+      });
+    } else {
+      if (body.client_code !== undefined) body.client_code = userInfo.ClientCode || body.client_code;
+      if (body.ClientCode !== undefined) body.ClientCode = userInfo.ClientCode || body.ClientCode;
+      if (body.clientCode !== undefined) body.clientCode = userInfo.ClientCode || body.clientCode;
+    }
     setBodyText(fullApi.sampleBody ? JSON.stringify(body, null, 2) : (fullApi.urlParams ? '{}' : '{}'));
     setClientError('');
     if (isMobile) {
@@ -206,19 +224,33 @@ const Dashboard = () => {
   };
 
   const validateClientCode = (body) => {
-    const code = body.client_code || body.ClientCode;
     const userCode = userInfo.ClientCode;
-    if (userCode && code !== userCode) {
-      setClientError('You can only use your own client code.');
-      return false;
+    const entries = Array.isArray(body) ? body : [body];
+    for (const entry of entries) {
+      const code = entry?.client_code || entry?.ClientCode || entry?.clientCode;
+      if (userCode && code !== undefined && code !== userCode) {
+        setClientError('You can only use your own client code.');
+        return false;
+      }
     }
     setClientError('');
     return true;
   };
 
+  const hasClientCodeField = (body) => {
+    if (!body) return false;
+    if (Array.isArray(body)) {
+      return body.some((entry) =>
+        entry &&
+        (entry.ClientCode !== undefined || entry.client_code !== undefined || entry.clientCode !== undefined)
+      );
+    }
+    return body.ClientCode !== undefined || body.client_code !== undefined || body.clientCode !== undefined;
+  };
+
   const runRequest = async (parsedBody) => {
     if (!selectedApi) return;
-    const hasClientCode = selectedApi.sampleBody && (selectedApi.sampleBody.ClientCode !== undefined || selectedApi.sampleBody.client_code !== undefined);
+    const hasClientCode = hasClientCodeField(parsedBody) || hasClientCodeField(selectedApi.sampleBody);
     if (hasClientCode && !validateClientCode(parsedBody)) return;
 
     setLoading(true);
@@ -226,6 +258,13 @@ const Dashboard = () => {
     setResponseMeta(null);
     const start = Date.now();
     const clientCode = userInfo.ClientCode;
+    const authToken = localStorage.getItem('token');
+    const requestConfig = {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+    };
 
     try {
       let apiResponse;
@@ -234,14 +273,14 @@ const Dashboard = () => {
       if (selectedApi.method === 'DELETE') {
         const deleteUrl = `${selectedApi.baseUrl}/${selectedApi.endpoint}`;
         apiResponse = await axios.delete(deleteUrl, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
+          headers: requestConfig.headers,
           data: { ClientCode: parsedBody.ClientCode || clientCode },
         });
       } else {
         switch (selectedApi.endpoint) {
           case 'SaveRFIDTransactionDetails':
           case 'UpdateRFIDTransactionDetails':
-            apiResponse = await axios.post(url, [parsedBody]);
+            apiResponse = await axios.post(url, Array.isArray(parsedBody) ? parsedBody : [parsedBody], requestConfig);
             break;
           case 'GetRFIDTransactionDetails':
             const transactionData = await rfidService.getRFIDTransactions(clientCode, parsedBody.status || 'ApiActive');
@@ -252,7 +291,7 @@ const Dashboard = () => {
             apiResponse = { data: deleteRes, status: 200 };
             break;
           default:
-            apiResponse = await axios.post(url, parsedBody);
+            apiResponse = await axios.post(url, parsedBody, requestConfig);
         }
       }
 
@@ -281,9 +320,18 @@ const Dashboard = () => {
     if (!selectedApi) return;
     try {
       const parsed = bodyText.trim() ? JSON.parse(bodyText) : {};
-      if (parsed.client_code !== undefined) parsed.client_code = userInfo.ClientCode || parsed.client_code;
-      if (parsed.ClientCode !== undefined) parsed.ClientCode = userInfo.ClientCode || parsed.ClientCode;
-      const needsValidation = selectedApi.sampleBody && (selectedApi.sampleBody.ClientCode !== undefined || selectedApi.sampleBody.client_code !== undefined);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((entry) => {
+          if (entry.client_code !== undefined) entry.client_code = userInfo.ClientCode || entry.client_code;
+          if (entry.ClientCode !== undefined) entry.ClientCode = userInfo.ClientCode || entry.ClientCode;
+          if (entry.clientCode !== undefined) entry.clientCode = userInfo.ClientCode || entry.clientCode;
+        });
+      } else {
+        if (parsed.client_code !== undefined) parsed.client_code = userInfo.ClientCode || parsed.client_code;
+        if (parsed.ClientCode !== undefined) parsed.ClientCode = userInfo.ClientCode || parsed.ClientCode;
+        if (parsed.clientCode !== undefined) parsed.clientCode = userInfo.ClientCode || parsed.clientCode;
+      }
+      const needsValidation = hasClientCodeField(parsed) || hasClientCodeField(selectedApi.sampleBody);
       if (needsValidation && !validateClientCode(parsed)) return;
       runRequest(parsed);
     } catch (_) {

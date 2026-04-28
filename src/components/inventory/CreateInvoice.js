@@ -1552,12 +1552,22 @@ const CreateInvoice = () => {
     
     setStatusChangeLoading(true);
     try {
+      const clientCode = userInfo?.ClientCode || '';
+      if (!clientCode) {
+        throw new Error('Client code not found. Please login again.');
+      }
+      if (!selectedItemForStatus.ItemCode) {
+        throw new Error('Item code is required to update RFID transaction.');
+      }
+
       const response = await axios.post(
         'https://soni.loyalstring.co.in/api/ProductMaster/UpdateRFIDTransactionDetails',
-        {
-          itemcode: selectedItemForStatus.ItemCode,
-          rfidcode: selectedItemForStatus.RFIDCode
-        },
+        [{
+          client_code: clientCode,
+          itemcode: selectedItemForStatus.ItemCode || '',
+          ...(selectedItemForStatus.RFIDCode ? { RFIDNumber: selectedItemForStatus.RFIDCode } : {}),
+          status: newStatus || selectedItemForStatus.Status || 'Sold'
+        }],
         {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -1632,11 +1642,16 @@ const CreateInvoice = () => {
         throw new Error('Client code not found. Please login again.');
       }
 
-      // Build payload array as shown in the API documentation
-      const payload = itemsToUpdate.map(item => ({
+      const validItemsToUpdate = itemsToUpdate.filter(item => item.ItemCode);
+      if (validItemsToUpdate.length === 0) {
+        throw new Error('No selected rows have itemcode. Please select valid items.');
+      }
+
+      // Recommended payload format: itemcode mandatory, RFIDNumber optional, status defaults to Sold server-side.
+      const payload = validItemsToUpdate.map(item => ({
         client_code: clientCode,
-        RFIDNumber: item.RFIDCode || '',
-        status: 'Sold'
+        itemcode: item.ItemCode,
+        ...(item.RFIDCode ? { RFIDNumber: item.RFIDCode } : {})
       }));
 
       // Make API call with array payload
@@ -1654,7 +1669,7 @@ const CreateInvoice = () => {
       // Handle response
       if (response.data && response.data.status === 'success') {
         // Update local state for all items
-        itemsToUpdate.forEach(item => {
+        validItemsToUpdate.forEach(item => {
           setLabeledStock(prev => prev.map(prevItem => 
             prevItem.Id === item.Id 
               ? { ...prevItem, Status: 'Sold' }
@@ -1676,7 +1691,11 @@ const CreateInvoice = () => {
         setShowMarkSoldConfirm(false);
 
         // Show success notification
-        const message = response.data.message || `Successfully marked ${itemsToUpdate.length} item(s) as sold.`;
+        const skippedCount = itemsToUpdate.length - validItemsToUpdate.length;
+        const successBaseMessage = response.data.message || `Successfully marked ${validItemsToUpdate.length} item(s) as sold.`;
+        const message = skippedCount > 0
+          ? `${successBaseMessage} Skipped ${skippedCount} item(s) without itemcode.`
+          : successBaseMessage;
         showSuccessNotification('Items Marked as Sold', message);
         addNotification({
           title: 'Items marked as sold',

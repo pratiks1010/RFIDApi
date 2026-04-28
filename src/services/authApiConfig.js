@@ -20,3 +20,7 @@ export const getFingerprintApiBaseUrl = () =>
 /** Passkey APIs (/api/auth/passkey/*). */
 export const getPasskeyApiBaseUrl = () =>
   (process.env.REACT_APP_PASSKEY_API_BASE_URL || DEFAULT_LOCAL_AUTH_API_BASE).replace(/\/$/, '');
+
+/** Face auth APIs (/api/auth/face/*). */
+export const getFaceAuthApiBaseUrl = () =>
+  (process.env.REACT_APP_FACE_AUTH_API_BASE_URL || DEFAULT_LOCAL_AUTH_API_BASE).replace(/\/$/, '');

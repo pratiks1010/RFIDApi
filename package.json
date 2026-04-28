@@ -1,6 +1,7 @@
 {
-  "name": "rfid-api-dashboard",
+  "name": "sparkle-rfid-dashboard",
   "homepage": ".",
+  "main": "electron/main.js",
   "version": "0.1.0",
   "private": true,
   "proxy": "http://3.109.131.101:816",
@@ -15,12 +16,14 @@
     "@syncfusion/ej2-charts": "^31.2.10",
     "@syncfusion/ej2-react-charts": "^31.2.10",
     "@syncfusion/ej2-react-popups": "^31.2.5",
+    "@tensorflow/tfjs": "^4.22.0",
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.6.2",
     "bootstrap": "^5.3.2",
     "chart.js": "^4.5.0",
+    "face-api.js": "^0.22.2",
     "firebase": "^11.9.0",
     "framer-motion": "^12.16.0",
     "html2canvas": "^1.4.1",
@@ -46,9 +49,14 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "start": "craco start",
+    "start:electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "build": "craco build",
+    "build:web": "craco build",
+    "build:electron": "npm run build:icon && npm run build:web && electron-builder --win",
+    "dist": "npm run build:electron",
+    "build:icon": "node scripts/generate-electron-icon.js",
+    "test": "craco test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -68,5 +76,41 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@craco/craco": "^7.1.0",
+    "concurrently": "^9.2.1",
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
+    "wait-on": "^9.0.5"
+  },
+  "build": {
+    "extends": null,
+    "appId": "com.loyalstring.sparkle-rfid-dashboard",
+    "productName": "Sparkle RFID Dashboard",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "build/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build-resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "installerHeaderIcon": "build-resources/icon.ico"
+    }
   }
 }

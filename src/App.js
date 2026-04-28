@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
@@ -40,12 +40,18 @@ import { AdminLogin, AdminDashboard } from './components/admin';
 import AdminRfidTagsReport from './components/admin/AdminRfidTagsReport';
 import SingleUseTags from './components/SingleUseTags';
 import ThirdPartySoftwareIntegration from './components/ThirdPartySoftwareIntegration';
+import FeroniaIntegration from './components/FeroniaIntegration';
 import CreateMasters from './components/CreateMasters';
 import DownloadApiDoc from './components/DownloadApiDoc';
 import DownloadResources from './components/DownloadResources';
 import ProfileMenuPage from './components/ProfileMenuPage';
 import FingerprintSettingsPage from './components/FingerprintSettingsPage';
 import PasskeySettingsPage from './components/PasskeySettingsPage';
+import FaceSettingsPage from './components/FaceSettingsPage';
+import RFIDUtility from './components/RFIDUtility';
+import AutoPushStockUtility from './components/AutoPushStockUtility';
+import MapFieldsUtility from './components/MapFieldsUtility';
+import TemplateUtility from './components/TemplateUtility';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
 import './styles/rtl.css';
@@ -56,6 +62,10 @@ import { NotificationProvider } from './context/NotificationContext';
 import { TranslationProvider } from './context/TranslationContext';
 import WelcomeModal from './components/common/WelcomeModal';
 import './i18n';
+
+const Router = (typeof window !== 'undefined' && window.location.protocol === 'file:')
+  ? HashRouter
+  : BrowserRouter;
 
 // Global loading context
 export const LoadingContext = createContext({ loading: false, setLoading: () => { } });
@@ -164,16 +174,22 @@ const useAuthProtection = () => {
         '/rfid-devices',
         '/rfid-tags',
         '/tag-usage',
+        '/rfid-utility',
+        '/rfid-utility/auto-push-stock',
+        '/rfid-utility/map-fields',
+        '/rfid-utility/template',
         '/stock-verification',
         '/upload-rfid',
         '/rfid-transactions',
         '/rfid-app-download',
         '/third-party-integration',
+        '/feronia-integration',
         '/download-api-doc',
         '/download-resources',
         '/single-use-tags',
         '/profile-menu',
         '/fingerprint-register',
+        '/face-register',
         '/passkey-settings'
       ];
       const adminRoutes = ['/admin-dashboard'];
@@ -193,7 +209,7 @@ const useAuthProtection = () => {
     }
 
     // If admin is authenticated but tries to access user routes
-    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/passkey-settings'].includes(currentPath)) {
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings'].includes(currentPath)) {
       navigate('/admin-dashboard', { replace: true });
     }
   }, [location.pathname, navigate]);
@@ -219,16 +235,22 @@ const useAuthProtection = () => {
         '/rfid-devices',
         '/rfid-tags',
         '/tag-usage',
+        '/rfid-utility',
+        '/rfid-utility/auto-push-stock',
+        '/rfid-utility/map-fields',
+        '/rfid-utility/template',
         '/stock-verification',
         '/upload-rfid',
         '/rfid-transactions',
         '/rfid-app-download',
         '/third-party-integration',
+        '/feronia-integration',
         '/download-api-doc',
         '/download-resources',
         '/single-use-tags',
         '/profile-menu',
         '/fingerprint-register',
+        '/face-register',
         '/passkey-settings'
       ];
       const adminRoutes = ['/admin-dashboard'];
@@ -421,7 +443,7 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/passkey-settings'];
+      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -495,7 +517,7 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <RFIDIntegration />
-                </PageWrapper>
+                </PageWrapper>/label-stock
               </AuthGuard>
             }
           />
@@ -670,6 +692,16 @@ const RoutesWrapper = () => {
             }
           />
           <Route
+            path="/face-register"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <FaceSettingsPage />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/create-label"
             element={
               <AuthGuard>
@@ -735,6 +767,46 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <TagUsage />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-utility"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <RFIDUtility />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-utility/auto-push-stock"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <AutoPushStockUtility />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-utility/map-fields"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <MapFieldsUtility />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-utility/template"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <TemplateUtility />
                 </PageWrapper>
               </AuthGuard>
             }
@@ -826,6 +898,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <ThirdPartySoftwareIntegration />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/feronia-integration"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <FeroniaIntegration />
                 </PageWrapper>
               </AuthGuard>
             }

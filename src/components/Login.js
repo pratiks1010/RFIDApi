@@ -18,6 +18,16 @@ import {
   toPublicKeyRequestOptions,
   extractJwtFromLoginPayload,
 } from '../services/passkeyAuthService';
+import {
+  extractStableDescriptorFromVideo,
+  captureVideoFrame,
+  getLocalFaceGuard,
+  loginWithFace,
+  matchFaceWithReference,
+  ensureFaceModelsLoaded,
+  getFaceStatus,
+  startFaceTracking,
+} from '../services/faceAuthService';
 
 const modalOverlayStyle = {
   position: 'fixed',
@@ -226,9 +236,19 @@ const Login = () => {
   const [pkLoginName, setPkLoginName] = useState(fingerprintHint.loginName);
   const [pkClientCode, setPkClientCode] = useState(fingerprintHint.clientCode);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [showFacePrompt, setShowFacePrompt] = useState(false);
+  const [faceLoginName, setFaceLoginName] = useState('');
+  const [faceClientCode, setFaceClientCode] = useState('');
+  const [faceLoading, setFaceLoading] = useState(false);
+  const [faceCameraReady, setFaceCameraReady] = useState(false);
+  const [facePreviewError, setFacePreviewError] = useState('');
+  const [faceTracking, setFaceTracking] = useState({ faceCount: 0, quality: 'no_face', message: 'Align your face in the frame' });
   const [slide, setSlide] = useState(0);
   const [animating, setAnimating] = useState(false);
   const prevSlide = useRef(slide);
+  const faceVideoRef = useRef(null);
+  const faceStreamRef = useRef(null);
+  const stopFaceTrackingRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -254,6 +274,57 @@ const Login = () => {
       clearTimeout(animTimer);
     };
   }, [slide]);
+
+  const stopFaceStream = () => {
+    if (stopFaceTrackingRef.current) {
+      stopFaceTrackingRef.current();
+      stopFaceTrackingRef.current = null;
+    }
+    if (faceStreamRef.current) {
+      faceStreamRef.current.getTracks().forEach((track) => track.stop());
+      faceStreamRef.current = null;
+    }
+    if (faceVideoRef.current) {
+      faceVideoRef.current.srcObject = null;
+    }
+    setFaceCameraReady(false);
+  };
+
+  const startFaceStream = async () => {
+    setFacePreviewError('');
+    try {
+      await ensureFaceModelsLoaded();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        audio: false,
+      });
+      faceStreamRef.current = stream;
+      if (faceVideoRef.current) {
+        faceVideoRef.current.srcObject = stream;
+        await faceVideoRef.current.play();
+      }
+      setFaceCameraReady(true);
+      if (stopFaceTrackingRef.current) {
+        stopFaceTrackingRef.current();
+      }
+      stopFaceTrackingRef.current = startFaceTracking(faceVideoRef.current, (result) => {
+        setFaceTracking(result);
+      });
+    } catch (err) {
+      setFacePreviewError(err?.message || 'Unable to start camera preview.');
+      stopFaceStream();
+    }
+  };
+
+  useEffect(() => {
+    if (showFacePrompt) {
+      startFaceStream();
+    } else {
+      stopFaceStream();
+      setFacePreviewError('');
+    }
+    return () => stopFaceStream();
+  }, [showFacePrompt]);
 
   const handleChange = (e) => {
     setFormData({
@@ -412,6 +483,106 @@ const Login = () => {
     setFormData((prev) => ({ ...prev, LoginName: pkLoginName.trim() }));
     setShowPasskeyPrompt(false);
     await runPasskeyLogin(pkLoginName.trim(), pkClientCode.trim());
+  };
+
+  const runFaceLogin = async (loginName, clientCode) => {
+    setFaceLoading(true);
+    setError('');
+    try {
+      if (!faceVideoRef.current || !faceCameraReady) {
+        throw new Error('Camera is not ready. Please allow camera and try again.');
+      }
+      const descriptor = await extractStableDescriptorFromVideo(faceVideoRef.current);
+      const localGuard = getLocalFaceGuard({ loginName, clientCode });
+      if (localGuard?.descriptor?.length === 128) {
+        const result = matchFaceWithReference(descriptor, localGuard.descriptor);
+        if (!result.matched) {
+          throw new Error(`Face mismatch with registered profile. Distance ${result.distance.toFixed(3)} > ${result.threshold.toFixed(3)}.`);
+        }
+      }
+      const imageBase64 = await captureVideoFrame(faceVideoRef.current);
+      const response = await loginWithFace({
+        loginName,
+        clientCode,
+        descriptor,
+        imageBase64,
+      });
+      const token = extractJwtFromLoginPayload(response);
+      if (!token) throw new Error('Face login succeeded but no token was returned.');
+      localStorage.setItem(
+        'fingerprintLoginHint',
+        JSON.stringify({
+          loginName,
+          clientCode,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+      setShowFacePrompt(false);
+      finalizeLogin(token, loginName);
+    } catch (err) {
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.Message;
+      const message = backendMessage || err?.message || 'Face login failed.';
+      setError(message);
+      toast.error(message, { position: 'top-right', autoClose: 3800, theme: 'colored' });
+    } finally {
+      setFaceLoading(false);
+    }
+  };
+
+  const handleFaceLogin = async () => {
+    if (faceLoading || loading || fingerprintLoading || passkeyLoading) return;
+    setFaceLoginName('');
+    setFaceClientCode('');
+    setFacePreviewError('');
+    setFaceTracking({ faceCount: 0, quality: 'no_face', message: 'Align your face in the frame' });
+    setShowFacePrompt(true);
+    toast.info('Enter username and client code for Face ID login.', {
+      position: 'top-right',
+      autoClose: 2200,
+    });
+  };
+
+  const startFaceLoginFromPrompt = async () => {
+    const loginName = faceLoginName.trim();
+    const clientCode = faceClientCode.trim().toUpperCase();
+    if (!loginName) {
+      toast.error('Please enter username for Face ID login.', { position: 'top-right', theme: 'colored' });
+      return;
+    }
+    if (!clientCode) {
+      toast.error('Please enter client code for Face ID login.', { position: 'top-right', theme: 'colored' });
+      return;
+    }
+    if (faceTracking.quality !== 'good') {
+      toast.error('Face tracking is not locked. Keep one face centered and retry.', {
+        position: 'top-right',
+        theme: 'colored',
+      });
+      return;
+    }
+    try {
+      const statusRes = await getFaceStatus({ loginName, clientCode });
+      const payload = statusRes?.data ?? statusRes;
+      const isRegistered = !!(payload?.isRegistered ?? payload?.IsRegistered ?? payload?.registered);
+      if (!isRegistered) {
+        toast.info('Face not registered for this Username + Client Code. Please register first.', {
+          position: 'top-right',
+          autoClose: 3200,
+        });
+        navigate(`/face-register?loginName=${encodeURIComponent(loginName)}&clientCode=${encodeURIComponent(clientCode)}`);
+        return;
+      }
+    } catch (err) {
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.Message;
+      toast.error(backendMessage || err?.message || 'Unable to verify face registration status.', {
+        position: 'top-right',
+        autoClose: 3200,
+        theme: 'colored',
+      });
+      return;
+    }
+    setFormData((prev) => ({ ...prev, LoginName: loginName }));
+    await runFaceLogin(loginName, clientCode);
   };
 
   const handleFingerprintLogin = async () => {
@@ -605,6 +776,22 @@ const Login = () => {
     WebkitBackdropFilter: 'blur(8px)',
     border: '1px solid rgba(255, 255, 255, 0.5)',
     boxShadow: '0 2px 12px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.8)',
+  };
+
+  const compactAuthBtnBase = {
+    borderRadius: 12,
+    border: '1px solid rgba(99, 102, 241, 0.2)',
+    padding: '9px 10px',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    fontFamily: 'inherit',
+    transition: 'all 0.2s',
+    minHeight: 40,
+    whiteSpace: 'nowrap',
   };
 
   return (
@@ -846,6 +1033,56 @@ const Login = () => {
           </div>
         )}
 
+        {showFacePrompt && (
+          <div style={modalOverlayStyle}>
+            <div style={{ ...modalCardStyle, maxWidth: 460 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <i className="fas fa-camera" style={{ color: '#7c3aed', fontSize: 20 }} />
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.05rem' }}>Sign in with Face ID</h3>
+              </div>
+              <p style={{ margin: '0 0 14px', color: '#64748b', fontSize: '0.84rem', lineHeight: 1.45 }}>
+                Keep your face centered and ensure good lighting before capture.
+              </p>
+              <input type="text" value={faceLoginName} onChange={(e) => setFaceLoginName(e.target.value)} placeholder="Username" style={modalInputStyle} />
+              <input type="text" value={faceClientCode} onChange={(e) => setFaceClientCode(e.target.value)} placeholder="Client code (e.g. LS000410)" style={{ ...modalInputStyle, marginBottom: 10 }} />
+              <div style={{ border: '1px solid #d5deeb', borderRadius: 12, background: '#0f172a', padding: 6, marginBottom: 8, position: 'relative' }}>
+                <video ref={faceVideoRef} autoPlay playsInline muted style={{ width: '100%', borderRadius: 8, minHeight: 190, objectFit: 'cover', background: '#111827' }} />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 12,
+                    left: 12,
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '4px 8px',
+                    borderRadius: 999,
+                    color: '#fff',
+                    background:
+                      faceTracking.quality === 'good'
+                        ? 'rgba(22,163,74,0.9)'
+                        : faceTracking.quality === 'multiple_faces'
+                          ? 'rgba(220,38,38,0.9)'
+                          : 'rgba(30,64,175,0.9)',
+                  }}
+                >
+                  {faceTracking.message}
+                </div>
+              </div>
+              {!!facePreviewError && (
+                <div style={{ marginBottom: 10, color: '#b91c1c', fontSize: '0.8rem' }}>{facePreviewError}</div>
+              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                <button type="button" onClick={() => setShowFacePrompt(false)} style={modalBtnGhost}>
+                  Cancel
+                </button>
+                <button type="button" onClick={startFaceLoginFromPrompt} disabled={faceLoading || !faceCameraReady || faceTracking.quality !== 'good'} style={{ ...modalBtnPrimary, opacity: faceLoading || !faceCameraReady || faceTracking.quality !== 'good' ? 0.7 : 1 }}>
+                  {faceLoading ? 'Verifying...' : 'Capture & Login'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <ToastContainer
           position="bottom-center"
           hideProgressBar
@@ -1046,77 +1283,66 @@ const Login = () => {
                     )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleFingerprintLogin}
-                    disabled={loading || fingerprintLoading || passkeyLoading}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      background: 'rgba(255,255,255,0.68)',
-                      color: '#1e1b4b',
-                      border: '1px solid rgba(99, 102, 241, 0.35)',
-                      borderRadius: 12,
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      cursor: (loading || fingerprintLoading || passkeyLoading) ? 'not-allowed' : 'pointer',
-                      opacity: (loading || fingerprintLoading || passkeyLoading) ? 0.8 : 1,
-                      transition: 'all 0.2s',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {fingerprintLoading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
-                        <span>Verifying fingerprint...</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-fingerprint" style={{ fontSize: 13 }}></i>
-                        <span>Login with Fingerprint</span>
-                      </>
-                    )}
-                  </button>
+                  <div style={{ marginTop: 2 }}>
+                    <p style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Quick sign-in
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={handleFingerprintLogin}
+                        disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
+                        style={{
+                          ...compactAuthBtnBase,
+                          background: 'rgba(255,255,255,0.75)',
+                          color: '#3730a3',
+                          border: '1px solid rgba(99, 102, 241, 0.3)',
+                          cursor: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 'not-allowed' : 'pointer',
+                          opacity: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 0.72 : 1,
+                        }}
+                        title="Login with Fingerprint"
+                      >
+                        {fingerprintLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <i className="fas fa-fingerprint" style={{ fontSize: 12 }}></i>}
+                        <span>{fingerprintLoading ? 'Checking' : 'Fingerprint'}</span>
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={handlePasskeyLogin}
-                    disabled={loading || fingerprintLoading || passkeyLoading}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      background: 'linear-gradient(135deg, rgba(13,148,136,0.08) 0%, rgba(99,102,241,0.1) 100%)',
-                      color: '#0f766e',
-                      border: '1px solid rgba(13, 148, 136, 0.35)',
-                      borderRadius: 12,
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      cursor: (loading || fingerprintLoading || passkeyLoading) ? 'not-allowed' : 'pointer',
-                      opacity: (loading || fingerprintLoading || passkeyLoading) ? 0.75 : 1,
-                      transition: 'all 0.2s',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {passkeyLoading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
-                        <span>Waiting for passkey…</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-key" style={{ fontSize: 13 }}></i>
-                        <span>Sign in with passkey</span>
-                      </>
-                    )}
-                  </button>
+                      <button
+                        type="button"
+                        onClick={handlePasskeyLogin}
+                        disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
+                        style={{
+                          ...compactAuthBtnBase,
+                          background: 'linear-gradient(135deg, rgba(13,148,136,0.08) 0%, rgba(99,102,241,0.08) 100%)',
+                          color: '#0f766e',
+                          border: '1px solid rgba(13, 148, 136, 0.3)',
+                          cursor: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 'not-allowed' : 'pointer',
+                          opacity: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 0.72 : 1,
+                        }}
+                        title="Sign in with passkey"
+                      >
+                        {passkeyLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <i className="fas fa-key" style={{ fontSize: 12 }}></i>}
+                        <span>{passkeyLoading ? 'Waiting' : 'Passkey'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleFaceLogin}
+                        disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
+                        style={{
+                          ...compactAuthBtnBase,
+                          background: 'linear-gradient(135deg, rgba(124,58,237,0.08) 0%, rgba(99,102,241,0.08) 100%)',
+                          color: '#6d28d9',
+                          border: '1px solid rgba(124, 58, 237, 0.3)',
+                          cursor: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 'not-allowed' : 'pointer',
+                          opacity: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 0.72 : 1,
+                        }}
+                        title="Sign in with Face ID"
+                      >
+                        {faceLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <i className="fas fa-camera" style={{ fontSize: 12 }}></i>}
+                        <span>{faceLoading ? 'Verifying' : 'Face ID'}</span>
+                      </button>
+                    </div>
+                  </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.7rem', marginTop: 2 }}>
                     <span style={{ color: '#64748b' }}>Forgot password?</span>

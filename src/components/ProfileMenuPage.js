@@ -9,7 +9,7 @@ import {
   RiFolderDownloadFill, 
   RiPriceTag3Fill,
   RiFingerprintFill,
-  RiKey2Fill,
+  RiCamera2Fill,
 } from 'react-icons/ri';
 
 // Profile menu shows only API & resources; sidebar has the rest
@@ -21,7 +21,7 @@ const buildMenuItems = () => [
   { path: '/download-resources', icon: RiFolderDownloadFill, label: 'Download Resources', color: '#14b8a6', description: 'Templates, guides, and other resources.' },
   { path: '/single-use-tags', icon: RiPriceTag3Fill, label: 'Single Use Tags', color: '#a855f7', description: 'Manage and track single-use RFID tags.' },
   { path: '/fingerprint-register', icon: RiFingerprintFill, label: 'Fingerprint Login Settings', color: '#4f46e5', description: 'Morpho RD capture, PIN, and fingerprint login management.' },
-  { path: '/passkey-settings', icon: RiKey2Fill, label: 'Passkey (WebAuthn)', color: '#0d9488', description: 'Register and manage passkeys for passwordless browser sign-in.' },
+  { path: '/face-register', icon: RiCamera2Fill, label: 'Face Login Settings', color: '#7c3aed', description: 'Register and manage Face ID for camera-based sign-in.' },
 ];
 
 const Card = ({ item, index }) => {

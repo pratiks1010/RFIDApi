@@ -132,6 +132,64 @@ const APIDocumentation = () => {
       }
     },
     {
+      id: 'get-saved-rfid-product-details',
+      name: 'Get Saved RFID Product Details',
+      endpoint: 'GetSavedRFIDProductDetails',
+      method: 'POST',
+      baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
+      description: 'Get one saved RFID product by itemCode or rfidNo. Bearer token is required and clientCode is validated from JWT token.',
+      sampleBody: {
+        clientCode: "LS000123",
+        itemCode: "ITM12345",
+        rfidNo: "RFID998877",
+        status: "ApiActive"
+      },
+      responseFormat: {
+        success: {
+          status: "success",
+          message: "Product details retrieved successfully.",
+          data: {
+            client_code: "LS000123",
+            itemcode: "ITM12345",
+            RFIDNumber: "RFID998877",
+            status: "ApiActive",
+            description: "Gold ring",
+            category_id: "Rings",
+            product_id: "Ladies Ring",
+            design_id: "Floral",
+            purity_id: "22K",
+            branch_id: "Main Branch",
+            branch_name: "Main Branch",
+            counter_id: "Counter 1",
+            counter_name: "Counter 1",
+            vendor_id: "Vendor A",
+            box_details: "BOX-12",
+            box_name: "BOX-12",
+            packet: "PACK-1",
+            grosswt: "10.250",
+            stonewt: "0.500",
+            stoneamount: "2500",
+            diamondWeight: "0.100",
+            diamondAmount: "3000",
+            netwt: "9.650",
+            imageurl: "org/ProductImage/file.jpg",
+            tid_value: "TID12345",
+            HallmarkAmount: "200",
+            MakingPerGram: "500",
+            MakingPercentage: "12",
+            MakingFixedAmt: "1000",
+            MRP: "75000",
+            created_datetime: "2026-04-17T08:35:12.123Z",
+            updated_datetime: "2026-04-17T09:10:45.567Z"
+          }
+        },
+        failed: {
+          status: "failed",
+          message: "No product found for provided filters."
+        }
+      }
+    },
+    {
       id: 'update-transaction',
       name: 'Update Stock',
       endpoint: 'UpdateRFIDTransactionDetails',

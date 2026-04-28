@@ -39,11 +39,11 @@ const Card = ({ item, index }) => {
       <div 
         className="card-content"
         style={{
-          background: '#ffffff',
+          background: `linear-gradient(135deg, ${color}08 0%, ${color}14 100%)`,
           borderRadius: 20,
           padding: '28px 24px',
           height: '100%',
-          border: '1px solid #e2e8f0', // Thinner border
+          border: `1px solid ${color}30`,
           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
           display: 'flex',
           flexDirection: 'column',
@@ -144,9 +144,9 @@ const ProfileMenuPage = () => {
       minHeight: '100vh',
       background: '#ffffff',
       fontFamily: '"Plus Jakarta Sans", Inter, Poppins, sans-serif',
-      padding: '32px 40px',
+      padding: '20px 24px',
       boxSizing: 'border-box'
-    }}>
+    }} className="profile-page-padding">
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -173,6 +173,7 @@ const ProfileMenuPage = () => {
             transform: translateY(-8px);
             box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.08), 0 15px 15px -5px rgba(0, 0, 0, 0.04) !important;
             border-color: var(--hover-border-color) !important;
+            background: linear-gradient(135deg, color-mix(in srgb, var(--hover-color) 10%, #ffffff) 0%, color-mix(in srgb, var(--hover-color) 20%, #ffffff) 100%) !important;
           }
 
           .card-content:hover .card-bg-decoration {
@@ -207,15 +208,17 @@ const ProfileMenuPage = () => {
           @media (max-width: 1024px) {
             .grid-container {
               grid-template-columns: repeat(2, 1fr) !important;
+              gap: 16px !important;
             }
           }
 
           @media (max-width: 640px) {
             .grid-container {
               grid-template-columns: 1fr !important;
+              gap: 14px !important;
             }
             .profile-page-padding {
-               padding: 20px !important;
+               padding: 14px !important;
             }
           }
         `}
@@ -229,15 +232,15 @@ const ProfileMenuPage = () => {
         height: '100%'
       }}>
         <div style={{ 
-          marginBottom: 60, 
+          marginBottom: 24, 
           animation: 'fadeInUp 0.8s ease-out',
           textAlign: 'left'
         }}>
           <h1 style={{ 
-            fontSize: 32, // Reduced font size
+            fontSize: 'clamp(24px, 2.2vw, 32px)',
             fontWeight: 800, 
             color: '#0f172a', 
-            marginBottom: 12,
+            marginBottom: 6,
             letterSpacing: '-0.03em',
             background: 'linear-gradient(to right, #0f172a, #334155)',
             WebkitBackgroundClip: 'text',
@@ -245,22 +248,13 @@ const ProfileMenuPage = () => {
           }}>
             Developer Hub & Resources
           </h1>
-          <p style={{ 
-            fontSize: 16, // Reduced font size
-            color: '#64748b', 
-            maxWidth: 600,
-            lineHeight: 1.5,
-            fontWeight: 500
-          }}>
-            Access all your RFID tools, documentation, and integration resources in one centralized workspace.
-          </p>
         </div>
 
         <div className="grid-container" style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(4, 1fr)', // Changed to 4 columns for a more compact look
-          gap: 24, // Reduced gap
-          paddingBottom: 40
+          gap: 18,
+          paddingBottom: 20
         }}>
           {menuItems.map((item, index) => (
             <div 

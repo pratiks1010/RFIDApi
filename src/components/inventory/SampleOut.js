@@ -13,7 +13,8 @@ import {
   FaFileInvoice,
   FaFileExcel,
   FaFilePdf,
-  FaChevronDown
+  FaChevronDown,
+  FaInbox
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -21,6 +22,9 @@ import 'jspdf-autotable';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
+import CustomerSidebarForm from './CustomerSidebarForm';
+import TrayScanModal from '../common/TrayScanModal';
+import { isInventoryTrayEnabled } from '../../services/trayModeService';
 
 const SampleOut = () => {
   const { loading, setLoading } = useLoading();
@@ -44,7 +48,7 @@ const SampleOut = () => {
   const [balanceAmount, setBalanceAmount] = useState('0.000');
   const [finePercent, setFinePercent] = useState('0.00');
   const [advanceAmount, setAdvanceAmount] = useState('0.00');
-  const [returnDate, setReturnDate] = useState('');
+  const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   
   // Item Code Search State
@@ -59,10 +63,14 @@ const SampleOut = () => {
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
+  const [tableSearch, setTableSearch] = useState('');
   
   // Success Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
+  const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
+  const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
+  const [showCustomerSidebar, setShowCustomerSidebar] = useState(false);
   
   const customerDropdownRef = useRef(null);
   const itemCodeSearchRef = useRef(null);
@@ -89,6 +97,16 @@ const SampleOut = () => {
     } catch (err) {
       console.error('Error parsing userInfo:', err);
     }
+  }, []);
+
+  useEffect(() => {
+    const syncTrayMode = () => setTrayEnabled(isInventoryTrayEnabled());
+    window.addEventListener('focus', syncTrayMode);
+    window.addEventListener('storage', syncTrayMode);
+    return () => {
+      window.removeEventListener('focus', syncTrayMode);
+      window.removeEventListener('storage', syncTrayMode);
+    };
   }, []);
 
   // Fetch customers
@@ -396,6 +414,81 @@ const SampleOut = () => {
     });
   };
 
+  const handleTrayFetchData = async (epcs) => {
+    if (!userInfo?.ClientCode || !epcs?.length) return false;
+    try {
+      const headers = {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      };
+      const { data } = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetLabelledStockByTIDNumbers',
+        { ClientCode: userInfo.ClientCode, TIDNumbers: epcs },
+        { headers }
+      );
+      const rows = normalizeArray(data);
+      if (!rows.length) {
+        addNotification({ type: 'warning', title: 'No Stock Found', message: 'No stock matched scanned EPC tags.' });
+        return false;
+      }
+      let added = 0;
+      let skipped = 0;
+      setSampleOutItems((prev) => {
+        const existing = new Set(prev.map((x) => String(x.Itemcode || x.ItemCode || '').trim().toUpperCase()));
+        const next = [...prev];
+        rows.forEach((item) => {
+          const itemCode = String(item.Itemcode || item.ItemCode || '').trim().toUpperCase();
+          if (!itemCode || existing.has(itemCode)) {
+            skipped += 1;
+            return;
+          }
+          existing.add(itemCode);
+          added += 1;
+          next.push({
+            id: Date.now() + added,
+            scanSource: 'tray',
+            RFIDNumber: item.RFIDNumber || item.RFID || item.RFIDCode || '',
+            Itemcode: item.Itemcode || item.ItemCode || '',
+            LabelledStockId: item.LabelledStockId || item.Id || item.id || '',
+            category_id: item.CategoryName || item.Category || item.category_id || '',
+            product_id: item.ProductName || item.Product || item.product_id || '',
+            design_id: item.DesignName || item.Design || item.design_id || '',
+            purity_id: item.PurityName || item.Purity || item.purity_id || '',
+            grosswt: item.GrossWt || item.GrossWeight || item.grosswt || item.TWt || '0.000',
+            stonewt: item.StoneWt || item.StoneWeight || item.stonewt || item.StWt || '0.000',
+            diamondweight: item.DiamondWeight || item.diamondweight || item.DiaWt || '0.000',
+            netwt: item.NetWt || item.NetWeight || item.netwt || item.NtWt || '0.000',
+            FinePercent: item.FinePercent || item.FinePercentage || item['Fine %'] || '0.00',
+            WastagePercent: item.WastagePercent || item.WastagePercentage || item['Wastage %'] || '0.00',
+            Qty: item.Qty || item.Quantity || 1,
+            Pieces: item.Pieces || 1,
+            TotalWt: item.GrossWt || item.GrossWeight || item.grosswt || item.TWt || '0.000',
+            fullItemData: item
+          });
+        });
+        return next;
+      });
+      addNotification({
+        type: 'success',
+        title: 'Tray Data Fetched',
+        message: `Added ${added} item(s) from tray scan.${skipped > 0 ? ` Skipped ${skipped} duplicate/invalid item(s).` : ''}`
+      });
+      return true;
+    } catch (error) {
+      addNotification({ type: 'error', title: 'Fetch Failed', message: error?.response?.data?.message || 'Failed to fetch data from scanned EPC tags.' });
+      return false;
+    }
+  };
+
+  const handleClearScannedTrayItems = () => {
+    setSampleOutItems((prev) => prev.filter((item) => item.scanSource !== 'tray'));
+    addNotification({
+      type: 'success',
+      title: 'Tray Data Cleared',
+      message: 'Scanned tray items removed. You can scan fresh tags now.'
+    });
+  };
+
   // Remove item from sample out
   const removeItem = (id) => {
     setSampleOutItems(prev => prev.filter(item => item.id !== id));
@@ -404,6 +497,22 @@ const SampleOut = () => {
       title: 'Success',
       message: 'Item removed from sample out'
     });
+  };
+
+  const editItem = (id) => {
+    const item = sampleOutItems.find((row) => row.id === id);
+    if (!item) return;
+    const qtyInput = window.prompt('Enter Qty', String(item.Qty || 1));
+    if (qtyInput === null) return;
+    const pcsInput = window.prompt('Enter Pcs', String(item.Pieces || 1));
+    if (pcsInput === null) return;
+
+    const qty = Math.max(1, parseInt(qtyInput, 10) || 1);
+    const pcs = Math.max(1, parseInt(pcsInput, 10) || 1);
+
+    setSampleOutItems((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, Qty: qty, Pieces: pcs } : row))
+    );
   };
 
   // Helper function to get field value or null if empty
@@ -651,10 +760,21 @@ const SampleOut = () => {
   };
 
   // Pagination calculations
-  const totalPages = Math.ceil(sampleOutItems.length / itemsPerPage);
+  const filteredTableItems = sampleOutItems.filter((item) => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return true;
+    return [
+      item.Itemcode,
+      item.RFIDNumber,
+      item.category_id,
+      item.product_id,
+      item.design_id,
+    ].some((v) => String(v || '').toLowerCase().includes(q));
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredTableItems.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentItems = sampleOutItems.slice(startIndex, endIndex);
+  const currentItems = filteredTableItems.slice(startIndex, endIndex);
 
   // Handle click outside to close item code dropdown
   useEffect(() => {
@@ -671,6 +791,27 @@ const SampleOut = () => {
   }, []);
 
   const isSmallScreen = windowWidth <= 768;
+  const cardBaseStyle = {
+    background: '#ffffff',
+    borderRadius: '10px',
+    padding: isSmallScreen ? '10px 12px' : '12px 14px',
+    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
+    border: '1px solid #e2e8f0'
+  };
+  const dropdownPanelStyle = {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    background: '#ffffff',
+    border: '1px solid #dbe4f0',
+    borderRadius: '10px',
+    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.14)',
+    marginTop: '6px',
+    maxHeight: '280px',
+    overflowY: 'auto',
+    zIndex: 1100
+  };
 
   // Format date for display
   const formatDate = (dateString) => {
@@ -895,9 +1036,9 @@ const SampleOut = () => {
 
   return (
     <div style={{ 
-      padding: isSmallScreen ? '8px' : '20px', 
+      padding: isSmallScreen ? '8px' : '12px',
       fontFamily: 'Inter, system-ui, sans-serif', 
-      background: '#ffffff', 
+      background: '#ffffff',
       minHeight: '100vh',
       width: '100%',
       maxWidth: '100%',
@@ -921,10 +1062,10 @@ const SampleOut = () => {
       {/* Top Header - Compact */}
       <div style={{
         background: '#ffffff',
-        borderRadius: '8px',
-        padding: isSmallScreen ? '8px 10px' : '10px 16px',
-        marginBottom: isSmallScreen ? '8px' : '12px',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+        borderRadius: '10px',
+        padding: isSmallScreen ? '8px 10px' : '10px 12px',
+        marginBottom: '10px',
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
         border: '1px solid #e2e8f0',
         display: 'flex',
         justifyContent: 'space-between',
@@ -934,9 +1075,21 @@ const SampleOut = () => {
         flexDirection: isSmallScreen ? 'column' : 'row'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{
+            width: isSmallScreen ? 30 : 34,
+            height: isSmallScreen ? 30 : 34,
+            borderRadius: 10,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            color: '#fff'
+          }}>
+            <FaFileInvoice style={{ fontSize: isSmallScreen ? 14 : 16 }} />
+          </span>
           <h2 style={{ 
             margin: 0, 
-            fontSize: isSmallScreen ? '14px' : '16px', 
+            fontSize: isSmallScreen ? '15px' : '18px',
             fontWeight: 700, 
             color: '#1e293b',
             lineHeight: '1.2'
@@ -1089,30 +1242,28 @@ const SampleOut = () => {
 
       {/* Main Content Layout */}
       <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px',
-        marginBottom: '12px'
+        display: 'grid',
+        gridTemplateColumns: isSmallScreen ? '1fr' : '30% 70%',
+        gap: isSmallScreen ? '10px' : '12px',
+        marginBottom: '12px',
+        alignItems: 'start'
       }}>
         {/* Customer Information */}
         <div style={{
-          background: '#ffffff',
-          borderRadius: '8px',
-          padding: isSmallScreen ? '10px 12px' : '12px 16px',
-          marginBottom: '12px',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb'
+          ...cardBaseStyle,
+          marginBottom: '10px',
+          height: '100%'
         }}>
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: isSmallScreen ? '1fr' : windowWidth <= 1024 ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)', 
-            gap: isSmallScreen ? '10px' : '12px' 
+            gridTemplateColumns: isSmallScreen ? '1fr' : '2fr 1fr', 
+            gap: isSmallScreen ? '8px' : '10px' 
           }}>
              {/* Customer Name */}
              <div ref={customerDropdownRef} style={{ position: 'relative' }}>
                <label style={{ 
                  display: 'block', 
-                 fontSize: '12px', 
+                fontSize: '11px', 
                  fontWeight: 600, 
                  color: '#475569', 
                  marginBottom: '4px' 
@@ -1132,7 +1283,7 @@ const SampleOut = () => {
                      onFocus={(e) => {
                        e.target.style.borderColor = '#3b82f6';
                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                       if (customerSearch.trim() && filteredCustomers.length > 0) {
+                      if (customerSearch.trim()) {
                          setShowCustomerDropdown(true);
                        }
                      }}
@@ -1144,8 +1295,8 @@ const SampleOut = () => {
                      disabled={loadingCustomers}
                      style={{
                        width: '100%',
-                       padding: '10px 12px',
-                       fontSize: '12px',
+                      padding: '8px 10px',
+                      fontSize: '11px',
                        border: '1px solid #d1d5db',
                        borderRadius: '8px',
                        outline: 'none',
@@ -1155,23 +1306,19 @@ const SampleOut = () => {
                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                      }}
                    />
-                   {showCustomerDropdown && filteredCustomers.length > 0 && (
-                     <div style={{
-                       position: 'absolute',
-                       top: '100%',
-                       left: 0,
-                       right: 0,
-                       background: '#ffffff',
-                       border: '1px solid #e5e7eb',
-                       borderRadius: '8px',
-                       boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
-                       marginTop: '6px',
-                       maxHeight: '280px',
-                       overflowY: 'auto',
-                       zIndex: 1000,
-                       borderTop: '2px solid #3b82f6'
-                     }}>
-                       {filteredCustomers.map((customer, idx) => {
+                  {showCustomerDropdown && customerSearch.trim() && (
+                    <div style={dropdownPanelStyle} role="listbox" aria-label="Customer suggestions">
+                      {loadingCustomers && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                          Loading customers...
+                        </div>
+                      )}
+                      {!loadingCustomers && filteredCustomers.length === 0 && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                          No matching customer found.
+                        </div>
+                      )}
+                      {!loadingCustomers && filteredCustomers.map((customer, idx) => {
                          const customerName = customer.FirstName 
                            ? `${customer.FirstName}${customer.LastName ? ' ' + customer.LastName : ''}`
                            : customer.Name || customer.CustomerName || 'Unknown';
@@ -1179,10 +1326,11 @@ const SampleOut = () => {
                            <div
                              key={customer.Id}
                              onClick={() => handleCustomerSelect(customer)}
+                            role="option"
                              style={{
-                               padding: '12px 14px',
+                              padding: '10px 12px',
                                cursor: 'pointer',
-                               fontSize: '12px',
+                              fontSize: '11px',
                                borderBottom: idx < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
                                transition: 'all 0.15s ease',
                                backgroundColor: '#ffffff'
@@ -1197,10 +1345,10 @@ const SampleOut = () => {
                              }}
                            >
                              <div style={{ 
-                               fontWeight: 600, 
+                              fontWeight: 600,
                                color: '#1e293b',
                                marginBottom: customer.Mobile || customer.MobileNumber ? '4px' : '0',
-                               fontSize: '13px',
+                              fontSize: '12px',
                                lineHeight: '1.4'
                              }}>
                                {customerName}
@@ -1233,7 +1381,7 @@ const SampleOut = () => {
                  </div>
                  <button
                    type="button"
-                   onClick={() => navigate('/add_customer_new')}
+                  onClick={() => setShowCustomerSidebar(true)}
                    style={{
                      display: 'flex',
                      alignItems: 'center',
@@ -1249,7 +1397,7 @@ const SampleOut = () => {
                      transition: 'all 0.2s ease',
                      boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
                      minWidth: '44px',
-                     height: '40px',
+                    height: '34px',
                      flexShrink: 0
                    }}
                    title="Add New Customer"
@@ -1264,7 +1412,7 @@ const SampleOut = () => {
                      e.currentTarget.style.transform = 'translateY(0)';
                    }}
                  >
-                   <FaUserPlus />
+                  <FaUserPlus style={{ fontSize: 12 }} />
                  </button>
                </div>
              </div>
@@ -1273,7 +1421,7 @@ const SampleOut = () => {
             <div>
               <label style={{ 
                 display: 'block', 
-                fontSize: '12px', 
+                fontSize: '11px', 
                 fontWeight: 600, 
                 color: '#475569', 
                 marginBottom: '4px' 
@@ -1283,96 +1431,17 @@ const SampleOut = () => {
               <input
                 type="text"
                 value={customerMobile}
-                onChange={(e) => setCustomerMobile(e.target.value)}
                 placeholder="Mobile"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none'
-                }}
-              />
-            </div>
-
-            {/* Fine Gold */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
-                color: '#475569', 
-                marginBottom: '4px' 
-              }}>
-                Fine Gold
-              </label>
-              <input
-                type="number"
-                value={fineGold}
-                onChange={(e) => setFineGold(parseFloat(e.target.value || 0).toFixed(3))}
-                step="0.001"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none'
-                }}
-              />
-            </div>
-
-            {/* Balance Amount */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
-                color: '#475569', 
-                marginBottom: '4px' 
-              }}>
-                Balance Amount
-              </label>
-              <input
-                type="number"
-                value={balanceAmount}
                 readOnly
                 style={{
                   width: '100%',
                   padding: '8px 10px',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   border: '1px solid #e2e8f0',
                   borderRadius: '6px',
+                  outline: 'none',
                   background: '#f8fafc',
-                  color: '#64748b'
-                }}
-              />
-            </div>
-
-            {/* Fine% */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
-                color: '#475569', 
-                marginBottom: '4px' 
-              }}>
-                Fine%
-              </label>
-              <input
-                type="number"
-                value={finePercent}
-                onChange={(e) => setFinePercent(parseFloat(e.target.value || 0).toFixed(2))}
-                step="0.01"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none'
+                  color: '#475569'
                 }}
               />
             </div>
@@ -1381,109 +1450,154 @@ const SampleOut = () => {
 
         {/* Item Code Search and Additional Fields */}
         <div style={{
-          background: '#ffffff',
-          borderRadius: '8px',
-          padding: isSmallScreen ? '10px 12px' : '12px 16px',
-          marginBottom: '12px',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb'
+          ...cardBaseStyle,
+          marginBottom: '10px',
+          height: '100%'
         }}>
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: isSmallScreen ? '1fr' : windowWidth <= 1024 ? '1fr' : '2fr 1.5fr 1fr', 
-            gap: isSmallScreen ? '10px' : '12px',
-            marginBottom: isSmallScreen ? '10px' : '12px'
+            gridTemplateColumns: isSmallScreen ? '1fr' : '2fr 1.5fr 1fr', 
+            gap: isSmallScreen ? '8px' : '10px',
+            marginBottom: '0'
           }}>
              {/* Item Code Search */}
              <div ref={itemCodeSearchRef} style={{ position: 'relative' }}>
                <label style={{ 
                  display: 'block', 
-                 fontSize: '12px', 
-                 fontWeight: 600, 
+                fontSize: '11px', 
+                fontWeight: 700, 
                  color: '#475569', 
                  marginBottom: '4px' 
                }}>
                  Select Item Code
                </label>
-               <div style={{ position: 'relative' }}>
-                 <FaSearch style={{
-                   position: 'absolute',
-                   left: '12px',
-                   top: '50%',
-                   transform: 'translateY(-50%)',
-                   color: '#94a3b8',
-                   fontSize: '14px',
-                   zIndex: 1,
-                   pointerEvents: 'none'
-                 }} />
-                 <input
-                   type="text"
-                   placeholder="Type Item Code to search..."
-                   value={itemCodeSearch}
-                   onChange={(e) => setItemCodeSearch(e.target.value)}
-                   style={{
-                     width: '100%',
-                     padding: '10px 12px 10px 38px',
-                     fontSize: '12px',
-                     border: '1px solid #d1d5db',
-                     borderRadius: '8px',
-                     outline: 'none',
-                     transition: 'all 0.2s ease',
-                     boxSizing: 'border-box',
-                     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
-                   }}
-                   onFocus={(e) => {
-                     e.target.style.borderColor = '#3b82f6';
-                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                     if (itemCodeSearch.trim() && searchResults.length > 0) {
-                       setShowSearchResults(true);
-                     }
-                   }}
-                   onBlur={(e) => {
-                     e.target.style.borderColor = '#d1d5db';
-                     e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
-                     setTimeout(() => setShowSearchResults(false), 200);
-                   }}
-                 />
-                 {searching && (
-                   <FaSpinner style={{
-                     position: 'absolute',
-                     right: '12px',
-                     top: '50%',
-                     transform: 'translateY(-50%)',
-                     color: '#3b82f6',
-                     fontSize: '14px',
-                     animation: 'spin 1s linear infinite'
-                   }} />
-                 )}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <FaSearch style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#94a3b8',
+                    fontSize: '14px',
+                    zIndex: 1,
+                    pointerEvents: 'none'
+                  }} />
+                  <input
+                    type="text"
+                    placeholder="Type Item Code to search..."
+                    value={itemCodeSearch}
+                    onChange={(e) => {
+                      setItemCodeSearch(e.target.value);
+                      setShowSearchResults(true);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px 10px 38px',
+                      fontSize: '11px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      outline: 'none',
+                      transition: 'all 0.2s ease',
+                      boxSizing: 'border-box',
+                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                      if (itemCodeSearch.trim() && searchResults.length > 0) {
+                        setShowSearchResults(true);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#d1d5db';
+                      e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                      setTimeout(() => setShowSearchResults(false), 200);
+                    }}
+                  />
+                  {searching && (
+                    <FaSpinner style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#3b82f6',
+                      fontSize: '14px',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                  )}
+                </div>
+                {trayEnabled && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowRfidTrayModal(true)}
+                      title="Scan tag with RFID tray"
+                      style={{
+                        minWidth: '38px',
+                        height: '38px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#334155',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <FaInbox style={{ fontSize: 13 }} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearScannedTrayItems}
+                      title="Clear scanned tray items"
+                      style={{
+                        height: '38px',
+                        borderRadius: '8px',
+                        border: '1px solid #fecaca',
+                        background: '#fff1f2',
+                        color: '#b91c1c',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        padding: '0 10px',
+                        fontSize: 11,
+                        fontWeight: 600
+                      }}
+                    >
+                      Clear Scanned
+                    </button>
+                  </>
+                )}
                </div>
                
                {/* Search Results Dropdown */}
-               {showSearchResults && searchResults.length > 0 && (
-                 <div style={{
-                   position: 'absolute',
-                   top: '100%',
-                   left: 0,
-                   right: 0,
-                   background: '#ffffff',
-                   border: '1px solid #e5e7eb',
-                   borderRadius: '8px',
-                   boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
-                   marginTop: '6px',
-                   maxHeight: '280px',
-                   overflowY: 'auto',
-                   zIndex: 1000,
-                   borderTop: '2px solid #3b82f6'
-                 }}>
-                   {searchResults.map((item, idx) => (
+               {showSearchResults && itemCodeSearch.trim() && (
+                 <div style={dropdownPanelStyle} role="listbox" aria-label="Item code suggestions">
+                   {searching && (
+                     <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                       Searching item codes...
+                     </div>
+                   )}
+                   {!searching && searchResults.length === 0 && (
+                     <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                       No matching item code found.
+                     </div>
+                   )}
+                   {!searching && searchResults.map((item, idx) => (
                      <div
                        key={idx}
                        onClick={() => selectItemFromSearch(item)}
+                       role="option"
                        style={{
-                         padding: '12px 14px',
+                         padding: '10px 12px',
                          cursor: 'pointer',
                          borderBottom: idx < searchResults.length - 1 ? '1px solid #f1f5f9' : 'none',
-                         fontSize: '12px',
+                         fontSize: '11px',
                          transition: 'all 0.15s ease',
                          backgroundColor: '#ffffff'
                        }}
@@ -1539,27 +1653,26 @@ const SampleOut = () => {
             {/* Description */}
             <div>
               <label style={{ 
-                display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
+                display: 'block',
+                fontSize: '11px', 
+                fontWeight: 700, 
                 color: '#475569', 
                 marginBottom: '4px' 
               }}>
                 Description
               </label>
-              <textarea
+              <input
+                type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Enter description..."
-                rows={3}
                 style={{
                   width: '100%',
                   padding: '8px 10px',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   border: '1px solid #e2e8f0',
                   borderRadius: '6px',
                   outline: 'none',
-                  resize: 'vertical',
                   fontFamily: 'inherit',
                   boxSizing: 'border-box'
                 }}
@@ -1569,9 +1682,9 @@ const SampleOut = () => {
             {/* Return Date */}
             <div>
               <label style={{ 
-                display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
+                display: 'block',
+                fontSize: '11px', 
+                fontWeight: 700, 
                 color: '#475569', 
                 marginBottom: '4px' 
               }}>
@@ -1593,7 +1706,7 @@ const SampleOut = () => {
                   style={{
                     width: '100%',
                     padding: '8px 10px 8px 24px',
-                    fontSize: '12px',
+                  fontSize: '11px',
                     border: '1px solid #e2e8f0',
                     borderRadius: '6px',
                     outline: 'none',
@@ -1607,21 +1720,34 @@ const SampleOut = () => {
 
         {/* Items Table */}
         <div style={{
-          background: '#ffffff',
-          borderRadius: '8px',
-          padding: isSmallScreen ? '10px 12px' : '12px 16px',
+          ...cardBaseStyle,
           marginBottom: '12px',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb'
+          gridColumn: '1 / -1'
         }}>
-          <h3 style={{ 
-            margin: '0 0 12px 0', 
-            fontSize: '14px', 
-            fontWeight: 600, 
-            color: '#1e293b' 
-          }}>
-            Sample Out Items
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Sample Out Items</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>Search</span>
+              <input
+                type="text"
+                value={tableSearch}
+                onChange={(e) => {
+                  setTableSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Search in table..."
+                style={{
+                  width: isSmallScreen ? 160 : 220,
+                  height: 30,
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #cbd5e1',
+                  fontSize: 11,
+                  outline: 'none'
+                }}
+              />
+            </div>
+          </div>
 
           {/* Items Table */}
           <div style={{ 
@@ -1641,34 +1767,34 @@ const SampleOut = () => {
               minWidth: isSmallScreen ? '1000px' : '100%'
             }}>
               <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 10 }}>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'center', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Sr.No.</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: '100px' }}>Item Code</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: '100px' }}>RFID Code</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: '100px' }}>Category</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: '120px' }}>Product Name</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: '120px' }}>Design Name</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Total Wt</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Gross Wt</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Net Wt</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Stone Wt</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Diamond Wt</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Fine%</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Wastage%</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Qty</th>
-                  <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Pcs</th>
+                <tr style={{ background: '#334155', borderBottom: '1px solid #334155', position: 'sticky', top: 0, zIndex: 10 }}>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'center', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Sr.No.</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '100px' }}>Item Code</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '100px' }}>RFID Code</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '100px' }}>Category</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '120px' }}>Product Name</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '120px' }}>Design Name</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Total Wt</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Gross Wt</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Net Wt</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Stone Wt</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Diamond Wt</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Fine%</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Wastage%</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Qty</th>
+                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Pcs</th>
                   <th style={{ 
-                    padding: isSmallScreen ? '6px' : '8px', 
+                    padding: isSmallScreen ? '7px' : '9px', 
                     textAlign: 'center', 
                     fontWeight: 600, 
-                    color: '#475569', 
+                    color: '#f8fafc', 
                     whiteSpace: 'nowrap', 
                     fontSize: isSmallScreen ? '10px' : '11px', 
-                    background: '#f8fafc',
+                    background: '#334155',
                     position: 'sticky',
                     right: 0,
                     zIndex: 10,
-                    minWidth: '80px'
+                    minWidth: '112px'
                   }}>Action</th>
                 </tr>
               </thead>
@@ -1677,7 +1803,8 @@ const SampleOut = () => {
                   currentItems.map((item, index) => (
                     <tr key={item.id} style={{ 
                       borderBottom: '1px solid #e5e7eb',
-                      transition: 'background 0.2s'
+                      transition: 'background 0.2s',
+                      background: index % 2 === 0 ? '#ffffff' : '#f8fafc'
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
                     onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
@@ -1716,42 +1843,31 @@ const SampleOut = () => {
                         zIndex: 5,
                         borderLeft: '1px solid #e5e7eb'
                       }}>
-                        <button
-                          type="button"
-                          onClick={() => removeItem(item.id)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '4px 8px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            borderRadius: '6px',
-                            border: '1px solid #ef4444',
-                            background: '#ffffff',
-                            color: '#ef4444',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#ef4444';
-                            e.currentTarget.style.color = '#ffffff';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#ffffff';
-                            e.currentTarget.style.color = '#ef4444';
-                          }}
-                          title="Delete"
-                        >
-                          <FaTrash />
-                        </button>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => editItem(item.id)}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, fontSize: '11px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: 'pointer' }}
+                            title="Edit"
+                          >
+                            <FaEdit />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, fontSize: '11px', borderRadius: '6px', border: '1px solid #ef4444', background: '#fff', color: '#ef4444', cursor: 'pointer' }}
+                            title="Delete"
+                          >
+                            <FaTrash />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="16" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: isSmallScreen ? '11px' : '12px' }}>
-                      No items added yet. Search by Item Code to add items.
+                    <td colSpan="17" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: isSmallScreen ? '11px' : '12px' }}>
+                      {tableSearch.trim() ? 'No matching rows found.' : 'No items added yet. Search by Item Code to add items.'}
                     </td>
                   </tr>
                 )}
@@ -1760,7 +1876,7 @@ const SampleOut = () => {
           </div>
 
           {/* Pagination */}
-          {sampleOutItems.length > itemsPerPage && (
+          {filteredTableItems.length > itemsPerPage && (
             <div style={{
               display: 'flex',
               justifyContent: 'center',
@@ -1828,12 +1944,12 @@ const SampleOut = () => {
                  alignItems: 'center',
                  justifyContent: 'center',
                  gap: '6px',
-                 padding: isSmallScreen ? '8px 16px' : '10px 20px',
-                 fontSize: isSmallScreen ? '11px' : '12px',
+                 padding: isSmallScreen ? '7px 12px' : '8px 14px',
+                 fontSize: isSmallScreen ? '10px' : '11px',
                  fontWeight: 600,
                  borderRadius: '6px',
-                 border: '1px solid #3b82f6',
-                 background: '#3b82f6',
+                 border: '1px solid #0ea5a4',
+                 background: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
                  color: '#ffffff',
                  cursor: loading ? 'not-allowed' : 'pointer',
                  transition: 'all 0.2s',
@@ -1843,14 +1959,14 @@ const SampleOut = () => {
                }}
                onMouseEnter={(e) => {
                  if (!loading) {
-                   e.currentTarget.style.background = '#2563eb';
-                   e.currentTarget.style.borderColor = '#2563eb';
+                   e.currentTarget.style.background = 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)';
+                   e.currentTarget.style.borderColor = '#0d9488';
                  }
                }}
                onMouseLeave={(e) => {
                  if (!loading) {
-                   e.currentTarget.style.background = '#3b82f6';
-                   e.currentTarget.style.borderColor = '#3b82f6';
+                   e.currentTarget.style.background = 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)';
+                   e.currentTarget.style.borderColor = '#0ea5a4';
                  }
                }}
              >
@@ -1867,13 +1983,13 @@ const SampleOut = () => {
                  alignItems: 'center',
                  justifyContent: 'center',
                  gap: '6px',
-                 padding: isSmallScreen ? '8px 16px' : '10px 20px',
-                 fontSize: isSmallScreen ? '11px' : '12px',
+                 padding: isSmallScreen ? '7px 12px' : '8px 14px',
+                 fontSize: isSmallScreen ? '10px' : '11px',
                  fontWeight: 600,
                  borderRadius: '6px',
-                 border: '1px solid #627282',
+                 border: '1px solid #94a3b8',
                  background: '#ffffff',
-                 color: '#627282',
+                 color: '#475569',
                  cursor: 'pointer',
                  transition: 'all 0.2s',
                  width: isSmallScreen ? '48%' : 'auto',
@@ -1894,6 +2010,18 @@ const SampleOut = () => {
            </div>
         </div>
       </div>
+
+      <CustomerSidebarForm
+        open={showCustomerSidebar}
+        onClose={() => setShowCustomerSidebar(false)}
+        onSave={() => {
+          addNotification({
+            type: 'success',
+            title: 'Customer',
+            message: 'Customer profile saved from sidebar.'
+          });
+        }}
+      />
 
       {/* Success Modal */}
       {showSuccessModal && successData && (
@@ -2040,6 +2168,13 @@ const SampleOut = () => {
           </div>
         </div>
       )}
+
+      <TrayScanModal
+        open={showRfidTrayModal}
+        onClose={() => setShowRfidTrayModal(false)}
+        onFetchData={handleTrayFetchData}
+        title="Sample Out Tray Scan"
+      />
 
       <style>{`
         @keyframes fadeIn {

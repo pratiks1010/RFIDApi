@@ -30,6 +30,7 @@ import {
   FaChartPie,
   FaThLarge,
   FaLayerGroup,
+  FaTools,
 } from 'react-icons/fa';
 import {
   HiDocumentText,
@@ -69,7 +70,8 @@ const SidebarLayout = ({ children }) => {
 
   // Section 0: Quick Access
   const navigationProfile = [
-    { path: '/profile-menu', icon: FaThLarge, label: 'All Apps & Resources', color: '#6366f1' }
+    { path: '/profile-menu', icon: FaThLarge, label: 'All Apps & Resources', color: '#6366f1' },
+    { path: '/rfid-utility', icon: FaTools, label: 'RFID Utility', color: '#6d28d9' }
   ];
 
   // Navigation items – icons matched to menu names, distinct colors
@@ -105,9 +107,14 @@ const SidebarLayout = ({ children }) => {
 
   const clientCode = userInfo.ClientCode || userInfo.clientcode || userInfo.clientCode || 'N/A';
   const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
+  const FERONIA_ALLOWED_CLIENT = 'LS000512';
   const showThirdPartyMenu = (clientCode || '').trim().toUpperCase() === THIRD_PARTY_ALLOWED_CLIENT;
+  const showFeroniaMenu = (clientCode || '').trim().toUpperCase() === FERONIA_ALLOWED_CLIENT;
   const navigationSection5 = [
     { path: '/third-party-integration', icon: FaPlug, label: 'Third Party Software Integration', color: '#0d9488' },
+  ];
+  const navigationSectionFeronia = [
+    { path: '/feronia-integration', icon: FaPlug, label: 'Feronia Integration', color: '#0f766e' },
   ];
 
   // Effects
@@ -249,6 +256,7 @@ const SidebarLayout = ({ children }) => {
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
+    localStorage.removeItem('inventoryTrayEnabled');
     sessionStorage.clear();
     navigate('/login', { replace: true });
   };
@@ -723,6 +731,21 @@ const SidebarLayout = ({ children }) => {
                       {navigationSection5.map(renderMenuItem)}
                       
                        {!sidebarCollapsed && (
+                        <div style={{
+                          height: '1px',
+                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
+                          margin: '1px 8px',
+                          opacity: 0.4
+                        }} />
+                      )}
+                    </>
+                  )}
+
+                  {showFeroniaMenu && (
+                    <>
+                      {renderSectionHeader('Third Party', ['#0f766e', '#0f766e'])}
+                      {navigationSectionFeronia.map(renderMenuItem)}
+                      {!sidebarCollapsed && (
                         <div style={{
                           height: '1px',
                           background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',

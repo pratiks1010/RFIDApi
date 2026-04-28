@@ -19,6 +19,8 @@ import {
   FaEdit,
   FaTrashAlt,
   FaRupeeSign,
+  FaUserTie,
+  FaStore,
 } from 'react-icons/fa';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstring.co.in';
@@ -36,9 +38,66 @@ const MASTER_OPTIONS = [
   { id: 'rates', label: 'Rates', icon: FaRupeeSign, color: '#0d9488' },
 ];
 
+/** Members section: Create Vendor form; Create Employee placeholder until wired. */
+const MEMBER_OPTIONS = [
+  { id: 'employee', label: 'Create Employee', icon: FaUserTie, color: '#0ea5e9' },
+  { id: 'vendor', label: 'Create Vendor', icon: FaStore, color: '#a855f7' },
+];
+
+const ALL_NAV_OPTIONS = [...MASTER_OPTIONS, ...MEMBER_OPTIONS];
+
 const BRANCH_TYPES = [{ id: 'Main', name: 'Main' }, { id: 'Sub', name: 'Sub' }];
 const STATUS_OPTIONS = [{ id: 'Active', name: 'Active' }, { id: 'Inactive', name: 'Inactive' }];
 const COUNTRY_OPTIONS = [{ id: 'India', name: 'India' }];
+const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
+const ROLE_OPTIONS = ['Admin', 'Manager', 'Staff', 'Operator', 'Sales'];
+const DEPARTMENT_OPTIONS = ['Sales', 'Inventory', 'Accounts', 'HR', 'Operations'];
+
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
+  'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana',
+  'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Delhi', 'Puducherry',
+].sort();
+
+const getInitialVendorForm = () => ({
+  vendorName: '',
+  companyName: '',
+  email: '',
+  contactNumber: '',
+  aadharNumber: '0',
+  panNumber: '',
+  remarks: '',
+  street: '',
+  area: '',
+  town: '',
+  city: '',
+  country: 'India',
+  state: '',
+  pincode: '',
+});
+
+const getInitialEmployeeForm = () => ({
+  firstName: '',
+  lastName: '',
+  empEmail: '',
+  contactNo: '',
+  streetAddress: '',
+  town: '',
+  country: 'India',
+  state: '',
+  city: '',
+  aadharNo: '',
+  panNo: '',
+  joiningDate: '',
+  dob: '',
+  gender: '',
+  branch: '',
+  department: '',
+  counter: '',
+  roles: '',
+  reportingTo: '',
+});
 
 const getAuthHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -86,6 +145,297 @@ const CreateMasters = () => {
   const [dailyRatesRows, setDailyRatesRows] = useState([]);
   const [ratesByPurityId, setRatesByPurityId] = useState({});
   const [initialRatesByPurityId, setInitialRatesByPurityId] = useState({});
+
+  const [vendorForm, setVendorForm] = useState(getInitialVendorForm);
+  const [vendorSubmitting, setVendorSubmitting] = useState(false);
+  const [vendorRows, setVendorRows] = useState([]);
+  const [vendorListLoading, setVendorListLoading] = useState(false);
+  const [vendorListSearch, setVendorListSearch] = useState('');
+  const [vendorListPage, setVendorListPage] = useState(1);
+  const [vendorListPageSize, setVendorListPageSize] = useState(10);
+  const [employeeForm, setEmployeeForm] = useState(getInitialEmployeeForm);
+  const [employeeSubmitting, setEmployeeSubmitting] = useState(false);
+  const [employeeRows, setEmployeeRows] = useState([]);
+  const [employeeListLoading, setEmployeeListLoading] = useState(false);
+  const [employeeListSearch, setEmployeeListSearch] = useState('');
+  const [employeeListPage, setEmployeeListPage] = useState(1);
+  const [employeeListPageSize, setEmployeeListPageSize] = useState(10);
+
+  const normalizeListResponse = (data) => {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.data)) return data.data;
+    if (Array.isArray(data.result)) return data.result;
+    if (Array.isArray(data.Result)) return data.Result;
+    return [];
+  };
+
+  const fetchVendors = useCallback(async () => {
+    if (!clientCode) return;
+    setVendorListLoading(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE}/api/ClientOnboarding/GetAllVendor`,
+        { ClientCode: clientCode },
+        { headers: getAuthHeaders() }
+      );
+      setVendorRows(normalizeListResponse(res?.data));
+    } catch (e) {
+      console.warn('GetAllVendor:', e?.response?.data || e.message);
+      try {
+        const res2 = await axios.post(
+          `${API_BASE}/api/ClientOnboarding/GetAllVendors`,
+          { ClientCode: clientCode },
+          { headers: getAuthHeaders() }
+        );
+        setVendorRows(normalizeListResponse(res2?.data));
+      } catch (e2) {
+        console.warn('GetAllVendors:', e2?.response?.data || e2.message);
+        setVendorRows([]);
+      }
+    } finally {
+      setVendorListLoading(false);
+    }
+  }, [clientCode]);
+
+  const fetchEmployees = useCallback(async () => {
+    if (!clientCode) return;
+    setEmployeeListLoading(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE}/api/ClientOnboarding/GetAllEmployee`,
+        { ClientCode: clientCode },
+        { headers: getAuthHeaders() }
+      );
+      setEmployeeRows(normalizeListResponse(res?.data));
+    } catch (e) {
+      console.warn('GetAllEmployee:', e?.response?.data || e.message);
+      setEmployeeRows([]);
+    } finally {
+      setEmployeeListLoading(false);
+    }
+  }, [clientCode]);
+
+  useEffect(() => {
+    if (activeOption === 'vendor') {
+      fetchVendors();
+      setVendorListPage(1);
+    }
+  }, [activeOption, fetchVendors]);
+
+  useEffect(() => {
+    if (activeOption === 'employee') {
+      fetchEmployees();
+      setEmployeeListPage(1);
+    }
+  }, [activeOption, fetchEmployees]);
+
+  const vendorDisplay = (row, ...keys) => {
+    for (const k of keys) {
+      const v = row[k];
+      if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+    }
+    return '—';
+  };
+
+  const employeeDisplay = (row, ...keys) => {
+    for (const k of keys) {
+      const v = row[k];
+      if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+    }
+    return '—';
+  };
+
+  const filteredVendorRows = useMemo(() => {
+    if (!vendorListSearch.trim()) return vendorRows;
+    const q = vendorListSearch.trim().toLowerCase();
+    return vendorRows.filter((row) => {
+      const blob = [
+        vendorDisplay(row, 'VendorName', 'vendorName'),
+        vendorDisplay(row, 'CompanyName', 'companyName'),
+        vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone'),
+        vendorDisplay(row, 'City', 'city'),
+        vendorDisplay(row, 'State', 'state'),
+        vendorDisplay(row, 'VendorType', 'vendorType'),
+        vendorDisplay(row, 'GSTNumber', 'GstNumber', 'GSTIN'),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [vendorRows, vendorListSearch]);
+
+  const vendorTotalPages = Math.max(1, Math.ceil(filteredVendorRows.length / vendorListPageSize));
+  const vendorSafePage = Math.min(vendorListPage, vendorTotalPages) || 1;
+  const paginatedVendorRows = useMemo(() => {
+    const start = (vendorSafePage - 1) * vendorListPageSize;
+    return filteredVendorRows.slice(start, start + vendorListPageSize);
+  }, [filteredVendorRows, vendorSafePage, vendorListPageSize]);
+
+  const filteredEmployeeRows = useMemo(() => {
+    if (!employeeListSearch.trim()) return employeeRows;
+    const q = employeeListSearch.trim().toLowerCase();
+    return employeeRows.filter((row) => {
+      const blob = [
+        employeeDisplay(row, 'FirstName', 'firstName'),
+        employeeDisplay(row, 'LastName', 'lastName'),
+        employeeDisplay(row, 'EmployeeEmail', 'Email', 'empEmail'),
+        employeeDisplay(row, 'ContactNumber', 'MobileNumber', 'contactNo'),
+        employeeDisplay(row, 'BranchName', 'branch'),
+        employeeDisplay(row, 'Department', 'department'),
+        employeeDisplay(row, 'CounterName', 'counter'),
+        employeeDisplay(row, 'Roles', 'Role', 'roles'),
+      ].join(' ').toLowerCase();
+      return blob.includes(q);
+    });
+  }, [employeeRows, employeeListSearch]);
+
+  const employeeTotalPages = Math.max(1, Math.ceil(filteredEmployeeRows.length / employeeListPageSize));
+  const employeeSafePage = Math.min(employeeListPage, employeeTotalPages) || 1;
+  const paginatedEmployeeRows = useMemo(() => {
+    const start = (employeeSafePage - 1) * employeeListPageSize;
+    return filteredEmployeeRows.slice(start, start + employeeListPageSize);
+  }, [filteredEmployeeRows, employeeSafePage, employeeListPageSize]);
+
+  const updateVendorField = useCallback((key, value) => {
+    setVendorForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+  const updateEmployeeField = useCallback((key, value) => {
+    setEmployeeForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleVendorReset = useCallback(() => {
+    setVendorForm(getInitialVendorForm());
+    toast.info('Form reset.');
+  }, []);
+  const handleEmployeeReset = useCallback(() => {
+    setEmployeeForm(getInitialEmployeeForm());
+    toast.info('Form reset.');
+  }, []);
+
+  const handleVendorSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      const v = vendorForm;
+      if (!String(v.vendorName || '').trim()) {
+        toast.error('Vendor Name is required.');
+        return;
+      }
+      if (!String(v.companyName || '').trim()) {
+        toast.error('Company Name is required.');
+        return;
+      }
+      if (!String(v.contactNumber || '').trim()) {
+        toast.error('Contact Number is required.');
+        return;
+      }
+      if (!String(v.country || '').trim()) {
+        toast.error('Country is required.');
+        return;
+      }
+      if (!String(v.state || '').trim()) {
+        toast.error('State is required.');
+        return;
+      }
+      const pin = String(v.pincode || '').trim();
+      if (pin && !/^\d{6}$/.test(pin)) {
+        toast.error('Pincode must be 6 digits.');
+        return;
+      }
+
+      setVendorSubmitting(true);
+      const payload = {
+        ClientCode: clientCode,
+        VendorName: v.vendorName.trim(),
+        CompanyName: v.companyName.trim(),
+        Email: v.email.trim(),
+        ContactNumber: v.contactNumber.trim(),
+        AadharNumber: v.aadharNumber,
+        PanNumber: v.panNumber.trim(),
+        Remarks: v.remarks.trim(),
+        Street: v.street.trim(),
+        Area: v.area.trim(),
+        Town: v.town.trim(),
+        City: v.city.trim(),
+        Country: v.country,
+        State: v.state,
+        Pincode: v.pincode.trim(),
+      };
+
+      try {
+        await axios.post(`${API_BASE}/api/ClientOnboarding/AddVendor`, payload, { headers: getAuthHeaders() });
+        toast.success('Vendor saved successfully.');
+        setVendorForm(getInitialVendorForm());
+        fetchVendors();
+      } catch (err) {
+        console.warn('AddVendor API:', err?.response?.data || err.message);
+        const msg = err?.response?.data?.Message || err?.response?.data?.message;
+        if (msg) toast.error(String(msg));
+        else toast.info('Vendor form is ready. Confirm the Add Vendor API path and field names with your backend.');
+      } finally {
+        setVendorSubmitting(false);
+      }
+    },
+    [vendorForm, clientCode, fetchVendors]
+  );
+
+  const handleEmployeeSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      const emp = employeeForm;
+      if (!emp.firstName.trim()) return toast.error('First Name is required.');
+      if (!emp.lastName.trim()) return toast.error('Last Name is required.');
+      if (!emp.empEmail.trim()) return toast.error('Emp Email is required.');
+      if (!emp.contactNo.trim()) return toast.error('Contact Number is required.');
+      if (!emp.streetAddress.trim()) return toast.error('Street Address is required.');
+      if (!emp.country.trim()) return toast.error('Country is required.');
+      if (!emp.state.trim()) return toast.error('State is required.');
+      if (!emp.city.trim()) return toast.error('City is required.');
+      if (!emp.branch) return toast.error('Branch is required.');
+      if (!emp.department) return toast.error('Department is required.');
+      if (!emp.counter) return toast.error('Counter is required.');
+      if (!emp.roles) return toast.error('Roles is required.');
+
+      const payload = {
+        ClientCode: clientCode,
+        FirstName: emp.firstName.trim(),
+        LastName: emp.lastName.trim(),
+        EmployeeEmail: emp.empEmail.trim(),
+        ContactNumber: emp.contactNo.trim(),
+        StreetAddress: emp.streetAddress.trim(),
+        Town: emp.town.trim(),
+        Country: emp.country,
+        State: emp.state,
+        City: emp.city.trim(),
+        AadharNumber: emp.aadharNo.trim(),
+        PanNumber: emp.panNo.trim(),
+        JoiningDate: emp.joiningDate || null,
+        DateOfBirth: emp.dob || null,
+        Gender: emp.gender || '',
+        BranchId: emp.branch || '',
+        Department: emp.department || '',
+        CounterId: emp.counter || '',
+        Roles: emp.roles || '',
+        ReportingTo: emp.reportingTo || '',
+      };
+
+      setEmployeeSubmitting(true);
+      try {
+        await axios.post(`${API_BASE}/api/ClientOnboarding/AddEmployee`, payload, { headers: getAuthHeaders() });
+        toast.success('Employee saved successfully.');
+        setEmployeeForm(getInitialEmployeeForm());
+        fetchEmployees();
+      } catch (err) {
+        console.warn('AddEmployee API:', err?.response?.data || err.message);
+        const msg = err?.response?.data?.Message || err?.response?.data?.message;
+        if (msg) toast.error(String(msg));
+        else toast.info('Employee form is ready. Confirm the Add Employee API path and fields with backend.');
+      } finally {
+        setEmployeeSubmitting(false);
+      }
+    },
+    [employeeForm, clientCode, fetchEmployees]
+  );
 
   const fetchDailyRates = useCallback(async () => {
     if (!clientCode) return;
@@ -900,7 +1250,7 @@ const CreateMasters = () => {
 
   const handleDeleteClick = (row) => setDeleteConfirm({
     row,
-    masterLabel: MASTER_OPTIONS.find(o => o.id === activeOption)?.label ?? activeOption,
+    masterLabel: ALL_NAV_OPTIONS.find((o) => o.id === activeOption)?.label ?? activeOption,
   });
 
   const handleDeleteConfirm = async () => {
@@ -981,7 +1331,7 @@ const CreateMasters = () => {
     }
   };
 
-  const current = MASTER_OPTIONS.find(o => o.id === activeOption) || MASTER_OPTIONS[0];
+  const current = ALL_NAV_OPTIONS.find((o) => o.id === activeOption) || MASTER_OPTIONS[0];
   const CurrentIcon = current.icon;
   const fields = getFieldConfig();
 
@@ -1280,7 +1630,7 @@ const CreateMasters = () => {
     <div style={baseStyles.page} className={`create-masters-zoho${navOpen ? ' create-masters-nav-open' : ''}`}>
       <header style={baseStyles.topBar}>
         <h1 style={baseStyles.title}>Create Masters</h1>
-        <p style={baseStyles.subtitle}>Add and manage categories, products, designs, purity, counters, boxes, and branches.</p>
+        <p style={baseStyles.subtitle}>Add and manage categories, products, designs, purity, counters, boxes, branches, rates, employees, and vendors.</p>
       </header>
 
       {navOpen && (
@@ -1337,6 +1687,62 @@ const CreateMasters = () => {
           className="create-masters-nav"
         >
           {MASTER_OPTIONS.map((opt) => {
+            const Icon = opt.icon;
+            const isActive = activeOption === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  setActiveOption(opt.id);
+                  setNavOpen(false);
+                }}
+                style={baseStyles.navItem(isActive, opt.color)}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = '#f8f9fa';
+                    e.currentTarget.style.color = '#1f2933';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = '#4a5568';
+                  }
+                }}
+              >
+                <span style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 6,
+                  background: isActive ? opt.color : `${opt.color}18`,
+                  color: isActive ? '#fff' : opt.color,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <Icon size={12} />
+                </span>
+                <span style={{ flex: 1, textAlign: 'left' }}>{opt.label}</span>
+              </button>
+            );
+          })}
+          <div
+            style={{
+              padding: '12px 14px 6px',
+              marginTop: 6,
+              borderTop: '1px solid #e5e7eb',
+              fontSize: 11,
+              fontWeight: 800,
+              color: '#64748b',
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+            }}
+          >
+            Create Members
+          </div>
+          {MEMBER_OPTIONS.map((opt) => {
             const Icon = opt.icon;
             const isActive = activeOption === opt.id;
             return (
@@ -1449,6 +1855,500 @@ const CreateMasters = () => {
                 </button>
               </div>
             </div>
+          ) : activeOption === 'employee' ? (
+            <>
+              <div
+                style={{
+                  ...baseStyles.card,
+                  padding: '10px 12px 12px',
+                  flex: '0 0 55%',
+                  height: '55%',
+                  minHeight: 300,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+                className="create-masters-employee-form"
+              >
+                <h2 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 800, color: '#0f172a', letterSpacing: '0.04em' }}>
+                  ADD EMPLOYEE
+                </h2>
+                <form onSubmit={handleEmployeeSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                  <div style={{ paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Personal Details</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '6px 8px' }}>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>First Name <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={employeeForm.firstName} onChange={(e) => updateEmployeeField('firstName', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Last Name <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={employeeForm.lastName} onChange={(e) => updateEmployeeField('lastName', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Emp Email <span style={{ color: '#dc2626' }}>*</span></label><input type="email" value={employeeForm.empEmail} onChange={(e) => updateEmployeeField('empEmail', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Contact Number <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={employeeForm.contactNo} onChange={(e) => updateEmployeeField('contactNo', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Street Address <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={employeeForm.streetAddress} onChange={(e) => updateEmployeeField('streetAddress', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Town</label><input type="text" value={employeeForm.town} onChange={(e) => updateEmployeeField('town', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Country <span style={{ color: '#dc2626' }}>*</span></label><select value={employeeForm.country} onChange={(e) => updateEmployeeField('country', e.target.value)} style={baseStyles.select}>{COUNTRY_OPTIONS.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>State <span style={{ color: '#dc2626' }}>*</span></label><select value={employeeForm.state} onChange={(e) => updateEmployeeField('state', e.target.value)} style={baseStyles.select}><option value="">Select a state</option>{INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>City <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={employeeForm.city} onChange={(e) => updateEmployeeField('city', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Aadhar No</label><input type="text" value={employeeForm.aadharNo} onChange={(e) => updateEmployeeField('aadharNo', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Pan No</label><input type="text" value={employeeForm.panNo} onChange={(e) => updateEmployeeField('panNo', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Joining Date</label><input type="date" value={employeeForm.joiningDate} onChange={(e) => updateEmployeeField('joiningDate', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Date Of Birth</label><input type="date" value={employeeForm.dob} onChange={(e) => updateEmployeeField('dob', e.target.value)} style={baseStyles.input} /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Gender</label><select value={employeeForm.gender} onChange={(e) => updateEmployeeField('gender', e.target.value)} style={baseStyles.select}><option value="">Select an option</option>{GENDER_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}</select></div>
+                    </div>
+                  </div>
+
+                  <div style={{ paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>System Details</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '6px 8px' }}>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Branch <span style={{ color: '#dc2626' }}>*</span></label><select value={employeeForm.branch} onChange={(e) => updateEmployeeField('branch', e.target.value)} style={baseStyles.select}><option value="">Select branch</option>{(dropdownData.branches || []).map((b, i) => <option key={i} value={b.Id ?? b.id ?? ''}>{b.BranchName ?? b.Name ?? 'Branch'}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Department <span style={{ color: '#dc2626' }}>*</span></label><select value={employeeForm.department} onChange={(e) => updateEmployeeField('department', e.target.value)} style={baseStyles.select}><option value="">Select department</option>{DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Counter <span style={{ color: '#dc2626' }}>*</span></label><select value={employeeForm.counter} onChange={(e) => updateEmployeeField('counter', e.target.value)} style={baseStyles.select}><option value="">Select counter</option>{(dropdownData.counters || []).map((c, i) => <option key={i} value={c.Id ?? c.id ?? ''}>{c.Name ?? c.CounterName ?? 'Counter'}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Roles <span style={{ color: '#dc2626' }}>*</span></label><select value={employeeForm.roles} onChange={(e) => updateEmployeeField('roles', e.target.value)} style={baseStyles.select}><option value="">Select role</option>{ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Reporting To</label><select value={employeeForm.reportingTo} onChange={(e) => updateEmployeeField('reportingTo', e.target.value)} style={baseStyles.select}><option value="">Select reporting</option>{employeeRows.map((emp, i) => { const id = emp.Id ?? emp.id ?? ''; const name = `${employeeDisplay(emp, 'FirstName', 'firstName')} ${employeeDisplay(emp, 'LastName', 'lastName')}`.trim(); return <option key={i} value={id}>{name}</option>; })}</select></div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, paddingTop: 6, borderTop: '1px solid #e5e7eb' }}>
+                    <button type="button" onClick={handleEmployeeReset} style={baseStyles.btnSecondary}>
+                      <FaRedoAlt size={12} />
+                      Reset
+                    </button>
+                    <button type="submit" disabled={employeeSubmitting} style={{ ...baseStyles.btnPrimary('#2563eb'), background: employeeSubmitting ? '#94a3b8' : '#2563eb' }}>
+                      {employeeSubmitting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
+                      Submit
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
+                <div style={baseStyles.listCardTitle}>List of Employees</div>
+                <div style={baseStyles.listHeader} className="create-masters-list-header">
+                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
+                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+                    <input type="text" placeholder="Search employee list..." value={employeeListSearch} onChange={(e) => { setEmployeeListSearch(e.target.value); setEmployeeListPage(1); }} style={baseStyles.listSearchInput} />
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
+                    Total: {filteredEmployeeRows.length} record{filteredEmployeeRows.length !== 1 ? 's' : ''}
+                  </span>
+                  <select value={employeeListPageSize} onChange={(e) => { setEmployeeListPageSize(Number(e.target.value)); setEmployeeListPage(1); }} style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}>
+                    {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+                <div style={baseStyles.listTableWrap}>
+                  <table style={baseStyles.listTable} className="create-masters-list-table">
+                    <thead>
+                      <tr>
+                        <th style={baseStyles.listTh}>Sr. No.</th>
+                        <th style={baseStyles.listTh}>First Name</th>
+                        <th style={baseStyles.listTh}>Last Name</th>
+                        <th style={baseStyles.listTh}>Emp Email</th>
+                        <th style={baseStyles.listTh}>Contact</th>
+                        <th style={baseStyles.listTh}>Branch</th>
+                        <th style={baseStyles.listTh}>Department</th>
+                        <th style={baseStyles.listTh}>Counter</th>
+                        <th style={baseStyles.listTh}>Roles</th>
+                        <th style={baseStyles.listTh}>Reporting To</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employeeListLoading ? (
+                        <tr><td colSpan={10} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}><FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />Loading employees…</td></tr>
+                      ) : paginatedEmployeeRows.length === 0 ? (
+                        <tr><td colSpan={10} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>{employeeRows.length === 0 ? 'No employee data. Add one above.' : 'No matches for search.'}</td></tr>
+                      ) : (
+                        paginatedEmployeeRows.map((row, idx) => {
+                          const sr = (employeeSafePage - 1) * employeeListPageSize + idx + 1;
+                          return (
+                            <tr key={String(row.Id ?? row.id ?? idx)} className="create-masters-list-row">
+                              <td style={baseStyles.listTd}>{sr}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'FirstName', 'firstName')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'LastName', 'lastName')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'EmployeeEmail', 'Email', 'empEmail')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'ContactNumber', 'MobileNumber', 'contactNo')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'BranchName', 'branch')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'Department', 'department')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'CounterName', 'counter')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'Roles', 'Role', 'roles')}</td>
+                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'ReportingToName', 'ReportingTo', 'reportingTo')}</td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
+                  <span>Showing {filteredEmployeeRows.length === 0 ? 0 : (employeeSafePage - 1) * employeeListPageSize + 1}–{Math.min(employeeSafePage * employeeListPageSize, filteredEmployeeRows.length)} of {filteredEmployeeRows.length}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button type="button" onClick={() => setEmployeeListPage((p) => Math.max(1, p - 1))} disabled={employeeSafePage <= 1} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Prev</button>
+                    <span style={{ padding: '0 6px' }}>Page {employeeSafePage} of {employeeTotalPages}</span>
+                    <button type="button" onClick={() => setEmployeeListPage((p) => Math.min(employeeTotalPages, p + 1))} disabled={employeeSafePage >= employeeTotalPages} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Next</button>
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : activeOption === 'vendor' ? (
+            <>
+            <div
+              style={{
+                ...baseStyles.card,
+                padding: '10px 12px 12px',
+                flex: '0 0 55%',
+                height: '75%',
+                minHeight: 380,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+              className="create-masters-vendor-form"
+            >
+              <h2
+                style={{
+                  margin: '0 0 8px',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                ADD VENDOR
+              </h2>
+              <form onSubmit={handleVendorSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                {/* Vendor Details */}
+                <div style={{ paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Vendor Details</div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                      gap: '6px 8px',
+                    }}
+                  >
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Vendor Name <span style={{ color: '#dc2626' }}>*</span></label>
+                      <input
+                        type="text"
+                        value={vendorForm.vendorName}
+                        onChange={(e) => updateVendorField('vendorName', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Vendor name"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Company Name <span style={{ color: '#dc2626' }}>*</span></label>
+                      <input
+                        type="text"
+                        value={vendorForm.companyName}
+                        onChange={(e) => updateVendorField('companyName', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Company name"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Email</label>
+                      <input
+                        type="email"
+                        value={vendorForm.email}
+                        onChange={(e) => updateVendorField('email', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Email"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Contact Number <span style={{ color: '#dc2626' }}>*</span></label>
+                      <input
+                        type="text"
+                        value={vendorForm.contactNumber}
+                        onChange={(e) => updateVendorField('contactNumber', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Contact number"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Aadhar Number</label>
+                      <input
+                        type="text"
+                        value={vendorForm.aadharNumber}
+                        onChange={(e) => updateVendorField('aadharNumber', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Pan Number</label>
+                      <input
+                        type="text"
+                        value={vendorForm.panNumber}
+                        onChange={(e) => updateVendorField('panNumber', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="PAN"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Remarks</label>
+                      <input
+                        type="text"
+                        value={vendorForm.remarks}
+                        onChange={(e) => updateVendorField('remarks', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Remarks"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Address Details */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Address Details</div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                      gap: '6px 8px',
+                    }}
+                  >
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Street</label>
+                      <input
+                        type="text"
+                        value={vendorForm.street}
+                        onChange={(e) => updateVendorField('street', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Street"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Area</label>
+                      <input
+                        type="text"
+                        value={vendorForm.area}
+                        onChange={(e) => updateVendorField('area', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Area"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Town</label>
+                      <input
+                        type="text"
+                        value={vendorForm.town}
+                        onChange={(e) => updateVendorField('town', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="Town"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>City</label>
+                      <input
+                        type="text"
+                        value={vendorForm.city}
+                        onChange={(e) => updateVendorField('city', e.target.value)}
+                        style={baseStyles.input}
+                        placeholder="City"
+                      />
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Country <span style={{ color: '#dc2626' }}>*</span></label>
+                      <select
+                        value={vendorForm.country}
+                        onChange={(e) => updateVendorField('country', e.target.value)}
+                        style={baseStyles.select}
+                      >
+                        {COUNTRY_OPTIONS.map((c) => (
+                          <option key={c.id} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>State <span style={{ color: '#dc2626' }}>*</span></label>
+                      <select
+                        value={vendorForm.state}
+                        onChange={(e) => updateVendorField('state', e.target.value)}
+                        style={baseStyles.select}
+                      >
+                        <option value="">Select a state</option>
+                        {INDIAN_STATES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={baseStyles.fieldGroup}>
+                      <label style={baseStyles.label}>Pincode</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={vendorForm.pincode}
+                        onChange={(e) => updateVendorField('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        style={baseStyles.input}
+                        placeholder="Enter 6 digit pincode"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    justifyContent: 'flex-end',
+                    gap: 8,
+                    paddingTop: 6,
+                    borderTop: '1px solid #e5e7eb',
+                  }}
+                >
+                  <button type="button" onClick={handleVendorReset} style={baseStyles.btnSecondary}>
+                    <FaRedoAlt size={12} />
+                    Reset
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={vendorSubmitting}
+                    style={{ ...baseStyles.btnPrimary('#2563eb'), background: vendorSubmitting ? '#94a3b8' : '#2563eb' }}
+                  >
+                    {vendorSubmitting ? (
+                      <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} />
+                    ) : (
+                      <FaCheck size={12} />
+                    )}
+                    Submit
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
+              <div style={baseStyles.listCardTitle}>List of Vendors</div>
+              <div style={baseStyles.listHeader} className="create-masters-list-header">
+                <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
+                  <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+                  <input
+                    type="text"
+                    placeholder="Search vendor list..."
+                    value={vendorListSearch}
+                    onChange={(e) => {
+                      setVendorListSearch(e.target.value);
+                      setVendorListPage(1);
+                    }}
+                    style={baseStyles.listSearchInput}
+                    aria-label="Search vendor list"
+                  />
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
+                  Total: {filteredVendorRows.length} record{filteredVendorRows.length !== 1 ? 's' : ''}
+                </span>
+                <select
+                  value={vendorListPageSize}
+                  onChange={(e) => {
+                    setVendorListPageSize(Number(e.target.value));
+                    setVendorListPage(1);
+                  }}
+                  style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
+                  aria-label="Rows per page"
+                >
+                  {[5, 10, 20, 50].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={baseStyles.listTableWrap}>
+                <table style={baseStyles.listTable} className="create-masters-list-table">
+                  <thead>
+                    <tr>
+                      <th style={baseStyles.listTh}>Sr. No.</th>
+                      <th style={baseStyles.listTh}>Vendor Name</th>
+                      <th style={baseStyles.listTh}>Company Name</th>
+                      <th style={baseStyles.listTh}>Contact</th>
+                      <th style={baseStyles.listTh}>City</th>
+                      <th style={baseStyles.listTh}>State</th>
+                      <th style={baseStyles.listTh}>Vendor Type</th>
+                      <th style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vendorListLoading ? (
+                      <tr>
+                        <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}>
+                          <FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />
+                          Loading vendors…
+                        </td>
+                      </tr>
+                    ) : paginatedVendorRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
+                          {vendorRows.length === 0 ? 'No vendor data. Add one above.' : 'No matches for search.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedVendorRows.map((row, idx) => {
+                        const rowId = row.Id ?? row.id ?? idx;
+                        const sr = (vendorSafePage - 1) * vendorListPageSize + idx + 1;
+                        return (
+                          <tr key={String(rowId)} className="create-masters-list-row">
+                            <td style={baseStyles.listTd}>{sr}</td>
+                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'VendorName', 'vendorName', 'Name')}</td>
+                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'CompanyName', 'companyName')}</td>
+                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone')}</td>
+                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'City', 'city')}</td>
+                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'State', 'state')}</td>
+                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'VendorType', 'vendorType')}</td>
+                            <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
+                              <span className="create-masters-action-cell">
+                                <button
+                                  type="button"
+                                  title="Edit"
+                                  onClick={() => toast.info('Vendor edit will use the same form when the update API is connected.')}
+                                  style={baseStyles.actionBtnEdit}
+                                  className="create-masters-btn-icon create-masters-btn-edit"
+                                >
+                                  <FaEdit size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Delete"
+                                  onClick={() => toast.info('Vendor delete can be wired when the delete API is available.')}
+                                  style={baseStyles.actionBtnDelete}
+                                  className="create-masters-btn-icon create-masters-btn-delete"
+                                >
+                                  <FaTrashAlt size={12} />
+                                </button>
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div style={baseStyles.listPagination} className="create-masters-list-pagination">
+                <span>
+                  Showing {filteredVendorRows.length === 0 ? 0 : (vendorSafePage - 1) * vendorListPageSize + 1}–{Math.min(vendorSafePage * vendorListPageSize, filteredVendorRows.length)} of {filteredVendorRows.length}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => setVendorListPage((p) => Math.max(1, p - 1))}
+                    disabled={vendorSafePage <= 1}
+                    style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                  >
+                    Prev
+                  </button>
+                  <span style={{ padding: '0 6px' }}>Page {vendorSafePage} of {vendorTotalPages}</span>
+                  <button
+                    type="button"
+                    onClick={() => setVendorListPage((p) => Math.min(vendorTotalPages, p + 1))}
+                    disabled={vendorSafePage >= vendorTotalPages}
+                    style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                  >
+                    Next
+                  </button>
+                </span>
+              </div>
+            </div>
+            </>
           ) : (
             <>
               <div ref={formCardRef} style={{ ...baseStyles.card, ['--create-masters-accent']: current.color }} className="create-masters-form-card">
@@ -1729,6 +2629,17 @@ const CreateMasters = () => {
         .create-masters-btn-delete:hover { background: #fecaca !important; color: #991b1b !important; transform: scale(1.05); }
         .create-masters-btn-icon:disabled { cursor: not-allowed; }
         .create-masters-list-pagination { flex-wrap: wrap; }
+        .create-masters-vendor-form label,
+        .create-masters-employee-form label { font-size: 10px !important; margin-bottom: 2px !important; }
+        .create-masters-vendor-form input,
+        .create-masters-vendor-form select,
+        .create-masters-employee-form input,
+        .create-masters-employee-form select {
+          padding: 4px 8px !important;
+          min-height: 28px !important;
+          font-size: 11px !important;
+          border-radius: 5px !important;
+        }
         @media (max-width: 640px) {
           .create-masters-list-header {
             flex-direction: column;

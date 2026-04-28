@@ -3,6 +3,22 @@ const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 module.exports = function setupProxy(app) {
+  const feroniaTarget = process.env.REACT_APP_FERONIA_PROXY_TARGET || 'http://192.168.29.245:93';
+  const feroniaPath = process.env.REACT_APP_FERONIA_API_PATH || '/api/TamannaahBS';
+
+  app.use(
+    '/api/Feronia',
+    createProxyMiddleware({
+      target: feroniaTarget,
+      changeOrigin: true,
+      secure: false,
+      pathRewrite: {
+        '^/api/Feronia': feroniaPath,
+      },
+      logLevel: 'warn',
+    })
+  );
+
   app.use('/rd-local/bridge', express.json({ limit: '2mb' }));
 
   app.post('/rd-local/bridge', (req, res) => {

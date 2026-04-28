@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import axios from 'axios';
+import jsPDF from 'jspdf';
 import { rfidService } from '../services/rfidService';
 import {
   FaPaperPlane,
@@ -30,7 +31,9 @@ import {
   FaChevronDown,
   FaBars,
   FaCopy,
-  FaCheck
+  FaCheck,
+  FaDownload,
+  FaTimes
 } from 'react-icons/fa';
 import RFIDUploadPrompt from './common/RFIDUploadPrompt';
 import BackToProfileMenu from './common/BackToProfileMenu';
@@ -65,8 +68,47 @@ const API_GROUPS = [
     baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
     icon: FaServer,
     apis: [
-      { id: 'save-transaction', name: 'Save RFID Transaction (Add Stock)', endpoint: 'SaveRFIDTransactionDetails', method: 'POST', description: 'Save new RFID transaction with product details, weights, Stones & Diamonds.', sampleBody: { client_code: 'LS000123', branch_id: 'PUNE', counter_id: 'Counter1', RFIDNumber: 'CZ3506', Itemcode: 'SAU124', category_id: 'Gold', product_id: 'Bracelet', design_id: 'Simple', purity_id: '22CT', grosswt: '20.800', stonewt: '0.500', diamondweight: '0.250', netwt: '19.250', box_details: 'Box A', size: 0, stoneamount: '20', diamondAmount: '20', HallmarkAmount: '35', MakingPerGram: '10', MakingPercentage: '5', MakingFixedAmt: '37', MRP: '5000', imageurl: '', status: 'ApiActive', Stones: [], Diamonds: [] } },
-      { id: 'update-transaction', name: 'Update RFID Transaction', endpoint: 'UpdateRFIDTransactionDetails', method: 'POST', description: 'Update status of an RFID transaction (e.g. mark as Sold).', sampleBody: { client_code: 'LS000123', RFIDNumber: 'CZ3581', Itemcode: 'SAU124', status: 'Sold' } },
+      { id: 'save-transaction', name: 'Save RFID Transaction (Add Stock)', endpoint: 'SaveRFIDTransactionDetails', method: 'POST', description: 'Save new RFID transaction with product details, weights, Stones & Diamonds.', sampleBody: { client_code: 'LS000123', branch_id: 'PUNE', counter_id: 'Counter1', RFIDNumber: 'CZ3506', Itemcode: 'SAU124', description: 'itemsize:2.12, HUIDCode:45857KIKL', category_id: 'Gold', product_id: 'Bracelet', design_id: 'Simple', purity_id: '22CT', grosswt: '20.800', stonewt: '0.500', diamondweight: '0.250', netwt: '19.250', box_details: 'Box A', size: 0, stoneamount: '20', diamondAmount: '20', HallmarkAmount: '35', MakingPerGram: '10', MakingPercentage: '5', MakingFixedAmt: '37', MRP: '5000', imageurl: '', status: 'ApiActive', Stones: [], Diamonds: [] } },
+      { id: 'get-saved-rfid-product-details', name: 'Get Saved RFID Product Details', endpoint: 'GetSavedRFIDProductDetails', method: 'POST', description: 'Fetch one saved product by item code or RFID number. Client code is enforced from JWT token and must match if sent in body.', sampleBody: { clientCode: 'LS000123', itemCode: 'ITM12345', rfidNo: 'RFID998877', status: 'ApiActive' }, responseFormat: { success: { status: 'success', message: 'Product details retrieved successfully.', data: { client_code: 'LS000123', itemcode: 'ITM12345', RFIDNumber: 'RFID998877', status: 'ApiActive', description: 'Gold ring', category_id: 'Rings', product_id: 'Ladies Ring', design_id: 'Floral', purity_id: '22K', branch_id: 'Main Branch', branch_name: 'Main Branch', counter_id: 'Counter 1', counter_name: 'Counter 1', vendor_id: 'Vendor A', box_details: 'BOX-12', box_name: 'BOX-12', packet: 'PACK-1', grosswt: '10.250', stonewt: '0.500', stoneamount: '2500', diamondWeight: '0.100', diamondAmount: '3000', netwt: '9.650', imageurl: 'org/ProductImage/file.jpg', tid_value: 'TID12345', HallmarkAmount: '200', MakingPerGram: '500', MakingPercentage: '12', MakingFixedAmt: '1000', MRP: '75000', created_datetime: '2026-04-17T08:35:12.123Z', updated_datetime: '2026-04-17T09:10:45.567Z' } }, failed: { status: 'failed', message: 'No product found for provided filters.' } } },
+      { id: 'update-transaction', name: 'Update RFID Transaction', endpoint: 'UpdateRFIDTransactionDetails', method: 'POST', description: 'Update RFID transactions in bulk. itemcode is required; RFIDNumber is optional.', sampleBody: [{ client_code: 'LS000123', itemcode: 'LS002' }, { client_code: 'LS000123', itemcode: 'LS003' }, { client_code: 'LS000123', itemcode: 'LS004', RFIDNumber: 'RGP0425' }] },
+      {
+        id: 'update-existing-products',
+        name: 'Update Existing Products',
+        endpoint: 'UpdateExistingProducts',
+        method: 'POST',
+        description: 'Update existing product details in bulk by itemcode/RFIDNumber.',
+        sampleBody: [
+          {
+            client_code: 'LS000123',
+            itemcode: '22K OR',
+            RFIDNumber: '123456',
+            description: 'itemsize:2.12, HUIDCode:45857KIKL',
+            category_id: 'GOLD',
+            product_id: '22K G JE12.12P',
+            design_id: 'KS',
+            purity_id: '22k',
+            branch_id: 'CPC',
+            counter_id: 'TA',
+            vendor_id: 'Vendor Name',
+            box_details: 'Box A',
+            box: 'Box A',
+            packet: 'Packet 1',
+            grosswt: '0',
+            stonewt: '0',
+            stoneamount: '0.00',
+            diamondWeight: '0',
+            diamondAmount: '0.00',
+            netwt: '0',
+            status: 'ApiActive',
+            imageurl: '',
+            HallmarkAmount: '0.00',
+            MakingPerGram: '125.00',
+            MakingPercentage: '0.00',
+            MakingFixedAmt: '0.00',
+            MRP: '0.000'
+          }
+        ]
+      },
       { id: 'get-transaction', name: 'Get RFID Transaction Details', endpoint: 'GetRFIDTransactionDetails', method: 'POST', description: 'Retrieve all RFID transactions for a client.', sampleBody: { client_code: 'LS000123', status: 'ApiActive' } },
       { id: 'delete-labelled-stock', name: 'Delete Labelled Stock Items', endpoint: 'DeleteLabelledStockItems', method: 'POST', description: 'Remove specific items from labelled stock by item codes.', sampleBody: { ClientCode: 'LS000123', ItemCodes: ['SAU124', 'SAU125'] } },
       { id: 'delete-all-stock', name: 'Delete All Stock for Client', endpoint: 'DeleteAllStockForClient', method: 'DELETE', description: 'Delete all stock items for a client. Irreversible.', sampleBody: null, urlParams: '?ClientCode=LS000123' },
@@ -148,6 +190,85 @@ const API_GROUPS = [
 ];
 
 const MOBILE_BREAKPOINT = 768;
+const SMALL_PDF_FONT = 9;
+const PDF_LINE_HEIGHT = 5;
+const PDF_MARGIN = 14;
+const CLIENT_CODE_KEYS = new Set(['client_code', 'ClientCode', 'clientCode']);
+
+const getApiUseCase = (api) => api.description || 'No use case provided.';
+
+const getApiResponseTemplate = (api) => (
+  api.responseFormat || {
+    status: 'success | failed',
+    message: 'Response message',
+    data: 'Response payload depends on API',
+  }
+);
+
+const safeJsonString = (value) => {
+  if (value === null || value === undefined) return '{}';
+  return JSON.stringify(value, null, 2);
+};
+
+const applyClientCodeToPayload = (value, clientCode) => {
+  if (!clientCode) return value;
+  if (Array.isArray(value)) return value.map((item) => applyClientCodeToPayload(item, clientCode));
+  if (!value || typeof value !== 'object') return value;
+
+  const next = { ...value };
+  Object.keys(next).forEach((key) => {
+    if (CLIENT_CODE_KEYS.has(key)) {
+      next[key] = clientCode;
+    } else if (next[key] && typeof next[key] === 'object') {
+      next[key] = applyClientCodeToPayload(next[key], clientCode);
+    }
+  });
+  return next;
+};
+
+const withClientCodeUrlParams = (urlParams, clientCode) => {
+  if (!urlParams || !clientCode) return urlParams || '';
+  return urlParams.replace(/(ClientCode=)([^&]*)/i, `$1${encodeURIComponent(clientCode)}`);
+};
+
+const createPostmanCollection = () => {
+  const item = API_GROUPS.map((group) => ({
+    name: group.name,
+    item: group.apis.map((api) => {
+      const endpointPath = `/api/${(group.baseUrl.split('/api/')[1] || '').replace(/^\/+/, '')}/${api.endpoint}`;
+      const url = new URL(`${group.baseUrl}/${api.endpoint}${api.urlParams || ''}`);
+      const rawBody = api.sampleBody === null || api.sampleBody === undefined ? {} : api.sampleBody;
+      return {
+        name: api.name,
+        request: {
+          method: api.method,
+          header: [{ key: 'Content-Type', value: 'application/json', type: 'text' }],
+          body: api.method === 'GET' || api.method === 'DELETE'
+            ? undefined
+            : { mode: 'raw', raw: safeJsonString(rawBody), options: { raw: { language: 'json' } } },
+          url: {
+            raw: url.toString(),
+            protocol: url.protocol.replace(':', ''),
+            host: url.hostname.split('.'),
+            path: endpointPath.split('/').filter(Boolean),
+            query: Array.from(url.searchParams.entries()).map(([key, value]) => ({ key, value })),
+          },
+          description: `Use case: ${getApiUseCase(api)}`,
+        },
+        response: [],
+      };
+    }),
+  }));
+
+  return {
+    info: {
+      name: 'RFID API Playground Collection',
+      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+      description: 'Generated from Dashboard API Playground.',
+    },
+    item,
+  };
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -163,6 +284,7 @@ const Dashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   useEffect(() => {
     const info = JSON.parse(localStorage.getItem('userInfo')) || {};
@@ -193,10 +315,15 @@ const Dashboard = () => {
     setResponse(null);
     setResponseMeta(null);
     let body = {};
-    if (fullApi.sampleBody) body = { ...fullApi.sampleBody };
+    if (fullApi.sampleBody) {
+      if (Array.isArray(fullApi.sampleBody)) {
+        body = fullApi.sampleBody.map((item) => ({ ...item }));
+      } else {
+        body = { ...fullApi.sampleBody };
+      }
+    }
     if (fullApi.urlParams) body = {};
-    if (body.client_code !== undefined) body.client_code = userInfo.ClientCode || body.client_code;
-    if (body.ClientCode !== undefined) body.ClientCode = userInfo.ClientCode || body.ClientCode;
+    body = applyClientCodeToPayload(body, userInfo.ClientCode);
     setBodyText(fullApi.sampleBody ? JSON.stringify(body, null, 2) : (fullApi.urlParams ? '{}' : '{}'));
     setClientError('');
     if (isMobile) {
@@ -206,53 +333,76 @@ const Dashboard = () => {
   };
 
   const validateClientCode = (body) => {
-    const code = body.client_code || body.ClientCode;
     const userCode = userInfo.ClientCode;
-    if (userCode && code !== userCode) {
-      setClientError('You can only use your own client code.');
-      return false;
+    const entries = Array.isArray(body) ? body : [body];
+    for (const entry of entries) {
+      const code = entry?.client_code || entry?.ClientCode || entry?.clientCode;
+      if (userCode && code !== undefined && code !== userCode) {
+        setClientError('You can only use your own client code.');
+        return false;
+      }
     }
     setClientError('');
     return true;
   };
 
+  const hasClientCodeField = (body) => {
+    if (!body) return false;
+    if (Array.isArray(body)) {
+      return body.some((entry) =>
+        entry &&
+        (entry.ClientCode !== undefined || entry.client_code !== undefined || entry.clientCode !== undefined)
+      );
+    }
+    return body.ClientCode !== undefined || body.client_code !== undefined || body.clientCode !== undefined;
+  };
+
   const runRequest = async (parsedBody) => {
     if (!selectedApi) return;
-    const hasClientCode = selectedApi.sampleBody && (selectedApi.sampleBody.ClientCode !== undefined || selectedApi.sampleBody.client_code !== undefined);
-    if (hasClientCode && !validateClientCode(parsedBody)) return;
+    const normalizedBody = applyClientCodeToPayload(parsedBody, userInfo.ClientCode);
+    const hasClientCode = hasClientCodeField(normalizedBody) || hasClientCodeField(selectedApi.sampleBody);
+    if (hasClientCode && !validateClientCode(normalizedBody)) return;
 
     setLoading(true);
     setResponse(null);
     setResponseMeta(null);
     const start = Date.now();
     const clientCode = userInfo.ClientCode;
+    const authToken = localStorage.getItem('token');
+    const requestConfig = {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+    };
 
     try {
       let apiResponse;
-      const url = `${selectedApi.baseUrl}/${selectedApi.endpoint}${selectedApi.urlParams || ''}`;
+      const url = `${selectedApi.baseUrl}/${selectedApi.endpoint}${withClientCodeUrlParams(selectedApi.urlParams, clientCode) || ''}`;
 
       if (selectedApi.method === 'DELETE') {
         const deleteUrl = `${selectedApi.baseUrl}/${selectedApi.endpoint}`;
         apiResponse = await axios.delete(deleteUrl, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
-          data: { ClientCode: parsedBody.ClientCode || clientCode },
+          headers: requestConfig.headers,
+          data: { ClientCode: normalizedBody.ClientCode || clientCode },
         });
       } else {
         switch (selectedApi.endpoint) {
           case 'SaveRFIDTransactionDetails':
           case 'UpdateRFIDTransactionDetails':
-            apiResponse = await axios.post(url, [parsedBody]);
+          case 'UpdateExistingProducts':
+            apiResponse = await axios.post(url, Array.isArray(normalizedBody) ? normalizedBody : [normalizedBody], requestConfig);
             break;
           case 'GetRFIDTransactionDetails':
-            const transactionData = await rfidService.getRFIDTransactions(clientCode, parsedBody.status || 'ApiActive');
+            const transactionData = await rfidService.getRFIDTransactions(clientCode, normalizedBody.status || 'ApiActive');
             apiResponse = { data: transactionData, status: 200 };
             break;
           case 'DeleteLabelledStockItems':
-            const deleteRes = await rfidService.deleteLabelledStock(clientCode, parsedBody.ItemCodes);
+            const deleteRes = await rfidService.deleteLabelledStock(clientCode, normalizedBody.ItemCodes);
             apiResponse = { data: deleteRes, status: 200 };
             break;
           default:
-            apiResponse = await axios.post(url, parsedBody);
+            apiResponse = await axios.post(url, normalizedBody, requestConfig);
         }
       }
 
@@ -281,11 +431,11 @@ const Dashboard = () => {
     if (!selectedApi) return;
     try {
       const parsed = bodyText.trim() ? JSON.parse(bodyText) : {};
-      if (parsed.client_code !== undefined) parsed.client_code = userInfo.ClientCode || parsed.client_code;
-      if (parsed.ClientCode !== undefined) parsed.ClientCode = userInfo.ClientCode || parsed.ClientCode;
-      const needsValidation = selectedApi.sampleBody && (selectedApi.sampleBody.ClientCode !== undefined || selectedApi.sampleBody.client_code !== undefined);
-      if (needsValidation && !validateClientCode(parsed)) return;
-      runRequest(parsed);
+      const normalized = applyClientCodeToPayload(parsed, userInfo.ClientCode);
+      const needsValidation = hasClientCodeField(normalized) || hasClientCodeField(selectedApi.sampleBody);
+      if (needsValidation && !validateClientCode(normalized)) return;
+      setBodyText(JSON.stringify(normalized, null, 2));
+      runRequest(normalized);
     } catch (_) {
       setClientError('Invalid JSON in request body.');
     }
@@ -300,7 +450,143 @@ const Dashboard = () => {
     }
   };
 
-  const fullUrl = selectedApi ? `${selectedApi.baseUrl}/${selectedApi.endpoint}${selectedApi.urlParams || ''}` : '';
+  const downloadBlobFile = (content, fileName, mimeType) => {
+    const blob = new Blob([content], { type: mimeType });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
+  };
+
+  const handleDownloadPostmanCollection = () => {
+    const collection = createPostmanCollection();
+    downloadBlobFile(
+      JSON.stringify(collection, null, 2),
+      'rfid-api-playground-postman-collection.json',
+      'application/json;charset=utf-8'
+    );
+    setShowDownloadModal(false);
+    toast.success('Postman collection downloaded');
+  };
+
+  const handleDownloadApiPdf = () => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const maxTextWidth = pageWidth - (PDF_MARGIN * 2);
+    const contentWidth = pageWidth - (PDF_MARGIN * 2);
+    const labelWidth = 20;
+    const valueStartX = PDF_MARGIN + labelWidth + 2;
+    const valueWidth = contentWidth - labelWidth - 2;
+    const headingLineHeight = 5.5;
+    const bodyLineHeight = 4.8;
+    const codeLineHeight = 4.2;
+    let y = PDF_MARGIN;
+
+    const drawWatermark = () => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(28);
+      doc.setTextColor(226, 232, 240);
+      doc.text(
+        'LOYALSTRING PVT LTD',
+        pageWidth / 2,
+        pageHeight / 2,
+        { align: 'center', angle: 45 }
+      );
+      doc.setTextColor(15, 23, 42);
+    };
+
+    const ensureSpace = (requiredHeight = PDF_LINE_HEIGHT) => {
+      if (y + requiredHeight > pageHeight - PDF_MARGIN) {
+        doc.addPage();
+        drawWatermark();
+        y = PDF_MARGIN;
+      }
+    };
+
+    const writeRow = (label, value, options = {}) => {
+      const { isCode = false } = options;
+      const normalized = String(value ?? '');
+      const lines = [];
+
+      if (isCode) {
+        normalized.split('\n').forEach((rawLine) => {
+          const wrappedCode = doc.splitTextToSize(rawLine || ' ', valueWidth);
+          wrappedCode.forEach((entry) => lines.push(entry));
+        });
+      } else {
+        const wrapped = doc.splitTextToSize(normalized, valueWidth);
+        wrapped.forEach((entry) => lines.push(entry));
+      }
+
+      const lineHeight = isCode ? codeLineHeight : bodyLineHeight;
+      const blockHeight = Math.max(lineHeight * lines.length, lineHeight);
+      ensureSpace(blockHeight + 2);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.text(`${label}:`, PDF_MARGIN, y);
+
+      doc.setFont(isCode ? 'courier' : 'helvetica', 'normal');
+      doc.setFontSize(isCode ? 8.5 : 9.5);
+      lines.forEach((line) => {
+        doc.text(line, valueStartX, y);
+        y += lineHeight;
+      });
+      y += 1.6;
+    };
+
+    drawWatermark();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.text('Loyalstring Pvt Ltd Third Party API Integration', PDF_MARGIN, y);
+    y += 8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, PDF_MARGIN, y);
+    y += 6;
+    doc.setDrawColor(203, 213, 225);
+    doc.line(PDF_MARGIN, y, pageWidth - PDF_MARGIN, y);
+    y += 6;
+
+    API_GROUPS.forEach((group, groupIndex) => {
+      ensureSpace(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11.5);
+      doc.text(`${groupIndex + 1}. ${group.name}`, PDF_MARGIN, y);
+      y += headingLineHeight;
+
+      group.apis.forEach((api, apiIndex) => {
+        ensureSpace(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text(`${groupIndex + 1}.${apiIndex + 1} ${api.name} [${api.method}]`, PDF_MARGIN, y);
+        y += 5;
+
+        writeRow('Use case', getApiUseCase(api));
+        writeRow('URL', `${group.baseUrl}/${api.endpoint}${api.urlParams || ''}`);
+        writeRow('Payload', safeJsonString(api.sampleBody ?? {}), { isCode: true });
+        writeRow('Response', safeJsonString(getApiResponseTemplate(api)), { isCode: true });
+        doc.setDrawColor(226, 232, 240);
+        ensureSpace(3);
+        doc.line(PDF_MARGIN, y, pageWidth - PDF_MARGIN, y);
+        y += 4;
+      });
+      y += 1;
+    });
+
+    doc.save('rfid-api-playground-documentation.pdf');
+    setShowDownloadModal(false);
+    toast.success('API PDF downloaded');
+  };
+
+  const fullUrl = selectedApi
+    ? `${selectedApi.baseUrl}/${selectedApi.endpoint}${withClientCodeUrlParams(selectedApi.urlParams, userInfo.ClientCode) || ''}`
+    : '';
 
   const sidebarContent = (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
@@ -325,6 +611,31 @@ const Dashboard = () => {
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>API Playground</h2>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>Select an endpoint to test</p>
           </div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => setShowDownloadModal(true)}
+            style={{
+              width: '100%',
+              border: '1px solid #dbeafe',
+              background: '#eff6ff',
+              color: '#1d4ed8',
+              borderRadius: 8,
+              padding: '9px 10px',
+              fontSize: 12,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              fontFamily: 'inherit'
+            }}
+          >
+            <FaDownload size={12} />
+            Download Docs
+          </button>
         </div>
       </div>
       <div className="dashboard-api-sidebar-list" style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', minHeight: 0 }}>
@@ -839,6 +1150,85 @@ const Dashboard = () => {
         onNavigateToUpload={() => { setShowRFIDPrompt(false); rfidTagsService.markPromptAsShown(userInfo.ClientCode); navigate('/upload-rfid'); }}
         userInfo={userInfo}
       />
+      {showDownloadModal && (
+        <>
+          <div
+            role="presentation"
+            onClick={() => setShowDownloadModal(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.45)', zIndex: 1200 }}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 'min(520px, 92vw)',
+              background: '#fff',
+              borderRadius: 12,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 20px 45px rgba(15,23,42,0.22)',
+              zIndex: 1201,
+              padding: 22
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>Download API Documentation</h3>
+              <button
+                type="button"
+                onClick={() => setShowDownloadModal(false)}
+                style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 4 }}
+                aria-label="Close download modal"
+              >
+                <FaTimes size={16} />
+              </button>
+            </div>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+              Choose what to download for all API groups and endpoints.
+            </p>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 12 }}>
+              <button
+                type="button"
+                onClick={handleDownloadPostmanCollection}
+                style={{
+                  flex: 1,
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  border: '1px solid #bfdbfe',
+                  background: '#eff6ff',
+                  color: '#1e40af',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit'
+                }}
+              >
+                Download Postman Collection
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadApiPdf}
+                style={{
+                  flex: 1,
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  border: '1px solid #bbf7d0',
+                  background: '#ecfdf5',
+                  color: '#166534',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit'
+                }}
+              >
+                Download PDF Documentation
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

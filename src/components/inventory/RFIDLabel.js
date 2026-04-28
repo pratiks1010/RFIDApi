@@ -39,6 +39,7 @@ import { useLoading } from '../../App';
 const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
 const DEFAULT_PAGE_SIZE = 500;
 const PRN_ENABLED_CLIENT_CODES = ['LS000224', 'LS000428', 'LS000431', 'LS000443'];
+const LS000431_PRN_FILE_PATH = `${process.env.PUBLIC_URL || ''}/DELHILOGOOPRemarkNew.prn`;
 
 const getUniqueOptions = (data, field) => {
   if (!data || !Array.isArray(data)) return ['All'];
@@ -68,6 +69,56 @@ const prnToBytes = (prnContent) => {
   return bytes;
 };
 
+const toHex12 = (value) => {
+  const text = String(value || '');
+  const hex = Array.from(text, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join('').toUpperCase();
+  return hex.padStart(12, '0').slice(0, 12);
+};
+
+const replaceEpcInTemplate = (template, epcHex) => {
+  if (template.includes('*534649333937*')) {
+    return template.replace('*534649333937*', `*${epcHex}*`);
+  }
+
+  const marker = 'RFWTAG;48;EPC';
+  const markerIndex = template.indexOf(marker);
+  if (markerIndex === -1) return template;
+
+  const searchWindow = template.slice(markerIndex, markerIndex + 220);
+  const match = searchWindow.match(/\*[0-9A-F]{12}\*/);
+  if (!match) return template;
+
+  const absoluteStart = markerIndex + match.index;
+  const absoluteEnd = absoluteStart + match[0].length;
+  return `${template.slice(0, absoluteStart)}*${epcHex}*${template.slice(absoluteEnd)}`;
+};
+
+const applyLS000431DynamicTemplate = (template, item) => {
+  const itemCode = String(item?.ItemCode || '').trim();
+  const productName = String(item?.ProductName || '').replace(/"/g, ' ').trim();
+  const description = String(item?.Description || item?.description || productName || '').replace(/"/g, ' ').trim();
+  const price = String(item?.MRP || item?.FixedAmt || '0').trim();
+  const purity = String(item?.Purity || item?.PurityName || '').trim();
+  const barcodePrefix = String.fromCharCode(14);
+  const epcHex = toHex12(itemCode);
+
+  let prn = replaceEpcInTemplate(template, epcHex);
+  prn = prn.replace(/"SFI397"/g, `"${itemCode}"`);
+  prn = prn.replace(/"OP10B0426"/g, `"${description}"`);
+  prn = prn.replace(/"SILVER FANCY ITEM"/g, `"${productName}"`);
+  prn = prn.replace(/"SILVER RING"/g, `"${description}"`);
+  prn = prn.replace(/"20100\/-"/g, `"${price}/-"`);
+  prn = prn.replace(/"999"/g, `"${purity}"`);
+  prn = prn.replace(/(C128B;[^\r\n]*[\r\n]+)"[^"]*"/g, `$1"${itemCode}"`);
+  // Fallback for templates that use BYxxxx static item placeholders.
+  // Keep OP10B0426 reserved for description mapping above.
+  prn = prn.replace(/"BY[A-Z0-9]{3,}"/g, `"${itemCode}"`);
+  prn = prn.split(`${barcodePrefix}&SFI397`).join(`${barcodePrefix}&${itemCode}`);
+  prn = prn.split(`${barcodePrefix}&OP10B0426`).join(`${barcodePrefix}&${description}`);
+  prn = prn.replace(/&BY[A-Z0-9]{3,}/g, `&${itemCode}`);
+  return prn;
+};
+
 const RFIDLabel = () => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
@@ -81,6 +132,7 @@ const RFIDLabel = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const searchTimeoutRef = useRef(null);
+  const ls000431TemplateRef = useRef(null);
 
   // Tab Management
   const [activeTab, setActiveTab] = useState('templates'); // 'templates' or 'generate'
@@ -914,6 +966,7 @@ const RFIDLabel = () => {
     { key: 'StoneWt', label: 'Stone Wt', width: '100px' },
     { key: 'DiamondWt', label: 'Diamond Wt', width: '100px' },
     { key: 'NetWt', label: 'Net Wt', width: '100px' },
+    { key: 'Description', label: 'Description', width: '180px' },
     { key: 'StoneAmt', label: 'Stone Amt', width: '120px' },
     { key: 'FixedAmt', label: 'Fixed Amt', width: '120px' },
     { key: 'Vendor', label: 'Vendor', width: '120px' },
@@ -961,8 +1014,29 @@ const RFIDLabel = () => {
     }, 500);
   };
 
+  const resolvePrnContent = async (item, activeClientCode) => {
+    const normalizedClientCode = (activeClientCode || '').trim().toUpperCase();
+    if (normalizedClientCode !== 'LS000431') {
+      return generateClientPrn(item, activeClientCode);
+    }
+
+    const response = await fetch(LS000431_PRN_FILE_PATH, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Failed to load PRN file for ${normalizedClientCode}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let templateContent = '';
+    for (let i = 0; i < bytes.length; i++) {
+      templateContent += String.fromCharCode(bytes[i]);
+    }
+    ls000431TemplateRef.current = templateContent;
+    return applyLS000431DynamicTemplate(templateContent, item);
+  };
+
   // Download Client Specific PRN
-  const handleDownloadClientPrn = () => {
+  const handleDownloadClientPrn = async () => {
     if (!PRN_ENABLED_CLIENT_CODES.includes(clientCode)) {
       toast.error('Your PRN is not set yet. Please set PRN.');
       return;
@@ -980,15 +1054,15 @@ const RFIDLabel = () => {
       // Generate all PRN contents and combine them into a single file
       const allPrnContents = [];
       
-      itemsToDownload.forEach((item, index) => {
+      for (const item of itemsToDownload) {
         try {
-          const prnContent = generateClientPrn(item, clientCode);
+          const prnContent = await resolvePrnContent(item, clientCode);
           allPrnContents.push(prnContent);
         } catch (err) {
           console.error('Error generating PRN for item:', item, err);
           toast.error(err.message || `Failed to generate label for ${item.ItemCode}`);
         }
-      });
+      }
 
       if (allPrnContents.length === 0) {
         toast.error('No valid PRN content generated');
@@ -1053,7 +1127,7 @@ const RFIDLabel = () => {
     setPreviewLoading(true);
     try {
       // Use client-specific PRN template directly
-      const prnContent = generateClientPrn(item, clientCode);
+      const prnContent = await resolvePrnContent(item, clientCode);
       
       // Create and trigger download
       const blob = new Blob([prnToBytes(prnContent)], { type: 'application/octet-stream' });
@@ -2000,7 +2074,9 @@ const RFIDLabel = () => {
                                 whiteSpace: 'nowrap'
                               }}>
                                 {column.key === 'srNo' ? ((currentProductPage - 1) * productsPerPage) + index + 1 : (() => {
-                                  const value = item[column.key];
+                                  const value = column.key === 'Description'
+                                    ? (item.Description ?? item.description ?? '')
+                                    : item[column.key];
                                   if (value === undefined || value === null || value === '') return '-';
                                   // Format numeric fields (weights)
                                   if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt', 'PackingWeight', 'TotalWeight'].includes(column.key)) {

@@ -18,6 +18,8 @@ import {
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
+import TrayScanModal from '../common/TrayScanModal';
+import { isInventoryTrayEnabled } from '../../services/trayModeService';
 
 const QuotationNew = ({ editStatus, defaultValues }) => {
   const { loading, setLoading } = useLoading();
@@ -110,6 +112,8 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
   const [designs, setDesigns] = useState([]);
   const [purities, setPurities] = useState([]);
   const [loadingMasterData, setLoadingMasterData] = useState(false);
+  const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
+  const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
 
   // Form Fields Configuration (Same 21 fields as AddStock)
   const formFields = [
@@ -393,6 +397,16 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    const syncTrayMode = () => setTrayEnabled(isInventoryTrayEnabled());
+    window.addEventListener('focus', syncTrayMode);
+    window.addEventListener('storage', syncTrayMode);
+    return () => {
+      window.removeEventListener('focus', syncTrayMode);
+      window.removeEventListener('storage', syncTrayMode);
+    };
+  }, []);
+
   // Load data on mount
   useEffect(() => {
     if (userInfo?.ClientCode) {
@@ -612,6 +626,98 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
       type: 'success',
       title: 'Success',
       message: 'Product added to quotation'
+    });
+  };
+
+  const handleTrayFetchData = async (epcs) => {
+    if (!userInfo?.ClientCode || !epcs?.length) return false;
+    try {
+      const headers = {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      };
+      const { data } = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetLabelledStockByTIDNumbers',
+        { ClientCode: userInfo.ClientCode, TIDNumbers: epcs },
+        { headers }
+      );
+      const rows = normalizeArray(data);
+      if (!rows.length) {
+        addNotification({ type: 'warning', title: 'No Stock Found', message: 'No stock matched scanned EPC tags.' });
+        return false;
+      }
+      let added = 0;
+      let skipped = 0;
+      setQuotationItems((prev) => {
+        const existing = new Set(prev.map((x) => String(x.Itemcode || x.ItemCode || '').trim().toUpperCase()));
+        const next = [...prev];
+        rows.forEach((item) => {
+          const itemCode = String(item.Itemcode || item.ItemCode || '').trim().toUpperCase();
+          if (!itemCode || existing.has(itemCode)) {
+            skipped += 1;
+            return;
+          }
+          existing.add(itemCode);
+          added += 1;
+          next.push({
+            id: Date.now() + added,
+            scanSource: 'tray',
+            RFIDNumber: item.RFIDNumber || item.RFID || item.RFIDCode || '',
+            Itemcode: item.Itemcode || item.ItemCode || '',
+            LabelledStockId: item.LabelledStockId || item.Id || item.id || '',
+            branch_id: item.BranchName || item.Branch || item.branch_id || '',
+            counter_id: item.CounterName || item.Counter || item.counter_id || '',
+            category_id: item.CategoryName || item.Category || item.category_id || '',
+            product_id: item.ProductName || item.Product || item.product_id || '',
+            design_id: item.DesignName || item.Design || item.design_id || '',
+            purity_id: item.PurityName || item.Purity || item.purity_id || '',
+            grosswt: item.GrossWt || item.GrossWeight || item.grosswt || item.TWt || '0.000',
+            stonewt: item.StoneWt || item.StoneWeight || item.stonewt || item.StWt || '0.000',
+            diamondheight: item.DiamondHeight || item.diamondheight || '0.000',
+            diamondweight: item.DiamondWeight || item.diamondweight || item.DiaWt || '0.000',
+            netwt: item.NetWt || item.NetWeight || item.netwt || item.NtWt || '0.000',
+            box_details: item.BoxName || item.Box || item.box_details || '',
+            size: item.Size || item.size || 0,
+            stoneamount: item.StoneAmount || item.stoneamount || item.StAmt || '0.00',
+            diamondAmount: item.DiamondAmount || item.diamondAmount || '0.00',
+            HallmarkAmount: item.HallmarkAmount || item.HallmarkAmt || '0.00',
+            MakingPerGram: item.MakingPerGram || item.RatePerGram || '0.00',
+            MakingPercentage: item.MakingPercentage || '0.00',
+            MakingFixedAmt: item.MakingFixedAmt || '0.00',
+            MRP: item.MRP || '0.00',
+            imageurl: item.ImageUrl || '',
+            status: item.Status || 'ApiActive',
+            FinePercent: item.FinePercent || item.FinePercentage || item['Fine %'] || '0.00',
+            WastagePercent: item.WastagePercent || item.WastagePercentage || item['Wastage %'] || '0.00',
+            FineWastageWt: item.FineWastageWt || item.FineWastageWeight || item['F+W Wt'] || '0.000',
+            RatePerGram: item.RatePerGram || item['Rate/Gm'] || '0.00',
+            Qty: item.Qty || item.Quantity || 1,
+            Pieces: item.Pieces || 1,
+            TotalItemAmt: item.TotalItemAmt || item.TotalItemAmount || item['T Item Amt'] || '0.00',
+            PackingWt: item.PackingWt || item.PackingWeight || item['Packing Wt'] || '0.000',
+            URDAmount: item.URDAmount || item.URD || item['URD Amount'] || '0.00'
+          });
+        });
+        return next;
+      });
+      addNotification({
+        type: 'success',
+        title: 'Tray Data Fetched',
+        message: `Added ${added} item(s) from tray scan.${skipped > 0 ? ` Skipped ${skipped} duplicate/invalid item(s).` : ''}`
+      });
+      return true;
+    } catch (error) {
+      addNotification({ type: 'error', title: 'Fetch Failed', message: error?.response?.data?.message || 'Failed to fetch data from scanned EPC tags.' });
+      return false;
+    }
+  };
+
+  const handleClearScannedTrayItems = () => {
+    setQuotationItems((prev) => prev.filter((item) => item.scanSource !== 'tray'));
+    addNotification({
+      type: 'success',
+      title: 'Tray Data Cleared',
+      message: 'Scanned tray items removed. You can scan fresh tags now.'
     });
   };
 
@@ -1640,7 +1746,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
             }}>
               {/* Tray Scanning Icon Button */}
               <button
-                onClick={() => navigate('/quotation-rfid-tray')}
+                onClick={() => (trayEnabled ? setShowRfidTrayModal(true) : navigate('/quotation-rfid-tray'))}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1656,7 +1762,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   minWidth: '40px',
                   height: '32px'
                 }}
-                title="Quotation with RFID Tray"
+                title={trayEnabled ? 'Scan tags with RFID tray' : 'Quotation with RFID Tray'}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = '#627282';
                   e.currentTarget.style.color = '#ffffff';
@@ -1667,6 +1773,27 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                 }}
               >
                 <FaBox />
+              </button>
+              <button
+                onClick={handleClearScannedTrayItems}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '6px 10px',
+                  fontSize: '11px',
+                  border: '1px solid #fecaca',
+                  borderRadius: '6px',
+                  background: '#fff1f2',
+                  color: '#b91c1c',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  height: '32px',
+                  fontWeight: 600
+                }}
+                title="Clear scanned tray items"
+              >
+                Clear Scanned
               </button>
               <div style={{
                 position: 'relative',
@@ -2569,6 +2696,13 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
           <FaList /> Quotation List
         </button>
       </div>
+
+      <TrayScanModal
+        open={showRfidTrayModal}
+        onClose={() => setShowRfidTrayModal(false)}
+        onFetchData={handleTrayFetchData}
+        title="Quotation Tray Scan"
+      />
 
       <style>{`
         @keyframes spin {

@@ -15,6 +15,8 @@ import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import { stockTransferService } from '../../services/stockTransferService';
+import TrayScanModal from '../common/TrayScanModal';
+import { isInventoryTrayEnabled } from '../../services/trayModeService';
 
 const StockTransfer = () => {
   const { loading, setLoading } = useLoading();
@@ -99,6 +101,8 @@ const StockTransfer = () => {
   // Loading States
   const [loadingStock, setLoadingStock] = useState(false);
   const [loadingMasterData, setLoadingMasterData] = useState(false);
+  const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
+  const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
 
   // Calculate totals
   const [totalGrossWT, setTotalGrossWT] = useState(0);
@@ -159,6 +163,16 @@ const StockTransfer = () => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    const syncTrayMode = () => setTrayEnabled(isInventoryTrayEnabled());
+    window.addEventListener('focus', syncTrayMode);
+    window.addEventListener('storage', syncTrayMode);
+    return () => {
+      window.removeEventListener('focus', syncTrayMode);
+      window.removeEventListener('storage', syncTrayMode);
+    };
   }, []);
 
   // Fetch master data
@@ -405,6 +419,32 @@ const StockTransfer = () => {
         message: `Item with code "${scanned}" not found in available stock`
       });
     }
+  };
+
+  const handleTrayFetchData = async (epcs) => {
+    if (!Array.isArray(epcs) || epcs.length === 0) return;
+    const scanned = new Set(epcs.map((x) => String(x || '').trim().toUpperCase()).filter(Boolean));
+    if (!scanned.size) return;
+    const matched = tableData.filter((item) =>
+      scanned.has(String(item.RFIDCode || item.RFIDNumber || '').trim().toUpperCase()) ||
+      scanned.has(String(item.TIDNumber || '').trim().toUpperCase()) ||
+      scanned.has(String(item.ItemCode || item.Itemcode || '').trim().toUpperCase()) ||
+      scanned.has(String(item.Barcode || '').trim().toUpperCase())
+    );
+    if (!matched.length) {
+      addNotification({ type: 'warning', title: 'No Match', message: 'No scanned EPC matched current available stock.' });
+      return;
+    }
+    const matchedIds = new Set(matched.map((x) => x.Id));
+    setTransferredData((prev) => {
+      const existing = new Set(prev.map((x) => x.Id));
+      const toAdd = matched.filter((x) => !existing.has(x.Id));
+      return [...prev, ...toAdd];
+    });
+    setTableData((prev) => prev.filter((x) => !matchedIds.has(x.Id)));
+    setSelectedRows([]);
+    setSelectAll(false);
+    addNotification({ type: 'success', title: 'Tray Fetch Done', message: `Moved ${matched.length} matched item(s) to transfer list.` });
   };
 
   // Handle form submission
@@ -891,6 +931,25 @@ const StockTransfer = () => {
             >
               <FaSearch /> Search
             </button>
+            {trayEnabled && (
+              <button
+                type="button"
+                onClick={() => setShowRfidTrayModal(true)}
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: '1px solid #6366f1',
+                  background: '#6366f1',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                Tray Scan
+              </button>
+            )}
           </div>
         </div>
 
@@ -1444,6 +1503,12 @@ const StockTransfer = () => {
           </div>
         </>
       )}
+      <TrayScanModal
+        open={showRfidTrayModal}
+        onClose={() => setShowRfidTrayModal(false)}
+        onFetchData={handleTrayFetchData}
+        title="Stock Transfer Tray Scan"
+      />
     </div>
   );
 };

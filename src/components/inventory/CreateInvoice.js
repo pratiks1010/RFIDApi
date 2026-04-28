@@ -23,7 +23,11 @@ import {
   FaTimes,
   FaSave,
   FaShoppingCart,
-  FaFileInvoice
+  FaFileInvoice,
+  FaBroadcastTower,
+  FaPlay,
+  FaStop,
+  FaPlug
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -37,9 +41,12 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import IconButton from '@mui/material/IconButton';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
+import { isInventoryTrayEnabled } from '../../services/trayModeService';
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
 const DEFAULT_PAGE_SIZE = 25;
+const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1200;
+const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 3000;
 
 const getUniqueOptions = (data, field) => {
   if (!data || !Array.isArray(data)) return ['All'];
@@ -57,6 +64,34 @@ const formatValue = (value) => {
   if (!value) return '-';
   if (typeof value === 'number') return value.toFixed(3);
   return value.toString();
+};
+
+const mergeTrayRows = (existingRows, incomingRows) => {
+  const rowKey = (row) => String(
+    row?.Id ||
+    row?.TIDNumber ||
+    row?.RFIDCode ||
+    row?.ItemCode ||
+    row?.RequestedIdentifier ||
+    ''
+  ).trim().toUpperCase();
+
+  const map = new Map();
+  (existingRows || []).forEach((row) => {
+    const key = rowKey(row);
+    if (!key) return;
+    map.set(key, row);
+  });
+  (incomingRows || []).forEach((row) => {
+    const key = rowKey(row);
+    if (!key) return;
+    map.set(key, { ...map.get(key), ...row });
+  });
+
+  return Array.from(map.values()).map((row, index) => ({
+    ...row,
+    srNo: index + 1
+  }));
 };
 
 const CreateInvoice = () => {
@@ -141,12 +176,400 @@ const CreateInvoice = () => {
   
   // Window width state for responsive design
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
+  const [showTrayScanModal, setShowTrayScanModal] = useState(false);
+  const [trayComPrimary, setTrayComPrimary] = useState('7');
+  const [trayComSecondary, setTrayComSecondary] = useState('8');
+  const [trayBaudRate, setTrayBaudRate] = useState('115200');
+  const [trayBusy, setTrayBusy] = useState(false);
+  const [trayScanning, setTrayScanning] = useState(false);
+  const [trayTags, setTrayTags] = useState([]);
+  const [, setTrayLogs] = useState([]);
+  const [trayFetchLoading, setTrayFetchLoading] = useState(false);
+  const [trayFetchProgress, setTrayFetchProgress] = useState(0);
+  const [trayFetchStatus, setTrayFetchStatus] = useState('');
+  const [isTrayScanView, setIsTrayScanView] = useState(false);
+  const [trayCurrentPage, setTrayCurrentPage] = useState(1);
+  const hasElectronTrayBridge = typeof window !== 'undefined' && !!window.electronAPI?.rfidBridgeCommand;
+  const trayPageSize = 16;
+  const trayTagsRef = useRef([]);
+  const trayIdleTimerRef = useRef(null);
+  const trayAutoStopInProgressRef = useRef(false);
+
+  const clearTrayIdleTimer = () => {
+    if (trayIdleTimerRef.current) {
+      clearTimeout(trayIdleTimerRef.current);
+      trayIdleTimerRef.current = null;
+    }
+  };
+
+  const mapStockRowsForInvoice = (stockData, page = 1, pageSize = itemsPerPage) => (
+    (Array.isArray(stockData) ? stockData : []).map((item, index) => ({
+      ...item,
+      Id: item.Id || item.id || `tray-${String(item.RFIDCode || item.TID || item.EPC || index)}`,
+      srNo: ((page - 1) * pageSize) + index + 1,
+      StoneWt: item.TotalStoneWeight !== undefined && item.TotalStoneWeight !== null ? item.TotalStoneWeight : (item.StoneWt || ''),
+      StonePcs: item.TotalStonePieces !== undefined && item.TotalStonePieces !== null ? item.TotalStonePieces : (item.StonePcs || ''),
+      StoneAmt: item.TotalStoneAmount !== undefined && item.TotalStoneAmount !== null ? item.TotalStoneAmount : (item.StoneAmt || ''),
+      DiamondWt: item.TotalDiamondWeight !== undefined && item.TotalDiamondWeight !== null ? item.TotalDiamondWeight : (item.DiamondWt || ''),
+      DiamondPcs: item.TotalDiamondPieces !== undefined && item.TotalDiamondPieces !== null ? item.TotalDiamondPieces : (item.DiamondPcs || ''),
+      DiamondAmount: item.TotalDiamondAmount !== undefined && item.TotalDiamondAmount !== null ? item.TotalDiamondAmount : (item.DiamondAmount || ''),
+      MakingFixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.MakingFixedAmt || ''),
+      HallmarkAmount: item.HallmarkAmount !== undefined && item.HallmarkAmount !== null ? item.HallmarkAmount : (item.HallmarkAmount || ''),
+      MakingPerGram: item.MakingPerGram !== undefined && item.MakingPerGram !== null ? item.MakingPerGram : (item.MakingPerGram || ''),
+      MakingPercentage: item.MakingPercentage !== undefined && item.MakingPercentage !== null ? item.MakingPercentage : (item.MakingPercentage || ''),
+      FixedWastage: item.MakingFixedWastage !== undefined && item.MakingFixedWastage !== null ? item.MakingFixedWastage : (item.FixedWastage || ''),
+      FixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.FixedAmt || ''),
+      CounterName: item.CounterName || '',
+      BoxName: item.BoxName || '',
+      Vendor: item.VendorName || item.Vendor || '',
+      Branch: item.BranchName || item.Branch || '',
+      CategoryName: item.CategoryName || item.Category || '',
+      DesignName: item.DesignName || item.Design || '',
+      PurityName: item.PurityName || item.Purity || '',
+      CreatedDate: item.CreatedOn || item.CreatedDate || '',
+      PackingWeight: item.PackingWeight !== undefined && item.PackingWeight !== null ? item.PackingWeight : (item.PackingWeight || ''),
+      TotalWeight: item.TotalWeight !== undefined && item.TotalWeight !== null ? item.TotalWeight : (item.TotalWeight || '')
+    }))
+  );
+
+  const getClientCodeForRequests = () => (
+    (userInfo?.ClientCode || userInfo?.clientCode || userInfo?.clientcode || '').trim()
+  );
   
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    const syncTrayMode = () => setTrayEnabled(isInventoryTrayEnabled());
+    window.addEventListener('focus', syncTrayMode);
+    window.addEventListener('storage', syncTrayMode);
+    return () => {
+      window.removeEventListener('focus', syncTrayMode);
+      window.removeEventListener('storage', syncTrayMode);
+    };
+  }, []);
+
+  const appendTrayLog = (line) => {
+    setTrayLogs((prev) => [line, ...prev].slice(0, 120));
+  };
+
+  const matchTrayTagsToRows = (scannedTags) => {
+    if (!Array.isArray(scannedTags) || scannedTags.length === 0) return;
+    const scannedSet = new Set(scannedTags.map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean));
+    const sourceRows = showAllData && allFilteredData.length > 0 ? allFilteredData : labeledStock;
+    if (!sourceRows.length) return;
+
+    const matchedIds = sourceRows
+      .filter((row) => scannedSet.has(String(row?.RFIDCode || '').trim().toUpperCase()))
+      .map((row) => row.Id)
+      .filter(Boolean);
+
+    if (!matchedIds.length) return;
+    setSelectedRows((prev) => Array.from(new Set([...prev, ...matchedIds])));
+  };
+
+  useEffect(() => {
+    if (!showTrayScanModal || !hasElectronTrayBridge) return undefined;
+
+    const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
+      const epc = String(tag?.epc || '').trim().toUpperCase();
+      if (!epc) return;
+      setTrayTags((prev) => {
+        if (prev.includes(epc)) return prev;
+        const next = [...prev, epc];
+        matchTrayTagsToRows(next);
+        return next;
+      });
+    });
+
+    const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
+      appendTrayLog(line);
+      const lowered = line.toLowerCase();
+      if (lowered.includes('inventory started')) setTrayScanning(true);
+      if (lowered.includes('inventory stopped')) setTrayScanning(false);
+    });
+
+    const unsubError = window.electronAPI.onRfidBridgeError((line) => appendTrayLog(`ERROR: ${line}`));
+
+    return () => {
+      unsubTag?.();
+      unsubLine?.();
+      unsubError?.();
+    };
+  }, [showTrayScanModal, hasElectronTrayBridge, showAllData, allFilteredData, labeledStock]);
+
+  const runTrayBridgeCommand = async (command) => {
+    if (!hasElectronTrayBridge) throw new Error('RFID tray bridge is available only in Electron app.');
+    await window.electronAPI.rfidBridgeCommand(command);
+  };
+
+  const openTrayScanModal = async () => {
+    clearTrayIdleTimer();
+    setShowTrayScanModal(true);
+    setTrayTags([]);
+    setTrayLogs([]);
+    setTrayCurrentPage(1);
+    setTrayScanning(false);
+    if (!hasElectronTrayBridge) return;
+    try {
+      await window.electronAPI.rfidBridgeEnsure();
+    } catch (error) {
+      appendTrayLog(`ERROR: ${error?.message || 'Failed to start tray bridge service.'}`);
+    }
+  };
+
+  const closeTrayScanModal = async () => {
+    clearTrayIdleTimer();
+    try {
+      if (hasElectronTrayBridge) {
+        await runTrayBridgeCommand('stop');
+      }
+    } catch (_) {
+    }
+    setTrayScanning(false);
+    setShowTrayScanModal(false);
+  };
+
+  const handleTrayConnectAndScan = async () => {
+    setTrayBusy(true);
+    try {
+      await runTrayBridgeCommand('disconnect');
+      await runTrayBridgeCommand(`connect-serial ${trayComPrimary} ${trayBaudRate}`);
+      await runTrayBridgeCommand(`connect-serial ${trayComSecondary} ${trayBaudRate}`);
+      await runTrayBridgeCommand('start');
+      setTrayScanning(true);
+    } catch (error) {
+      appendTrayLog(`ERROR: ${error?.message || 'Failed to start tray scan.'}`);
+    } finally {
+      setTrayBusy(false);
+    }
+  };
+
+  const handleTrayStopScan = async () => {
+    setTrayBusy(true);
+    try {
+      await runTrayBridgeCommand('stop');
+      setTrayScanning(false);
+    } catch (error) {
+      appendTrayLog(`ERROR: ${error?.message || 'Failed to stop tray scan.'}`);
+    } finally {
+      setTrayBusy(false);
+    }
+  };
+
+  const handleTrayFetchData = async () => {
+    clearTrayIdleTimer();
+    if (!trayTags.length) {
+      addNotification({
+        title: 'No EPC scanned',
+        description: 'Scan EPC tags first, then fetch data.',
+        type: 'warning'
+      });
+      return;
+    }
+
+    const clientCode = getClientCodeForRequests();
+    if (!clientCode) {
+      addNotification({
+        title: 'Client code missing',
+        description: 'Login session missing client code. Please login again.',
+        type: 'error'
+      });
+      return;
+    }
+
+    const normalizedTags = Array.from(
+      new Set(trayTags.map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean))
+    );
+    if (!normalizedTags.length) {
+      addNotification({
+        title: 'No valid EPC values',
+        description: 'Scanned EPC list is empty after normalization.',
+        type: 'warning'
+      });
+      return;
+    }
+
+    setTrayFetchLoading(true);
+    setTrayFetchProgress(15);
+    setTrayFetchStatus('Preparing request...');
+    setLoading(true);
+
+    try {
+      setTrayFetchProgress(35);
+      setTrayFetchStatus('Calling backend API...');
+      const response = await axios.post(
+        'https://soni.loyalstring.co.in/api/RFIDDashboard/GetProductsByTidValues',
+        {
+          ClientCode: clientCode,
+          TIDValues: normalizedTags,
+          TidValues: normalizedTags
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 45000
+        }
+      );
+
+      setTrayFetchProgress(75);
+      setTrayFetchStatus('Processing product details...');
+
+      const responseData = response?.data;
+      const productsFromNestedResponse = Array.isArray(responseData?.Products)
+        ? responseData.Products.map((entry) => ({
+            ...(entry?.ProductDetails || {}),
+            RequestedIdentifier: entry?.RequestedIdentifier || '',
+            MatchedBy: entry?.MatchedBy || '',
+            CategoryName: entry?.CategoryName || entry?.ProductDetails?.CategoryName || '',
+            ProductName: entry?.ProductName || entry?.ProductDetails?.ProductName || '',
+            DesignName: entry?.DesignName || entry?.ProductDetails?.DesignName || '',
+            PurityName: entry?.PurityName || entry?.ProductDetails?.PurityName || '',
+            VendorName: entry?.VendorName || entry?.ProductDetails?.VendorName || '',
+            VendorFirmName: entry?.VendorFirmName || entry?.ProductDetails?.VendorFirmName || '',
+            PacketName: entry?.PacketName || entry?.ProductDetails?.PacketName || '',
+            TIDNumber: entry?.ProductDetails?.TIDNumber || entry?.RequestedIdentifier || '',
+            RFIDCode: entry?.ProductDetails?.RFIDCode || entry?.ProductDetails?.RFIDNumber || '',
+            ClientCode: entry?.ProductDetails?.ClientCode || clientCode
+          }))
+        : [];
+
+      const products = productsFromNestedResponse.length > 0
+        ? productsFromNestedResponse
+        : Array.isArray(responseData)
+        ? responseData
+        : Array.isArray(responseData?.data)
+          ? responseData.data
+          : Array.isArray(responseData?.Data)
+            ? responseData.Data
+            : [];
+
+      if (!products.length) {
+        addNotification({
+          title: 'No products found',
+          description: `No products returned for ${normalizedTags.length} scanned EPC/TID values.`,
+          type: 'warning'
+        });
+        return;
+      }
+
+      const mappedRows = mapStockRowsForInvoice(products, 1, itemsPerPage);
+      const existingTrayRows = isTrayScanView ? labeledStock : [];
+      const mergedRows = mergeTrayRows(existingTrayRows, mappedRows);
+      setIsTrayScanView(true);
+      setLabeledStock(mergedRows);
+      setCurrentPage(1);
+      setShowAllData(false);
+      setAllFilteredData([]);
+      setSearchQuery('');
+      setTotalRecords(mergedRows.length);
+      setTotalPages(Math.max(1, Math.ceil(mergedRows.length / itemsPerPage)));
+
+      const scannedSet = new Set(normalizedTags);
+      const matchedIds = mergedRows
+        .filter((row) => {
+          const rfidCode = String(row?.RFIDCode || '').trim().toUpperCase();
+          const tidNumber = String(row?.TIDNumber || row?.TID || row?.EPC || row?.RequestedIdentifier || '').trim().toUpperCase();
+          return scannedSet.has(rfidCode) || scannedSet.has(tidNumber);
+        })
+        .map((row) => row.Id)
+        .filter(Boolean);
+      setSelectedRows((prev) => Array.from(new Set([...(prev || []), ...matchedIds])));
+
+      setTrayFetchProgress(100);
+      setTrayFetchStatus('Loaded');
+      addNotification({
+        title: 'Invoice data loaded',
+        description: `Loaded ${mappedRows.length} new product(s). Tray list now has ${mergedRows.length} total product(s).`,
+        type: 'success'
+      });
+      await closeTrayScanModal();
+    } catch (error) {
+      const message = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Failed to fetch product details from tray EPC values.';
+      setTrayFetchStatus('Failed');
+      addNotification({
+        title: 'Fetch failed',
+        description: message,
+        type: 'error'
+      });
+    } finally {
+      setLoading(false);
+      setTrayFetchLoading(false);
+      setTimeout(() => {
+        setTrayFetchProgress(0);
+        setTrayFetchStatus('');
+      }, 500);
+    }
+  };
+
+  useEffect(() => {
+    trayTagsRef.current = trayTags;
+  }, [trayTags]);
+
+  useEffect(() => {
+    if (!showTrayScanModal || !trayScanning || trayFetchLoading) {
+      clearTrayIdleTimer();
+      return undefined;
+    }
+
+    clearTrayIdleTimer();
+    const timeoutMs = trayTagsRef.current.length > 0 ? TRAY_IDLE_TIMEOUT_WITH_TAGS_MS : TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS;
+
+    trayIdleTimerRef.current = setTimeout(async () => {
+      if (trayAutoStopInProgressRef.current) return;
+      trayAutoStopInProgressRef.current = true;
+      try {
+        setTrayFetchStatus('No new tags detected. Stopping scan...');
+        if (hasElectronTrayBridge) {
+          await runTrayBridgeCommand('stop');
+        }
+        setTrayScanning(false);
+
+        if (trayTagsRef.current.length > 0) {
+          setTrayFetchStatus('Loading scanned products...');
+          await handleTrayFetchData();
+        } else {
+          addNotification({
+            title: 'Scanner stopped',
+            description: 'No tag was scanned for a while, so tray scan was stopped automatically.',
+            type: 'warning'
+          });
+          await closeTrayScanModal();
+        }
+      } catch (error) {
+        await closeTrayScanModal();
+      } finally {
+        trayAutoStopInProgressRef.current = false;
+      }
+    }, timeoutMs);
+
+    return () => clearTrayIdleTimer();
+  }, [showTrayScanModal, trayScanning, trayTags, trayFetchLoading]);
+
+  const trayTotalPages = useMemo(() => Math.max(1, Math.ceil(trayTags.length / trayPageSize)), [trayTags.length, trayPageSize]);
+  const paginatedTrayTags = useMemo(() => {
+    const start = (trayCurrentPage - 1) * trayPageSize;
+    return trayTags.slice(start, start + trayPageSize);
+  }, [trayTags, trayCurrentPage, trayPageSize]);
+  const trayTwoColumnRows = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < paginatedTrayTags.length; i += 2) {
+      rows.push([paginatedTrayTags[i], paginatedTrayTags[i + 1] || '']);
+    }
+    return rows;
+  }, [paginatedTrayTags]);
+
+  useEffect(() => {
+    if (trayCurrentPage > trayTotalPages) {
+      setTrayCurrentPage(trayTotalPages);
+    }
+  }, [trayCurrentPage, trayTotalPages]);
 
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('userInfo');
@@ -469,7 +892,14 @@ const CreateInvoice = () => {
     }
   };
 
-  const fetchLabeledStock = async (page = currentPage, pageSize = itemsPerPage, search = searchQuery, filters = filterValues) => {
+  const fetchLabeledStock = async (page = currentPage, pageSize = itemsPerPage, search = searchQuery, filters = filterValues, options = {}) => {
+    const force = options?.force === true;
+    if (isTrayScanView && !force) {
+      setLoading(false);
+      isFetchingRef.current = false;
+      return;
+    }
+
     // Prevent duplicate loading if already fetching
     if (isFetchingRef.current) {
       console.log('Already fetching, skipping duplicate fetch');
@@ -1124,6 +1554,8 @@ const CreateInvoice = () => {
 
   // Debounced search effect - similar to reference code
   useEffect(() => {
+    if (isTrayScanView) return undefined;
+
     const timeoutId = setTimeout(() => {
       // Show loader immediately when search executes
       setLoading(true);
@@ -1135,10 +1567,12 @@ const CreateInvoice = () => {
     }, 2000); // 2 second debounce like reference
 
     return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+  }, [searchQuery, isTrayScanView]);
 
   // Effect for filter changes - similar to reference code
   useEffect(() => {
+    if (isTrayScanView) return;
+
     // Skip if this is the initial mount (userInfo not loaded yet)
     // The initial fetch is handled in the userInfo effect
     if (!userInfo?.ClientCode) {
@@ -1232,7 +1666,7 @@ const CreateInvoice = () => {
       }
     }
   }, [filterValues.categoryId, filterValues.productId, filterValues.designId, 
-      filterValues.branch, filterValues.counterName, filterValues.boxName, filterValues.vendor, filterValues.status]);
+      filterValues.branch, filterValues.counterName, filterValues.boxName, filterValues.vendor, filterValues.status, isTrayScanView]);
 
   const handleResetFilters = () => {
     const resetFilters = {
@@ -1326,6 +1760,28 @@ const CreateInvoice = () => {
       setShowAllData(true);
       await fetchAllFilteredData();
     }
+  };
+
+  const handleShowInvoiceProductList = () => {
+    setIsTrayScanView(false);
+    setLoading(true);
+    fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, { force: true });
+  };
+
+  const handleClearScannedTrayProducts = () => {
+    setIsTrayScanView(true);
+    setLabeledStock([]);
+    setSelectedRows([]);
+    setShowAllData(false);
+    setAllFilteredData([]);
+    setSearchQuery('');
+    setTotalRecords(0);
+    setTotalPages(0);
+    addNotification({
+      title: 'Scanned products cleared',
+      description: 'Tray scanned products were removed. You can scan fresh tags now.',
+      type: 'success'
+    });
   };
 
   const getActiveFilterCount = () => {
@@ -1552,12 +2008,22 @@ const CreateInvoice = () => {
     
     setStatusChangeLoading(true);
     try {
+      const clientCode = userInfo?.ClientCode || '';
+      if (!clientCode) {
+        throw new Error('Client code not found. Please login again.');
+      }
+      if (!selectedItemForStatus.ItemCode) {
+        throw new Error('Item code is required to update RFID transaction.');
+      }
+
       const response = await axios.post(
         'https://soni.loyalstring.co.in/api/ProductMaster/UpdateRFIDTransactionDetails',
-        {
-          itemcode: selectedItemForStatus.ItemCode,
-          rfidcode: selectedItemForStatus.RFIDCode
-        },
+        [{
+          client_code: clientCode,
+          itemcode: selectedItemForStatus.ItemCode || '',
+          ...(selectedItemForStatus.RFIDCode ? { RFIDNumber: selectedItemForStatus.RFIDCode } : {}),
+          status: newStatus || selectedItemForStatus.Status || 'Sold'
+        }],
         {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -1632,11 +2098,16 @@ const CreateInvoice = () => {
         throw new Error('Client code not found. Please login again.');
       }
 
-      // Build payload array as shown in the API documentation
-      const payload = itemsToUpdate.map(item => ({
+      const validItemsToUpdate = itemsToUpdate.filter(item => item.ItemCode);
+      if (validItemsToUpdate.length === 0) {
+        throw new Error('No selected rows have itemcode. Please select valid items.');
+      }
+
+      // Recommended payload format: itemcode mandatory, RFIDNumber optional, status defaults to Sold server-side.
+      const payload = validItemsToUpdate.map(item => ({
         client_code: clientCode,
-        RFIDNumber: item.RFIDCode || '',
-        status: 'Sold'
+        itemcode: item.ItemCode,
+        ...(item.RFIDCode ? { RFIDNumber: item.RFIDCode } : {})
       }));
 
       // Make API call with array payload
@@ -1654,7 +2125,7 @@ const CreateInvoice = () => {
       // Handle response
       if (response.data && response.data.status === 'success') {
         // Update local state for all items
-        itemsToUpdate.forEach(item => {
+        validItemsToUpdate.forEach(item => {
           setLabeledStock(prev => prev.map(prevItem => 
             prevItem.Id === item.Id 
               ? { ...prevItem, Status: 'Sold' }
@@ -1676,7 +2147,11 @@ const CreateInvoice = () => {
         setShowMarkSoldConfirm(false);
 
         // Show success notification
-        const message = response.data.message || `Successfully marked ${itemsToUpdate.length} item(s) as sold.`;
+        const skippedCount = itemsToUpdate.length - validItemsToUpdate.length;
+        const successBaseMessage = response.data.message || `Successfully marked ${validItemsToUpdate.length} item(s) as sold.`;
+        const message = skippedCount > 0
+          ? `${successBaseMessage} Skipped ${skippedCount} item(s) without itemcode.`
+          : successBaseMessage;
         showSuccessNotification('Items Marked as Sold', message);
         addNotification({
           title: 'Items marked as sold',
@@ -1791,6 +2266,7 @@ const CreateInvoice = () => {
     { key: 'StoneWt', label: 'Stone Wt', width: '100px' },
     { key: 'DiamondWt', label: 'Diamond Wt', width: '100px' },
     { key: 'NetWt', label: 'Net Wt', width: '100px' },
+    { key: 'Description', label: 'Description', width: '180px' },
     { key: 'StoneAmt', label: 'Stone Amt', width: '120px' },
     { key: 'FixedAmt', label: 'Fixed Amt', width: '120px' },
     { key: 'Vendor', label: 'Vendor', width: '120px' },
@@ -2316,6 +2792,11 @@ const CreateInvoice = () => {
                 color: '#1e293b',
                 lineHeight: '1.2'
               }}>Create Invoice</h2>
+              {isTrayScanView && (
+                <div style={{ marginTop: 6, fontSize: 11, fontWeight: 700, color: '#0f766e' }}>
+                  Showing scanned tray products
+                </div>
+              )}
             </div>
 
             {/* Right: Total Count */}
@@ -2448,9 +2929,59 @@ const CreateInvoice = () => {
                 </>
               )}
             </button>
+            {trayEnabled && (
+              <button
+                onClick={openTrayScanModal}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  border: '1px solid #7c3aed',
+                  background: '#7c3aed',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <FaBroadcastTower />
+                <span>Scan With Tray</span>
+              </button>
+            )}
+            {isTrayScanView && (
+              <button
+                onClick={handleClearScannedTrayProducts}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  border: '1px solid #dc2626',
+                  background: '#ffffff',
+                  color: '#dc2626',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#fef2f2';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#ffffff';
+                }}
+              >
+                <FaTrash />
+                <span>Clear Scanned Data</span>
+              </button>
+            )}
             {/* Invoice Product List Button */}
             <button 
-              onClick={() => navigate('/invoice-stock')}
+              onClick={handleShowInvoiceProductList}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -3133,7 +3664,9 @@ const CreateInvoice = () => {
                         display: isHiddenOnMobile ? 'none' : 'table-cell'
                       }}>
                           {column.key === 'srNo' ? ((currentPage - 1) * itemsPerPage) + index + 1 : (() => {
-                            const value = item[column.key];
+                            const value = column.key === 'Description'
+                              ? (item.Description ?? item.description ?? '')
+                              : item[column.key];
                             if (value === undefined || value === null || value === '') return '';
                             // Format numeric fields (weights)
                             if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt', 'PackingWeight', 'TotalWeight'].includes(column.key)) {
@@ -4964,6 +5497,123 @@ const CreateInvoice = () => {
            </div>
          </div>
        )}
+      {showTrayScanModal && (
+        <div className="modal show d-block" tabIndex="-1" style={{ background: 'radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.20) 0%, rgba(15, 23, 42, 0.42) 45%, rgba(15, 23, 42, 0.65) 100%)', backdropFilter: 'blur(9px)', zIndex: 10001 }}>
+          <div className="modal-dialog modal-dialog-centered modal-xl" style={{ maxWidth: 1120 }}>
+            <div className="modal-content border-0" style={{ borderRadius: 18, background: 'rgba(255, 255, 255, 0.88)', boxShadow: '0 26px 65px rgba(15, 23, 42, 0.32)', overflow: 'hidden', animation: 'fadeIn 0.25s ease-out' }}>
+              <div className="modal-header border-0" style={{ background: 'linear-gradient(120deg, rgba(239, 246, 255, 0.95) 0%, rgba(245, 243, 255, 0.96) 55%, rgba(236, 253, 245, 0.95) 100%)', color: '#0f172a', padding: '14px 18px', borderBottom: '1px solid rgba(148, 163, 184, 0.25)' }}>
+                <h5 className="modal-title d-flex align-items-center gap-2" style={{ fontWeight: 700 }}>
+                  <FaBroadcastTower /> Invoice Tray Scan
+                </h5>
+                <button type="button" className="btn-close" onClick={closeTrayScanModal} style={{ opacity: 0.8 }}></button>
+              </div>
+              <div className="modal-body" style={{ padding: 16 }}>
+                {!hasElectronTrayBridge && (
+                  <div className="alert alert-warning mb-3">Tray scan works only in Electron app.</div>
+                )}
+                <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: windowWidth <= 1100 ? 'wrap' : 'nowrap' }}>
+                  <input className="form-control" value={trayComPrimary} onChange={(e) => setTrayComPrimary(e.target.value)} placeholder="Primary COM" style={{ minWidth: 110, maxWidth: 150 }} />
+                  <input className="form-control" value={trayComSecondary} onChange={(e) => setTrayComSecondary(e.target.value)} placeholder="Secondary COM" style={{ minWidth: 110, maxWidth: 150 }} />
+                  <input className="form-control" value={trayBaudRate} onChange={(e) => setTrayBaudRate(e.target.value)} placeholder="Baud rate" style={{ minWidth: 130, maxWidth: 170 }} />
+                  <button className="btn d-flex align-items-center gap-2" onClick={handleTrayConnectAndScan} disabled={trayBusy || !hasElectronTrayBridge} style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', color: '#fff', border: 'none', fontWeight: 600 }}>
+                    <FaPlug />
+                    <FaPlay />
+                    Connect + Start
+                  </button>
+                  <button className="btn d-flex align-items-center gap-2" onClick={handleTrayStopScan} disabled={trayBusy || !trayScanning || !hasElectronTrayBridge} style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', color: '#fff', border: 'none', fontWeight: 600 }}>
+                    <FaStop />
+                    Stop
+                  </button>
+                  <button className="btn d-flex align-items-center gap-2" onClick={() => { setTrayTags([]); setTrayCurrentPage(1); }} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #cbd5e1', fontWeight: 600 }}>
+                    Clear EPCs
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 999, background: trayScanning ? 'rgba(16, 185, 129, 0.14)' : 'rgba(148, 163, 184, 0.2)', color: trayScanning ? '#047857' : '#475569' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: trayScanning ? '#10b981' : '#94a3b8', animation: trayScanning ? 'pulse 1.5s infinite' : 'none' }}></span>
+                    {trayScanning ? 'Scanning in progress' : 'Scanner idle'}
+                  </span>
+                  <span>EPC scanned: {trayTags.length}</span>
+                  <span>Auto-selected rows: {selectedRows.length}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                  Scan EPC tags from tray and verify values below. Click fetch data from footer to match invoice rows.
+                </div>
+                <div style={{ border: '1px solid rgba(148, 163, 184, 0.35)', borderRadius: 12, background: 'rgba(255, 255, 255, 0.78)', overflow: 'hidden' }}>
+                  <div style={{ maxHeight: 355, overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(241, 245, 249, 0.9)' }}>
+                          <th style={{ width: 56, padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>#</th>
+                          <th style={{ width: '47%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value A</th>
+                          <th style={{ width: 56, padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>#</th>
+                          <th style={{ width: '47%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value B</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trayTwoColumnRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} style={{ padding: '18px 12px', fontSize: 12, color: '#64748b' }}>
+                              Scan tags from tray. EPC values will appear here.
+                            </td>
+                          </tr>
+                        ) : (
+                          trayTwoColumnRows.map((row, rowIndex) => (
+                            <tr key={`tray-row-${rowIndex}`} style={{ borderBottom: '1px dashed #e2e8f0' }}>
+                              <td style={{ padding: '8px 10px', fontSize: 11, color: '#64748b' }}>{(trayCurrentPage - 1) * trayPageSize + rowIndex * 2 + 1}</td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[0] || '-'}</td>
+                              <td style={{ padding: '8px 10px', fontSize: 11, color: '#64748b' }}>{row[1] ? (trayCurrentPage - 1) * trayPageSize + rowIndex * 2 + 2 : '-'}</td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[1] || '-'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(248, 250, 252, 0.9)', borderTop: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                      Page {trayCurrentPage} of {trayTotalPages}
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-sm btn-outline-secondary" onClick={() => setTrayCurrentPage((prev) => Math.max(1, prev - 1))} disabled={trayCurrentPage === 1}>Prev</button>
+                      <button className="btn btn-sm btn-outline-secondary" onClick={() => setTrayCurrentPage((prev) => Math.min(trayTotalPages, prev + 1))} disabled={trayCurrentPage === trayTotalPages}>Next</button>
+                    </div>
+                  </div>
+                </div>
+                {(trayFetchLoading || trayFetchProgress > 0) && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: '#334155', fontWeight: 600 }}>
+                        {trayFetchStatus || 'Loading product details...'}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                        {trayFetchProgress}%
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${trayFetchProgress}%`,
+                          height: '100%',
+                          background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
+                          transition: 'width 0.25s ease'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer border-0" style={{ background: 'rgba(248, 250, 252, 0.75)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn btn-success d-flex align-items-center gap-2" onClick={handleTrayFetchData} style={{ fontWeight: 700 }} disabled={trayFetchLoading}>
+                  {trayFetchLoading ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> : <FaSearch />}
+                  {trayFetchLoading ? 'Fetching...' : 'Load Data'}
+                </button>
+                <button className="btn btn-secondary" onClick={closeTrayScanModal}>Done</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

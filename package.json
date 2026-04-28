@@ -1,6 +1,7 @@
 {
-  "name": "rfid-api-dashboard",
+  "name": "sparkle-rfid-dashboard",
   "homepage": ".",
+  "main": "electron/main.js",
   "version": "0.1.0",
   "private": true,
   "proxy": "http://3.109.131.101:816",
@@ -46,8 +47,15 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
+    "dev": "npm run start:electron",
     "start": "react-scripts start",
+    "start:electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "react-scripts build",
+    "build:web": "react-scripts build",
+    "build:bridge": "node scripts/prepare-rfid-bridge.js",
+    "build:electron": "npm run build:icon && npm run build:bridge && npm run build:web && electron-builder --win",
+    "dist": "npm run build:electron",
+    "build:icon": "node scripts/generate-electron-icon.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -68,5 +76,49 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
+    "wait-on": "^9.0.5"
+  },
+  "build": {
+    "extends": null,
+    "appId": "com.loyalstring.sparkle-rfid-dashboard",
+    "productName": "Sparkle RFID Dashboard",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "build/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "rfid-bridge/bin/Release/net8.0/win-x64/publish",
+        "to": "rfid-bridge",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build-resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "installerHeaderIcon": "build-resources/icon.ico"
+    }
   }
 }

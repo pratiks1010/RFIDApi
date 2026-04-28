@@ -102,6 +102,7 @@ export const rfidService = {
         `${BASE_URL}/UpdateRFIDTransactionDetails`, 
         [{
           client_code: data.clientCode,
+          itemcode: data.itemCode || data.itemcode || '',
           RFIDNumber: data.rfidNumber,
           status: data.status
         }]
@@ -222,10 +223,12 @@ export const rfidService = {
       RFIDNumber: data.rfidNumber || '',
       Itemcode: itemCode,
       itemcode: itemCode,
+      description: data.description || '',
       category_id: data.categoryId,
       product_id: data.productId,
       design_id: data.designId || '',
       purity_id: data.purityId || '',
+      vendor_id: data.vendorId || '',
       box: data.box || '',
       packet: data.packet || '',
       box_details: data.boxDetails || '',
@@ -233,6 +236,7 @@ export const rfidService = {
       stonewt: data.stoneWeight,
       diamondheight: data.diamondHeight,
       diamondweight: data.diamondWeight || data.diamondHeight,
+      diamondWeight: data.diamondWeight || data.diamondHeight,
       netwt: data.netWeight,
       size: data.size || 0,
       stoneamount: data.stoneAmount,

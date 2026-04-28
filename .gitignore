@@ -14,6 +14,20 @@ node_modules/
 /build
 /dist
 
+# Electron build artifacts (electron-builder output)
+/release
+/release-builds
+/out
+*.exe
+*.exe.blockmap
+*.dmg
+*.AppImage
+*.deb
+*.snap
+*.asar
+app.asar
+app.asar.unpacked/
+
 # Misc
 .DS_Store
 *.log

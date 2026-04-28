@@ -34,6 +34,44 @@ import { useLoading } from '../../App';
 
 const StockVerification = () => {
   const navigate = useNavigate();
+  const pick = (obj, keys, fallback = 0) => {
+    if (!obj) return fallback;
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+    }
+    return fallback;
+  };
+
+  const resolveConsolidationTotals = (totals) => {
+    const totalInventoryQty = Number(pick(totals, ['TotalInventoryQty', 'TotalInventory', 'totalInventoryQty'], 0)) || 0;
+    const matchedQty = Number(pick(totals, ['MatchedQty', 'matchedQty'], 0)) || 0;
+    const unmatchQty = Number(pick(totals, ['UnmatchQty', 'unmatchQty', 'UnMatchedQty'], 0)) || 0;
+
+    let totalInventoryGrossWeight = Number(pick(totals, ['TotalInventoryGrossWeight', 'totalInventoryGrossWeight', 'TotalInventoryWeight'], 0)) || 0;
+    let totalInventoryNetWeight = Number(pick(totals, ['TotalInventoryNetWeight', 'totalInventoryNetWeight', 'TotalInventoryweight', 'TotalInventoryWeight'], 0)) || 0;
+    const totalMatchGrossWeight = Number(pick(totals, ['TotalMatchGrossWeight', 'totalMatchGrossWeight', 'TotalMatchWeight'], 0)) || 0;
+    const totalMatchNetWeight = Number(pick(totals, ['TotalMatchNetWeight', 'totalMatchNetWeight', 'TotalMatchweight', 'TotalMatchWeight'], 0)) || 0;
+    const totalUnmatchGrossWeight = Number(pick(totals, ['TotalUnmatchGrossWeight', 'totalUnmatchGrossWeight', 'TotalUnMatchGrossWeight', 'TotalUnmatchWeight'], 0)) || 0;
+    const totalUnmatchNetWeight = Number(pick(totals, ['TotalUnmatchNetWeight', 'totalUnmatchNetWeight', 'TotalUnmatchweight', 'TotalUnMatchNetWeight', 'TotalUnmatchWeight'], 0)) || 0;
+
+    // If everything is unmatched, inventory totals should mirror unmatched totals.
+    if (matchedQty === 0 && totalInventoryQty === unmatchQty) {
+      totalInventoryGrossWeight = totalUnmatchGrossWeight;
+      totalInventoryNetWeight = totalUnmatchNetWeight;
+    }
+
+    return {
+      totalInventoryQty,
+      matchedQty,
+      unmatchQty,
+      totalInventoryGrossWeight,
+      totalInventoryNetWeight,
+      totalMatchGrossWeight,
+      totalMatchNetWeight,
+      totalUnmatchGrossWeight,
+      totalUnmatchNetWeight,
+    };
+  };
   // Global loader
   const { setLoading } = useLoading();
   
@@ -83,6 +121,8 @@ const StockVerification = () => {
   const [categoryDetails, setCategoryDetails] = useState({});
   const [loadingBranch, setLoadingBranch] = useState(null);
   const [loadingCategory, setLoadingCategory] = useState(null);
+  const [showExportBranchModal, setShowExportBranchModal] = useState(false);
+  const [selectedExportBranchId, setSelectedExportBranchId] = useState('');
   
   // Pagination for each view
   const [branchPage, setBranchPage] = useState(1);
@@ -175,7 +215,7 @@ const StockVerification = () => {
   }, []);
 
   // Fetch sessions data
-  const fetchSessions = async () => {
+  const fetchSessions = async (pageOverride, pageSizeOverride) => {
     if (!clientCode) {
       console.log('No clientCode available, skipping fetch');
       setError('Client code not found. Please login again.');
@@ -191,15 +231,18 @@ const StockVerification = () => {
 
       // Build payload with date filters if provided
       const payload = {
-        ClientCode: clientCode
+        clientCode,
+        pageNumber: pageOverride || currentPage,
+        pageSize: pageSizeOverride || itemsPerPage,
+        returnAllData: false
       };
 
       // Add date filters if provided
       if (dateFrom) {
-        payload.DateFrom = dateFrom;
+        payload.dateFrom = dateFrom;
       }
       if (dateTo) {
-        payload.DateTo = dateTo;
+        payload.dateTo = dateTo;
       }
 
       console.log('Fetching sessions with payload:', payload);
@@ -223,10 +266,28 @@ const StockVerification = () => {
       let totalCount = 0;
 
       if (response.data) {
-        // Check for Sessions array in response
-        if (response.data.Sessions && Array.isArray(response.data.Sessions)) {
-          sessionsData = response.data.Sessions;
-          totalCount = response.data.TotalSessions || response.data.Sessions.length;
+        const responseSessions = response.data.Sessions || response.data.sessions;
+        if (Array.isArray(responseSessions)) {
+          sessionsData = responseSessions.map((session) => ({
+            ...session,
+            SessionNumber: session.SessionNumber ?? session.sessionNumber,
+            SessionId: session.SessionId ?? session.sessionId,
+            ScanBatchId: session.ScanBatchId ?? session.scanBatchId,
+            BatchName: session.BatchName ?? session.batchName,
+            BranchId: session.BranchId ?? session.branchId,
+            BranchName: session.BranchName ?? session.branchName,
+            StartedOn: session.StartedOn ?? session.startedOn,
+            EndedOn: session.EndedOn ?? session.endedOn,
+            TotalQty: session.TotalQty ?? session.totalQty,
+            MatchQty: session.MatchQty ?? session.matchQty,
+            UnmatchQty: session.UnmatchQty ?? session.unmatchQty
+          }));
+          totalCount =
+            response.data.TotalSessions ||
+            response.data.totalSessions ||
+            response.data.Paging?.TotalRecords ||
+            response.data.paging?.totalRecords ||
+            sessionsData.length;
         }
         // Check if response.data is directly an array
         else if (Array.isArray(response.data)) {
@@ -289,7 +350,7 @@ const StockVerification = () => {
   // Load sessions on component mount and when clientCode changes
   useEffect(() => {
     if (clientCode) {
-      fetchSessions();
+      fetchSessions(1, itemsPerPage);
     }
     
     // Handle window resize for responsive design
@@ -311,7 +372,7 @@ const StockVerification = () => {
       
       // Debounce to prevent too many API calls
       const timeoutId = setTimeout(() => {
-        fetchSessions();
+        fetchSessions(1, itemsPerPage);
       }, 300); // Small delay to debounce rapid date changes
       
       return () => clearTimeout(timeoutId);
@@ -321,7 +382,7 @@ const StockVerification = () => {
   // Handle refresh
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchSessions();
+    await fetchSessions(currentPage, itemsPerPage);
   };
 
   // Handle filter reset
@@ -426,17 +487,24 @@ const StockVerification = () => {
   }, [filteredSessions, sortConfig]);
 
   // Pagination logic
-  const totalPages = Math.ceil(sortedSessions.length / itemsPerPage);
-  const totalRecords = sortedSessions.length;
+  const hasLocalFilters = Boolean(searchQuery || selectedBranch);
+  const totalRecords = hasLocalFilters ? sortedSessions.length : totalSessions;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / itemsPerPage));
   const currentSessions = useMemo(() => {
-  const startIndex = (currentPage - 1) * itemsPerPage;
+    if (!hasLocalFilters) return sortedSessions;
+    const startIndex = (currentPage - 1) * itemsPerPage;
     return sortedSessions.slice(startIndex, startIndex + itemsPerPage);
-  }, [sortedSessions, currentPage, itemsPerPage]);
+  }, [sortedSessions, currentPage, itemsPerPage, hasLocalFilters]);
 
   // Reset to page 1 when search changes
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (!clientCode || hasLocalFilters) return;
+    fetchSessions(currentPage, itemsPerPage);
+  }, [currentPage, itemsPerPage, clientCode, hasLocalFilters]);
 
   // Handle page input
   const handlePageInputChange = (e) => {
@@ -628,8 +696,21 @@ const StockVerification = () => {
       const response = await axios.post(
         'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllStockVerificationBySession',
         {
-          ClientCode: clientCode,
-          ScanBatchId: scanBatchId
+          clientCode,
+          scanBatchId,
+          pageNumber: 1,
+          pageSize: 1000,
+          returnAllData: false,
+          status: null,
+          counterName: null,
+          categoryName: null,
+          productName: null,
+          designName: null,
+          purityName: null,
+          companyName: null,
+          branchName: null,
+          fromDate: null,
+          toDate: null
         },
         {
           headers: {
@@ -639,7 +720,20 @@ const StockVerification = () => {
       );
 
       console.log('Session Details Response:', response.data);
-      setSessionDetails(response.data);
+      const normalizedDetails = {
+        ...response.data,
+        ScanBatchId: response.data.ScanBatchId ?? response.data.scanBatchId,
+        SessionId: response.data.SessionId ?? response.data.sessionId,
+        SessionNumber: response.data.SessionNumber ?? response.data.sessionNumber,
+        BatchName: response.data.BatchName ?? response.data.batchName,
+        BranchId: response.data.BranchId ?? response.data.branchId,
+        BranchName: response.data.BranchName ?? response.data.branchName,
+        TotalSessions: response.data.TotalSessions ?? response.data.totalSessions,
+        MatchedList: response.data.MatchedList ?? response.data.matchedList ?? [],
+        UnmatchedList: response.data.UnmatchedList ?? response.data.unmatchedList ?? [],
+        Totals: response.data.Totals ?? response.data.totals ?? {}
+      };
+      setSessionDetails(normalizedDetails);
       
     } catch (err) {
       console.error('Error fetching session details:', err);
@@ -913,7 +1007,7 @@ const StockVerification = () => {
 
 
   // Export Consolidation Report
-  const exportConsolidationReport = () => {
+  const exportConsolidationReport = (selectedBranchId = '') => {
     if (!consolidationData || !consolidationData.Branches || consolidationData.Branches.length === 0) {
       toast.error('No data available for export');
       return;
@@ -921,23 +1015,56 @@ const StockVerification = () => {
 
     try {
       const wb = XLSX.utils.book_new();
+      const branchesToExport = selectedBranchId
+        ? (consolidationData.Branches || []).filter((branch) => String(branch.BranchId) === String(selectedBranchId))
+        : (consolidationData.Branches || []);
+      if (!branchesToExport.length) {
+        toast.error('Selected branch not found for export.');
+        return;
+      }
+      const selectedBranch = selectedBranchId ? branchesToExport[0] : null;
       
       // Summary Sheet
       const reportDateStr = consolidationData.ReportDate
         ? new Date(consolidationData.ReportDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
         : '-';
+      const baseTotals = resolveConsolidationTotals(consolidationData.Totals);
+      const selectedBranchTotals = selectedBranch
+        ? {
+            totalInventoryGrossWeight: Number(pick(selectedBranch, ['TotalInventoryGrossWeight', 'TotalInventoryWeight'], 0)) || 0,
+            totalInventoryNetWeight: Number(pick(selectedBranch, ['TotalInventoryNetWeight', 'TotalInventoryweight', 'TotalInventoryWeight'], 0)) || 0,
+            totalMatchGrossWeight: Number(pick(selectedBranch, ['MatchGrossWeight', 'MatchWeight'], 0)) || 0,
+            totalMatchNetWeight: Number(pick(selectedBranch, ['MatchNetWeight', 'Matchweight', 'MatchWeight'], 0)) || 0,
+            totalUnmatchGrossWeight: Number(pick(selectedBranch, ['UnmatchGrossWeight', 'UnMatchGrossWeight', 'UnmatchWeight'], 0)) || 0,
+            totalUnmatchNetWeight: Number(pick(selectedBranch, ['UnmatchNetWeight', 'Unmatchweight', 'UnMatchNetWeight', 'UnmatchWeight'], 0)) || 0,
+          }
+        : null;
+      const {
+        totalInventoryGrossWeight,
+        totalInventoryNetWeight,
+        totalMatchGrossWeight,
+        totalMatchNetWeight,
+        totalUnmatchGrossWeight,
+        totalUnmatchNetWeight,
+      } = selectedBranchTotals || baseTotals;
+
       const summaryData = [
         ['Consolidation Stock Verification Report'],
+        selectedBranch ? ['Branch:', selectedBranch.BranchName || '-'] : [],
         ['Report Date:', reportDateStr],
         ['Generated on:', new Date().toLocaleString('en-IN')],
         consolidationData.Message ? ['Message:', consolidationData.Message] : [],
         [''],
         ['Summary'],
-        ['Total Scanned Items:', consolidationData.Totals?.TotalScannedItems ?? 0],
-        ['Matched Qty:', consolidationData.Totals?.MatchedQty ?? 0],
-        ['Unmatch Qty:', consolidationData.Totals?.UnmatchQty ?? 0],
-        ['Total Match Weight:', `${consolidationData.Totals?.TotalMatchWeight ?? 0}g`],
-        ['Total Unmatch Weight:', `${consolidationData.Totals?.TotalUnmatchWeight ?? 0}g`],
+        ['Total Scanned Items:', selectedBranch ? (selectedBranch.TotalScannedItems ?? selectedBranch.ScannedCount ?? 0) : (consolidationData.Totals?.TotalScannedItems ?? 0)],
+        ['Matched Qty:', selectedBranch ? (selectedBranch.MatchedQty ?? 0) : (consolidationData.Totals?.MatchedQty ?? 0)],
+        ['Unmatch Qty:', selectedBranch ? (selectedBranch.UnmatchQty ?? 0) : (consolidationData.Totals?.UnmatchQty ?? 0)],
+        ['Total Inventory Gross Weight:', `${totalInventoryGrossWeight}g`],
+        ['Total Inventory Net Weight:', `${totalInventoryNetWeight}g`],
+        ['Total Match Gross Weight:', `${totalMatchGrossWeight}g`],
+        ['Total Match Net Weight:', `${totalMatchNetWeight}g`],
+        ['Total Unmatch Gross Weight:', `${totalUnmatchGrossWeight}g`],
+        ['Total Unmatch Net Weight:', `${totalUnmatchNetWeight}g`],
         [''],
         ['Detailed Report']
       ].filter(row => row.length > 0);
@@ -946,52 +1073,84 @@ const StockVerification = () => {
       summaryWS['!cols'] = [{ width: 25 }, { width: 30 }];
       XLSX.utils.book_append_sheet(wb, summaryWS, 'Summary');
 
-      // Detailed Report Sheet - TotalScannedItems, MatchedQty, UnmatchQty, MatchWeight, UnmatchWeight
+
+      // Detailed Report Sheet - Category -> Product -> Design -> Item level rows
       const headers = [
         'Branch',
         'Category',
         'Product',
-        'Total Scanned Items',
+        'Design',
+        'Item Code',
+        'RFID Code',
+        'Status',
+        'Gross Weight',
+        'Net Weight',
         'Matched Qty',
-        'Unmatch Qty',
-        'Match Weight',
-        'Unmatch Weight'
+        'Unmatch Qty'
       ];
 
       const data = [];
-      (consolidationData.Branches || []).forEach(branch => {
+      branchesToExport.forEach(branch => {
         (branch.Categories || []).forEach(category => {
           (category.Products || []).forEach(product => {
-            data.push([
-              branch.BranchName || '',
-              category.CategoryName || '',
-              product.ProductName || '',
-              product.TotalScannedItems ?? product.ScannedCount ?? 0,
-              product.MatchedQty ?? 0,
-              product.UnmatchQty ?? 0,
-              product.MatchWeight ?? 0,
-              product.UnmatchWeight ?? 0
-            ]);
+            (product.Designs || []).forEach(design => {
+              const items = design.Items || [];
+              if (items.length === 0) {
+                data.push([
+                  branch.BranchName || '',
+                  category.CategoryName || '',
+                  product.ProductName || '',
+                  design.DesignName || '',
+                  '',
+                  '',
+                  '',
+                  Number(design.GrossWeight ?? 0).toFixed(3),
+                  Number(design.NetWeight ?? 0).toFixed(3),
+                  design.MatchedQty ?? 0,
+                  design.UnmatchQty ?? 0
+                ]);
+                return;
+              }
+              items.forEach((item) => {
+                const normalizedStatus = String(item.Status || '').toLowerCase();
+                data.push([
+                  branch.BranchName || '',
+                  category.CategoryName || '',
+                  product.ProductName || '',
+                  design.DesignName || '',
+                  item.ItemCode || '',
+                  item.RFIDCode || '',
+                  item.Status || '',
+                  Number(item.GrossWeight ?? item.GrossWt ?? 0).toFixed(3),
+                  Number(item.NetWeight ?? item.NetWt ?? 0).toFixed(3),
+                  normalizedStatus === 'matched' ? 1 : 0,
+                  normalizedStatus === 'unmatched' ? 1 : 0
+                ]);
+              });
+            });
           });
         });
       });
 
       const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
       ws['!cols'] = [
-        { width: 20 },
+        { width: 22 },
         { width: 20 },
         { width: 25 },
+        { width: 22 },
         { width: 16 },
-        { width: 12 },
-        { width: 12 },
+        { width: 16 },
         { width: 14 },
-        { width: 14 }
+        { width: 14 },
+        { width: 12 },
+        { width: 12 }
       ];
 
       XLSX.utils.book_append_sheet(wb, ws, 'Detailed Report');
 
       const timestamp = new Date().toISOString().split('T')[0];
-      XLSX.writeFile(wb, `Consolidation_Stock_Report_${timestamp}.xlsx`);
+      const fileSuffix = selectedBranch ? `_${(selectedBranch.BranchName || 'Branch').replace(/\s+/g, '_')}` : '';
+      XLSX.writeFile(wb, `Consolidation_Stock_Report${fileSuffix}_${timestamp}.xlsx`);
       
       toast.success('Report exported successfully');
     } catch (error) {
@@ -1025,11 +1184,60 @@ const StockVerification = () => {
   // Items detail modal: paginated list for large data (10k+)
   const ItemsDetailModal = ({ open, onClose, title, items = [], type = 'total' }) => {
     const [page, setPage] = useState(1);
-    const totalPages = Math.max(1, Math.ceil((items.length || 0) / ITEMS_PAGE_SIZE));
+    const [searchText, setSearchText] = useState('');
+    const filteredItems = useMemo(() => {
+      const q = searchText.trim().toLowerCase();
+      if (!q) return items || [];
+      return (items || []).filter((item) =>
+        String(item?.ItemCode ?? '').toLowerCase().includes(q) ||
+        String(item?.RFIDCode ?? '').toLowerCase().includes(q) ||
+        String(item?.CategoryName ?? '').toLowerCase().includes(q) ||
+        String(item?.ProductName ?? '').toLowerCase().includes(q) ||
+        String(item?.DesignName ?? '').toLowerCase().includes(q) ||
+        String(item?.Status ?? '').toLowerCase().includes(q)
+      );
+    }, [items, searchText]);
+    const totalPages = Math.max(1, Math.ceil((filteredItems.length || 0) / ITEMS_PAGE_SIZE));
     const start = (page - 1) * ITEMS_PAGE_SIZE;
-    const pageItems = (items || []).slice(start, start + ITEMS_PAGE_SIZE);
+    const pageItems = filteredItems.slice(start, start + ITEMS_PAGE_SIZE);
 
-    useEffect(() => { if (open) setPage(1); }, [open]);
+    const exportModalItems = () => {
+      try {
+        const headers = ['Item Code', 'RFID Code', 'Category', 'Product', 'Design', 'Status', 'Gross Weight', 'Net Weight'];
+        const rows = filteredItems.map((item) => ([
+          item?.ItemCode ?? '',
+          item?.RFIDCode ?? '',
+          item?.CategoryName ?? '',
+          item?.ProductName ?? '',
+          item?.DesignName ?? '',
+          item?.Status ?? '',
+          Number(item?.GrossWeight ?? item?.GrossWt ?? 0).toFixed(3),
+          Number(item?.NetWeight ?? item?.NetWt ?? 0).toFixed(3)
+        ]));
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        ws['!cols'] = [
+          { width: 18 }, { width: 18 }, { width: 22 }, { width: 22 },
+          { width: 22 }, { width: 14 }, { width: 14 }, { width: 14 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws, 'Items');
+        const cleanTitle = (title || 'Items').replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+        const dateTag = new Date().toISOString().slice(0, 10);
+        XLSX.writeFile(wb, `${cleanTitle}_${type}_${dateTag}.xlsx`);
+        toast.success('Items exported successfully');
+      } catch (error) {
+        console.error('Error exporting items modal data:', error);
+        toast.error('Failed to export items');
+      }
+    };
+
+    useEffect(() => {
+      if (open) {
+        setPage(1);
+        setSearchText('');
+      }
+    }, [open]);
+    useEffect(() => { setPage(1); }, [searchText]);
 
     if (!open) return null;
     return (
@@ -1040,7 +1248,29 @@ const StockVerification = () => {
             <button type="button" onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '8px', cursor: 'pointer', color: '#64748b' }}><FaTimes size={16} /></button>
           </div>
           <div style={{ padding: '12px', overflow: 'auto', flex: 1, minHeight: 0 }}>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>{items.length.toLocaleString()} item(s)</div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 10px', minWidth: '280px', background: '#fff' }}>
+                <FaSearch style={{ color: '#94a3b8', fontSize: '12px' }} />
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="Search item, RFID, category, product, design, status"
+                  style={{ border: 'none', outline: 'none', width: '100%', fontSize: '12px', color: '#334155', background: 'transparent' }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={exportModalItems}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid #d1fae5', background: '#ecfdf5', color: '#047857', borderRadius: '10px', padding: '8px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                <FaFileExcel />
+                Export
+              </button>
+            </div>
+            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
+              Showing {filteredItems.length.toLocaleString()} of {(items.length || 0).toLocaleString()} item(s)
+            </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                 <thead>
@@ -1095,9 +1325,22 @@ const StockVerification = () => {
     const [expandedProducts, setExpandedProducts] = useState({});
     const [itemsModal, setItemsModal] = useState({ open: false, title: '', items: [], type: 'total' });
 
+    const pick = (obj, keys, fallback = 0) => {
+      if (!obj) return fallback;
+      for (const key of keys) {
+        if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+      }
+      return fallback;
+    };
+
+    const getMatchGrossWeight = (obj) => pick(obj, ['MatchGrossWeight', 'matchGrossWeight', 'MatchWeight'], 0);
+    const getMatchNetWeight = (obj) => pick(obj, ['MatchNetWeight', 'matchNetWeight', 'Matchweight', 'MatchWeight'], 0);
+    const getUnmatchGrossWeight = (obj) => pick(obj, ['UnmatchGrossWeight', 'unmatchGrossWeight', 'UnMatchGrossWeight', 'UnmatchWeight'], 0);
+    const getUnmatchNetWeight = (obj) => pick(obj, ['UnmatchNetWeight', 'unmatchNetWeight', 'Unmatchweight', 'UnMatchNetWeight', 'UnmatchWeight'], 0);
+
     const toggle = (setter, key) => setter(prev => ({ ...prev, [key]: !prev[key] }));
 
-    const StatPill = ({ value, color, weight, weightColor = '#64748b', onClick }) => (
+    const StatPill = ({ value, color, grossWeight, netWeight, weightColor = '#64748b', onClick }) => (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
         <div
           role="button"
@@ -1127,10 +1370,15 @@ const StockVerification = () => {
         >
           {value?.toLocaleString() ?? 0}
         </div>
-        {weight !== undefined && (
-          <div style={{ fontSize: '10px', color: weightColor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-            {weight ? `${Number(weight).toFixed(2)}g` : '0g'}
-          </div>
+        {(grossWeight !== undefined || netWeight !== undefined) && (
+          <>
+            <div style={{ fontSize: '10px', color: weightColor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              G: {grossWeight ? `${Number(grossWeight).toFixed(2)}g` : '0g'}
+            </div>
+            <div style={{ fontSize: '10px', color: weightColor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              N: {netWeight ? `${Number(netWeight).toFixed(2)}g` : '0g'}
+            </div>
+          </>
         )}
       </div>
     );
@@ -1213,10 +1461,10 @@ const StockVerification = () => {
                           <StatPill value={branch.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${branch.BranchName}`, branch, 'branch', 'total')} />
                         </td>
                         <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
-                          <StatPill value={branch.MatchedQty} color="#0d9488" weight={branch.MatchWeight} onClick={() => openItemsModal(`Matched – ${branch.BranchName}`, branch, 'branch', 'matched')} />
+                          <StatPill value={branch.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(branch)} netWeight={getMatchNetWeight(branch)} onClick={() => openItemsModal(`Matched – ${branch.BranchName}`, branch, 'branch', 'matched')} />
                         </td>
                         <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
-                          <StatPill value={branch.UnmatchQty} color="#ea580c" weight={branch.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${branch.BranchName}`, branch, 'branch', 'unmatched')} />
+                          <StatPill value={branch.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(branch)} netWeight={getUnmatchNetWeight(branch)} onClick={() => openItemsModal(`Unmatched – ${branch.BranchName}`, branch, 'branch', 'unmatched')} />
                         </td>
                       </>,
                       branchExp, () => toggle(setExpandedBranches, branch.BranchId), true, `branch_${branch.BranchId}`
@@ -1250,10 +1498,10 @@ const StockVerification = () => {
                                 <StatPill value={category.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${category.CategoryName}`, category, 'category', 'total')} />
                               </td>
                               <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                <StatPill value={category.MatchedQty} color="#0d9488" weight={category.MatchWeight} onClick={() => openItemsModal(`Matched – ${category.CategoryName}`, category, 'category', 'matched')} />
+                                <StatPill value={category.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(category)} netWeight={getMatchNetWeight(category)} onClick={() => openItemsModal(`Matched – ${category.CategoryName}`, category, 'category', 'matched')} />
                               </td>
                               <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                <StatPill value={category.UnmatchQty} color="#ea580c" weight={category.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${category.CategoryName}`, category, 'category', 'unmatched')} />
+                                <StatPill value={category.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(category)} netWeight={getUnmatchNetWeight(category)} onClick={() => openItemsModal(`Unmatched – ${category.CategoryName}`, category, 'category', 'unmatched')} />
                               </td>
                             </>,
                             catExp, () => toggle(setExpandedCategories, catKey), true, catKey
@@ -1287,10 +1535,10 @@ const StockVerification = () => {
                                       <StatPill value={product.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${product.ProductName}`, product, 'product', 'total')} />
                                     </td>
                                     <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                      <StatPill value={product.MatchedQty} color="#0d9488" weight={product.MatchWeight} onClick={() => openItemsModal(`Matched – ${product.ProductName}`, product, 'product', 'matched')} />
+                                      <StatPill value={product.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(product)} netWeight={getMatchNetWeight(product)} onClick={() => openItemsModal(`Matched – ${product.ProductName}`, product, 'product', 'matched')} />
                                     </td>
                                     <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                      <StatPill value={product.UnmatchQty} color="#ea580c" weight={product.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${product.ProductName}`, product, 'product', 'unmatched')} />
+                                      <StatPill value={product.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(product)} netWeight={getUnmatchNetWeight(product)} onClick={() => openItemsModal(`Unmatched – ${product.ProductName}`, product, 'product', 'unmatched')} />
                                     </td>
                                   </>,
                                   prodExp, () => toggle(setExpandedProducts, prodKey), (product.Designs || []).length > 0, prodKey
@@ -1317,10 +1565,10 @@ const StockVerification = () => {
                                         <StatPill value={design.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${design.DesignName}`, design, 'design', 'total')} />
                                       </td>
                                       <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                        <StatPill value={design.MatchedQty} color="#0d9488" weight={design.MatchWeight} onClick={() => openItemsModal(`Matched – ${design.DesignName}`, design, 'design', 'matched')} />
+                                        <StatPill value={design.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(design)} netWeight={getMatchNetWeight(design)} onClick={() => openItemsModal(`Matched – ${design.DesignName}`, design, 'design', 'matched')} />
                                       </td>
                                       <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                        <StatPill value={design.UnmatchQty} color="#ea580c" weight={design.UnmatchWeight} onClick={() => openItemsModal(`Unmatched – ${design.DesignName}`, design, 'design', 'unmatched')} />
+                                        <StatPill value={design.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(design)} netWeight={getUnmatchNetWeight(design)} onClick={() => openItemsModal(`Unmatched – ${design.DesignName}`, design, 'design', 'unmatched')} />
                                       </td>
                                     </tr>
                                   );
@@ -3113,7 +3361,10 @@ const StockVerification = () => {
                   {consolidationLoading ? 'Refreshing...' : 'Refresh Data'}
                 </button>
                 <button 
-                  onClick={exportConsolidationReport}
+                  onClick={() => {
+                    setSelectedExportBranchId('');
+                    setShowExportBranchModal(true);
+                  }}
                   style={{
                     padding: '10px 20px',
                     fontSize: '13px',
@@ -3143,6 +3394,99 @@ const StockVerification = () => {
               </div>
             </div>
           </div>
+
+          {showExportBranchModal && (
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 10001,
+                background: 'rgba(15, 23, 42, 0.45)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 16,
+              }}
+              onClick={() => setShowExportBranchModal(false)}
+            >
+              <div
+                style={{
+                  width: '100%',
+                  maxWidth: 460,
+                  background: '#fff',
+                  borderRadius: 14,
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 20px 40px rgba(0,0,0,0.18)',
+                  padding: 20,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Export Branch Report</h3>
+                <p style={{ margin: '0 0 14px 0', color: '#64748b', fontSize: 13 }}>
+                  Select a branch to export only that branch details in Excel.
+                </p>
+                <select
+                  value={selectedExportBranchId}
+                  onChange={(e) => setSelectedExportBranchId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    fontSize: 14,
+                    color: '#1e293b',
+                    marginBottom: 14,
+                  }}
+                >
+                  <option value="">Select branch...</option>
+                  {(consolidationData?.Branches || []).map((branch) => (
+                    <option key={branch.BranchId} value={branch.BranchId}>
+                      {branch.BranchName}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowExportBranchModal(false)}
+                    style={{
+                      padding: '9px 14px',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: 10,
+                      background: '#fff',
+                      color: '#334155',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedExportBranchId) {
+                        toast.error('Please select a branch.');
+                        return;
+                      }
+                      exportConsolidationReport(selectedExportBranchId);
+                      setShowExportBranchModal(false);
+                    }}
+                    style={{
+                      padding: '9px 14px',
+                      border: 'none',
+                      borderRadius: 10,
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: '#fff',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Export Branch Excel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Combine Report Content */}
           <div style={{
@@ -3232,7 +3576,10 @@ const StockVerification = () => {
                           {consolidationData.Totals.TotalInventoryQty?.toLocaleString() ?? 0}
                       </div>
                         <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
-                          {consolidationData.Totals.TotalInventoryWeight?.toLocaleString() ?? 0} g
+                          G: {resolveConsolidationTotals(consolidationData.Totals).totalInventoryGrossWeight.toLocaleString()} g
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', fontWeight: 500 }}>
+                          N: {resolveConsolidationTotals(consolidationData.Totals).totalInventoryNetWeight.toLocaleString()} g
                         </div>
                       </div>
 
@@ -3254,8 +3601,11 @@ const StockVerification = () => {
                         {consolidationData.Totals.MatchedQty?.toLocaleString() ?? 0}
                       </div>
                         <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
-                          {consolidationData.Totals.TotalMatchWeight?.toLocaleString() ?? 0} g
-                    </div>
+                          G: {resolveConsolidationTotals(consolidationData.Totals).totalMatchGrossWeight.toLocaleString()} g
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', fontWeight: 500 }}>
+                          N: {resolveConsolidationTotals(consolidationData.Totals).totalMatchNetWeight.toLocaleString()} g
+                        </div>
                       </div>
 
                       {/* Unmatched Qty Card */}
@@ -3276,8 +3626,11 @@ const StockVerification = () => {
                           {consolidationData.Totals.UnmatchQty?.toLocaleString() ?? 0}
                       </div>
                         <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
-                          {consolidationData.Totals.TotalUnmatchWeight?.toLocaleString() ?? 0} g
-                    </div>
+                          G: {resolveConsolidationTotals(consolidationData.Totals).totalUnmatchGrossWeight.toLocaleString()} g
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', fontWeight: 500 }}>
+                          N: {resolveConsolidationTotals(consolidationData.Totals).totalUnmatchNetWeight.toLocaleString()} g
+                        </div>
                       </div>
 
                     </div>

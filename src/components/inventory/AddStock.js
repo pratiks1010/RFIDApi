@@ -971,6 +971,7 @@ const AddStock = () => {
     client_code: '',
     RFIDNumber: '',
     Itemcode: '',
+    description: '',
     category_id: '',
     product_id: '',
     design_id: '',
@@ -1003,6 +1004,7 @@ const AddStock = () => {
   const [productTemplate, setProductTemplate] = useState({
     RFIDNumber: '',
     Itemcode: '',
+    description: '',
     quantity: 1,
     category_id: '',
     product_id: '',
@@ -1589,6 +1591,7 @@ const AddStock = () => {
         counter_id: '',
         RFIDNumber: '',
         Itemcode: '',
+        description: '',
         category_id: '',
         product_id: '',
         design_id: '',
@@ -2088,6 +2091,7 @@ const AddStock = () => {
     stonewt: String(stonewt),
     diamondweight: String(diamondweight),
     netwt: String(calculateNetWeight(singleProduct.grosswt, String(stonewt), String(diamondweight))),
+    description: String(singleProduct.description || ''),
     box_details: String(singleProduct.box_details || ''),
     size: Number(singleProduct.size || 0),
     stoneamount: String(singleProduct.stoneamount || '0'),
@@ -2280,6 +2284,7 @@ const AddStock = () => {
         counter_id: String(sharedData.counter_name || ''),
         RFIDNumber: String(record.RFIDNumber || ''),
         itemcode: itemcodeVal,
+        description: String(record.description || ''),
         category_id: String(record.category_id || ''),
         product_id: String(record.product_id || ''),
         design_id: String(record.design_id || ''),
@@ -2721,6 +2726,7 @@ const AddStock = () => {
         counterId: sharedData.counter_name || '',
         rfidNumber: singleProduct.RFIDNumber || '',
         itemCode: singleProduct.Itemcode || '',
+        description: singleProduct.description || '',
         categoryId: singleProduct.category_id || '',
         productId: singleProduct.product_id || '',
         designId: singleProduct.design_id || '',
@@ -3008,6 +3014,8 @@ const AddStock = () => {
           counter_id: String(sharedData.counter_name || ''), // Shared counter name
           RFIDNumber: String(product.RFIDNumber || ''),
           Itemcode: String(product.Itemcode || ''),
+          itemcode: String(product.Itemcode || ''),
+          description: String(product.description || ''),
           category_id: String(product.category_id || ''),
           product_id: String(product.product_id || ''),
           design_id: String(product.design_id || ''),
@@ -3165,6 +3173,7 @@ const AddStock = () => {
       'diamondweight': '0.250',
       'netwt': '19.250',
       'box_details': 'Box A',
+      'description': 'itemsize:2.12, HUIDCode:45857KIKL',
       'size': '0',
       'HallmarkAmount': '35',
       'MakingPerGram': '10',
@@ -3386,6 +3395,8 @@ const AddStock = () => {
             counter_id: String(counterValue || ''), // Send counter name as string, not ID
             RFIDNumber: String(product.RFIDNumber || ''),
             Itemcode: String(product.Itemcode || ''),
+            itemcode: String(product.Itemcode || ''),
+            description: String(product.description || ''),
             category_id: String(product.category_id || ''), // Send category name as string, not ID
             product_id: productIdValue, // Send product name as string, not ID
             design_id: String(product.design_id || ''), // Send design name as string, not ID
@@ -3753,6 +3764,8 @@ const AddStock = () => {
           ), // Send counter name as string, not ID
           RFIDNumber: String(product.RFIDNumber || product.RFIDCode || ''),
           Itemcode: String(product.Itemcode || ''),
+          itemcode: String(product.Itemcode || ''),
+          description: String(product.description || ''),
           category_id: String(product.category_id || ''),
           product_id: String(product.product_id || ''),
           design_id: String(product.design_id || ''), // Send design name as string, not ID
@@ -3771,7 +3784,9 @@ const AddStock = () => {
           MakingFixedAmt: String(product.MakingFixedAmt || '0'),
           MRP: String(product.MRP || '0'),
           imageurl: String(product.imageurl || ''),
-          status: String(product.status || 'ApiActive')
+          status: String(product.status || 'ApiActive'),
+          Stones: Array.isArray(product.Stones) ? product.Stones : [],
+          Diamonds: Array.isArray(product.Diamonds) ? product.Diamonds : []
         }));
 
         try {
@@ -3787,30 +3802,63 @@ const AddStock = () => {
             }
           );
 
-          // Check response for success/errors
-          if (response.data) {
-            if (response.data.Status === 200 || response.status === 200) {
-              successCount += batch.length;
-              if (response.data.Message || response.data.message) {
-                serverMessageDetails.push({
-                  batch: batchNumber,
-                  type: 'success',
-                  message: response.data.Message || response.data.message,
-                  timestamp: new Date().toLocaleTimeString()
-                });
-              }
-            } else {
-              // Partial success or error in response
-              const failedCount = batch.length;
-              errorCount += failedCount;
-              batchErrorDetails.push({
-                batch: batchNumber,
-                products: failedCount,
-                error: response.data.Message || response.data.message || 'Unknown error'
-              });
-            }
+          const responseData = response.data || {};
+          const normalizedStatus = String(responseData.status || responseData.Status || '').toLowerCase();
+          const hasExplicitFailure = normalizedStatus === 'failed';
+          const hasExplicitPartial = normalizedStatus === 'partial';
+          const backendSuccessCount = Number(responseData.successfulItems ?? responseData.updatedItems ?? 0);
+          const backendFailedCount = Number(responseData.failedItems ?? 0);
+          const backendErrors = Array.isArray(responseData.errors) ? responseData.errors : [];
+          const statusMessage = responseData.message || responseData.Message || '';
+
+          if (hasExplicitFailure || hasExplicitPartial || backendFailedCount > 0 || backendErrors.length > 0) {
+            const failedCount = backendFailedCount > 0
+              ? backendFailedCount
+              : (hasExplicitPartial ? Math.max(batch.length - backendSuccessCount, 1) : batch.length);
+            const successForBatch = Math.max(batch.length - failedCount, 0);
+            successCount += successForBatch;
+            errorCount += failedCount;
+
+            const rowErrors = backendErrors.map((errObj) => ({
+              itemIndex: errObj?.itemIndex ?? null,
+              itemcode: errObj?.itemcode || errObj?.Itemcode || '',
+              rfidNumber: errObj?.rfidNumber || errObj?.RFIDNumber || '',
+              message: errObj?.error || errObj?.message || 'Validation failed'
+            }));
+
+            const combinedMessage = rowErrors.length > 0
+              ? rowErrors
+                  .slice(0, 5)
+                  .map((e) => `#${(e.itemIndex ?? 0) + 1}${e.itemcode ? ` (${e.itemcode})` : ''}: ${e.message}`)
+                  .join(' | ')
+              : (statusMessage || 'Batch failed');
+
+            serverMessageDetails.push({
+              batch: batchNumber,
+              type: 'error',
+              message: combinedMessage,
+              details: responseData,
+              timestamp: new Date().toLocaleTimeString()
+            });
+
+            batchErrorDetails.push({
+              batch: batchNumber,
+              products: failedCount,
+              range: `${i + 1}-${Math.min(i + batch.length, validProducts.length)}`,
+              error: combinedMessage,
+              details: responseData,
+              rows: rowErrors
+            });
           } else {
             successCount += batch.length;
+            if (statusMessage) {
+              serverMessageDetails.push({
+                batch: batchNumber,
+                type: 'success',
+                message: statusMessage,
+                timestamp: new Date().toLocaleTimeString()
+              });
+            }
           }
         } catch (error) {
           console.error(`Error uploading batch ${batchNumber}/${totalBatches}:`, error);
@@ -3824,7 +3872,16 @@ const AddStock = () => {
           batchErrorDetails.push({
             batch: batchNumber,
             products: batch.length,
-            error: errorMessage
+            range: `${i + 1}-${Math.min(i + batch.length, validProducts.length)}`,
+            error: errorMessage,
+            details: error.response?.data || {}
+          });
+          serverMessageDetails.push({
+            batch: batchNumber,
+            type: 'error',
+            message: errorMessage,
+            details: error.response?.data || {},
+            timestamp: new Date().toLocaleTimeString()
           });
         }
 
@@ -3901,6 +3958,7 @@ const AddStock = () => {
     { key: 'stonewt', label: 'Stone Weight', type: 'number', required: false, placeholder: 'Enter stone wt', step: '0.001' },
     { key: 'diamondweight', label: 'Dia Weight', type: 'number', required: false, placeholder: 'Enter dia wt', step: '0.001' },
     { key: 'netwt', label: 'Net Weight', type: 'number', required: false, placeholder: 'Enter net wt', step: '0.001' },
+    { key: 'description', label: 'Description', type: 'text', required: false, placeholder: 'Enter description' },
     { key: 'box_details', label: 'Box Details', type: 'text', required: false, placeholder: 'Enter box details' },
     { key: 'size', label: 'Size', type: 'number', required: false, placeholder: 'Enter size', step: '1' },
     { key: 'HallmarkAmount', label: 'Hallmark Amount', type: 'number', required: false, placeholder: 'Enter hallmark amount', step: '0.01' },
@@ -7265,6 +7323,41 @@ const AddStock = () => {
                         }}>
                           {error.error}
                         </div>
+                        {error.range && (
+                          <div style={{
+                            marginTop: '6px',
+                            fontSize: '11px',
+                            color: '#64748b',
+                            paddingLeft: '22px'
+                          }}>
+                            Rows: {error.range}
+                          </div>
+                        )}
+                        {Array.isArray(error.rows) && error.rows.length > 0 && (
+                          <div style={{
+                            marginTop: '8px',
+                            marginLeft: '22px',
+                            padding: '8px 10px',
+                            background: '#fff7ed',
+                            border: '1px solid #fed7aa',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            color: '#9a3412',
+                            maxHeight: '140px',
+                            overflowY: 'auto'
+                          }}>
+                            {error.rows.slice(0, 8).map((rowErr, rowIdx) => (
+                              <div key={rowIdx} style={{ marginBottom: '4px' }}>
+                                #{(rowErr.itemIndex ?? 0) + 1}
+                                {rowErr.itemcode ? ` (${rowErr.itemcode})` : ''}
+                                {rowErr.rfidNumber ? ` [${rowErr.rfidNumber}]` : ''}: {rowErr.message}
+                              </div>
+                            ))}
+                            {error.rows.length > 8 && (
+                              <div style={{ fontStyle: 'italic' }}>...and {error.rows.length - 8} more</div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -7273,28 +7366,6 @@ const AddStock = () => {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '32px', paddingTop: '24px', borderTop: '2px solid #e5e7eb' }}>
-            <button
-              onClick={handleSubmitBulk}
-              disabled={loading || uploadPreview.length === 0 || uploadErrors.length > 0 || uploading}
-              style={{
-                padding: '12px 24px',
-                fontSize: '14px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: 'none',
-                background: (loading || uploadPreview.length === 0 || uploadErrors.length > 0 || uploading) ? '#94a3b8' : '#3b82f6',
-                color: '#ffffff',
-                cursor: (loading || uploadPreview.length === 0 || uploadErrors.length > 0 || uploading) ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.2s'
-              }}
-            >
-              <FaUpload /> Upload Products ({uploadPreview.length > 0 ? uploadPreview.length - uploadErrors.length : 0} valid)
-            </button>
-          </div>
           </div>
 
           {/* Mapping Sidebar */}

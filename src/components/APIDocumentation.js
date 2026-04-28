@@ -20,37 +20,115 @@ const APIDocumentation = () => {
       endpoint: 'SaveRFIDTransactionDetails',
       method: 'POST',
       baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
-      description: 'Save new RFID transaction details with complete product information including weights, pricing, and status.',
+      description: 'Save one or many RFID transactions. Accepts array payload and returns success/partial/failed with per-item saved/error details.',
+      sampleBody: [
+        {
+          client_code: "LS000365",
+          RFIDNumber: "123456",
+          itemcode: "22K OR",
+          description: "itemsize:2.12, HUIDCode:45857KIKL",
+          category_id: "GOLD",
+          product_id: "22K G JE12.12P",
+          design_id: "KS",
+          purity_id: "22k",
+          branch_id: "CPC",
+          counter_id: "TA",
+          vendor_id: "Vendor Name",
+          box_details: "Box A",
+          box: "Box A",
+          packet: "Packet 1",
+          grosswt: "0",
+          stonewt: "0",
+          stoneamount: "0.00",
+          diamondWeight: "0",
+          diamondAmount: "0.00",
+          netwt: "0",
+          imageurl: "",
+          status: "ApiActive",
+          HallmarkAmount: "0.00",
+          MakingPerGram: "125.00",
+          MakingPercentage: "0.00",
+          MakingFixedAmt: "0.00",
+          MRP: "0.000",
+          Stones: [],
+          Diamonds: []
+        }
+      ],
+      responseFormat: {
+        status: "success|partial|failed",
+        message: "string",
+        totalItems: 1,
+        successfulItems: 1,
+        failedItems: 0,
+        saved: [
+          {
+            itemIndex: 1,
+            itemcode: "22K OR",
+            rfidNumber: "123456",
+            labelledStockId: 101,
+            branchId: 1,
+            counterId: 2
+          }
+        ],
+        errors: []
+      }
+    },
+    {
+      id: 'get-saved-rfid-product-details',
+      name: 'Get Saved RFID Product Details',
+      endpoint: 'GetSavedRFIDProductDetails',
+      method: 'POST',
+      baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
+      description: 'Get one saved RFID product by itemCode or rfidNo. Bearer token is required and clientCode is validated from JWT token.',
       sampleBody: {
-        client_code: "LS000123",
-        branch_id: "string",
-        counter_id: "string",
-        RFIDNumber: "CZ3506",
-        Itemcode: "SAU124",
-        category_id: "Gold",
-        product_id: "Tops",
-        design_id: "Fancy Top",
-        purity_id: "22CT",
-        grosswt: "20.800",
-        stonewt: "0.500",
-        diamondheight: "0.250",
-        diamondweight: "0.250",
-        netwt: "19.250",
-        box_details: "Box A",
-        size: 0,
-        stoneamount: "20",
-        diamondAmount: "20",
-        HallmarkAmount: "35",
-        MakingPerGram: "10",
-        MakingPercentage: "5",
-        MakingFixedAmt: "37",
-        MRP: "5000",
-        imageurl: "",
+        clientCode: "LS000123",
+        itemCode: "ITM12345",
+        rfidNo: "RFID998877",
         status: "ApiActive"
       },
       responseFormat: {
-        message: "Success",
-        data: {}
+        success: {
+          status: "success",
+          message: "Product details retrieved successfully.",
+          data: {
+            client_code: "LS000123",
+            itemcode: "ITM12345",
+            RFIDNumber: "RFID998877",
+            status: "ApiActive",
+            description: "Gold ring",
+            category_id: "Rings",
+            product_id: "Ladies Ring",
+            design_id: "Floral",
+            purity_id: "22K",
+            branch_id: "Main Branch",
+            branch_name: "Main Branch",
+            counter_id: "Counter 1",
+            counter_name: "Counter 1",
+            vendor_id: "Vendor A",
+            box_details: "BOX-12",
+            box_name: "BOX-12",
+            packet: "PACK-1",
+            grosswt: "10.250",
+            stonewt: "0.500",
+            stoneamount: "2500",
+            diamondWeight: "0.100",
+            diamondAmount: "3000",
+            netwt: "9.650",
+            imageurl: "org/ProductImage/file.jpg",
+            tid_value: "TID12345",
+            HallmarkAmount: "200",
+            MakingPerGram: "500",
+            MakingPercentage: "12",
+            MakingFixedAmt: "1000",
+            MRP: "75000",
+            created_datetime: "2026-04-17T08:35:12.123Z",
+            updated_datetime: "2026-04-17T09:10:45.567Z"
+          }
+        },
+        failed: {
+          status: "failed",
+          message: "No product found for provided filters."
+        }
       }
     },
     {
@@ -59,16 +137,24 @@ const APIDocumentation = () => {
       endpoint: 'UpdateRFIDTransactionDetails',
       method: 'POST',
       baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
-      description: 'Update existing RFID transaction details. Can update any field of an existing stock item.',
-      sampleBody: {
-        client_code: "LS000123",
-        RFIDNumber: "CZ3506",
-        Itemcode: "SAU124",
-        status: "Sold"
-      },
+      description: 'Update RFID transaction details (commonly status). Accepts array payload.',
+      sampleBody: [
+        {
+          client_code: "LS000365",
+          itemcode: "22K OR",
+          RFIDNumber: "123456",
+          status: "Sold"
+        }
+      ],
       responseFormat: {
-        message: "Success",
-        data: {}
+        status: "success|partial|failed",
+        message: "string",
+        updatedItems: 1,
+        totalRequested: 1,
+        notFoundItems: 0,
+        notFoundItemErrors: [],
+        invalidStatusItems: 0,
+        invalidStatusItemErrors: []
       }
     },
     {
@@ -77,36 +163,72 @@ const APIDocumentation = () => {
       endpoint: 'UpdateExistingProducts',
       method: 'POST',
       baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
-      description: 'Update one or more existing product/labelled stock items. Send an array of objects; each must include client_code, RFIDNumber, and itemcode. All other fields are optional—only include fields you want to change.',
+      description: 'Update existing labelled products using array payload with RFID/itemcode and editable stock metadata.',
       sampleBody: [
         {
-          client_code: "LS000123",
-          RFIDNumber: "CZ3506",
-          itemcode: "SAU124",
-          category_id: "Gold",
-          product_id: "Tops",
-          design_id: "Fancy Top",
-          purity_id: "22CT",
-          branch_id: "Branch1",
-          counter_id: "Counter1",
-          grosswt: "20.800",
-          netwt: "19.250",
-          stonewt: "0.500",
-          stoneamount: "20",
-          diamondAmount: "20",
-          diamondWeight: "0.250",
+          client_code: "LS000365",
+          itemcode: "22K OR",
+          RFIDNumber: "123456",
+          description: "itemsize:2.12, HUIDCode:45857KIKL",
+          category_id: "GOLD",
+          product_id: "22K G JE12.12P",
+          design_id: "KS",
+          purity_id: "22k",
+          branch_id: "CPC",
+          counter_id: "TA",
+          vendor_id: "Vendor Name",
           box_details: "Box A",
-          MRP: "5000",
-          HallmarkAmount: "35",
-          MakingPerGram: "10",
-          MakingPercentage: "5",
-          MakingFixedAmt: "37",
+          box: "Box A",
+          packet: "Packet 1",
+          grosswt: "0",
+          stonewt: "0",
+          stoneamount: "0.00",
+          diamondWeight: "0",
+          diamondAmount: "0.00",
+          netwt: "0",
           status: "ApiActive"
+          ,
+          imageurl: "",
+          HallmarkAmount: "0.00",
+          MakingPerGram: "125.00",
+          MakingPercentage: "0.00",
+          MakingFixedAmt: "0.00",
+          MRP: "0.000"
         }
       ],
       responseFormat: {
-        status: "success",
-        message: "Product details updated successfully."
+        status: "success|failed",
+        message: "string",
+        updatedItems: 1,
+        totalRequested: 1,
+        notFoundItems: 0,
+        details: [
+          {
+            RFIDCode: "123456",
+            ItemCode: "22K OR",
+            ProductName: "22K G JE12.12P",
+            CategoryName: "GOLD",
+            UpdatedFields: {
+              GrossWt: "0",
+              NetWt: "0",
+              StoneWeight: "0",
+              StoneAmount: "0.00",
+              DiamondAmount: "0.00",
+              DiamondWeight: "0",
+              MRP: "0.000",
+              HallmarkAmount: "0.00",
+              MakingPerGram: "125.00",
+              MakingPercentage: "0.00",
+              MakingFixedAmt: "0.00",
+              BoxDetails: "Box A",
+              Description: "itemsize:2.12, HUIDCode:45857KIKL",
+              VendorId: "Vendor Name",
+              PacketId: 1,
+              Status: "ApiActive"
+            }
+          }
+        ],
+        notFoundDetails: []
       }
     },
     {
@@ -117,18 +239,51 @@ const APIDocumentation = () => {
       baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
       description: 'Retrieve all RFID transaction details for a client code with optional status filter.',
       sampleBody: {
-        client_code: "LS000123",
+        client_code: "LS000365",
         status: "ApiActive"
       },
-      responseFormat: [
-        {
-          "RFIDNumber": "CZ3506",
-          "Itemcode": "SAU124",
-          "category_id": "Gold",
-          "product_id": "Tops",
-          "status": "ApiActive"
+      responseFormat: {
+        data: [
+          {
+            id: 101,
+            categoryId: "GOLD",
+            productId: "22K G JE12.12P",
+            RFIDNumber: "123456",
+            itemCode: "22K OR",
+            boxName: "Box A",
+            grossWt: "0",
+            stoneWeight: "0",
+            stoneAmount: "0.00",
+            netWt: "0",
+            image: "",
+            tidValue: "EPC/TID",
+            clientCode: "LS000365",
+            status: "ApiActive",
+            HallmarkAmount: "0.00",
+            MRP: "0.000",
+            MakingPerGram: "125.00",
+            MakingPercentage: "0.00",
+            MakingFixedAmt: "0.00",
+            totalDiamondAmount: "0.00",
+            totalDiamondWeight: "0",
+            createdOn: "datetime"
+          }
+        ],
+        summary: {
+          totalRecords: 1,
+          recordCount: 1,
+          status: "All records retrieved successfully",
+          isComplete: true,
+          missingRecords: 0
+        },
+        performance: {
+          queryTime: "Optimized with SQL JOINs - NO LIMITS",
+          memoryUsage: "Minimal - NoTracking enabled",
+          optimization: "Single query with JOINs for maximum performance - ALL RECORDS",
+          debugInfo: "string",
+          method: "LINQ Query"
         }
-      ]
+      }
     },
     {
       id: 'delete-labelled-stock',

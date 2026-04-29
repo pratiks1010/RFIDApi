@@ -8,7 +8,9 @@ const FACE_MODELS_FALLBACK_PATH = (
   process.env.REACT_APP_FACE_MODELS_FALLBACK_URL ||
   'https://justadudewhohacks.github.io/face-api.js/models'
 ).replace(/\/$/, '');
-const FACE_LOCAL_MATCH_THRESHOLD = Number(process.env.REACT_APP_FACE_LOCAL_MATCH_THRESHOLD || 0.45);
+const FACE_LOCAL_MATCH_THRESHOLD = Number(process.env.REACT_APP_FACE_LOCAL_MATCH_THRESHOLD || 0.38);
+const FACE_MIN_BRIGHTNESS = Number(process.env.REACT_APP_FACE_MIN_BRIGHTNESS || 55);
+const FACE_MIN_SHARPNESS = Number(process.env.REACT_APP_FACE_MIN_SHARPNESS || 20);
 const isLocalDevHost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '');
 
 let modelsLoadedPromise = null;
@@ -280,6 +282,75 @@ export const getLocalFaceGuard = ({ loginName, clientCode }) => {
 
 const normalizeLoginName = (value) => String(value || '').trim();
 const normalizeClientCode = (value) => String(value || '').trim().toUpperCase();
+const FACE_DEVICE_KEY = 'faceAuthDeviceId';
+
+const getFaceDeviceId = () => {
+  try {
+    const existing = String(localStorage.getItem(FACE_DEVICE_KEY) || '').trim();
+    if (existing) return existing;
+    const ua = String(navigator?.userAgent || '').slice(0, 60).replace(/\s+/g, '-');
+    const platform = String(navigator?.platform || 'web').replace(/\s+/g, '-');
+    const seed = `${platform}-${ua}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const deviceId = `web-${seed.toLowerCase()}`.replace(/[^a-z0-9-]/g, '');
+    localStorage.setItem(FACE_DEVICE_KEY, deviceId);
+    return deviceId;
+  } catch {
+    return `web-${Date.now()}`;
+  }
+};
+
+export const getFrameQualityMetrics = (videoElement) => {
+  const sourceWidth = Number(videoElement?.videoWidth || 0);
+  const sourceHeight = Number(videoElement?.videoHeight || 0);
+  const width = Math.max(120, Math.min(220, sourceWidth || 160));
+  const height = Math.max(90, Math.min(180, sourceHeight || 120));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    return { brightness: 0, sharpness: 0 };
+  }
+  ctx.drawImage(videoElement, 0, 0, width, height);
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const { data } = imageData;
+  const gray = new Float32Array(width * height);
+  let brightnessSum = 0;
+
+  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+    const g = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+    gray[p] = g;
+    brightnessSum += g;
+  }
+  const brightness = brightnessSum / gray.length;
+
+  let laplacianSum = 0;
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const i = (y * width) + x;
+      const lap = (4 * gray[i]) - gray[i - 1] - gray[i + 1] - gray[i - width] - gray[i + width];
+      laplacianSum += Math.abs(lap);
+    }
+  }
+  const pixelCount = Math.max(1, (width - 2) * (height - 2));
+  const sharpness = laplacianSum / pixelCount;
+
+  return { brightness, sharpness };
+};
+
+export const assertFaceFrameQuality = (
+  videoElement,
+  { minBrightness = FACE_MIN_BRIGHTNESS, minSharpness = FACE_MIN_SHARPNESS } = {}
+) => {
+  const { brightness, sharpness } = getFrameQualityMetrics(videoElement);
+  if (brightness < minBrightness) {
+    throw new Error('Lighting is too low for secure face login. Increase front light and retry.');
+  }
+  if (sharpness < minSharpness) {
+    throw new Error('Camera frame is blurry. Keep device steady and face camera directly.');
+  }
+  return { brightness, sharpness };
+};
 
 export const captureVideoFrame = async (videoElement) => {
   const width = videoElement.videoWidth || 640;
@@ -295,12 +366,21 @@ export const captureVideoFrame = async (videoElement) => {
   return toBase64(blob);
 };
 
-export const loginWithFace = async ({ loginName, clientCode, descriptor, imageBase64 }) => {
+export const loginWithFace = async ({
+  loginName,
+  clientCode,
+  descriptor,
+  imageBase64,
+  deviceId,
+  livenessPassed = true,
+}) => {
   const response = await axios.post(`${FACE_API_BASE_URL}/api/auth/face/login`, {
     LoginName: normalizeLoginName(loginName),
     ClientCode: normalizeClientCode(clientCode),
     Descriptor: descriptor,
     ImageBase64: imageBase64,
+    DeviceId: String(deviceId || getFaceDeviceId()),
+    LivenessPassed: !!livenessPassed,
   });
   return response.data;
 };
@@ -315,12 +395,21 @@ export const getFaceStatus = async ({ loginName, clientCode }) => {
   return response.data;
 };
 
-export const registerFace = async ({ loginName, clientCode, descriptor, imageBase64 }) => {
+export const registerFace = async ({
+  loginName,
+  clientCode,
+  descriptor,
+  imageBase64,
+  deviceId,
+  livenessPassed = true,
+}) => {
   const response = await axios.post(`${FACE_API_BASE_URL}/api/auth/face/register`, {
     LoginName: normalizeLoginName(loginName),
     ClientCode: normalizeClientCode(clientCode),
     Descriptor: descriptor,
     ImageBase64: imageBase64,
+    DeviceId: String(deviceId || getFaceDeviceId()),
+    LivenessPassed: !!livenessPassed,
   });
   return response.data;
 };

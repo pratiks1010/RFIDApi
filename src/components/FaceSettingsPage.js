@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { FaArrowLeft, FaCamera, FaCheckCircle, FaUserCircle } from 'react-icons/fa';
 import {
   captureVideoFrame,
+  assertFaceFrameQuality,
   ensureFaceModelsLoaded,
   extractStableDescriptorFromVideo,
   getFaceStatus,
@@ -151,6 +152,7 @@ const FaceSettingsPage = () => {
     try {
       await ensureFaceModelsLoaded();
       setProcessState({ step: 'Detecting and processing face', progress: 42 });
+      assertFaceFrameQuality(videoRef.current);
       const descriptor = await extractStableDescriptorFromVideo(videoRef.current);
       setProcessState({ step: 'Capturing secure face frame', progress: 68 });
       const imageBase64 = await captureVideoFrame(videoRef.current);
@@ -160,6 +162,7 @@ const FaceSettingsPage = () => {
         clientCode: resolvedClient,
         descriptor,
         imageBase64,
+        livenessPassed: trackingState.quality === 'good',
       });
       saveLocalFaceGuard({
         loginName: resolvedLogin,

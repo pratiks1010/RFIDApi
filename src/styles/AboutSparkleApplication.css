@@ -1,0 +1,167 @@
+.sparkle-about-page {
+  min-height: calc(100vh - 96px);
+  padding: clamp(14px, 2vw, 24px);
+}
+
+.sparkle-about-header h1 {
+  margin: 12px 0 6px;
+  color: #0f172a;
+  font-size: clamp(24px, 2.2vw, 34px);
+}
+
+.sparkle-about-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.sparkle-back-btn {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.sparkle-about-card {
+  margin-top: 18px;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: linear-gradient(130deg, #f8fbff 0%, #eef4ff 100%);
+  padding: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+
+.sparkle-about-meta h2 {
+  margin: 10px 0 4px;
+  color: #1d4ed8;
+  font-size: clamp(28px, 2.5vw, 40px);
+}
+
+.sparkle-about-meta p {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+}
+
+.sparkle-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.sparkle-primary-btn,
+.sparkle-ghost-btn {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.sparkle-primary-btn {
+  border: 1px solid #1d4ed8;
+  background: #1d4ed8;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sparkle-primary-btn:disabled,
+.sparkle-ghost-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sparkle-ghost-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+}
+
+.sparkle-update-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12000;
+  animation: fadeInOverlay 0.2s ease-out;
+}
+
+.sparkle-update-modal {
+  width: min(540px, 92vw);
+  border-radius: 16px;
+  padding: 20px;
+  background: #fff;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.25);
+  animation: riseIn 0.24s ease-out;
+}
+
+.sparkle-update-modal h3 {
+  margin: 0 0 8px;
+  color: #0f172a;
+}
+
+.sparkle-update-subtitle,
+.sparkle-update-version {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.sparkle-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.sparkle-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%);
+  transition: width 0.25s ease;
+}
+
+.sparkle-progress-text {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.sparkle-update-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+@keyframes fadeInOverlay {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}

@@ -16,6 +16,7 @@ const DEFAULT_FERONIA_TOKEN = "EC3276D0-6700-4B2A-82D4-A1C028827625";
 const APP_UPDATE_URL = String(process.env.ELECTRON_AUTO_UPDATE_URL || "").trim();
 let updateDownloadRequested = false;
 let updateHandlersBound = false;
+let latestUpdateInfo = null;
 
 const escapeHtml = (value) =>
   String(value || "")
@@ -122,6 +123,11 @@ const sendBridgeEvent = (channel, payload) => {
   mainWindow.webContents.send(channel, payload);
 };
 
+const sendUpdaterEvent = (payload) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("app-updater-status", payload);
+};
+
 const setupAutoUpdater = () => {
   if (isDev || !APP_UPDATE_URL || updateHandlersBound) return;
 
@@ -133,63 +139,51 @@ const setupAutoUpdater = () => {
   });
 
   autoUpdater.on("update-available", async (info) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+    latestUpdateInfo = info || null;
     const nextVersion = String(info?.version || "").trim() || "new version";
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: "info",
-      title: "Update Available",
-      message: `Version ${nextVersion} is available.`,
-      detail: "Would you like to download and install it now?",
-      buttons: ["Download now", "Later"],
-      defaultId: 0,
-      cancelId: 1
+    sendUpdaterEvent({
+      type: "update-available",
+      version: nextVersion,
+      message: `Version ${nextVersion} is available.`
     });
-    if (result.response !== 0 || updateDownloadRequested) return;
-    updateDownloadRequested = true;
-    try {
-      await autoUpdater.downloadUpdate();
-    } catch (error) {
-      updateDownloadRequested = false;
-      await dialog.showMessageBox(mainWindow, {
-        type: "error",
-        title: "Update Download Failed",
-        message: "Failed to download the update.",
-        detail: error?.message || "Unknown update download error."
-      });
-    }
   });
 
   autoUpdater.on("update-not-available", () => {
     updateDownloadRequested = false;
+    latestUpdateInfo = null;
+    sendUpdaterEvent({
+      type: "update-not-available",
+      message: "You are on the latest version."
+    });
   });
 
-  autoUpdater.on("error", async (error) => {
+  autoUpdater.on("download-progress", (progressObj) => {
+    sendUpdaterEvent({
+      type: "download-progress",
+      progress: Math.max(0, Math.min(100, Math.round(progressObj?.percent || 0))),
+      bytesPerSecond: Number(progressObj?.bytesPerSecond || 0),
+      transferred: Number(progressObj?.transferred || 0),
+      total: Number(progressObj?.total || 0)
+    });
+  });
+
+  autoUpdater.on("error", (error) => {
     updateDownloadRequested = false;
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    await dialog.showMessageBox(mainWindow, {
+    sendUpdaterEvent({
       type: "error",
-      title: "Update Check Failed",
-      message: "Unable to check for updates right now.",
-      detail: error?.message || "Unknown updater error."
+      message: error?.message || "Unknown updater error."
     });
   });
 
-  autoUpdater.on("update-downloaded", async (info) => {
+  autoUpdater.on("update-downloaded", (info) => {
     updateDownloadRequested = false;
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+    latestUpdateInfo = info || latestUpdateInfo;
     const nextVersion = String(info?.version || "").trim() || "latest version";
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: "info",
-      title: "Update Ready",
-      message: `Version ${nextVersion} is ready to install.`,
-      detail: "The app will restart to complete the update.",
-      buttons: ["Install and Restart", "Later"],
-      defaultId: 0,
-      cancelId: 1
+    sendUpdaterEvent({
+      type: "update-downloaded",
+      version: nextVersion,
+      message: `Version ${nextVersion} is ready to install.`
     });
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall();
-    }
   });
 
   updateHandlersBound = true;
@@ -197,13 +191,25 @@ const setupAutoUpdater = () => {
 
 const checkForAppUpdates = async () => {
   if (isDev || !APP_UPDATE_URL) {
-    return { ok: false, reason: "skipped" };
+    return { ok: false, reason: "skipped", currentVersion: app.getVersion() };
   }
   try {
-    await autoUpdater.checkForUpdates();
-    return { ok: true };
+    const result = await autoUpdater.checkForUpdates();
+    const latestVersion = String(result?.updateInfo?.version || "").trim();
+    const currentVersion = app.getVersion();
+    const updateAvailable = !!latestVersion && latestVersion !== currentVersion;
+    return {
+      ok: true,
+      currentVersion,
+      latestVersion: latestVersion || currentVersion,
+      updateAvailable
+    };
   } catch (error) {
-    return { ok: false, reason: error?.message || "Update check failed." };
+    return {
+      ok: false,
+      reason: error?.message || "Update check failed.",
+      currentVersion: app.getVersion()
+    };
   }
 };
 
@@ -477,6 +483,26 @@ ipcMain.handle("rfid-bridge-stop-service", async () => {
 });
 
 ipcMain.handle("app-check-for-updates", async () => checkForAppUpdates());
+ipcMain.handle("app-get-version", async () => ({ version: app.getVersion() }));
+ipcMain.handle("app-start-update-download", async () => {
+  if (isDev || !APP_UPDATE_URL) return { ok: false, reason: "skipped" };
+  if (updateDownloadRequested) return { ok: true, status: "already-downloading" };
+  try {
+    updateDownloadRequested = true;
+    sendUpdaterEvent({ type: "download-started", message: "Downloading update..." });
+    await autoUpdater.downloadUpdate();
+    return { ok: true, status: "started" };
+  } catch (error) {
+    updateDownloadRequested = false;
+    return { ok: false, reason: error?.message || "Failed to start update download." };
+  }
+});
+ipcMain.handle("app-install-downloaded-update", async () => {
+  if (isDev || !APP_UPDATE_URL) return { ok: false, reason: "skipped" };
+  if (!latestUpdateInfo) return { ok: false, reason: "No downloaded update available." };
+  autoUpdater.quitAndInstall();
+  return { ok: true };
+});
 
 app.whenReady().then(() => {
   createWindow();

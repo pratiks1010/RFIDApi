@@ -24,6 +24,8 @@ import {
   getLocalFaceGuard,
   loginWithFace,
   matchFaceWithReference,
+  faceDistance,
+  assertFaceFrameQuality,
   ensureFaceModelsLoaded,
   getFaceStatus,
   startFaceTracking,
@@ -492,13 +494,30 @@ const Login = () => {
       if (!faceVideoRef.current || !faceCameraReady) {
         throw new Error('Camera is not ready. Please allow camera and try again.');
       }
-      const descriptor = await extractStableDescriptorFromVideo(faceVideoRef.current);
       const localGuard = getLocalFaceGuard({ loginName, clientCode });
-      if (localGuard?.descriptor?.length === 128) {
-        const result = matchFaceWithReference(descriptor, localGuard.descriptor);
-        if (!result.matched) {
-          throw new Error(`Face mismatch with registered profile. Distance ${result.distance.toFixed(3)} > ${result.threshold.toFixed(3)}.`);
-        }
+      if (!localGuard?.descriptor || localGuard.descriptor.length !== 128) {
+        throw new Error('Face profile is not enrolled on this device for this user. Please open Face Login Settings and register once on this device.');
+      }
+
+      assertFaceFrameQuality(faceVideoRef.current);
+      const descriptor = await extractStableDescriptorFromVideo(faceVideoRef.current);
+      const firstMatch = matchFaceWithReference(descriptor, localGuard.descriptor);
+      if (!firstMatch.matched) {
+        throw new Error(`Face mismatch with registered profile. Distance ${firstMatch.distance.toFixed(3)} > ${firstMatch.threshold.toFixed(3)}.`);
+      }
+
+      // Require a second stable sample to reduce false accepts.
+      const secondDescriptor = await extractStableDescriptorFromVideo(faceVideoRef.current, {
+        sampleCount: 3,
+        sampleGapMs: 200,
+        maxSpread: 0.45,
+      });
+      const secondMatch = matchFaceWithReference(secondDescriptor, localGuard.descriptor);
+      if (!secondMatch.matched) {
+        throw new Error(`Face mismatch on verification pass. Distance ${secondMatch.distance.toFixed(3)} > ${secondMatch.threshold.toFixed(3)}.`);
+      }
+      if (faceDistance(descriptor, secondDescriptor) > 0.33) {
+        throw new Error('Face verification is unstable. Keep same face centered and retry.');
       }
       const imageBase64 = await captureVideoFrame(faceVideoRef.current);
       const response = await loginWithFace({
@@ -506,6 +525,7 @@ const Login = () => {
         clientCode,
         descriptor,
         imageBase64,
+        livenessPassed: faceTracking.quality === 'good',
       });
       const token = extractJwtFromLoginPayload(response);
       if (!token) throw new Error('Face login succeeded but no token was returned.');

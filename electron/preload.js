@@ -20,6 +20,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveFile: (sourcePath, destinationPath) => ipcRenderer.invoke("move-file", sourcePath, destinationPath),
   feroniaTestService: (authToken) => ipcRenderer.invoke("feronia-test-service", authToken),
   feroniaGetStockOnHand: (authToken) => ipcRenderer.invoke("feronia-get-stock", authToken),
+  appGetVersion: () => ipcRenderer.invoke("app-get-version"),
+  appCheckForUpdates: () => ipcRenderer.invoke("app-check-for-updates"),
+  appStartUpdateDownload: () => ipcRenderer.invoke("app-start-update-download"),
+  appInstallDownloadedUpdate: () => ipcRenderer.invoke("app-install-downloaded-update"),
+  onAppUpdaterStatus: (callback) => {
+    const listener = (_, payload) => callback(payload);
+    ipcRenderer.on("app-updater-status", listener);
+    return () => ipcRenderer.removeListener("app-updater-status", listener);
+  },
   rfidBridgeEnsure: () => ipcRenderer.invoke("rfid-bridge-ensure"),
   rfidBridgeCommand: (command) => ipcRenderer.invoke("rfid-bridge-command", command),
   rfidBridgeStopService: () => ipcRenderer.invoke("rfid-bridge-stop-service"),

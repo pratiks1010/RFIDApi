@@ -38,6 +38,7 @@ const utilityMenus = [
     description: 'Check utility version, compatibility, and support information.',
     icon: FaInfoCircle,
     theme: 'rfid-card-indigo',
+    route: '/rfid-utility/about-sparkle',
   },
   {
     id: 'map-fields',
@@ -120,7 +121,6 @@ const RFIDUtility = () => {
           {inventoryTrayEnabled ? 'Enabled' : 'Disabled'}
         </button>
       </div>
-
       <div className="rfid-utility-grid">
         {utilityMenus.map((menu) => {
           const Icon = menu.icon;

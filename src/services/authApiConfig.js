@@ -23,4 +23,4 @@ export const getPasskeyApiBaseUrl = () =>
 
 /** Face auth APIs (/api/auth/face/*). */
 export const getFaceAuthApiBaseUrl = () =>
-  (process.env.REACT_APP_FACE_AUTH_API_BASE_URL || DEFAULT_LOCAL_AUTH_API_BASE).replace(/\/$/, '');
+  (process.env.REACT_APP_FACE_AUTH_API_BASE_URL || getAuthApiBaseUrl()).replace(/\/$/, '');

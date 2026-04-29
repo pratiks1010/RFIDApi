@@ -5,6 +5,7 @@ const fs = require("fs/promises");
 const { spawn } = require("child_process");
 const axios = require("axios");
 const XLSX = require("xlsx");
+const { autoUpdater } = require("electron-updater");
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
@@ -12,6 +13,52 @@ let bridgeProcess = null;
 let bridgeStdoutBuffer = "";
 const FERONIA_BASE_URL = "http://192.168.29.245:93/api/TamannaahBS";
 const DEFAULT_FERONIA_TOKEN = "EC3276D0-6700-4B2A-82D4-A1C028827625";
+const APP_UPDATE_URL = String(process.env.ELECTRON_AUTO_UPDATE_URL || "").trim();
+let updateDownloadRequested = false;
+let updateHandlersBound = false;
+
+const escapeHtml = (value) =>
+  String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const buildFatalPage = (title, details) => {
+  const safeTitle = escapeHtml(title || "Application Error");
+  const safeDetails = escapeHtml(details || "Unexpected issue");
+  return `
+  <!doctype html>
+  <html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>${safeTitle}</title>
+    <style>
+      body { margin:0; font-family: Segoe UI, Arial, sans-serif; background:#f8fafc; color:#0f172a; }
+      .wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+      .card { width:min(760px, 95vw); background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px; box-shadow:0 10px 30px rgba(2,6,23,.08);}
+      h2 { margin:0 0 8px; }
+      p { margin:0 0 8px; color:#334155; }
+      pre { margin:0 0 14px; background:#f1f5f9; border-radius:8px; padding:10px; color:#475569; white-space:pre-wrap; }
+      button { border:0; border-radius:8px; padding:10px 14px; background:#2563eb; color:#fff; cursor:pointer; font-weight:600; }
+      button + button { margin-left:8px; background:#0f172a; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h2>${safeTitle}</h2>
+        <p>App process is still running. You can retry without closing the EXE.</p>
+        <pre>${safeDetails}</pre>
+        <button onclick="location.reload()">Retry</button>
+        <button onclick="location.href='file://${path.join(__dirname, "..", "build", "index.html").replace(/\\/g, "/")}#/login'">Open Login</button>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+};
 
 function createWindow() {
   const iconPath = path.join(__dirname, "..", "build-resources", "icon.png");
@@ -35,12 +82,129 @@ function createWindow() {
     win.loadFile(path.join(__dirname, "..", "build", "index.html"), { hash: "/login" });
   }
 
+  const toggleDevTools = () => {
+    if (win.isDestroyed()) return;
+    if (win.webContents.isDevToolsOpened()) {
+      win.webContents.closeDevTools();
+      return;
+    }
+    win.webContents.openDevTools({ mode: "detach", activate: true });
+  };
+
+  win.webContents.on("before-input-event", (event, input) => {
+    const key = String(input.key || "").toLowerCase();
+    const withCtrlShiftI = input.control && input.shift && key === "i";
+    const withF12 = key === "f12";
+    if (!withCtrlShiftI && !withF12) return;
+    event.preventDefault();
+    toggleDevTools();
+  });
+
+  win.webContents.on("did-fail-load", (_event, code, desc, validatedURL) => {
+    const reason = `Code: ${code}\nDescription: ${desc || "Unknown"}\nURL: ${validatedURL || "N/A"}`;
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildFatalPage("Failed to load app screen", reason))}`);
+  });
+
+  win.webContents.on("render-process-gone", (_event, details) => {
+    const reason = `Reason: ${details?.reason || "unknown"}\nExit code: ${details?.exitCode ?? "N/A"}`;
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildFatalPage("Renderer crashed", reason))}`);
+  });
+
+  win.on("unresponsive", () => {
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildFatalPage("Window is unresponsive", "The renderer stopped responding. Retry to recover without closing app."))}`);
+  });
+
   mainWindow = win;
 }
 
 const sendBridgeEvent = (channel, payload) => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send(channel, payload);
+};
+
+const setupAutoUpdater = () => {
+  if (isDev || !APP_UPDATE_URL || updateHandlersBound) return;
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url: APP_UPDATE_URL
+  });
+
+  autoUpdater.on("update-available", async (info) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const nextVersion = String(info?.version || "").trim() || "new version";
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Update Available",
+      message: `Version ${nextVersion} is available.`,
+      detail: "Would you like to download and install it now?",
+      buttons: ["Download now", "Later"],
+      defaultId: 0,
+      cancelId: 1
+    });
+    if (result.response !== 0 || updateDownloadRequested) return;
+    updateDownloadRequested = true;
+    try {
+      await autoUpdater.downloadUpdate();
+    } catch (error) {
+      updateDownloadRequested = false;
+      await dialog.showMessageBox(mainWindow, {
+        type: "error",
+        title: "Update Download Failed",
+        message: "Failed to download the update.",
+        detail: error?.message || "Unknown update download error."
+      });
+    }
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    updateDownloadRequested = false;
+  });
+
+  autoUpdater.on("error", async (error) => {
+    updateDownloadRequested = false;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    await dialog.showMessageBox(mainWindow, {
+      type: "error",
+      title: "Update Check Failed",
+      message: "Unable to check for updates right now.",
+      detail: error?.message || "Unknown updater error."
+    });
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    updateDownloadRequested = false;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const nextVersion = String(info?.version || "").trim() || "latest version";
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Update Ready",
+      message: `Version ${nextVersion} is ready to install.`,
+      detail: "The app will restart to complete the update.",
+      buttons: ["Install and Restart", "Later"],
+      defaultId: 0,
+      cancelId: 1
+    });
+    if (result.response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+
+  updateHandlersBound = true;
+};
+
+const checkForAppUpdates = async () => {
+  if (isDev || !APP_UPDATE_URL) {
+    return { ok: false, reason: "skipped" };
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: error?.message || "Update check failed." };
+  }
 };
 
 const parseTagLine = (line) => {
@@ -312,8 +476,12 @@ ipcMain.handle("rfid-bridge-stop-service", async () => {
   return { ok: true };
 });
 
+ipcMain.handle("app-check-for-updates", async () => checkForAppUpdates());
+
 app.whenReady().then(() => {
   createWindow();
+  setupAutoUpdater();
+  checkForAppUpdates().catch(() => {});
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

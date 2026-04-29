@@ -1,7 +1,86 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
 import { FaBroadcastTower, FaLink, FaListUl, FaMicrochip, FaPlug, FaPowerOff, FaSearch, FaSyncAlt, FaTerminal, FaWaveSquare } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import '../styles/RFIDTrayConnect.css';
+
+const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
+  || 'https://soni.loyalstring.co.in/api/RFIDDashboard/GetRFIDCodesByEPCValues';
+
+const getClientCode = () => {
+  try {
+    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    return String(userInfo?.ClientCode || userInfo?.clientCode || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+const extractRfidMapping = (raw) => {
+  const normalizeRows = (value) => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.Items)) return value.Items;
+    if (value && typeof value === 'object') {
+      return Object.entries(value).map(([epc, rfid]) => ({ EPCValue: epc, RFIDCode: rfid }));
+    }
+    return [];
+  };
+
+  const rowSources = [
+    raw?.items,
+    raw?.Items,
+    raw?.Data?.items,
+    raw?.Data?.Items,
+    raw?.data?.items,
+    raw?.data?.Items,
+    raw?.Result?.items,
+    raw?.Result?.Items,
+    raw?.result?.items,
+    raw?.result?.Items,
+    raw?.Data,
+    raw?.data,
+    raw?.Result,
+    raw?.result,
+    raw
+  ];
+  const rows = rowSources
+    .map(normalizeRows)
+    .find((sourceRows) => sourceRows.length > 0) || [];
+
+  const map = {};
+  rows.forEach((item) => {
+    const epc = String(
+      item?.EPCValue
+      || item?.EpcValue
+      || item?.epcValue
+      || item?.EPC
+      || item?.epc
+      || item?.TIDNumber
+      || item?.TidNumber
+      || item?.tidNumber
+      || item?.RequestedIdentifier
+      || ''
+    ).trim().toUpperCase();
+    const rfid = String(
+      item?.RFIDCode
+      || item?.RfidCode
+      || item?.rfidCode
+      || item?.RFIDNumber
+      || item?.RfidNumber
+      || item?.rfidNumber
+      || item?.RFID
+      || item?.rfid
+      || item?.Barcode
+      || item?.BarCode
+      || item?.barcode
+      || item?.TagCode
+      || ''
+    ).trim();
+    if (epc && rfid) map[epc] = rfid;
+  });
+  return map;
+};
 
 const RFIDTrayConnect = () => {
   const [comPrimary, setComPrimary] = useState('7');
@@ -11,6 +90,9 @@ const RFIDTrayConnect = () => {
   const [isBusy, setIsBusy] = useState(false);
   const [logs, setLogs] = useState([]);
   const [tagMap, setTagMap] = useState({});
+  const [rfidCodeMap, setRfidCodeMap] = useState({});
+  const [resolvingCodes, setResolvingCodes] = useState(false);
+  const [rfidLookupError, setRfidLookupError] = useState('');
   const [deviceRows, setDeviceRows] = useState([]);
   const [activeAction, setActiveAction] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -97,6 +179,48 @@ const RFIDTrayConnect = () => {
     () => tagRows.reduce((sum, tag) => sum + (Number(tag.count) || 0), 0),
     [tagRows]
   );
+
+  useEffect(() => {
+    const epcs = Array.from(new Set(
+      sortedTagRows.map((tag) => String(tag?.epc || '').trim().toUpperCase()).filter(Boolean)
+    ));
+    const missingEpcs = epcs.filter((epc) => !rfidCodeMap[epc]);
+    if (!missingEpcs.length) return undefined;
+
+    const timer = setTimeout(async () => {
+      setResolvingCodes(true);
+      try {
+        const response = await axios.post(
+          RFID_CODE_LOOKUP_URL,
+          {
+            ClientCode: getClientCode() || undefined,
+            EPCValues: missingEpcs
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 45000
+          }
+        );
+        const mapping = extractRfidMapping(response?.data);
+        setRfidCodeMap((prev) => ({ ...prev, ...mapping }));
+        setRfidLookupError('');
+      } catch (error) {
+        const message = error?.response?.data?.message
+          || error?.response?.data?.error
+          || error?.message
+          || 'RFID code API failed.';
+        setRfidLookupError(message);
+        toast.error(`RFID code lookup failed: ${message}`);
+      } finally {
+        setResolvingCodes(false);
+      }
+    }, 180);
+
+    return () => clearTimeout(timer);
+  }, [sortedTagRows, rfidCodeMap]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -186,6 +310,8 @@ const RFIDTrayConnect = () => {
   const clearScannedData = () => {
     setActiveAction('clear');
     setTagMap({});
+    setRfidCodeMap({});
+    setRfidLookupError('');
     setCurrentPage(1);
     setTimeout(() => setActiveAction((prev) => (prev === 'clear' ? '' : prev)), 300);
   };
@@ -323,6 +449,14 @@ const RFIDTrayConnect = () => {
               </h5>
               <div className="d-flex align-items-center gap-2">
                 <span className="tray-muted">{tagRows.length} unique</span>
+                <span className="tray-muted" style={{ color: resolvingCodes ? '#1d4ed8' : '#475569' }}>
+                  {resolvingCodes ? 'RFID resolving...' : 'RFID synced'}
+                </span>
+                {!!rfidLookupError && (
+                  <span className="tray-muted" style={{ color: '#dc2626' }}>
+                    RFID API error: {rfidLookupError}
+                  </span>
+                )}
                 <button type="button" className="tray-inline-btn" onClick={clearScannedData} disabled={isBusy || tagRows.length === 0}>
                   Clear
                 </button>
@@ -334,6 +468,7 @@ const RFIDTrayConnect = () => {
                   <tr>
                     <th>Device</th>
                     <th>EPC</th>
+                    <th>RFID Code</th>
                     <th>TID</th>
                     <th>RSSI</th>
                     <th>Ant</th>
@@ -345,6 +480,7 @@ const RFIDTrayConnect = () => {
                     <tr key={`${tag.deviceId}|${tag.tid || tag.epc}`}>
                       <td>{tag.deviceId}</td>
                       <td className="tray-mono tray-epc">{tag.epc}</td>
+                      <td className="tray-mono">{rfidCodeMap[String(tag.epc || '').trim().toUpperCase()] || '-'}</td>
                       <td className="tray-mono">{tag.tid || '-'}</td>
                       <td>{tag.rssi || '-'}</td>
                       <td>{tag.antenna || '-'}</td>
@@ -353,7 +489,7 @@ const RFIDTrayConnect = () => {
                   ))}
                   {paginatedTagRows.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center text-muted py-3">No tags received yet.</td>
+                      <td colSpan={7} className="text-center text-muted py-3">No tags received yet.</td>
                     </tr>
                   )}
                 </tbody>

@@ -47,6 +47,42 @@ const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
 const DEFAULT_PAGE_SIZE = 25;
 const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1200;
 const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 3000;
+const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
+  || 'https://soni.loyalstring.co.in/api/RFIDDashboard/GetRFIDCodesByEPCValues';
+
+const extractRfidMapping = (raw) => {
+  const normalizeRows = (value) => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.Items)) return value.Items;
+    return [];
+  };
+
+  const rowSources = [raw?.items, raw?.Items, raw?.Data, raw?.data, raw?.Result, raw?.result, raw];
+  const rows = rowSources.map(normalizeRows).find((entry) => entry.length > 0) || [];
+  const map = {};
+
+  rows.forEach((item) => {
+    const epc = String(
+      item?.epcValue
+      || item?.EPCValue
+      || item?.epc
+      || item?.EPC
+      || item?.RequestedIdentifier
+      || ''
+    ).trim().toUpperCase();
+    const rfidCode = String(
+      item?.rfidCode
+      || item?.RFIDCode
+      || item?.rfidNumber
+      || item?.RFIDNumber
+      || ''
+    ).trim();
+    if (epc && rfidCode) map[epc] = rfidCode;
+  });
+
+  return map;
+};
 
 const getUniqueOptions = (data, field) => {
   if (!data || !Array.isArray(data)) return ['All'];
@@ -188,6 +224,9 @@ const CreateInvoice = () => {
   const [trayFetchLoading, setTrayFetchLoading] = useState(false);
   const [trayFetchProgress, setTrayFetchProgress] = useState(0);
   const [trayFetchStatus, setTrayFetchStatus] = useState('');
+  const [trayRfidCodeMap, setTrayRfidCodeMap] = useState({});
+  const [trayResolvingCodes, setTrayResolvingCodes] = useState(false);
+  const [trayResolveError, setTrayResolveError] = useState('');
   const [isTrayScanView, setIsTrayScanView] = useState(false);
   const [trayCurrentPage, setTrayCurrentPage] = useState(1);
   const hasElectronTrayBridge = typeof window !== 'undefined' && !!window.electronAPI?.rfidBridgeCommand;
@@ -311,6 +350,8 @@ const CreateInvoice = () => {
     clearTrayIdleTimer();
     setShowTrayScanModal(true);
     setTrayTags([]);
+    setTrayRfidCodeMap({});
+    setTrayResolveError('');
     setTrayLogs([]);
     setTrayCurrentPage(1);
     setTrayScanning(false);
@@ -331,7 +372,48 @@ const CreateInvoice = () => {
     } catch (_) {
     }
     setTrayScanning(false);
+    setTrayResolvingCodes(false);
     setShowTrayScanModal(false);
+  };
+
+  const fetchTrayRfidCodesByEpc = async (epcValues) => {
+    const normalized = Array.from(new Set(
+      (epcValues || []).map((item) => String(item || '').trim().toUpperCase()).filter(Boolean)
+    ));
+    if (!normalized.length) {
+      setTrayRfidCodeMap({});
+      setTrayResolveError('');
+      return;
+    }
+
+    setTrayResolvingCodes(true);
+    setTrayResolveError('');
+    try {
+      const response = await axios.post(
+        RFID_CODE_LOOKUP_URL,
+        {
+          ClientCode: getClientCodeForRequests() || undefined,
+          EPCValues: normalized
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 45000
+        }
+      );
+      setTrayRfidCodeMap(extractRfidMapping(response?.data));
+    } catch (error) {
+      setTrayResolveError(
+        error?.response?.data?.message
+        || error?.response?.data?.error
+        || error?.message
+        || 'Failed to resolve RFID codes.'
+      );
+    } finally {
+      setTrayResolvingCodes(false);
+    }
   };
 
   const handleTrayConnectAndScan = async () => {
@@ -513,6 +595,14 @@ const CreateInvoice = () => {
   }, [trayTags]);
 
   useEffect(() => {
+    if (!showTrayScanModal) return undefined;
+    const timer = setTimeout(() => {
+      fetchTrayRfidCodesByEpc(trayTags);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [showTrayScanModal, trayTags]);
+
+  useEffect(() => {
     if (!showTrayScanModal || !trayScanning || trayFetchLoading) {
       clearTrayIdleTimer();
       return undefined;
@@ -560,10 +650,15 @@ const CreateInvoice = () => {
   const trayTwoColumnRows = useMemo(() => {
     const rows = [];
     for (let i = 0; i < paginatedTrayTags.length; i += 2) {
-      rows.push([paginatedTrayTags[i], paginatedTrayTags[i + 1] || '']);
+      const epcA = paginatedTrayTags[i];
+      const epcB = paginatedTrayTags[i + 1] || '';
+      rows.push([
+        { epc: epcA, rfidCode: trayRfidCodeMap[epcA] || '-' },
+        { epc: epcB, rfidCode: epcB ? (trayRfidCodeMap[epcB] || '-') : '-' }
+      ]);
     }
     return rows;
-  }, [paginatedTrayTags]);
+  }, [paginatedTrayTags, trayRfidCodeMap]);
 
   useEffect(() => {
     if (trayCurrentPage > trayTotalPages) {
@@ -5534,8 +5629,16 @@ const CreateInvoice = () => {
                     {trayScanning ? 'Scanning in progress' : 'Scanner idle'}
                   </span>
                   <span>EPC scanned: {trayTags.length}</span>
+                  <span style={{ color: trayResolvingCodes ? '#1d4ed8' : '#334155' }}>
+                    RFID codes: {trayResolvingCodes ? 'resolving...' : 'updated'}
+                  </span>
                   <span>Auto-selected rows: {selectedRows.length}</span>
                 </div>
+                {!!trayResolveError && (
+                  <div className="alert alert-warning py-2 px-3 mb-2" style={{ fontSize: 12 }}>
+                    RFID code lookup failed: {trayResolveError}
+                  </div>
+                )}
                 <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
                   Scan EPC tags from tray and verify values below. Click fetch data from footer to match invoice rows.
                 </div>
@@ -5545,15 +5648,17 @@ const CreateInvoice = () => {
                       <thead>
                         <tr style={{ background: 'rgba(241, 245, 249, 0.9)' }}>
                           <th style={{ width: 56, padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>#</th>
-                          <th style={{ width: '47%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value A</th>
+                          <th style={{ width: '26%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value A</th>
+                          <th style={{ width: '21%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>RFID Code A</th>
                           <th style={{ width: 56, padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>#</th>
-                          <th style={{ width: '47%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value B</th>
+                          <th style={{ width: '26%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value B</th>
+                          <th style={{ width: '21%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>RFID Code B</th>
                         </tr>
                       </thead>
                       <tbody>
                         {trayTwoColumnRows.length === 0 ? (
                           <tr>
-                            <td colSpan={4} style={{ padding: '18px 12px', fontSize: 12, color: '#64748b' }}>
+                            <td colSpan={6} style={{ padding: '18px 12px', fontSize: 12, color: '#64748b' }}>
                               Scan tags from tray. EPC values will appear here.
                             </td>
                           </tr>
@@ -5561,9 +5666,11 @@ const CreateInvoice = () => {
                           trayTwoColumnRows.map((row, rowIndex) => (
                             <tr key={`tray-row-${rowIndex}`} style={{ borderBottom: '1px dashed #e2e8f0' }}>
                               <td style={{ padding: '8px 10px', fontSize: 11, color: '#64748b' }}>{(trayCurrentPage - 1) * trayPageSize + rowIndex * 2 + 1}</td>
-                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[0] || '-'}</td>
-                              <td style={{ padding: '8px 10px', fontSize: 11, color: '#64748b' }}>{row[1] ? (trayCurrentPage - 1) * trayPageSize + rowIndex * 2 + 2 : '-'}</td>
-                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[1] || '-'}</td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[0]?.epc || '-'}</td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[0]?.rfidCode || '-'}</td>
+                              <td style={{ padding: '8px 10px', fontSize: 11, color: '#64748b' }}>{row[1]?.epc ? (trayCurrentPage - 1) * trayPageSize + rowIndex * 2 + 2 : '-'}</td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[1]?.epc || '-'}</td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[1]?.rfidCode || '-'}</td>
                             </tr>
                           ))
                         )}

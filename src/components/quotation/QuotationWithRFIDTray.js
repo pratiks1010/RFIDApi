@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   FaUserPlus,
@@ -33,6 +33,10 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
   const [quotationNumber, setQuotationNumber] = useState('');
   const [quotationDate, setQuotationDate] = useState(new Date().toISOString().split('T')[0]);
   const [customerName, setCustomerName] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [filteredCustomers, setFilteredCustomers] = useState([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const customerDropdownRef = useRef(null);
   const [customerList, setCustomerList] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [customerMobile, setCustomerMobile] = useState('');
@@ -110,6 +114,49 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
     return [];
   };
 
+  const getCustomerDisplayName = (customer) => {
+    if (!customer) return '';
+    if (customer.FirstName) {
+      return `${customer.FirstName}${customer.LastName ? ` ${customer.LastName}` : ''}`.trim();
+    }
+    return customer.Name || customer.CustomerName || 'Unknown';
+  };
+
+  const normalizePartyQuery = (s) =>
+    String(s || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+
+  const toProperPersonName = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .trim()
+      .split(/\s+/)
+      .map((word) => {
+        if (!word) return '';
+        if (word.length === 1) return word.toUpperCase();
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+      })
+      .join(' ');
+  };
+
+  const customerAccentColor = '#22c55e';
+  const quotationCustomerDropdownPanel = {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    background: '#ffffff',
+    border: '1px solid #dbe4f0',
+    borderRadius: 10,
+    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.14)',
+    marginTop: 6,
+    maxHeight: 280,
+    overflowY: 'auto',
+    zIndex: 1100,
+  };
+
   // Fetch user info
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('userInfo');
@@ -154,7 +201,7 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
     }
   };
 
-  // Update customer details when customer is selected
+  // Update customer details when customer Id is selected (Sample Out–style typeahead)
   useEffect(() => {
     if (customerName && customerList.length > 0) {
       const customer = customerList.find(c => c.Id == customerName || c.Id === customerName);
@@ -163,19 +210,73 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
         setFineGold(customer.FineGold ? parseFloat(customer.FineGold).toFixed(3) : '0.000');
         setAdvanceAmount(customer.AdvanceAmount ? parseFloat(customer.AdvanceAmount).toFixed(2) : '0.00');
         setBalanceAmount(customer.BalanceAmount ? parseFloat(customer.BalanceAmount).toFixed(3) : '0.000');
+        setCustomerSearch(toProperPersonName(getCustomerDisplayName(customer)));
       } else {
         setCustomerMobile('');
         setFineGold('0.000');
         setAdvanceAmount('0.00');
         setBalanceAmount('0.000');
       }
-    } else {
+    } else if (!customerName) {
       setCustomerMobile('');
       setFineGold('0.000');
       setAdvanceAmount('0.00');
       setBalanceAmount('0.000');
     }
   }, [customerName, customerList]);
+
+  useEffect(() => {
+    const hasQuery = customerSearch.trim().length > 0;
+    if (!hasQuery) {
+      setFilteredCustomers([]);
+      setShowCustomerDropdown(false);
+      return;
+    }
+    const searchTerm = customerSearch.toLowerCase();
+    const filtered = customerList.filter((customer) => {
+      const firstName = (customer.FirstName || '').toLowerCase();
+      const lastName = (customer.LastName || '').toLowerCase();
+      const name = (customer.Name || '').toLowerCase();
+      const cName = (customer.CustomerName || '').toLowerCase();
+      const mobile = (customer.Mobile || customer.MobileNumber || '').toLowerCase();
+      return (
+        firstName.includes(searchTerm) ||
+        lastName.includes(searchTerm) ||
+        name.includes(searchTerm) ||
+        cName.includes(searchTerm) ||
+        mobile.includes(searchTerm)
+      );
+    });
+    const selected = customerName
+      ? customerList.find((c) => String(c.Id) === String(customerName))
+      : null;
+    const lockedLabel = selected
+      ? normalizePartyQuery(toProperPersonName(getCustomerDisplayName(selected)))
+      : '';
+    const q = normalizePartyQuery(customerSearch);
+    const selectionLocksDropdown = Boolean(selected && lockedLabel && q === lockedLabel);
+
+    setFilteredCustomers(filtered);
+    setShowCustomerDropdown(!selectionLocksDropdown);
+  }, [customerSearch, customerList, customerName]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target)) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleQuotationCustomerSelect = (customer) => {
+    setCustomerName(customer.Id);
+    setShowCustomerDropdown(false);
+  };
+
+  const quotationCustomerDropdownOpen =
+    showCustomerDropdown && customerSearch.trim().length > 0;
 
   // Fetch quotation number
   const fetchQuotationNumber = async () => {
@@ -957,38 +1058,8 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
             color: '#1e293b',
             lineHeight: '1.2'
           }}>
-            Quotation with RFID Tray
+            Quotation
           </h2>
-          {/* Toggle Button to Regular Quotation */}
-          <button
-            onClick={() => navigate('/quotation')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: 600,
-              border: '1px solid #3b82f6',
-              borderRadius: '6px',
-              background: '#ffffff',
-              color: '#3b82f6',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-            title="Switch to Regular Quotation"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#3b82f6';
-              e.currentTarget.style.color = '#ffffff';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#ffffff';
-              e.currentTarget.style.color = '#3b82f6';
-            }}
-          >
-            <FaSearch />
-            Regular Quotation
-          </button>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1061,33 +1132,105 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
                 }}>
                   Customer Name<span style={{ color: '#ef4444' }}>*</span>
                 </label>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <select
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    disabled={loadingCustomers}
-                    style={{
-                      flex: 1,
-                      padding: '8px 10px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
-                      outline: 'none',
-                      background: loadingCustomers ? '#f1f5f9' : '#ffffff'
-                    }}
-                  >
-                    <option value="">Select Customer</option>
-                    {customerList.map(customer => {
-                      const customerName = customer.FirstName 
-                        ? `${customer.FirstName}${customer.LastName ? ' ' + customer.LastName : ''}`
-                        : customer.Name || customer.CustomerName || 'Unknown';
-                      return (
-                        <option key={customer.Id} value={customer.Id}>
-                          {customerName}
-                        </option>
-                      );
-                    })}
-                  </select>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                  <div ref={customerDropdownRef} style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+                    <input
+                      type="text"
+                      value={customerSearch}
+                      onChange={(e) => {
+                        setCustomerSearch(e.target.value);
+                        setCustomerName('');
+                        setShowCustomerDropdown(true);
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = customerAccentColor;
+                        e.target.style.boxShadow = `0 0 0 3px ${customerAccentColor}33`;
+                        if (customerSearch.trim()) setShowCustomerDropdown(true);
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                      placeholder="Type to search customer..."
+                      disabled={loadingCustomers}
+                      autoComplete="off"
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        fontSize: '12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        background: loadingCustomers ? '#f1f5f9' : '#ffffff',
+                        boxSizing: 'border-box',
+                        transition: 'all 0.2s ease',
+                      }}
+                    />
+                    {quotationCustomerDropdownOpen && (
+                      <div
+                        style={{ ...quotationCustomerDropdownPanel, borderTop: `3px solid ${customerAccentColor}` }}
+                        role="listbox"
+                        aria-label="Customer suggestions"
+                      >
+                        {loadingCustomers && (
+                          <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>Loading…</div>
+                        )}
+                        {!loadingCustomers && filteredCustomers.length === 0 && (
+                          <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>
+                            No matching customer found.
+                          </div>
+                        )}
+                        {!loadingCustomers &&
+                          filteredCustomers.map((customer, idx) => {
+                            const displayName = toProperPersonName(getCustomerDisplayName(customer));
+                            const isSelected = String(customer.Id) === String(customerName);
+                            return (
+                              <div
+                                key={customer.Id}
+                                role="option"
+                                aria-selected={isSelected}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  handleQuotationCustomerSelect(customer);
+                                }}
+                                style={{
+                                  padding: '10px 12px',
+                                  cursor: 'pointer',
+                                  fontSize: 11,
+                                  borderBottom:
+                                    idx < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                  backgroundColor: isSelected ? `${customerAccentColor}22` : '#ffffff',
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) e.currentTarget.style.background = '#f8fafc';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = isSelected
+                                    ? `${customerAccentColor}22`
+                                    : '#ffffff';
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontWeight: 600,
+                                    color: '#1e293b',
+                                    marginBottom: customer.Mobile || customer.MobileNumber ? 4 : 0,
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {displayName}
+                                </div>
+                                {customer.Mobile || customer.MobileNumber ? (
+                                  <div style={{ color: '#64748b', fontSize: 11 }}>
+                                    {customer.Mobile || customer.MobileNumber}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => navigate('/add_customer_new')}
@@ -1103,7 +1246,10 @@ const QuotationWithRFIDTray = ({ editStatus, defaultValues }) => {
                       background: '#ffffff',
                       color: '#627282',
                       cursor: 'pointer',
-                      transition: 'all 0.2s'
+                      transition: 'all 0.2s',
+                      flexShrink: 0,
+                      height: 36,
+                      boxSizing: 'border-box',
                     }}
                     title="Add New Customer"
                     onMouseEnter={(e) => {

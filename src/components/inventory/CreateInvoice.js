@@ -33,22 +33,27 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
+import PageHeader from '../common/PageHeader';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import IconButton from '@mui/material/IconButton';
+import TrayScanModal from '../common/TrayScanModal';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
+import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
 const DEFAULT_PAGE_SIZE = 25;
 const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1200;
 const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 3000;
 const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
-  || 'https://soni.loyalstring.co.in/api/RFIDDashboard/GetRFIDCodesByEPCValues';
+  || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
+const TRAY_LABELLED_STOCK_BY_TID_URL = process.env.REACT_APP_TRAY_LABELLED_STOCK_BY_TID_URL
+  || toRrgoldApiUrl('/api/ProductMaster/GetLabelledStockByTIDNumbers');
 
 const extractRfidMapping = (raw) => {
   const normalizeRows = (value) => {
@@ -443,9 +448,9 @@ const CreateInvoice = () => {
     }
   };
 
-  const handleTrayFetchData = async () => {
+  const handleTrayFetchData = async (scannedTags = trayTags) => {
     clearTrayIdleTimer();
-    if (!trayTags.length) {
+    if (!Array.isArray(scannedTags) || !scannedTags.length) {
       addNotification({
         title: 'No EPC scanned',
         description: 'Scan EPC tags first, then fetch data.',
@@ -465,7 +470,7 @@ const CreateInvoice = () => {
     }
 
     const normalizedTags = Array.from(
-      new Set(trayTags.map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean))
+      new Set((scannedTags || []).map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean))
     );
     if (!normalizedTags.length) {
       addNotification({
@@ -485,11 +490,15 @@ const CreateInvoice = () => {
       setTrayFetchProgress(35);
       setTrayFetchStatus('Calling backend API...');
       const response = await axios.post(
-        'https://soni.loyalstring.co.in/api/RFIDDashboard/GetProductsByTidValues',
+        TRAY_LABELLED_STOCK_BY_TID_URL,
         {
           ClientCode: clientCode,
+          TIDNumbers: normalizedTags,
+          TidNumbers: normalizedTags,
           TIDValues: normalizedTags,
-          TidValues: normalizedTags
+          TidValues: normalizedTags,
+          EPCValues: normalizedTags,
+          EpcValues: normalizedTags
         },
         {
           headers: {
@@ -530,6 +539,10 @@ const CreateInvoice = () => {
           ? responseData.data
           : Array.isArray(responseData?.Data)
             ? responseData.Data
+            : Array.isArray(responseData?.Items)
+              ? responseData.Items
+              : Array.isArray(responseData?.items)
+                ? responseData.items
             : [];
 
       if (!products.length) {
@@ -568,7 +581,7 @@ const CreateInvoice = () => {
       setTrayFetchStatus('Loaded');
       addNotification({
         title: 'Invoice data loaded',
-        description: `Loaded ${mappedRows.length} new product(s). Tray list now has ${mergedRows.length} total product(s).`,
+        description: `Loaded ${mappedRows.length} scanned product(s) from GetLabelledStockByTIDNumbers. Tray list now has ${mergedRows.length} total product(s).`,
         type: 'success'
       });
       await closeTrayScanModal();
@@ -714,7 +727,7 @@ const CreateInvoice = () => {
           // Stock data can load independently while filters load
           const [filterDataResult] = await Promise.allSettled([
             fetchFilterData(),
-            fetchLabeledStock(1, itemsPerPage, '', defaultFilters)
+            trayEnabled ? Promise.resolve() : fetchLabeledStock(1, itemsPerPage, '', defaultFilters)
           ]);
           
           // If filter data failed, still allow stock to display
@@ -731,10 +744,34 @@ const CreateInvoice = () => {
       };
       fetchData();
     }
-  }, [userInfo?.ClientCode]); // Only depend on ClientCode to prevent multiple calls
+  }, [userInfo?.ClientCode, trayEnabled]); // Respect tray-mode startup behavior
+
+  useEffect(() => {
+    if (!userInfo?.ClientCode) return;
+    setShowAllData(false);
+    setAllFilteredData([]);
+    setCurrentPage(1);
+    setSelectedRows([]);
+    if (trayEnabled) {
+      setIsTrayScanView(true);
+      setLabeledStock([]);
+      setTotalRecords(0);
+      setTotalPages(0);
+      setLoading(false);
+      return;
+    }
+    setIsTrayScanView(false);
+    setLoading(true);
+    fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, { force: true });
+  }, [trayEnabled, userInfo?.ClientCode]);
 
   // Function to fetch all filtered data (no pagination)
   const fetchAllFilteredData = async () => {
+    if (trayEnabled || isTrayScanView) {
+      setAllFilteredData([]);
+      setShowAllData(false);
+      return;
+    }
     try {
       setLoadingAllData(true);
       
@@ -1846,6 +1883,7 @@ const CreateInvoice = () => {
   };
 
   const toggleDataView = async () => {
+    if (trayEnabled || isTrayScanView) return;
     if (showAllData) {
       // Switch back to paginated view
       setShowAllData(false);
@@ -1858,6 +1896,22 @@ const CreateInvoice = () => {
   };
 
   const handleShowInvoiceProductList = () => {
+    if (trayEnabled) {
+      setIsTrayScanView(true);
+      setLabeledStock([]);
+      setSelectedRows([]);
+      setShowAllData(false);
+      setAllFilteredData([]);
+      setSearchQuery('');
+      setTotalRecords(0);
+      setTotalPages(0);
+      addNotification({
+        title: 'Tray mode enabled',
+        description: 'Invoice list stays empty in tray mode. Scan tags to load products.',
+        type: 'info'
+      });
+      return;
+    }
     setIsTrayScanView(false);
     setLoading(true);
     fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, { force: true });
@@ -2861,50 +2915,40 @@ const CreateInvoice = () => {
         onClose={() => setShowSuccess(false)}
       />
 
-      <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div style={{ fontFamily: 'var(--font-family)' }}>
         {/* Unified Header & Action Section */}
         <div style={{
           background: '#ffffff',
           borderRadius: '12px',
-          padding: '16px 20px',
+          padding: '12px 16px 16px',
           marginBottom: '16px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
           border: '1px solid #e5e7eb'
         }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '12px'
-          }}>
-            {/* Left: Title */}
-            <div>
-              <h2 style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: 700,
-                color: '#1e293b',
-                lineHeight: '1.2'
-              }}>Create Invoice</h2>
-              {isTrayScanView && (
-                <div style={{ marginTop: 6, fontSize: 11, fontWeight: 700, color: '#0f766e' }}>
-                  Showing scanned tray products
-                </div>
-              )}
-            </div>
-
-            {/* Right: Total Count */}
-            <div style={{
-              fontSize: '12px',
-              color: '#64748b',
-              fontWeight: 600
-            }}>
-              Total: {showAllData && allFilteredData.length > 0 
-                ? allFilteredData.length 
-                : totalRecords} records
-            </div>
-          </div>
+          <PageHeader
+            isSmallScreen={windowWidth <= 768}
+            title="Create Invoice"
+            subtitle={isTrayScanView ? (
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#0f766e', fontFamily: 'var(--font-family)' }}>
+                Showing scanned tray products
+              </span>
+            ) : undefined}
+            icon={<FaFileInvoice style={{ fontSize: windowWidth <= 768 ? 14 : 16 }} />}
+            iconGradient="linear-gradient(135deg, #0d9488 0%, #0f766e 100%)"
+            barStyle={{ marginBottom: 0, boxShadow: 'none', border: 'none', padding: windowWidth <= 768 ? '0 0 8px 0' : '0 0 10px 0' }}
+            actions={
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                fontWeight: 600,
+                fontFamily: 'var(--font-family)',
+              }}>
+                Total: {showAllData && allFilteredData.length > 0
+                  ? allFilteredData.length
+                  : totalRecords} records
+              </div>
+            }
+          />
 
           {/* Action Buttons & Search Row */}
           <div style={{
@@ -3606,30 +3650,35 @@ const CreateInvoice = () => {
           background: '#ffffff',
           borderRadius: '12px',
           marginTop: '16px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          border: '1px solid #d4d4d8',
           overflow: 'hidden'
         }}>
           <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
-            <table style={{ 
+            <table className="invoice-stock-table" style={{ 
               width: '100%',
               minWidth: '1400px',
-              borderCollapse: 'collapse',
-              fontSize: '12px',
-              tableLayout: 'auto'
+              borderCollapse: 'separate',
+              borderSpacing: 0,
+              fontSize: '10px',
+              tableLayout: 'fixed'
             }}>
               <thead>
                 <tr style={{
-                  background: '#f8fafc',
-                  borderBottom: '2px solid #e5e7eb'
+                  background: '#2d3e50',
+                  borderBottom: '2px solid #1e293b',
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 2
                 }}>
                   <th style={{
-                    padding: '12px',
+                    padding: '10px 8px',
                     textAlign: 'center',
                     width: '40px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#475569'
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: '#ffffff',
+                    borderRight: '1px solid rgba(255,255,255,0.12)'
                   }}>
                     <input
                       type="checkbox"
@@ -3656,16 +3705,17 @@ const CreateInvoice = () => {
                     <th
                       key={column.key}
                       style={{
-                        padding: '12px',
+                        padding: '10px 8px',
                         textAlign: 'left',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#475569',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: '#ffffff',
                         whiteSpace: 'nowrap',
                         cursor: 'pointer',
                         width: column.width,
                         transition: 'background 0.2s',
-                        display: isHiddenOnMobile ? 'none' : 'table-cell'
+                        display: isHiddenOnMobile ? 'none' : 'table-cell',
+                        borderRight: '1px solid rgba(255,255,255,0.12)'
                       }}
                       onClick={() => {
                         if (column.key !== 'checkbox') {
@@ -3673,8 +3723,6 @@ const CreateInvoice = () => {
                           setSortConfig({ key: column.key, direction });
                         }
                       }}
-                      onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {column.label}
@@ -3688,11 +3736,11 @@ const CreateInvoice = () => {
                     );
                   })}
                   <th style={{
-                    padding: '12px',
+                    padding: '10px 8px',
                     textAlign: 'left',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#475569',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: '#ffffff',
                     whiteSpace: 'nowrap'
                   }}>Status</th>
                 </tr>
@@ -3704,14 +3752,14 @@ const CreateInvoice = () => {
                     onClick={() => handleRowSelection(item.Id)}
                     style={{
                       cursor: 'pointer',
-                      borderBottom: '1px solid #e5e7eb',
+                      borderBottom: '1px solid #e5e5e5',
                       background: selectedRows.includes(item.Id) 
                         ? '#eff6ff' 
                         : item.Status === 'Sold' 
                         ? '#fef2f2' 
                         : index % 2 === 0 
                         ? '#ffffff' 
-                        : '#f8fafc',
+                        : '#fafafa',
                       transition: 'background 0.2s'
                     }}
                     onMouseEnter={(e) => {
@@ -3730,9 +3778,9 @@ const CreateInvoice = () => {
                     }}
                   >
                     <td style={{
-                      padding: '12px',
+                      padding: '8px 8px',
                       textAlign: 'center',
-                      fontSize: '12px'
+                      fontSize: '10px'
                     }}>
                       <input
                         type="checkbox"
@@ -3752,8 +3800,8 @@ const CreateInvoice = () => {
                       const isHiddenOnMobile = windowWidth <= 480 && hiddenKeys.includes(column.key);
                       return (
                       <td key={column.key} style={{
-                        padding: '12px',
-                        fontSize: '12px',
+                        padding: '8px 8px',
+                        fontSize: '10px',
                         color: '#1e293b',
                         whiteSpace: 'nowrap',
                         display: isHiddenOnMobile ? 'none' : 'table-cell'
@@ -3790,8 +3838,8 @@ const CreateInvoice = () => {
                       );
                     })}
                     <td style={{
-                      padding: '12px',
-                      fontSize: '12px'
+                      padding: '8px 8px',
+                      fontSize: '10px'
                     }}>
                       <button 
                         onClick={(e) => openRFIDTransactionPopup(item, e)}
@@ -4548,30 +4596,31 @@ const CreateInvoice = () => {
           .table-responsive::-webkit-scrollbar-thumb:hover {
             background: #555;
           }
-          table {
+          .invoice-stock-table {
             width: 100%;
             min-width: 1400px;
             border-collapse: separate;
             border-spacing: 0;
-            font-size: 13px;
+            font-size: 10px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            table-layout: auto;
+            table-layout: fixed;
           }
-          thead tr {
-            background: linear-gradient(90deg, #f8f9fa 0%, #e9ecef 100%);
-            border-bottom: 2px solid #e5e7eb;
+          .invoice-stock-table thead tr {
+            background: #2d3e50;
+            border-bottom: 2px solid #1e293b;
           }
-          th {
-            padding: 8px 10px;
-            font-size: 12px;
-            font-weight: 600;
-            color: #38414a;
+          .invoice-stock-table th {
+            padding: 10px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #ffffff;
             white-space: nowrap;
             text-align: left;
             vertical-align: middle;
             border-bottom: 1px solid #e5e7eb;
-            background: none;
-            letter-spacing: 0.01em;
+            background: #2d3e50;
+            border-right: 1px solid rgba(255, 255, 255, 0.12);
+            letter-spacing: 0.02em;
           }
           .th-content {
             display: flex;
@@ -4580,9 +4629,9 @@ const CreateInvoice = () => {
             line-height: 1.2;
             white-space: nowrap;
           }
-          td {
-            padding: 8px 10px;
-            font-size: 13px;
+          .invoice-stock-table td {
+            padding: 8px 8px;
+            font-size: 10px;
             color: #38414a;
             border-bottom: 1px solid #f0f0f0;
             background: inherit;
@@ -4590,10 +4639,10 @@ const CreateInvoice = () => {
             vertical-align: middle;
             white-space: nowrap;
           }
-          tr:hover td {
+          .invoice-stock-table tr:hover td {
             background: #f6faff;
           }
-          tr.selected td {
+          .invoice-stock-table tr.selected td {
             background: #eaf1fb;
           }
           .checkbox-column {
@@ -5592,135 +5641,15 @@ const CreateInvoice = () => {
            </div>
          </div>
        )}
-      {showTrayScanModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{ background: 'radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.20) 0%, rgba(15, 23, 42, 0.42) 45%, rgba(15, 23, 42, 0.65) 100%)', backdropFilter: 'blur(9px)', zIndex: 10001 }}>
-          <div className="modal-dialog modal-dialog-centered modal-xl" style={{ maxWidth: 1120 }}>
-            <div className="modal-content border-0" style={{ borderRadius: 18, background: 'rgba(255, 255, 255, 0.88)', boxShadow: '0 26px 65px rgba(15, 23, 42, 0.32)', overflow: 'hidden', animation: 'fadeIn 0.25s ease-out' }}>
-              <div className="modal-header border-0" style={{ background: 'linear-gradient(120deg, rgba(239, 246, 255, 0.95) 0%, rgba(245, 243, 255, 0.96) 55%, rgba(236, 253, 245, 0.95) 100%)', color: '#0f172a', padding: '14px 18px', borderBottom: '1px solid rgba(148, 163, 184, 0.25)' }}>
-                <h5 className="modal-title d-flex align-items-center gap-2" style={{ fontWeight: 700 }}>
-                  <FaBroadcastTower /> Invoice Tray Scan
-                </h5>
-                <button type="button" className="btn-close" onClick={closeTrayScanModal} style={{ opacity: 0.8 }}></button>
-              </div>
-              <div className="modal-body" style={{ padding: 16 }}>
-                {!hasElectronTrayBridge && (
-                  <div className="alert alert-warning mb-3">Tray scan works only in Electron app.</div>
-                )}
-                <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: windowWidth <= 1100 ? 'wrap' : 'nowrap' }}>
-                  <input className="form-control" value={trayComPrimary} onChange={(e) => setTrayComPrimary(e.target.value)} placeholder="Primary COM" style={{ minWidth: 110, maxWidth: 150 }} />
-                  <input className="form-control" value={trayComSecondary} onChange={(e) => setTrayComSecondary(e.target.value)} placeholder="Secondary COM" style={{ minWidth: 110, maxWidth: 150 }} />
-                  <input className="form-control" value={trayBaudRate} onChange={(e) => setTrayBaudRate(e.target.value)} placeholder="Baud rate" style={{ minWidth: 130, maxWidth: 170 }} />
-                  <button className="btn d-flex align-items-center gap-2" onClick={handleTrayConnectAndScan} disabled={trayBusy || !hasElectronTrayBridge} style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', color: '#fff', border: 'none', fontWeight: 600 }}>
-                    <FaPlug />
-                    <FaPlay />
-                    Connect + Start
-                  </button>
-                  <button className="btn d-flex align-items-center gap-2" onClick={handleTrayStopScan} disabled={trayBusy || !trayScanning || !hasElectronTrayBridge} style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', color: '#fff', border: 'none', fontWeight: 600 }}>
-                    <FaStop />
-                    Stop
-                  </button>
-                  <button className="btn d-flex align-items-center gap-2" onClick={() => { setTrayTags([]); setTrayCurrentPage(1); }} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #cbd5e1', fontWeight: 600 }}>
-                    Clear EPCs
-                  </button>
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 999, background: trayScanning ? 'rgba(16, 185, 129, 0.14)' : 'rgba(148, 163, 184, 0.2)', color: trayScanning ? '#047857' : '#475569' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: trayScanning ? '#10b981' : '#94a3b8', animation: trayScanning ? 'pulse 1.5s infinite' : 'none' }}></span>
-                    {trayScanning ? 'Scanning in progress' : 'Scanner idle'}
-                  </span>
-                  <span>EPC scanned: {trayTags.length}</span>
-                  <span style={{ color: trayResolvingCodes ? '#1d4ed8' : '#334155' }}>
-                    RFID codes: {trayResolvingCodes ? 'resolving...' : 'updated'}
-                  </span>
-                  <span>Auto-selected rows: {selectedRows.length}</span>
-                </div>
-                {!!trayResolveError && (
-                  <div className="alert alert-warning py-2 px-3 mb-2" style={{ fontSize: 12 }}>
-                    RFID code lookup failed: {trayResolveError}
-                  </div>
-                )}
-                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
-                  Scan EPC tags from tray and verify values below. Click fetch data from footer to match invoice rows.
-                </div>
-                <div style={{ border: '1px solid rgba(148, 163, 184, 0.35)', borderRadius: 12, background: 'rgba(255, 255, 255, 0.78)', overflow: 'hidden' }}>
-                  <div style={{ maxHeight: 355, overflowY: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ background: 'rgba(241, 245, 249, 0.9)' }}>
-                          <th style={{ width: 56, padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>#</th>
-                          <th style={{ width: '26%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value A</th>
-                          <th style={{ width: '21%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>RFID Code A</th>
-                          <th style={{ width: 56, padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>#</th>
-                          <th style={{ width: '26%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>EPC Value B</th>
-                          <th style={{ width: '21%', padding: '10px 10px', fontSize: 12, textAlign: 'left', color: '#334155', borderBottom: '1px solid #e2e8f0' }}>RFID Code B</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {trayTwoColumnRows.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} style={{ padding: '18px 12px', fontSize: 12, color: '#64748b' }}>
-                              Scan tags from tray. EPC values will appear here.
-                            </td>
-                          </tr>
-                        ) : (
-                          trayTwoColumnRows.map((row, rowIndex) => (
-                            <tr key={`tray-row-${rowIndex}`} style={{ borderBottom: '1px dashed #e2e8f0' }}>
-                              <td style={{ padding: '8px 10px', fontSize: 11, color: '#64748b' }}>{(trayCurrentPage - 1) * trayPageSize + rowIndex * 2 + 1}</td>
-                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[0]?.epc || '-'}</td>
-                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[0]?.rfidCode || '-'}</td>
-                              <td style={{ padding: '8px 10px', fontSize: 11, color: '#64748b' }}>{row[1]?.epc ? (trayCurrentPage - 1) * trayPageSize + rowIndex * 2 + 2 : '-'}</td>
-                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[1]?.epc || '-'}</td>
-                              <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: '#0f172a', fontWeight: 600 }}>{row[1]?.rfidCode || '-'}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(248, 250, 252, 0.9)', borderTop: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: 12, color: '#64748b' }}>
-                      Page {trayCurrentPage} of {trayTotalPages}
-                    </span>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="btn btn-sm btn-outline-secondary" onClick={() => setTrayCurrentPage((prev) => Math.max(1, prev - 1))} disabled={trayCurrentPage === 1}>Prev</button>
-                      <button className="btn btn-sm btn-outline-secondary" onClick={() => setTrayCurrentPage((prev) => Math.min(trayTotalPages, prev + 1))} disabled={trayCurrentPage === trayTotalPages}>Next</button>
-                    </div>
-                  </div>
-                </div>
-                {(trayFetchLoading || trayFetchProgress > 0) && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, color: '#334155', fontWeight: 600 }}>
-                        {trayFetchStatus || 'Loading product details...'}
-                      </span>
-                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                        {trayFetchProgress}%
-                      </span>
-                    </div>
-                    <div style={{ width: '100%', height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          width: `${trayFetchProgress}%`,
-                          height: '100%',
-                          background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
-                          transition: 'width 0.25s ease'
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="modal-footer border-0" style={{ background: 'rgba(248, 250, 252, 0.75)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn btn-success d-flex align-items-center gap-2" onClick={handleTrayFetchData} style={{ fontWeight: 700 }} disabled={trayFetchLoading}>
-                  {trayFetchLoading ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> : <FaSearch />}
-                  {trayFetchLoading ? 'Fetching...' : 'Load Data'}
-                </button>
-                <button className="btn btn-secondary" onClick={closeTrayScanModal}>Done</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <TrayScanModal
+        open={showTrayScanModal}
+        onClose={closeTrayScanModal}
+        onFetchData={handleTrayFetchData}
+        title="Invoice Tray Scan"
+        subtitle="Use the RFID tray reader to scan EPC tags, then load matching invoice rows."
+        loadButtonLabel={trayFetchLoading ? 'Fetching...' : 'Load Data'}
+        compactLayout
+      />
       </div>
     </div>
   );

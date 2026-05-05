@@ -1,0 +1,38 @@
+{
+  "extends": null,
+  "appId": "com.loyalstring.sparkle-rfid-dashboard",
+  "productName": "Sparkle RFID Dashboard",
+  "electronVersion": "22.3.27",
+  "directories": {
+    "output": "release-legacy"
+  },
+  "artifactName": "${productName}-${version}-legacy-${arch}.${ext}",
+  "files": [
+    "build/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "electron/main.js"
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "build-resources/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build-resources/icon.ico",
+    "uninstallerIcon": "build-resources/icon.ico",
+    "installerHeaderIcon": "build-resources/icon.ico"
+  },
+  "extraResources": [
+    {
+      "from": "rfid-bridge/bin/Release/net6.0/win-x64/publish",
+      "to": "rfid-bridge",
+      "filter": [
+        "**/*"
+      ]
+    }
+  ]
+}

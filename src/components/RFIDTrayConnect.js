@@ -3,9 +3,11 @@ import axios from 'axios';
 import { FaBroadcastTower, FaLink, FaListUl, FaMicrochip, FaPlug, FaPowerOff, FaSearch, FaSyncAlt, FaTerminal, FaWaveSquare } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import '../styles/RFIDTrayConnect.css';
+import { toSoniApiUrl } from '../services/apiBaseConfig';
+import { getTrayReaderConfig, saveTrayReaderConfig } from '../services/trayReaderConfig';
 
 const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
-  || 'https://soni.loyalstring.co.in/api/RFIDDashboard/GetRFIDCodesByEPCValues';
+  || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
 
 const getClientCode = () => {
   try {
@@ -83,9 +85,10 @@ const extractRfidMapping = (raw) => {
 };
 
 const RFIDTrayConnect = () => {
-  const [comPrimary, setComPrimary] = useState('7');
-  const [comSecondary, setComSecondary] = useState('8');
-  const [baudRate, setBaudRate] = useState('115200');
+  const initialReaderConfig = useMemo(() => getTrayReaderConfig(), []);
+  const [comPrimary, setComPrimary] = useState(initialReaderConfig.comPrimary);
+  const [comSecondary, setComSecondary] = useState(initialReaderConfig.comSecondary);
+  const [baudRate, setBaudRate] = useState(initialReaderConfig.baudRate);
   const [isScanning, setIsScanning] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [logs, setLogs] = useState([]);
@@ -320,6 +323,14 @@ const RFIDTrayConnect = () => {
     setLogs([]);
   };
 
+  const saveReaderPorts = () => {
+    const saved = saveTrayReaderConfig({ comPrimary, comSecondary, baudRate });
+    setComPrimary(saved.comPrimary);
+    setComSecondary(saved.comSecondary);
+    setBaudRate(saved.baudRate);
+    toast.success('Reader ports saved. Tray scan popup will use these settings.');
+  };
+
   return (
     <div className="tray-connect-page">
       <div className="tray-connect-header">
@@ -356,6 +367,15 @@ const RFIDTrayConnect = () => {
               <input className="form-control tray-input" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} />
             </div>
             <div className="tray-action-row">
+            <button
+              type="button"
+              className="tray-btn tray-btn-ghost"
+              onClick={saveReaderPorts}
+              disabled={isBusy}
+            >
+              <FaPlug />
+              Save Ports
+            </button>
             <button
               type="button"
               className={`tray-btn tray-btn-primary ${activeAction === 'connect' ? 'tray-btn-active' : ''}`}

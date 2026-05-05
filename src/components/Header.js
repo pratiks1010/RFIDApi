@@ -259,7 +259,6 @@ const Header = () => {
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
-    localStorage.removeItem('inventoryTrayEnabled');
     sessionStorage.clear();
     navigate('/login', { replace: true });
   };

@@ -392,7 +392,12 @@ const Login = () => {
       console.error('Login error:', err);
       let errorMessage;
       if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userInfo');
+        localStorage.removeItem('lastLoginTime');
+        localStorage.removeItem('showWelcomeToast');
         errorMessage = 'Please enter valid username and password';
+        navigate('/login', { replace: true });
       } else {
         errorMessage = err.response?.data?.Message || err.message || 'Login failed. Please try again.';
       }
@@ -516,7 +521,7 @@ const Login = () => {
       if (!secondMatch.matched) {
         throw new Error(`Face mismatch on verification pass. Distance ${secondMatch.distance.toFixed(3)} > ${secondMatch.threshold.toFixed(3)}.`);
       }
-      if (faceDistance(descriptor, secondDescriptor) > 0.33) {
+      if (faceDistance(descriptor, secondDescriptor) > 0.27) {
         throw new Error('Face verification is unstable. Keep same face centered and retry.');
       }
       const imageBase64 = await captureVideoFrame(faceVideoRef.current);

@@ -1,8 +1,10 @@
+import { getSoniApiBaseUrl } from './apiBaseConfig';
+
 /**
  * Password login host (ProductMaster). Override: REACT_APP_AUTH_API_BASE_URL.
  */
 export const getAuthApiBaseUrl = () =>
-  (process.env.REACT_APP_AUTH_API_BASE_URL || 'https://soni.loyalstring.co.in').replace(/\/$/, '');
+  (process.env.REACT_APP_AUTH_API_BASE_URL || getSoniApiBaseUrl()).replace(/\/$/, '');
 
 export const getAuthLoginUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthLogin`;
 

@@ -256,7 +256,6 @@ const SidebarLayout = ({ children }) => {
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
-    localStorage.removeItem('inventoryTrayEnabled');
     sessionStorage.clear();
     navigate('/login', { replace: true });
   };
@@ -331,10 +330,10 @@ const SidebarLayout = ({ children }) => {
   })();
 
   const sidebarWidth = sidebarOpen
-    ? (isMobile ? '280px' : (sidebarCollapsed ? '72px' : '220px'))
+    ? (isMobile ? '264px' : (sidebarCollapsed ? '64px' : '204px'))
     : '0';
   const mainContentMargin = !isMobile && sidebarOpen
-    ? (sidebarCollapsed ? '72px' : '220px')
+    ? (sidebarCollapsed ? '64px' : '204px')
     : '0';
 
   return (
@@ -425,17 +424,17 @@ const SidebarLayout = ({ children }) => {
             left: 0,
             top: 0,
             bottom: 0,
-            width: isMobile ? '280px' : sidebarWidth,
-            background: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            borderRight: '1px solid rgba(0,0,0,0.08)',
+            width: isMobile ? 'min(82vw, 300px)' : sidebarWidth,
+            background: 'linear-gradient(180deg, #042954 0%, #032547 45%, #021f3d 100%)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            borderRight: '1px solid rgba(148, 163, 184, 0.14)',
             transition: isMobile ? 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             overflow: 'hidden',
             zIndex: 999,
             display: isMobile ? 'flex' : (sidebarOpen ? 'flex' : 'none'),
             flexDirection: 'column',
-            boxShadow: '4px 0 24px rgba(0, 0, 0, 0.08)',
+            boxShadow: 'none',
             transform: isMobile ? (sidebarOpen ? 'translateX(0)' : 'translateX(-100%)') : undefined,
             visibility: isMobile && !sidebarOpen ? 'hidden' : 'visible',
           }}
@@ -443,22 +442,56 @@ const SidebarLayout = ({ children }) => {
           {/* Sidebar top: Logo + collapse/expand on desktop, close on mobile */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '6px 8px',
-            borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
+            background: 'rgba(255, 255, 255, 0.04)',
+            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
             display: 'flex',
             flexDirection: sidebarCollapsed ? 'column' : 'row',
             alignItems: 'center',
             gap: 8,
             justifyContent: sidebarCollapsed ? 'center' : 'flex-start'
           }}>
-            <Link to="/analytics" style={{ display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'flex-start', flex: sidebarCollapsed ? 0 : 1, minWidth: 0, textDecoration: 'none' }} onClick={() => isMobile && setSidebarOpen(false)}>
-              <img src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`} alt="Sparkle RFID" style={{ height: sidebarCollapsed ? 24 : 28, width: 'auto', maxWidth: sidebarCollapsed ? 44 : 'none' }} onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }} />
+            <Link
+              to="/analytics"
+              title="Loyal String Dashboard"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                flex: sidebarCollapsed ? 0 : 1,
+                minWidth: 0,
+                textDecoration: 'none',
+              }}
+              onClick={() => isMobile && setSidebarOpen(false)}
+            >
+              <span
+                style={{
+                  color: '#f8fafc',
+                  fontWeight: 700,
+                  fontSize: sidebarCollapsed ? 8 : 16,
+                  letterSpacing: sidebarCollapsed ? 0 : '0.02em',
+                  textAlign: sidebarCollapsed ? 'center' : 'left',
+                  lineHeight: sidebarCollapsed ? 1.15 : 1.25,
+                  overflow: 'hidden',
+                  maxWidth: sidebarCollapsed ? 54 : '100%',
+                }}
+              >
+                {sidebarCollapsed ? (
+                  <>
+                    Loyal
+                    <br />
+                    String
+                  </>
+                ) : (
+                  'Loyal String'
+                )}
+              </span>
             </Link>
             {!isMobile && !sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(true)} style={{ flexShrink: 0, background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 8, cursor: 'pointer', color: '#64748b' }} title="Collapse sidebar" aria-label="Collapse sidebar"><FaChevronLeft size={14} /></button>
+              <button onClick={() => setSidebarCollapsed(true)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 8, cursor: 'pointer', color: '#facc15' }} title="Collapse sidebar" aria-label="Collapse sidebar"><FaChevronLeft size={14} /></button>
             )}
             {!isMobile && sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#64748b' }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={12} /></button>
+              <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 6, cursor: 'pointer', color: '#facc15' }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={12} /></button>
             )}
             {isMobile && (
               <button type="button" onClick={() => setSidebarOpen(false)} className="sidebar-close-btn" style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10, cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Close menu" aria-label="Close menu"><FaTimes size={18} /></button>
@@ -468,23 +501,23 @@ const SidebarLayout = ({ children }) => {
           {/* User Profile - Moved to top */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '6px 8px',
-            borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
+            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
             display: 'flex',
             flexDirection: 'column',
             gap: 8
           }}>
-            <button onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }} title={`${username} • ${clientCode}`} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: '#f8fafc', border: '1px solid #e2e8f0', padding: sidebarCollapsed ? '6px' : '6px 10px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s ease' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0, boxShadow: '0 2px 6px rgba(2, 132, 199, 0.2)' }}>{avatarLetter}</div>
+            <button onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }} title={`${username} • ${clientCode}`} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148, 163, 184, 0.18)', padding: sidebarCollapsed ? '7px' : '7px 10px', borderRadius: 12, cursor: 'pointer', transition: 'all 0.2s ease', boxShadow: 'none' }}>
+              <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)', color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0, boxShadow: 'none' }}>{avatarLetter}</div>
               {!sidebarCollapsed && (
                 <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, marginBottom: 2 }}>{username}</div>
-                  <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, marginBottom: 2 }}>{username}</div>
+                  <div style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }}></span>
                     {clientCode}
                   </div>
                   {(planName || formattedPlanExpiry) && (
-                    <div style={{ fontSize: 9, color: '#7c3aed', fontWeight: 700, marginTop: 2, lineHeight: 1.25 }}>
+                    <div style={{ fontSize: 9, color: '#93c5fd', fontWeight: 700, marginTop: 2, lineHeight: 1.25 }}>
                       {planName ? `Plan: ${planName}` : ''}
                       {formattedPlanExpiry ? `${planName ? ' • ' : ''}Exp: ${formattedPlanExpiry}` : ''}
                     </div>
@@ -503,14 +536,23 @@ const SidebarLayout = ({ children }) => {
                 if (sidebarCollapsed) return null;
                 return (
                   <div style={{
-                    padding: '1px 6px',
-                    margin: '1px 6px 0px 6px',
-                    background: 'transparent',
-                    borderRadius: '4px',
+                    padding: '4px 10px 6px',
+                    margin: '8px 8px 4px',
+                    position: 'relative',
                   }}>
-                    <span style={{ fontSize: '7px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px', lineHeight: 1.2 }}>
+                    <span style={{ fontSize: '9px', fontWeight: '700', color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.45px', lineHeight: 1.2 }}>
                       {title}
                     </span>
+                    <div
+                      style={{
+                        marginTop: 4,
+                        height: 2,
+                        width: 46,
+                        borderRadius: 999,
+                        background: 'linear-gradient(90deg, #facc15 0%, #60a5fa 100%)',
+                        boxShadow: '0 0 10px rgba(250, 204, 21, 0.35)',
+                      }}
+                    />
                   </div>
                 );
               };
@@ -527,14 +569,14 @@ const SidebarLayout = ({ children }) => {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '6px',
-                      padding: sidebarCollapsed ? '4px 4px' : '1px 6px',
-                      margin: sidebarCollapsed ? '1px 4px' : '0 6px',
-                      borderRadius: '6px',
-                        color: '#94a3b8',
+                      gap: sidebarCollapsed ? '0' : '8px',
+                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
+                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
+                      borderRadius: '9px',
+                        color: '#64748b',
                         background: 'transparent',
                         fontWeight: 500,
-                        fontSize: '10px',
+                        fontSize: '12px',
                         lineHeight: '1.25',
                         transition: 'all 0.2s ease',
                         justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
@@ -546,17 +588,17 @@ const SidebarLayout = ({ children }) => {
                       title={sidebarCollapsed ? label : 'Coming Soon'}
                     >
                       <span style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: 6,
-                        background: 'rgba(148, 163, 184, 0.2)',
+                        width: 24,
+                        height: 24,
+                        borderRadius: 8,
+                        background: 'rgba(148, 163, 184, 0.16)',
                         color: '#94a3b8',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
                       }}>
-                        <Icon style={{ fontSize: 10 }} />
+                        <Icon style={{ fontSize: 12 }} />
                       </span>
                       {!sidebarCollapsed && (
                         <>
@@ -601,30 +643,30 @@ const SidebarLayout = ({ children }) => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '6px',
-                      padding: sidebarCollapsed ? '4px 4px' : '1px 6px',
-                      margin: sidebarCollapsed ? '1px 4px' : '0 6px',
-                      borderRadius: '6px',
+                      gap: sidebarCollapsed ? '0' : '8px',
+                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
+                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
+                      borderRadius: '9px',
                         textDecoration: 'none',
-                        color: '#1e293b',
+                        color: '#e2e8f0',
                         background: isActive
-                        ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)`
+                        ? `linear-gradient(90deg, rgba(250, 204, 21, 0.22) 0%, rgba(59, 130, 246, 0.34) 55%, rgba(15, 23, 42, 0.86) 100%)`
                         : 'transparent',
                       fontWeight: isActive ? 600 : 500,
-                      fontSize: '10px',
+                      fontSize: '12px',
                       lineHeight: '1.25',
                       transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
-                      border: isActive ? `1px solid ${color}40` : `1px solid transparent`,
-                      boxShadow: isActive ? `0 1px 3px ${color}20` : 'none'
+                      border: isActive ? '1px solid rgba(250, 204, 21, 0.55)' : `1px solid transparent`,
+                      boxShadow: 'none'
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.background = `linear-gradient(135deg, ${color}12 0%, ${color}06 100%)`;
-                        e.currentTarget.style.borderColor = `${color}40`;
-                        e.currentTarget.style.transform = 'translateX(4px)';
-                        e.currentTarget.style.boxShadow = `0 1px 4px ${color}15`;
+                        e.currentTarget.style.background = `linear-gradient(90deg, rgba(250, 204, 21, 0.12) 0%, rgba(59, 130, 246, 0.22) 60%, rgba(30, 41, 59, 0.52) 100%)`;
+                        e.currentTarget.style.borderColor = 'rgba(250, 204, 21, 0.35)';
+                        e.currentTarget.style.transform = 'translateX(3px)';
+                        e.currentTarget.style.boxShadow = 'none';
                       }
                     }}
                     onMouseLeave={(e) => {
@@ -638,25 +680,28 @@ const SidebarLayout = ({ children }) => {
                     title={sidebarCollapsed ? label : ''}
                   >
                     <span style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 6,
-                      background: isActive ? `${color}22` : `${color}14`,
-                      color: color,
+                      width: 24,
+                      height: 24,
+                      borderRadius: 8,
+                      background: isActive
+                        ? 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)'
+                        : `linear-gradient(135deg, ${color}2b 0%, ${color}14 100%)`,
+                      color: isActive ? '#0f172a' : color,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0,
                       transition: 'all 0.25s ease',
+                      border: isActive ? '1px solid rgba(250, 204, 21, 0.65)' : `1px solid ${color}34`,
                     }}>
-                      <Icon style={{ fontSize: 10 }} />
+                      <Icon style={{ fontSize: 12 }} />
                     </span>
                     {!sidebarCollapsed && (
                       <span style={{
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        maxWidth: '180px',
+                        maxWidth: '150px',
                         display: 'inline-block',
                         letterSpacing: '-0.2px'
                       }}>
@@ -669,11 +714,11 @@ const SidebarLayout = ({ children }) => {
                         left: 0,
                         top: '50%',
                         transform: 'translateY(-50%)',
-                        width: '3px',
+                        width: '4px',
                         height: '60%',
-                        background: `linear-gradient(180deg, ${color} 0%, ${color}dd 100%)`,
+                        background: 'linear-gradient(180deg, #facc15 0%, #f59e0b 100%)',
                         borderRadius: '0 3px 3px 0',
-                        boxShadow: `0 2px 4px ${color}40`
+                        boxShadow: 'none'
                       }} />
                     )}
                   </Link>
@@ -691,7 +736,7 @@ const SidebarLayout = ({ children }) => {
                     <div style={{
                       height: '1px',
                       background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '0px 8px',
+                      margin: '2px 10px',
                       opacity: 0.4
                     }} />
                   )}
@@ -705,7 +750,7 @@ const SidebarLayout = ({ children }) => {
                     <div style={{
                       height: '1px',
                       background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '0px 8px',
+                      margin: '2px 10px',
                       opacity: 0.4
                     }} />
                   )}
@@ -719,7 +764,7 @@ const SidebarLayout = ({ children }) => {
                     <div style={{
                       height: '1px',
                       background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '0px 8px',
+                      margin: '2px 10px',
                       opacity: 0.4
                     }} />
                   )}
@@ -734,7 +779,7 @@ const SidebarLayout = ({ children }) => {
                         <div style={{
                           height: '1px',
                           background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '1px 8px',
+                          margin: '2px 10px',
                           opacity: 0.4
                         }} />
                       )}
@@ -749,7 +794,7 @@ const SidebarLayout = ({ children }) => {
                         <div style={{
                           height: '1px',
                           background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '1px 8px',
+                          margin: '2px 10px',
                           opacity: 0.4
                         }} />
                       )}
@@ -768,18 +813,18 @@ const SidebarLayout = ({ children }) => {
           {/* Sidebar bottom: Fullscreen, Logout */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 8px',
-            borderTop: '1px solid rgba(0, 0, 0, 0.06)',
+            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
+            borderTop: '1px solid rgba(148, 163, 184, 0.14)',
             display: 'flex',
             flexDirection: sidebarCollapsed ? 'column' : 'row',
             alignItems: 'center',
             gap: 8,
             justifyContent: 'center'
           }}>
-            <button onClick={toggleFullscreen} style={{ flexShrink: 0, background: '#f8fafc', border: '1px solid #e2e8f0', padding: 8, borderRadius: 8, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+            <button onClick={toggleFullscreen} style={{ flexShrink: 0, background: 'rgba(250, 204, 21, 0.12)', border: '1px solid rgba(250, 204, 21, 0.35)', padding: 8, borderRadius: 10, cursor: 'pointer', color: '#facc15', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
               {isFullscreen ? <FaCompress size={16} /> : <FaExpand size={16} />}
             </button>
-            <button onClick={handleLogout} style={{ flex: 1, background: '#fee2e2', border: '1px solid #fecaca', padding: '8px', borderRadius: 8, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: sidebarCollapsed ? 'auto' : '100%', transition: 'all 0.2s ease' }} title="Logout">
+            <button onClick={handleLogout} style={{ flex: 1, background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', border: '1px solid #fecaca', padding: '8px', borderRadius: 10, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: sidebarCollapsed ? 'auto' : '100%', transition: 'all 0.2s ease', boxShadow: '0 3px 8px rgba(239, 68, 68, 0.12)' }} title="Logout">
               <FaSignOutAlt size={16} />
               {!sidebarCollapsed && <span style={{ fontSize: 13, fontWeight: 700 }}>Logout</span>}
             </button>
@@ -879,8 +924,8 @@ const SidebarLayout = ({ children }) => {
         }
         /* Mobile sidebar - max width so content remains visible */
         .sidebar-glass.sidebar-mobile {
-          max-width: min(280px, 85vw);
-          width: 280px !important;
+          max-width: min(82vw, 300px);
+          width: min(82vw, 300px) !important;
         }
         @keyframes sidebar-overlay-in {
           from { opacity: 0; }
@@ -1023,8 +1068,8 @@ const SidebarLayout = ({ children }) => {
         /* Mobile responsive sidebar - single consistent width, touch targets */
         @media (max-width: 768px) {
           .sidebar-glass.sidebar-mobile {
-            width: 280px !important;
-            max-width: 85vw !important;
+            width: min(82vw, 300px) !important;
+            max-width: min(82vw, 300px) !important;
             overflow-x: hidden !important;
             overflow-y: auto !important;
             -webkit-overflow-scrolling: touch;
@@ -1039,9 +1084,9 @@ const SidebarLayout = ({ children }) => {
           .sidebar-nav-item {
             padding: 12px 14px !important;
             margin: 0 8px 2px 8px !important;
-            font-size: 13px !important;
+            font-size: 12px !important;
             gap: 12px !important;
-            border-radius: 10px !important;
+            border-radius: 11px !important;
             min-height: 44px !important;
             align-items: center !important;
             display: flex !important;
@@ -1053,17 +1098,12 @@ const SidebarLayout = ({ children }) => {
             padding: 12px !important;
             overflow-x: auto !important;
           }
-          .sidebar-content > div > div:first-child {
-            padding: 6px 12px !important;
-            margin: 8px 8px 2px 8px !important;
-            font-size: 10px !important;
-            line-height: 1.2 !important;
-          }
+          .sidebar-content > div > div:first-child { margin-top: 10px !important; }
         }
         
         @media (max-width: 480px) {
           .sidebar-glass.sidebar-mobile {
-            width: 260px !important;
+            width: min(86vw, 280px) !important;
             max-width: 85vw !important;
           }
           .sidebar-nav-item {
@@ -1082,7 +1122,7 @@ const SidebarLayout = ({ children }) => {
         
         @media (max-width: 360px) {
           .sidebar-glass.sidebar-mobile {
-            width: 240px !important;
+            width: min(90vw, 250px) !important;
             max-width: 90vw !important;
           }
           .sidebar-nav-item {
@@ -1096,19 +1136,15 @@ const SidebarLayout = ({ children }) => {
         @media (min-width: 769px) and (max-width: 1024px) {
           .sidebar-nav-item {
             padding: 4px 8px !important;
-            font-size: 10px !important;
+            font-size: 11px !important;
             gap: 6px !important;
             margin: 0px 4px !important;
             height: 26px !important;
           }
           .sidebar-nav-item svg {
-            font-size: 12px !important;
+            font-size: 13px !important;
           }
-          .sidebar-content > div > div:first-child {
-            padding: 2px 8px !important;
-            font-size: 8px !important;
-            margin: 4px 4px 2px 4px !important;
-          }
+          .sidebar-content > div > div:first-child { margin-top: 8px !important; }
         }
         
         /* Large screens - keep compact to fit */
@@ -1116,18 +1152,14 @@ const SidebarLayout = ({ children }) => {
           .sidebar-nav-item {
             padding: 2px 6px !important;
             margin: 0 4px !important;
-            font-size: 10px !important;
-            height: 24px !important; /* Compact desktop height */
+            font-size: 11px !important;
+            height: 28px !important;
             gap: 6px !important;
           }
            .sidebar-nav-item svg {
-            font-size: 12px !important;
+            font-size: 13px !important;
           }
-          .sidebar-content > div > div:first-child {
-             margin: 4px 4px 0px 4px !important;
-             padding: 1px 4px !important;
-             font-size: 8px !important;
-          }
+          .sidebar-content > div > div:first-child { margin-top: 8px !important; }
         }
         
         /* Prevent all scrollbars */

@@ -551,6 +551,8 @@
     "inactiveItems": "Inactive Items",
     "pendingItems": "Pending Items",
     "totalWeight": "Total Weight",
+    "newRfidTags": "New RFID tags",
+    "counterCount": "No. of counters",
     "averageWeight": "Average Weight",
     "totalValue": "Total Value",
     "averageValue": "Average Value",

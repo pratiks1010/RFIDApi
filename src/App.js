@@ -54,6 +54,7 @@ import AutoPushStockUtility from './components/AutoPushStockUtility';
 import MapFieldsUtility from './components/MapFieldsUtility';
 import TemplateUtility from './components/TemplateUtility';
 import AboutSparkleApplication from './components/AboutSparkleApplication';
+import { setupApiRuntimeRouter } from './services/apiRuntimeRouter';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
 import './styles/rtl.css';
@@ -68,6 +69,8 @@ import './i18n';
 const Router = (typeof window !== 'undefined' && window.location.protocol === 'file:')
   ? HashRouter
   : BrowserRouter;
+
+setupApiRuntimeRouter();
 
 // Global loading context
 export const LoadingContext = createContext({ loading: false, setLoading: () => { } });
@@ -372,7 +375,6 @@ const useSessionTimeout = () => {
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
-    localStorage.removeItem('inventoryTrayEnabled');
     localStorage.removeItem('adminToken');
     sessionStorage.clear();
 

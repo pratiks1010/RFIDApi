@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { FaMicrochip, FaSearch, FaFilter, FaFileExport, FaTrash, FaSync, FaFilePdf, FaFileExcel, FaEnvelope, FaTimes } from 'react-icons/fa';
+import { FaMicrochip, FaSearch, FaFilter, FaFileExport, FaTrash, FaSync, FaFilePdf, FaFileExcel, FaTimes } from 'react-icons/fa';
 import { MdEmail, MdClear } from 'react-icons/md';
-import { BiSearchAlt } from 'react-icons/bi';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 15;
 
 const RFIDDeviceDetails = () => {
   // Global loader
@@ -36,7 +35,6 @@ const RFIDDeviceDetails = () => {
   const [emailAddress, setEmailAddress] = useState('');
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
 
   const { addNotification } = useNotifications();
 
@@ -280,13 +278,21 @@ const RFIDDeviceDetails = () => {
     return matchesDevice && matchesRfid;
   });
 
-  // Pagination
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  // Pagination (fixed page size with padded rows)
   const totalRecords = filteredData.length;
-  const paginatedDeviceData = filteredData.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  const totalPages = Math.max(1, Math.ceil(totalRecords / ITEMS_PER_PAGE));
+  const paginatedDeviceData = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredData.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredData, currentPage]);
+  const paddedDeviceSlots = useMemo(() => {
+    const slots = paginatedDeviceData.map((item) => ({ kind: 'row', item }));
+    const padCount = Math.max(0, ITEMS_PER_PAGE - slots.length);
+    for (let i = 0; i < padCount; i += 1) {
+      slots.push({ kind: 'pad', key: `rfid-pad-${currentPage}-${i}` });
+    }
+    return slots;
+  }, [paginatedDeviceData, currentPage]);
 
   // Handle page change
   const handlePageChange = (newPage) => {
@@ -507,200 +513,47 @@ const RFIDDeviceDetails = () => {
           }
         `}
       </style>
-      {/* Unified Header & Action Section */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        padding: '16px 20px',
-        marginBottom: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-          marginBottom: '16px'
-        }}>
-          <div>
-            <h2 style={{
-              margin: 0,
-              fontSize: '16px',
-              fontWeight: 700,
-              color: '#1e293b',
-              lineHeight: '1.2'
-            }}>RFID Device Details</h2>
+      <div style={{ background: '#ffffff', borderRadius: 12, overflow: 'hidden', marginBottom: 12, boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)', border: '1px solid #e2e8f0' }}>
+        <div style={{ height: 3, background: 'linear-gradient(90deg, #7c3aed 0%, #8b5cf6 50%, #a78bfa 100%)' }} />
+        <div style={{ padding: '14px 16px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+              <h1 style={{ margin: 0, fontSize: windowWidth <= 768 ? '1.05rem' : '1.18rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>RFID device details</h1>
+              <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b', fontWeight: 600, lineHeight: 1.45 }}>
+                Scan to desktop sync list · <strong style={{ color: '#7c3aed' }}>{ITEMS_PER_PAGE} rows</strong> per page
+              </p>
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>
+              Total: <span style={{ color: '#0f172a' }}>{totalRecords}</span>
+            </div>
           </div>
-          <div style={{
-            fontSize: '12px',
-            color: '#64748b',
-            fontWeight: 600
-          }}>
-            Total: {totalRecords} records
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 220 }}>
+              <FaSearch style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: 12 }} />
+              <input
+                type="text"
+                placeholder="Search RFID code..."
+                value={searchRfid}
+                onChange={(e) => {
+                  setSearchRfid(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ width: '100%', height: 32, padding: '0 10px 0 30px', fontSize: 11, border: '1px solid #e2e8f0', borderRadius: 8, outline: 'none' }}
+              />
+            </div>
+            <button onClick={handleDelete} disabled={selectedRows.length === 0} style={{ height: 32, padding: '0 12px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #ef4444', background: selectedRows.length === 0 ? '#f5f5f5' : '#fff', color: selectedRows.length === 0 ? '#a3a3a3' : '#ef4444', cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <FaTrash /> Delete
+            </button>
+            <button onClick={() => setShowExportModal(true)} style={{ height: 32, padding: '0 12px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #7c3aed', background: '#fff', color: '#7c3aed', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <FaFileExport /> Export
+            </button>
+            <button onClick={() => setShowFilterPanel(true)} style={{ height: 32, padding: '0 12px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #9333ea', background: '#faf5ff', color: '#7e22ce', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <FaFilter /> Filter
+            </button>
+            <button onClick={handleRefresh} style={{ height: 32, padding: '0 12px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #d4d4d8', background: '#fafafa', color: '#262626', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <FaSync className={isRefreshing ? 'fa-spin' : ''} /> Refresh
+            </button>
           </div>
-        </div>
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '10px',
-          alignItems: 'center',
-          paddingTop: '16px',
-          borderTop: '1px solid #e5e7eb'
-        }}>
-          {/* Search Input */}
-          <div style={{
-            position: 'relative',
-            flex: '1',
-            minWidth: windowWidth <= 768 ? '100%' : '250px',
-            maxWidth: windowWidth <= 768 ? '100%' : '350px'
-          }}>
-            <FaSearch style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#94a3b8',
-              fontSize: '14px',
-              zIndex: 1
-            }} />
-            <input
-              type="text"
-              placeholder="Search by RFID Code..."
-              value={searchRfid}
-              onChange={(e) => {
-                setSearchRfid(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 36px',
-                fontSize: '12px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                outline: 'none',
-                transition: 'all 0.2s',
-                boxSizing: 'border-box'
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-            />
-          </div>
-          {/* Action Buttons */}
-          <button
-            onClick={handleDelete}
-            disabled={selectedRows.length === 0}
-            style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid #ef4444',
-              background: selectedRows.length === 0 ? '#f1f5f9' : '#ffffff',
-              color: selectedRows.length === 0 ? '#94a3b8' : '#ef4444',
-              cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              if (selectedRows.length > 0) {
-                e.target.style.background = '#ef4444';
-                e.target.style.color = '#ffffff';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (selectedRows.length > 0) {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#ef4444';
-              }
-            }}
-          >
-            <FaTrash /> Delete
-          </button>
-          <button
-            onClick={() => setShowExportModal(true)}
-            style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid #3b82f6',
-              background: '#ffffff',
-              color: '#3b82f6',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = '#3b82f6';
-              e.target.style.color = '#ffffff';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = '#ffffff';
-              e.target.style.color = '#3b82f6';
-            }}
-          >
-            <FaFileExport /> Export
-          </button>
-          <button
-            onClick={() => setShowFilterPanel(true)}
-            style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid #10b981',
-              background: '#ffffff',
-              color: '#10b981',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = '#10b981';
-              e.target.style.color = '#ffffff';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = '#ffffff';
-              e.target.style.color = '#10b981';
-            }}
-          >
-            <FaFilter /> Filter
-          </button>
-          <button
-            onClick={handleRefresh}
-            style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid #64748b',
-              background: '#ffffff',
-              color: '#64748b',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = '#64748b';
-              e.target.style.color = '#ffffff';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = '#ffffff';
-              e.target.style.color = '#64748b';
-            }}
-          >
-            <FaSync /> Refresh
-          </button>
         </div>
       </div>
 
@@ -749,7 +602,7 @@ const RFIDDeviceDetails = () => {
                         setSelectedRows([]);
                       }
                     }}
-                    checked={paginatedDeviceData.length > 0 && selectedRows.length === paginatedDeviceData.length}
+                    checked={paginatedDeviceData.length > 0 && paginatedDeviceData.every((item) => selectedRows.includes(item.Id))}
                     style={{
                       cursor: 'pointer',
                       width: '16px',
@@ -829,15 +682,23 @@ const RFIDDeviceDetails = () => {
               </tr>
             </thead>
             <tbody>
-              {paginatedDeviceData.length === 0 ? (
+              {totalRecords === 0 ? (
                 <tr>
                   <td colSpan="9" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
                     No devices found
                   </td>
                 </tr>
               ) : (
-                paginatedDeviceData.map((item, index) => {
-                  const globalIndex = (currentPage - 1) * itemsPerPage + index;
+                paddedDeviceSlots.map((slot, index) => {
+                  if (slot.kind === 'pad') {
+                    return (
+                      <tr key={slot.key} style={{ background: index % 2 === 0 ? '#ffffff' : '#faf5ff' }}>
+                        <td colSpan="9" style={{ height: 36, borderBottom: '1px solid #f3f4f6' }} />
+                      </tr>
+                    );
+                  }
+                  const item = slot.item;
+                  const globalIndex = (currentPage - 1) * ITEMS_PER_PAGE + index;
                   const isSelected = selectedRows.includes(item.Id);
                   return (
                     <tr
@@ -984,8 +845,7 @@ const RFIDDeviceDetails = () => {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={{
+      <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -1005,32 +865,8 @@ const RFIDDeviceDetails = () => {
             color: '#64748b'
           }}>
             <span>
-              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+              Showing {totalRecords === 0 ? 0 : ((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalRecords)} of {totalRecords} entries · {ITEMS_PER_PAGE}/page
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Show:</span>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={200}>200</option>
-              </select>
-              <span>per page</span>
-            </div>
           </div>
           <div style={{
             display: 'flex',
@@ -1088,7 +924,7 @@ const RFIDDeviceDetails = () => {
                     fontWeight: 600,
                     borderRadius: '6px',
                     border: '1px solid #e2e8f0',
-                    background: currentPage === page ? '#3b82f6' : '#ffffff',
+                    background: currentPage === page ? '#7c3aed' : '#ffffff',
                     color: currentPage === page ? '#ffffff' : '#475569',
                     cursor: 'pointer',
                     transition: 'all 0.2s'
@@ -1141,7 +977,6 @@ const RFIDDeviceDetails = () => {
             </button>
           </div>
         </div>
-      )}
 
       {/* Filter Slider - Right Side */}
       {showFilterPanel && (

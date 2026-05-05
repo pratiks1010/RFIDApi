@@ -17,6 +17,15 @@ const APP_UPDATE_URL = String(process.env.ELECTRON_AUTO_UPDATE_URL || "").trim()
 let updateDownloadRequested = false;
 let updateHandlersBound = false;
 let latestUpdateInfo = null;
+const hasPackagedUpdaterConfig = () => {
+  if (!app.isPackaged) return false;
+  try {
+    const cfgPath = path.join(process.resourcesPath, "app-update.yml");
+    return fsSync.existsSync(cfgPath);
+  } catch {
+    return false;
+  }
+};
 
 const escapeHtml = (value) =>
   String(value || "")
@@ -129,14 +138,17 @@ const sendUpdaterEvent = (payload) => {
 };
 
 const setupAutoUpdater = () => {
-  if (isDev || !APP_UPDATE_URL || updateHandlersBound) return;
+  if (isDev || updateHandlersBound) return;
+  if (!APP_UPDATE_URL && !hasPackagedUpdaterConfig()) return;
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.setFeedURL({
-    provider: "generic",
-    url: APP_UPDATE_URL
-  });
+  if (APP_UPDATE_URL) {
+    autoUpdater.setFeedURL({
+      provider: "generic",
+      url: APP_UPDATE_URL
+    });
+  }
 
   autoUpdater.on("update-available", async (info) => {
     latestUpdateInfo = info || null;
@@ -190,8 +202,21 @@ const setupAutoUpdater = () => {
 };
 
 const checkForAppUpdates = async () => {
-  if (isDev || !APP_UPDATE_URL) {
-    return { ok: false, reason: "skipped", currentVersion: app.getVersion() };
+  if (isDev) {
+    return {
+      ok: false,
+      reason: "skipped",
+      details: "Auto-update checks are disabled in development mode.",
+      currentVersion: app.getVersion()
+    };
+  }
+  if (!APP_UPDATE_URL && !hasPackagedUpdaterConfig()) {
+    return {
+      ok: false,
+      reason: "not-configured",
+      details: "No updater feed configured. Configure publish URL in build or set ELECTRON_AUTO_UPDATE_URL.",
+      currentVersion: app.getVersion()
+    };
   }
   try {
     const result = await autoUpdater.checkForUpdates();
@@ -243,9 +268,10 @@ const getBridgeStartConfig = () => {
   if (!app.isPackaged) {
     const projectPath = path.join(app.getAppPath(), "rfid-bridge", "rfid-bridge.csproj");
     const cwd = path.join(app.getAppPath(), "rfid-bridge");
+    const framework = String(process.env.RFID_BRIDGE_RUN_FRAMEWORK || "net8.0").trim();
     return {
       command: "dotnet",
-      args: ["run", "--project", projectPath],
+      args: ["run", "--framework", framework, "--project", projectPath],
       cwd
     };
   }
@@ -485,7 +511,10 @@ ipcMain.handle("rfid-bridge-stop-service", async () => {
 ipcMain.handle("app-check-for-updates", async () => checkForAppUpdates());
 ipcMain.handle("app-get-version", async () => ({ version: app.getVersion() }));
 ipcMain.handle("app-start-update-download", async () => {
-  if (isDev || !APP_UPDATE_URL) return { ok: false, reason: "skipped" };
+  if (isDev) return { ok: false, reason: "skipped", details: "Auto-update download is disabled in development mode." };
+  if (!APP_UPDATE_URL && !hasPackagedUpdaterConfig()) {
+    return { ok: false, reason: "not-configured", details: "Updater feed is not configured." };
+  }
   if (updateDownloadRequested) return { ok: true, status: "already-downloading" };
   try {
     updateDownloadRequested = true;
@@ -498,7 +527,10 @@ ipcMain.handle("app-start-update-download", async () => {
   }
 });
 ipcMain.handle("app-install-downloaded-update", async () => {
-  if (isDev || !APP_UPDATE_URL) return { ok: false, reason: "skipped" };
+  if (isDev) return { ok: false, reason: "skipped", details: "Install update is disabled in development mode." };
+  if (!APP_UPDATE_URL && !hasPackagedUpdaterConfig()) {
+    return { ok: false, reason: "not-configured", details: "Updater feed is not configured." };
+  }
   if (!latestUpdateInfo) return { ok: false, reason: "No downloaded update available." };
   autoUpdater.quitAndInstall();
   return { ok: true };

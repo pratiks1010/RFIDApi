@@ -5,6 +5,7 @@ const fs = require("fs");
 const projectRoot = path.resolve(__dirname, "..");
 const bridgeProject = path.join(projectRoot, "rfid-bridge", "rfid-bridge.csproj");
 const bridgeDir = path.dirname(bridgeProject);
+const framework = String(process.env.RFID_BRIDGE_FRAMEWORK || "net8.0").trim();
 
 if (!fs.existsSync(bridgeProject)) {
   console.error(`RFID bridge project not found: ${bridgeProject}`);
@@ -15,6 +16,7 @@ const publishCmd = [
   "dotnet publish",
   `"${bridgeProject}"`,
   "-c Release",
+  `-f ${framework}`,
   "-r win-x64",
   "--self-contained true",
   "/p:PublishSingleFile=false",
@@ -22,7 +24,7 @@ const publishCmd = [
 ].join(" ");
 
 try {
-  console.log("Publishing RFID bridge...");
+  console.log(`Publishing RFID bridge (${framework})...`);
   execSync(publishCmd, {
     cwd: bridgeDir,
     stdio: "inherit"

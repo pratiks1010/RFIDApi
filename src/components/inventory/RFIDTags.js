@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { FaSearch, FaFileExcel, FaTrash, FaChevronLeft, FaChevronRight, FaFilePdf, FaEnvelope, FaTimes, FaEdit, FaCheck } from 'react-icons/fa';
+import { FaSearch, FaFileExcel, FaTrash, FaFilePdf, FaEnvelope, FaTimes, FaEdit, FaCheck } from 'react-icons/fa';
 import { BiTag } from 'react-icons/bi';
 import { HiOutlineArrowUpTray } from 'react-icons/hi2';
 import jsPDF from 'jspdf';
@@ -9,7 +9,7 @@ import autoTable from 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 
-const ITEMS_PER_PAGE = 100;
+const ITEMS_PER_PAGE = 15;
 
 const RFIDTags = () => {
   const { setLoading } = useLoading();
@@ -25,7 +25,6 @@ const RFIDTags = () => {
   const [editedValues, setEditedValues] = useState({});
   const [pageInput, setPageInput] = useState('');
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
   const { addNotification } = useNotifications();
 
   // Get client code from localStorage
@@ -98,14 +97,23 @@ const RFIDTags = () => {
   }, [rfidData, searchQuery]);
 
   // Calculate total pages and records
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE));
   const totalRecords = filteredData.length;
 
   // Get paginated data
   const currentTableData = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredData.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredData, currentPage, itemsPerPage]);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredData, currentPage]);
+
+  const paddedTableSlots = useMemo(() => {
+    const slots = currentTableData.map((item) => ({ kind: 'row', item }));
+    const padCount = Math.max(0, ITEMS_PER_PAGE - slots.length);
+    for (let i = 0; i < padCount; i += 1) {
+      slots.push({ kind: 'pad', key: `rfid-tags-pad-${currentPage}-${i}` });
+    }
+    return slots;
+  }, [currentTableData, currentPage]);
 
   // Reset to page 1 when search changes
   useEffect(() => {
@@ -389,16 +397,11 @@ const RFIDTags = () => {
   }
 
   return (
-    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
+    <div style={{ fontFamily: 'var(--font-family)', padding: 12, fontSize: 11, minHeight: '100%', background: '#ffffff' }}>
       {/* Unified Header & Action Section */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        padding: '16px 20px',
-        marginBottom: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
+      <div style={{ background: '#ffffff', borderRadius: 12, overflow: 'hidden', marginBottom: 12, boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)', border: '1px solid #e2e8f0' }}>
+        <div style={{ height: 3, background: 'linear-gradient(90deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%)' }} />
+        <div style={{ padding: '14px 16px' }}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -407,14 +410,15 @@ const RFIDTags = () => {
           gap: '12px',
           marginBottom: '16px'
         }}>
-          <div>
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
             <h2 style={{
               margin: 0,
-              fontSize: '16px',
-              fontWeight: 700,
-              color: '#1e293b',
+              fontSize: windowWidth <= 768 ? '1.05rem' : '1.18rem',
+              fontWeight: 800,
+              color: '#0f172a',
               lineHeight: '1.2'
             }}>RFID Tags</h2>
+            <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b', fontWeight: 600 }}>Sample Out style grid · <strong style={{ color: '#0f766e' }}>{ITEMS_PER_PAGE}</strong> rows per page</p>
           </div>
           <div style={{
             fontSize: '12px',
@@ -427,9 +431,9 @@ const RFIDTags = () => {
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
-          gap: '10px',
+          gap: 8,
           alignItems: 'center',
-          paddingTop: '16px',
+          paddingTop: 12,
           borderTop: '1px solid #e5e7eb'
         }}>
           {/* Search Input */}
@@ -437,7 +441,7 @@ const RFIDTags = () => {
             position: 'relative',
             flex: '1',
             minWidth: windowWidth <= 768 ? '100%' : '250px',
-            maxWidth: windowWidth <= 768 ? '100%' : '350px'
+            maxWidth: windowWidth <= 768 ? '100%' : '380px'
           }}>
             <FaSearch style={{
               position: 'absolute',
@@ -458,8 +462,9 @@ const RFIDTags = () => {
               }}
               style={{
                 width: '100%',
-                padding: '8px 12px 8px 36px',
-                fontSize: '12px',
+                height: 32,
+                padding: '0 10px 0 30px',
+                fontSize: '11px',
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 outline: 'none',
@@ -475,9 +480,10 @@ const RFIDTags = () => {
             onClick={handleDelete}
             disabled={selectedTags.length === 0}
             style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
+              height: 32,
+              padding: '0 12px',
+              fontSize: '11px',
+              fontWeight: 700,
               borderRadius: '8px',
               border: '1px solid #ef4444',
               background: selectedTags.length === 0 ? '#f1f5f9' : '#ffffff',
@@ -506,13 +512,14 @@ const RFIDTags = () => {
           <button
             onClick={() => setShowExportModal(true)}
             style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
+              height: 32,
+              padding: '0 12px',
+              fontSize: '11px',
+              fontWeight: 700,
               borderRadius: '8px',
-              border: '1px solid #3b82f6',
+              border: '1px solid #0d9488',
               background: '#ffffff',
-              color: '#3b82f6',
+              color: '#0d9488',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -520,39 +527,34 @@ const RFIDTags = () => {
               transition: 'all 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.target.style.background = '#3b82f6';
+              e.target.style.background = '#0d9488';
               e.target.style.color = '#ffffff';
             }}
             onMouseLeave={(e) => {
               e.target.style.background = '#ffffff';
-              e.target.style.color = '#3b82f6';
+              e.target.style.color = '#0d9488';
             }}
           >
             <HiOutlineArrowUpTray /> Export
           </button>
         </div>
+        </div>
       </div>
 
       {/* Table Container */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        marginTop: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb',
-        overflow: 'hidden'
-      }}>
+      <div style={{ background: '#ffffff', borderRadius: 12, marginTop: 8, boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
           <table style={{ 
             width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '12px',
+            borderCollapse: 'separate',
+            borderSpacing: 0,
+            fontSize: windowWidth <= 768 ? 10 : 11,
             tableLayout: 'auto'
           }}>
             <thead>
               <tr style={{
-                background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb'
+                background: '#f4f4f5',
+                borderBottom: '2px solid #d4d4d8'
               }}>
                 <th style={{
                   padding: '12px',
@@ -608,15 +610,23 @@ const RFIDTags = () => {
               </tr>
             </thead>
             <tbody>
-              {currentTableData.length === 0 ? (
+              {totalRecords === 0 ? (
                 <tr>
                   <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
                     No tags found
                   </td>
                 </tr>
               ) : (
-                currentTableData.map((item, index) => {
-                  const globalIndex = (currentPage - 1) * itemsPerPage + index;
+                paddedTableSlots.map((slot, index) => {
+                  if (slot.kind === 'pad') {
+                    return (
+                      <tr key={slot.key} style={{ background: index % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                        <td colSpan="5" style={{ height: 34, borderBottom: '1px solid #f1f5f9' }} />
+                      </tr>
+                    );
+                  }
+                  const item = slot.item;
+                  const globalIndex = (currentPage - 1) * ITEMS_PER_PAGE + index;
                   const isSelected = selectedTags.includes(item.Id);
                   return (
                     <tr
@@ -626,20 +636,20 @@ const RFIDTags = () => {
                         cursor: 'pointer',
                         borderBottom: '1px solid #e5e7eb',
                         background: isSelected 
-                          ? '#eff6ff' 
+                          ? '#ecfeff' 
                           : globalIndex % 2 === 0 
                           ? '#ffffff' 
-                          : '#f8fafc',
+                          : '#fafafa',
                         transition: 'background 0.2s'
                       }}
                       onMouseEnter={(e) => {
                         if (!isSelected) {
-                          e.currentTarget.style.background = '#f1f5f9';
+                          e.currentTarget.style.background = '#f0fdfa';
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (!isSelected) {
-                          e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                          e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#fafafa';
                         }
                       }}
                     >
@@ -797,14 +807,13 @@ const RFIDTags = () => {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            padding: '16px 20px',
+            padding: '12px 14px',
             borderTop: '1px solid #e5e7eb',
-            background: '#ffffff',
+            background: '#f8fafc',
             borderRadius: '0 0 12px 12px',
             flexWrap: 'wrap',
             gap: '12px'
@@ -818,32 +827,8 @@ const RFIDTags = () => {
               color: '#64748b'
             }}>
               <span>
-                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+                Showing {totalRecords === 0 ? 0 : ((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalRecords)} of {totalRecords} entries · {ITEMS_PER_PAGE}/page
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>Show:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  style={{
-                    padding: '6px 10px',
-                    fontSize: '12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                </select>
-                <span>per page</span>
-              </div>
             </div>
             <div style={{
               display: 'flex',
@@ -901,7 +886,7 @@ const RFIDTags = () => {
                       fontWeight: 600,
                       borderRadius: '6px',
                       border: '1px solid #e2e8f0',
-                      background: currentPage === page ? '#3b82f6' : '#ffffff',
+                      background: currentPage === page ? '#0d9488' : '#ffffff',
                       color: currentPage === page ? '#ffffff' : '#475569',
                       cursor: 'pointer',
                       transition: 'all 0.2s'
@@ -993,22 +978,22 @@ const RFIDTags = () => {
                     fontSize: '12px',
                     fontWeight: 600,
                     borderRadius: '6px',
-                    border: '1px solid #3b82f6',
+                    border: '1px solid #0d9488',
                     background: (!pageInput || pageInput === '') ? '#f1f5f9' : '#ffffff',
-                    color: (!pageInput || pageInput === '') ? '#94a3b8' : '#3b82f6',
+                    color: (!pageInput || pageInput === '') ? '#94a3b8' : '#0d9488',
                     cursor: (!pageInput || pageInput === '') ? 'not-allowed' : 'pointer',
                     transition: 'all 0.2s'
                   }}
                   onMouseEnter={(e) => {
                     if (pageInput && pageInput !== '') {
-                      e.target.style.background = '#3b82f6';
+                      e.target.style.background = '#0d9488';
                       e.target.style.color = '#ffffff';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (pageInput && pageInput !== '') {
                       e.target.style.background = '#ffffff';
-                      e.target.style.color = '#3b82f6';
+                      e.target.style.color = '#0d9488';
                     }
                   }}
                 >
@@ -1017,7 +1002,6 @@ const RFIDTags = () => {
               </div>
             </div>
           </div>
-        )}
       </div>
 
       {/* Export Modal */}

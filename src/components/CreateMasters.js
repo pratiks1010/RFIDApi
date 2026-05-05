@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
+import { getGetAllCustomerUrl, getAddCustomerUrl } from '../services/customerOnboardingApi';
 import {
   FaTags,
   FaBox,
@@ -21,6 +22,7 @@ import {
   FaRupeeSign,
   FaUserTie,
   FaStore,
+  FaUserFriends,
 } from 'react-icons/fa';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstring.co.in';
@@ -38,10 +40,11 @@ const MASTER_OPTIONS = [
   { id: 'rates', label: 'Rates', icon: FaRupeeSign, color: '#0d9488' },
 ];
 
-/** Members section: Create Vendor form; Create Employee placeholder until wired. */
+/** Members: Employee, Vendor, Customer (GetAll + Add APIs). */
 const MEMBER_OPTIONS = [
   { id: 'employee', label: 'Create Employee', icon: FaUserTie, color: '#0ea5e9' },
   { id: 'vendor', label: 'Create Vendor', icon: FaStore, color: '#a855f7' },
+  { id: 'customer', label: 'Create Customer', icon: FaUserFriends, color: '#15803d' },
 ];
 
 const ALL_NAV_OPTIONS = [...MASTER_OPTIONS, ...MEMBER_OPTIONS];
@@ -97,6 +100,24 @@ const getInitialEmployeeForm = () => ({
   counter: '',
   roles: '',
   reportingTo: '',
+});
+
+const getInitialCustomerForm = () => ({
+  firstName: '',
+  lastName: '',
+  companyName: '',
+  email: '',
+  contactNumber: '',
+  aadharNumber: '0',
+  panNumber: '',
+  remarks: '',
+  street: '',
+  area: '',
+  town: '',
+  city: '',
+  country: 'India',
+  state: '',
+  pincode: '',
 });
 
 const getAuthHeaders = () => ({
@@ -160,6 +181,13 @@ const CreateMasters = () => {
   const [employeeListSearch, setEmployeeListSearch] = useState('');
   const [employeeListPage, setEmployeeListPage] = useState(1);
   const [employeeListPageSize, setEmployeeListPageSize] = useState(10);
+  const [customerForm, setCustomerForm] = useState(getInitialCustomerForm);
+  const [customerSubmitting, setCustomerSubmitting] = useState(false);
+  const [customerRows, setCustomerRows] = useState([]);
+  const [customerListLoading, setCustomerListLoading] = useState(false);
+  const [customerListSearch, setCustomerListSearch] = useState('');
+  const [customerListPage, setCustomerListPage] = useState(1);
+  const [customerListPageSize, setCustomerListPageSize] = useState(10);
 
   const normalizeListResponse = (data) => {
     if (!data) return [];
@@ -216,6 +244,24 @@ const CreateMasters = () => {
     }
   }, [clientCode]);
 
+  const fetchCustomers = useCallback(async () => {
+    if (!clientCode) return;
+    setCustomerListLoading(true);
+    try {
+      const res = await axios.post(
+        getGetAllCustomerUrl(),
+        { ClientCode: clientCode },
+        { headers: getAuthHeaders() }
+      );
+      setCustomerRows(normalizeListResponse(res?.data));
+    } catch (e) {
+      console.warn('GetAllCustomer:', e?.response?.data || e.message);
+      setCustomerRows([]);
+    } finally {
+      setCustomerListLoading(false);
+    }
+  }, [clientCode]);
+
   useEffect(() => {
     if (activeOption === 'vendor') {
       fetchVendors();
@@ -230,6 +276,13 @@ const CreateMasters = () => {
     }
   }, [activeOption, fetchEmployees]);
 
+  useEffect(() => {
+    if (activeOption === 'customer') {
+      fetchCustomers();
+      setCustomerListPage(1);
+    }
+  }, [activeOption, fetchCustomers]);
+
   const vendorDisplay = (row, ...keys) => {
     for (const k of keys) {
       const v = row[k];
@@ -239,6 +292,14 @@ const CreateMasters = () => {
   };
 
   const employeeDisplay = (row, ...keys) => {
+    for (const k of keys) {
+      const v = row[k];
+      if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+    }
+    return '—';
+  };
+
+  const customerDisplay = (row, ...keys) => {
     for (const k of keys) {
       const v = row[k];
       if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
@@ -297,11 +358,41 @@ const CreateMasters = () => {
     return filteredEmployeeRows.slice(start, start + employeeListPageSize);
   }, [filteredEmployeeRows, employeeSafePage, employeeListPageSize]);
 
+  const filteredCustomerRows = useMemo(() => {
+    if (!customerListSearch.trim()) return customerRows;
+    const q = customerListSearch.trim().toLowerCase();
+    return customerRows.filter((row) => {
+      const blob = [
+        customerDisplay(row, 'FirstName', 'firstName'),
+        customerDisplay(row, 'LastName', 'lastName'),
+        customerDisplay(row, 'Name', 'CustomerName'),
+        customerDisplay(row, 'Email', 'email'),
+        customerDisplay(row, 'Mobile', 'MobileNumber', 'ContactNumber'),
+        customerDisplay(row, 'CompanyName', 'companyName'),
+        customerDisplay(row, 'City', 'city'),
+        customerDisplay(row, 'State', 'state'),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [customerRows, customerListSearch]);
+
+  const customerTotalPages = Math.max(1, Math.ceil(filteredCustomerRows.length / customerListPageSize));
+  const customerSafePage = Math.min(customerListPage, customerTotalPages) || 1;
+  const paginatedCustomerRows = useMemo(() => {
+    const start = (customerSafePage - 1) * customerListPageSize;
+    return filteredCustomerRows.slice(start, start + customerListPageSize);
+  }, [filteredCustomerRows, customerSafePage, customerListPageSize]);
+
   const updateVendorField = useCallback((key, value) => {
     setVendorForm((prev) => ({ ...prev, [key]: value }));
   }, []);
   const updateEmployeeField = useCallback((key, value) => {
     setEmployeeForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+  const updateCustomerField = useCallback((key, value) => {
+    setCustomerForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   const handleVendorReset = useCallback(() => {
@@ -310,6 +401,10 @@ const CreateMasters = () => {
   }, []);
   const handleEmployeeReset = useCallback(() => {
     setEmployeeForm(getInitialEmployeeForm());
+    toast.info('Form reset.');
+  }, []);
+  const handleCustomerReset = useCallback(() => {
+    setCustomerForm(getInitialCustomerForm());
     toast.info('Form reset.');
   }, []);
 
@@ -435,6 +530,73 @@ const CreateMasters = () => {
       }
     },
     [employeeForm, clientCode, fetchEmployees]
+  );
+
+  const handleCustomerSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      const c = customerForm;
+      if (!String(c.firstName || '').trim()) {
+        toast.error('First Name is required.');
+        return;
+      }
+      if (!String(c.lastName || '').trim()) {
+        toast.error('Last Name is required.');
+        return;
+      }
+      if (!String(c.contactNumber || '').trim()) {
+        toast.error('Mobile / Contact Number is required.');
+        return;
+      }
+      if (!String(c.country || '').trim()) {
+        toast.error('Country is required.');
+        return;
+      }
+      if (!String(c.state || '').trim()) {
+        toast.error('State is required.');
+        return;
+      }
+      const pin = String(c.pincode || '').trim();
+      if (pin && !/^\d{6}$/.test(pin)) {
+        toast.error('Pincode must be 6 digits.');
+        return;
+      }
+
+      setCustomerSubmitting(true);
+      const payload = {
+        ClientCode: clientCode,
+        FirstName: c.firstName.trim(),
+        LastName: c.lastName.trim(),
+        CompanyName: String(c.companyName || '').trim(),
+        Email: String(c.email || '').trim(),
+        Mobile: c.contactNumber.trim(),
+        AadharNumber: c.aadharNumber,
+        PanNumber: String(c.panNumber || '').trim(),
+        Remarks: String(c.remarks || '').trim(),
+        Street: String(c.street || '').trim(),
+        Area: String(c.area || '').trim(),
+        Town: String(c.town || '').trim(),
+        City: String(c.city || '').trim(),
+        Country: c.country,
+        State: c.state,
+        Pincode: pin,
+      };
+
+      try {
+        await axios.post(getAddCustomerUrl(), payload, { headers: getAuthHeaders() });
+        toast.success('Customer saved successfully.');
+        setCustomerForm(getInitialCustomerForm());
+        fetchCustomers();
+      } catch (err) {
+        console.warn('AddCustomer API:', err?.response?.data || err.message);
+        const msg = err?.response?.data?.Message || err?.response?.data?.message;
+        if (msg) toast.error(String(msg));
+        else toast.info('Could not save customer. Confirm AddCustomer API path and field names with your backend.');
+      } finally {
+        setCustomerSubmitting(false);
+      }
+    },
+    [customerForm, clientCode, fetchCustomers]
   );
 
   const fetchDailyRates = useCallback(async () => {
@@ -1630,7 +1792,7 @@ const CreateMasters = () => {
     <div style={baseStyles.page} className={`create-masters-zoho${navOpen ? ' create-masters-nav-open' : ''}`}>
       <header style={baseStyles.topBar}>
         <h1 style={baseStyles.title}>Create Masters</h1>
-        <p style={baseStyles.subtitle}>Add and manage categories, products, designs, purity, counters, boxes, branches, rates, employees, and vendors.</p>
+        <p style={baseStyles.subtitle}>Add and manage categories, products, designs, purity, counters, boxes, branches, rates, employees, vendors, and customers.</p>
       </header>
 
       {navOpen && (
@@ -2348,6 +2510,122 @@ const CreateMasters = () => {
                 </span>
               </div>
             </div>
+            </>
+          ) : activeOption === 'customer' ? (
+            <>
+              <div
+                style={{
+                  ...baseStyles.card,
+                  padding: '10px 12px 12px',
+                  flex: '0 0 55%',
+                  height: '75%',
+                  minHeight: 380,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+                className="create-masters-customer-form"
+              >
+                <h2 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 800, color: '#0f172a', letterSpacing: '0.04em' }}>ADD CUSTOMER</h2>
+                <form onSubmit={handleCustomerSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                  <div style={{ paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Customer Details</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '6px 8px' }}>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>First Name <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={customerForm.firstName} onChange={(e) => updateCustomerField('firstName', e.target.value)} style={baseStyles.input} placeholder="First name" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Last Name <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={customerForm.lastName} onChange={(e) => updateCustomerField('lastName', e.target.value)} style={baseStyles.input} placeholder="Last name" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Company Name</label><input type="text" value={customerForm.companyName} onChange={(e) => updateCustomerField('companyName', e.target.value)} style={baseStyles.input} placeholder="Company" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Email</label><input type="email" value={customerForm.email} onChange={(e) => updateCustomerField('email', e.target.value)} style={baseStyles.input} placeholder="Email" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Mobile <span style={{ color: '#dc2626' }}>*</span></label><input type="text" value={customerForm.contactNumber} onChange={(e) => updateCustomerField('contactNumber', e.target.value)} style={baseStyles.input} placeholder="Mobile number" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Aadhar Number</label><input type="text" value={customerForm.aadharNumber} onChange={(e) => updateCustomerField('aadharNumber', e.target.value)} style={baseStyles.input} placeholder="0" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Pan Number</label><input type="text" value={customerForm.panNumber} onChange={(e) => updateCustomerField('panNumber', e.target.value)} style={baseStyles.input} placeholder="PAN" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Remarks</label><input type="text" value={customerForm.remarks} onChange={(e) => updateCustomerField('remarks', e.target.value)} style={baseStyles.input} placeholder="Remarks" /></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Address Details</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '6px 8px' }}>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Street</label><input type="text" value={customerForm.street} onChange={(e) => updateCustomerField('street', e.target.value)} style={baseStyles.input} placeholder="Street" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Area</label><input type="text" value={customerForm.area} onChange={(e) => updateCustomerField('area', e.target.value)} style={baseStyles.input} placeholder="Area" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Town</label><input type="text" value={customerForm.town} onChange={(e) => updateCustomerField('town', e.target.value)} style={baseStyles.input} placeholder="Town" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>City</label><input type="text" value={customerForm.city} onChange={(e) => updateCustomerField('city', e.target.value)} style={baseStyles.input} placeholder="City" /></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Country <span style={{ color: '#dc2626' }}>*</span></label><select value={customerForm.country} onChange={(e) => updateCustomerField('country', e.target.value)} style={baseStyles.select}>{COUNTRY_OPTIONS.map((co) => <option key={co.id} value={co.name}>{co.name}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>State <span style={{ color: '#dc2626' }}>*</span></label><select value={customerForm.state} onChange={(e) => updateCustomerField('state', e.target.value)} style={baseStyles.select}><option value="">Select a state</option>{INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
+                      <div style={baseStyles.fieldGroup}><label style={baseStyles.label}>Pincode</label><input type="text" inputMode="numeric" maxLength={6} value={customerForm.pincode} onChange={(e) => updateCustomerField('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} style={baseStyles.input} placeholder="6 digits" /></div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, paddingTop: 6, borderTop: '1px solid #e5e7eb' }}>
+                    <button type="button" onClick={handleCustomerReset} style={baseStyles.btnSecondary}><FaRedoAlt size={12} /> Reset</button>
+                    <button type="submit" disabled={customerSubmitting} style={{ ...baseStyles.btnPrimary('#15803d'), background: customerSubmitting ? '#94a3b8' : '#15803d' }}>
+                      {customerSubmitting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />} Submit
+                    </button>
+                  </div>
+                </form>
+              </div>
+              <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
+                <div style={baseStyles.listCardTitle}>List of Customers</div>
+                <div style={baseStyles.listHeader} className="create-masters-list-header">
+                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
+                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+                    <input type="text" placeholder="Search customers..." value={customerListSearch} onChange={(e) => { setCustomerListSearch(e.target.value); setCustomerListPage(1); }} style={baseStyles.listSearchInput} aria-label="Search customer list" />
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>Total: {filteredCustomerRows.length} record{filteredCustomerRows.length !== 1 ? 's' : ''}</span>
+                  <select value={customerListPageSize} onChange={(e) => { setCustomerListPageSize(Number(e.target.value)); setCustomerListPage(1); }} style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}>{[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+                </div>
+                <div style={baseStyles.listTableWrap}>
+                  <table style={baseStyles.listTable} className="create-masters-list-table">
+                    <thead>
+                      <tr>
+                        <th style={baseStyles.listTh}>Sr. No.</th>
+                        <th style={baseStyles.listTh}>Name</th>
+                        <th style={baseStyles.listTh}>Company</th>
+                        <th style={baseStyles.listTh}>Email</th>
+                        <th style={baseStyles.listTh}>Mobile</th>
+                        <th style={baseStyles.listTh}>City</th>
+                        <th style={baseStyles.listTh}>State</th>
+                        <th style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customerListLoading ? (
+                        <tr><td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}><FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />Loading customers…</td></tr>
+                      ) : paginatedCustomerRows.length === 0 ? (
+                        <tr><td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>{customerRows.length === 0 ? 'No customers yet. Add one above.' : 'No matches for search.'}</td></tr>
+                      ) : (
+                        paginatedCustomerRows.map((row, idx) => {
+                          const sr = (customerSafePage - 1) * customerListPageSize + idx + 1;
+                          const fullName = [customerDisplay(row, 'FirstName', 'firstName'), customerDisplay(row, 'LastName', 'lastName')].filter((x) => x && x !== '—').join(' ').trim()
+                            || customerDisplay(row, 'Name', 'CustomerName');
+                          return (
+                            <tr key={String(row.Id ?? row.id ?? idx)} className="create-masters-list-row">
+                              <td style={baseStyles.listTd}>{sr}</td>
+                              <td style={baseStyles.listTd}>{fullName}</td>
+                              <td style={baseStyles.listTd}>{customerDisplay(row, 'CompanyName', 'companyName')}</td>
+                              <td style={baseStyles.listTd}>{customerDisplay(row, 'Email', 'email')}</td>
+                              <td style={baseStyles.listTd}>{customerDisplay(row, 'Mobile', 'MobileNumber', 'ContactNumber')}</td>
+                              <td style={baseStyles.listTd}>{customerDisplay(row, 'City', 'city')}</td>
+                              <td style={baseStyles.listTd}>{customerDisplay(row, 'State', 'state')}</td>
+                              <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
+                                <span className="create-masters-action-cell">
+                                  <button type="button" title="Edit" onClick={() => toast.info('Customer edit when update API is connected.')} style={baseStyles.actionBtnEdit} className="create-masters-btn-icon create-masters-btn-edit"><FaEdit size={12} /></button>
+                                  <button type="button" title="Delete" onClick={() => toast.info('Customer delete when delete API is available.')} style={baseStyles.actionBtnDelete} className="create-masters-btn-icon create-masters-btn-delete"><FaTrashAlt size={12} /></button>
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
+                  <span>Showing {filteredCustomerRows.length === 0 ? 0 : (customerSafePage - 1) * customerListPageSize + 1}–{Math.min(customerSafePage * customerListPageSize, filteredCustomerRows.length)} of {filteredCustomerRows.length}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button type="button" onClick={() => setCustomerListPage((p) => Math.max(1, p - 1))} disabled={customerSafePage <= 1} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Prev</button>
+                    <span style={{ padding: '0 6px' }}>Page {customerSafePage} of {customerTotalPages}</span>
+                    <button type="button" onClick={() => setCustomerListPage((p) => Math.min(customerTotalPages, p + 1))} disabled={customerSafePage >= customerTotalPages} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Next</button>
+                  </span>
+                </div>
+              </div>
             </>
           ) : (
             <>

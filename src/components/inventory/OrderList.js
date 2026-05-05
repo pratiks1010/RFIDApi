@@ -7,9 +7,12 @@ import {
   FaSync,
   FaFileExcel,
   FaFilePdf,
-  FaChevronDown,
   FaThLarge,
-  FaThList
+  FaThList,
+  FaClipboardList,
+  FaDownload,
+  FaEnvelope,
+  FaTimes,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -35,9 +38,11 @@ const OrderList = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'card'
-  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportErrors, setExportErrors] = useState({ excel: '', pdf: '', email: '' });
+  const [emailAddress, setEmailAddress] = useState('');
   const isFetchingRef = useRef(false);
-  const exportDropdownRef = useRef(null);
   
   const { addNotification } = useNotifications();
 
@@ -45,20 +50,6 @@ const OrderList = () => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Close export dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target)) {
-        setShowExportDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
   }, []);
 
   useEffect(() => {
@@ -433,153 +424,142 @@ const OrderList = () => {
   const effectiveTotalPages = totalPages;
   const totals = calculateTotals();
 
-  // Export to Excel
-  const handleExportToExcel = () => {
+  const ORDER_EXPORT_COL_WIDTHS = [
+    { wch: 8 },
+    { wch: 12 },
+    { wch: 20 },
+    { wch: 15 },
+    { wch: 20 },
+    { wch: 18 },
+    { wch: 15 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 12 },
+    { wch: 15 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 15 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 14 },
+  ];
+
+  const buildOrderListWorkbook = () => {
+    if (!orders.length) return null;
+    const sum = calculateTotals();
+    const exportData = orders.map((order, index) => {
+      const grossWt = parseFloat(getOrderValue(order, 'GrossWt')) || 0;
+      const fineMetal = parseFloat(getOrderValue(order, 'FineMetal')) || 0;
+      const paidMetal = parseFloat(getOrderValue(order, 'PaidMetal')) || 0;
+      const balanceMetal = parseFloat(getOrderValue(order, 'BalanceMetal')) || 0;
+      const gstAmount = parseFloat(getOrderValue(order, 'GSTAmount')) || 0;
+      const taxableAmount = parseFloat(getOrderValue(order, 'TaxableAmount')) || 0;
+      const totalAmount = parseFloat(getOrderValue(order, 'TotalAmount')) || 0;
+      const paidAmount = parseFloat(getOrderValue(order, 'PaidAmount')) || 0;
+      const balanceAmount = parseFloat(getOrderValue(order, 'BalanceAmount')) || 0;
+      const numItems = parseFloat(getOrderValue(order, 'NumberOfItems')) || 0;
+      return {
+        'Sr No': index + 1,
+        'Order No': getOrderValue(order, 'OrderNo'),
+        'Customer Name': getOrderValue(order, 'CustomerName'),
+        'Contact': getOrderValue(order, 'Contact'),
+        'Order Remark': getOrderValue(order, 'OrderRemark'),
+        'Product': getOrderValue(order, 'Product'),
+        'Number of Items': numItems,
+        'Gross Wt': grossWt,
+        'Fine Metal': fineMetal,
+        'Paid Metal': paidMetal,
+        'Balance Metal': balanceMetal,
+        'GST Amount': gstAmount,
+        'Taxable Amount': taxableAmount,
+        'Total Amount': totalAmount,
+        'Paid Amount': paidAmount,
+        'Balance Amount': balanceAmount,
+        'Order Status': getOrderValue(order, 'OrderStatus'),
+        'Branch': getOrderValue(order, 'Branch'),
+        'Exhibition': getOrderValue(order, 'Exhibition'),
+        'Order Date': getOrderValue(order, 'OrderDate'),
+        'Delivery Date': getOrderValue(order, 'DeliveryDate'),
+      };
+    });
+    exportData.push({
+      'Sr No': '',
+      'Order No': '',
+      'Customer Name': '',
+      'Contact': '',
+      'Order Remark': '',
+      'Product': 'TOTAL',
+      'Number of Items': sum.NumberOfItems,
+      'Gross Wt': sum.GrossWt,
+      'Fine Metal': sum.FineMetal,
+      'Paid Metal': sum.PaidMetal,
+      'Balance Metal': sum.BalanceMetal,
+      'GST Amount': sum.GSTAmount,
+      'Taxable Amount': sum.TaxableAmount,
+      'Total Amount': sum.TotalAmount,
+      'Paid Amount': sum.PaidAmount,
+      'Balance Amount': sum.BalanceAmount,
+      'Order Status': '',
+      'Branch': '',
+      'Exhibition': '',
+      'Order Date': '',
+      'Delivery Date': '',
+    });
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    ws['!cols'] = ORDER_EXPORT_COL_WIDTHS;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    return wb;
+  };
+
+  const handleExportToExcel = async () => {
+    if (!orders.length) {
+      setExportErrors((e) => ({ ...e, excel: 'No orders to export on this page.' }));
+      return;
+    }
+    setExportLoading(true);
+    setExportErrors((e) => ({ ...e, excel: '' }));
     try {
-      if (orders.length === 0) {
-        addNotification({
-          type: 'error',
-          message: 'No orders to export',
-          duration: 3000
-        });
-        return;
-      }
-
-      const exportData = orders.map((order, index) => {
-        const grossWt = parseFloat(getOrderValue(order, 'GrossWt')) || 0;
-        const fineMetal = parseFloat(getOrderValue(order, 'FineMetal')) || 0;
-        const paidMetal = parseFloat(getOrderValue(order, 'PaidMetal')) || 0;
-        const balanceMetal = parseFloat(getOrderValue(order, 'BalanceMetal')) || 0;
-        const gstAmount = parseFloat(getOrderValue(order, 'GSTAmount')) || 0;
-        const taxableAmount = parseFloat(getOrderValue(order, 'TaxableAmount')) || 0;
-        const totalAmount = parseFloat(getOrderValue(order, 'TotalAmount')) || 0;
-        const paidAmount = parseFloat(getOrderValue(order, 'PaidAmount')) || 0;
-        const balanceAmount = parseFloat(getOrderValue(order, 'BalanceAmount')) || 0;
-        const numItems = parseFloat(getOrderValue(order, 'NumberOfItems')) || 0;
-
-        return {
-          'Sr No': index + 1,
-          'Order No': getOrderValue(order, 'OrderNo'),
-          'Customer Name': getOrderValue(order, 'CustomerName'),
-          'Contact': getOrderValue(order, 'Contact'),
-          'Order Remark': getOrderValue(order, 'OrderRemark'),
-          'Product': getOrderValue(order, 'Product'),
-          'Number of Items': numItems,
-          'Gross Wt': grossWt,
-          'Fine Metal': fineMetal,
-          'Paid Metal': paidMetal,
-          'Balance Metal': balanceMetal,
-          'GST Amount': gstAmount,
-          'Taxable Amount': taxableAmount,
-          'Total Amount': totalAmount,
-          'Paid Amount': paidAmount,
-          'Balance Amount': balanceAmount,
-          'Order Status': getOrderValue(order, 'OrderStatus'),
-          'Branch': getOrderValue(order, 'Branch'),
-          'Exhibition': getOrderValue(order, 'Exhibition'),
-          'Order Date': getOrderValue(order, 'OrderDate'),
-          'Delivery Date': getOrderValue(order, 'DeliveryDate')
-        };
-      });
-
-      // Add summary row
-      exportData.push({
-        'Sr No': '',
-        'Order No': '',
-        'Customer Name': '',
-        'Contact': '',
-        'Order Remark': '',
-        'Product': 'TOTAL',
-        'Number of Items': totals.NumberOfItems,
-        'Gross Wt': totals.GrossWt,
-        'Fine Metal': totals.FineMetal,
-        'Paid Metal': totals.PaidMetal,
-        'Balance Metal': totals.BalanceMetal,
-        'GST Amount': totals.GSTAmount,
-        'Taxable Amount': totals.TaxableAmount,
-        'Total Amount': totals.TotalAmount,
-        'Paid Amount': totals.PaidAmount,
-        'Balance Amount': totals.BalanceAmount,
-        'Order Status': '',
-        'Branch': '',
-        'Exhibition': '',
-        'Order Date': '',
-        'Delivery Date': ''
-      });
-
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      
-      // Set column widths
-      const colWidths = [
-        { wch: 8 },   // Sr No
-        { wch: 12 },  // Order No
-        { wch: 20 },  // Customer Name
-        { wch: 15 },  // Contact
-        { wch: 20 },  // Order Remark
-        { wch: 18 },  // Product
-        { wch: 15 },  // Number of Items
-        { wch: 12 },  // Gross Wt
-        { wch: 12 },  // Fine Metal
-        { wch: 12 },  // Paid Metal
-        { wch: 14 },  // Balance Metal
-        { wch: 12 },  // GST Amount
-        { wch: 15 },  // Taxable Amount
-        { wch: 12 },  // Total Amount
-        { wch: 12 },  // Paid Amount
-        { wch: 14 },  // Balance Amount
-        { wch: 15 },  // Order Status
-        { wch: 12 },  // Branch
-        { wch: 12 },  // Exhibition
-        { wch: 12 },  // Order Date
-        { wch: 14 }   // Delivery Date
-      ];
-      ws['!cols'] = colWidths;
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Orders');
-      
+      const wb = buildOrderListWorkbook();
+      if (!wb) return;
       const fileName = `OrderList_${new Date().toISOString().split('T')[0]}.xlsx`;
       XLSX.writeFile(wb, fileName);
-      
       addNotification({
         type: 'success',
-        message: `Order list exported to ${fileName} successfully`,
-        duration: 3000
+        message: `Order list exported to ${fileName}`,
+        duration: 3000,
       });
+      setTimeout(() => {
+        setShowExportModal(false);
+        setExportLoading(false);
+      }, 400);
     } catch (err) {
       console.error('Error exporting to Excel:', err);
-      addNotification({
-        type: 'error',
-        message: 'Failed to export order list. Please try again.',
-        duration: 3000
-      });
+      setExportErrors((e) => ({ ...e, excel: 'Failed to export Excel. Please try again.' }));
+      setExportLoading(false);
     }
   };
 
-  // Export to PDF
-  const handleExportToPDF = () => {
+  const handleExportToPDF = async () => {
+    if (!orders.length) {
+      setExportErrors((e) => ({ ...e, pdf: 'No orders to export on this page.' }));
+      return;
+    }
+    setExportLoading(true);
+    setExportErrors((e) => ({ ...e, pdf: '' }));
     try {
-      if (orders.length === 0) {
-        addNotification({
-          type: 'error',
-          message: 'No orders to export',
-          duration: 3000
-        });
-        return;
-      }
-
+      const sum = calculateTotals();
       const doc = new jsPDF('landscape');
-      
-      // Title
       doc.setFontSize(16);
       doc.text('Order List', 15, 20);
-      
-      // Subtitle
       doc.setFontSize(10);
       doc.text(`Generated on: ${new Date().toLocaleString()}`, 15, 28);
-      doc.text(`Total Records: ${orders.length}`, 15, 34);
+      doc.text(`Rows in export: ${orders.length} (current page)`, 15, 34);
 
-      // Table headers
       const tableHeaders = [
         'Sr No',
         'Order No',
@@ -594,10 +574,9 @@ const OrderList = () => {
         'Balance Amount',
         'Status',
         'Order Date',
-        'Delivery Date'
+        'Delivery Date',
       ];
 
-      // Table data
       const tableData = orders.map((order, index) => [
         index + 1,
         getOrderValue(order, 'OrderNo') || '-',
@@ -612,25 +591,24 @@ const OrderList = () => {
         formatCurrency(getOrderValue(order, 'BalanceAmount')),
         getOrderValue(order, 'OrderStatus') || '-',
         formatDate(getOrderValue(order, 'OrderDate')),
-        formatDate(getOrderValue(order, 'DeliveryDate'))
+        formatDate(getOrderValue(order, 'DeliveryDate')),
       ]);
 
-      // Add summary row
       tableData.push([
         '',
         '',
         '',
         '',
         'TOTAL',
-        totals.NumberOfItems.toString(),
-        formatNumber(totals.GrossWt),
-        formatNumber(totals.FineMetal),
-        formatCurrency(totals.TotalAmount),
-        formatCurrency(totals.PaidAmount),
-        formatCurrency(totals.BalanceAmount),
+        sum.NumberOfItems.toString(),
+        formatNumber(sum.GrossWt),
+        formatNumber(sum.FineMetal),
+        formatCurrency(sum.TotalAmount),
+        formatCurrency(sum.PaidAmount),
+        formatCurrency(sum.BalanceAmount),
         '',
         '',
-        ''
+        '',
       ]);
 
       doc.autoTable({
@@ -638,357 +616,479 @@ const OrderList = () => {
         body: tableData,
         startY: 40,
         styles: { fontSize: 7, cellPadding: 2 },
-        headStyles: { fillColor: [69, 73, 232], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        headStyles: { fillColor: [109, 40, 217], textColor: 255, fontSize: 8, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [245, 247, 250] },
         margin: { left: 8, right: 8 },
         tableWidth: 'auto',
-        didParseCell: function(data) {
+        didParseCell(data) {
           if (data.row.index === tableData.length - 1) {
             data.cell.styles.fontStyle = 'bold';
             data.cell.styles.fillColor = [241, 245, 249];
           }
-        }
+        },
       });
 
       const fileName = `OrderList_${new Date().toISOString().split('T')[0]}.pdf`;
       doc.save(fileName);
-      
       addNotification({
         type: 'success',
-        message: `Order list exported to ${fileName} successfully`,
-        duration: 3000
+        message: `Order list exported to ${fileName}`,
+        duration: 3000,
       });
-      setShowExportDropdown(false);
+      setTimeout(() => {
+        setShowExportModal(false);
+        setExportLoading(false);
+      }, 400);
     } catch (err) {
       console.error('Error exporting to PDF:', err);
-      addNotification({
-        type: 'error',
-        message: 'Failed to export order list. Please try again.',
-        duration: 3000
-      });
+      setExportErrors((e) => ({ ...e, pdf: 'Failed to generate PDF. Please try again.' }));
+      setExportLoading(false);
     }
   };
 
+  const handleEmailExport = async () => {
+    if (!emailAddress.trim()) {
+      setExportErrors((e) => ({ ...e, email: 'Please enter an email address.' }));
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress.trim())) {
+      setExportErrors((e) => ({ ...e, email: 'Please enter a valid email address.' }));
+      return;
+    }
+    if (!orders.length) {
+      setExportErrors((e) => ({ ...e, email: 'No orders to send on this page.' }));
+      return;
+    }
+    const clientCode = userInfo?.ClientCode || userInfo?.clientCode || userInfo?.clientcode;
+    if (!clientCode) {
+      setExportErrors((e) => ({ ...e, email: 'Client code missing. Please log in again.' }));
+      return;
+    }
+
+    setExportLoading(true);
+    setExportErrors((e) => ({ ...e, email: '' }));
+
+    try {
+      const wb = buildOrderListWorkbook();
+      if (!wb) {
+        throw new Error('Could not build export file.');
+      }
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const date = new Date().toISOString().split('T')[0];
+      const filename = `OrderList_${date}.xlsx`;
+      const excelBlob = new Blob([excelBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      const formData = new FormData();
+      formData.append('email', emailAddress.trim());
+      formData.append('clientCode', String(clientCode).trim());
+      formData.append('subject', `Order List Report — ${String(clientCode).trim()}`);
+      formData.append('file', excelBlob, filename);
+
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/Export/SendLabelStockEmail',
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+
+      const d = response.data;
+      const sent = d && (d.success === true || d.Success === true);
+      if (!sent) {
+        throw new Error(d?.message || d?.Message || 'Failed to send email');
+      }
+
+      addNotification({
+        type: 'success',
+        message: `Order list sent to ${emailAddress.trim()}`,
+        duration: 4000,
+      });
+      setTimeout(() => {
+        setShowExportModal(false);
+        setEmailAddress('');
+        setExportLoading(false);
+      }, 400);
+    } catch (error) {
+      console.error('Order list email export error:', error);
+      setExportErrors((e) => ({
+        ...e,
+        email:
+          error.response?.data?.message ||
+          error.response?.data?.Message ||
+          error.message ||
+          'Failed to send email. Please try again.',
+      }));
+      setExportLoading(false);
+    }
+  };
+
+  const isSmallScreen = windowWidth <= 768;
+  const labelStyle = {
+    fontSize: 11,
+    color: '#737373',
+    fontWeight: 700,
+    display: 'block',
+    marginBottom: 3,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  };
+  const inputBase = {
+    width: '100%',
+    padding: '0 8px',
+    fontSize: 11,
+    border: '1px solid #e5e5e5',
+    borderRadius: 8,
+    height: 30,
+    boxSizing: 'border-box',
+    color: '#404040',
+    background: '#fff',
+  };
+  const thL = {
+    padding: isSmallScreen ? '6px 6px' : '7px 8px',
+    textAlign: 'left',
+    fontWeight: 700,
+    fontSize: isSmallScreen ? 10 : 11,
+    color: '#18181b',
+    borderRight: '1px solid #e4e4e7',
+    borderBottom: '2px solid #d4d4d8',
+    whiteSpace: 'nowrap',
+  };
+  const tdL = {
+    padding: isSmallScreen ? '5px 6px' : '6px 8px',
+    color: '#404040',
+    fontSize: isSmallScreen ? 10 : 11,
+    lineHeight: 1.35,
+    borderRight: '1px solid #ececec',
+    borderBottom: '1px solid #e5e5e5',
+  };
+  const orderPageBtnStyle = (disabled) => ({
+    padding: '5px 11px',
+    fontSize: 12,
+    fontWeight: 600,
+    borderRadius: 8,
+    border: '1px solid #e5e5e5',
+    background: '#ffffff',
+    color: disabled ? '#a3a3a3' : '#525252',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+  });
+  const orderPageNumStyle = (active) => ({
+    padding: '5px 10px',
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 8,
+    border: `1px solid ${active ? '#6d28d9' : '#e5e5e5'}`,
+    background: active ? '#6d28d9' : '#ffffff',
+    color: active ? '#ffffff' : '#525252',
+    cursor: 'pointer',
+    minWidth: 32,
+  });
+
   return (
-    <div style={{
-      padding: '20px',
-      background: '#ffffff',
-      minHeight: '100vh'
-    }}>
-      {/* Header with Search, Refresh, and Export */}
-      <div style={{
+    <div
+      className="order-list-page"
+      style={{
+        fontFamily: 'var(--font-family)',
+        padding: '12px',
+        fontSize: '11px',
+        minHeight: '100%',
         background: '#ffffff',
-        borderRadius: '12px',
-        padding: '20px',
-        marginBottom: '20px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '16px',
-          flexWrap: 'wrap'
-        }}>
-          <h1 style={{
-            margin: 0,
-            fontSize: '24px',
-            fontWeight: 600,
-            color: '#1e293b',
-            flex: '0 0 auto'
-          }}>
-            Order List
-          </h1>
-          
-          {/* Right Side: Search, Refresh, and Export */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            flexWrap: 'wrap',
-            flex: '0 0 auto',
-            marginLeft: 'auto'
-          }}>
-            {/* Search Input */}
-            <div style={{
-              position: 'relative',
-              flex: '0 1 auto',
-              minWidth: windowWidth <= 768 ? '100%' : '250px',
-              maxWidth: windowWidth <= 768 ? '100%' : '350px'
-            }}>
-              <FaSearch style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#94a3b8',
-                fontSize: '14px',
-                zIndex: 1
-              }} />
-              <input
-                type="text"
-                placeholder="Search by Customer Name..."
-                value={searchQuery}
-                onChange={e => handleSearchChange(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px 8px 36px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box'
-                }}
-                onFocus={(e) => e.target.style.borderColor = '#9ca3af'}
-                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-              />
-            </div>
-
-            {/* Buttons Container */}
-            <div style={{
+      }}
+    >
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          marginBottom: '12px',
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+          border: '1px solid #e2e8f0',
+        }}
+      >
+        <div
+          style={{
+            height: '3px',
+            background: 'linear-gradient(90deg, #5b21b6 0%, #6d28d9 50%, #7c3aed 100%)',
+          }}
+        />
+        <div style={{ padding: '12px 14px 12px' }}>
+          <div
+            style={{
               display: 'flex',
-              flexWrap: 'wrap',
-              gap: '10px',
               alignItems: 'center',
-              minWidth: 'fit-content'
-            }}>
-              {/* View Toggle Buttons */}
-              <div style={{
-                display: 'flex',
-                gap: '4px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                padding: '2px',
-                background: '#f8fafc'
-              }}>
-                <button
-                  onClick={() => setViewMode('table')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: viewMode === 'table' ? '#ffffff' : 'transparent',
-                    color: viewMode === 'table' ? '#3b82f6' : '#64748b',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    boxShadow: viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
-                  }}
-                >
-                  <FaThList />
-                  <span>Table</span>
-                </button>
-                <button
-                  onClick={() => setViewMode('card')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: viewMode === 'card' ? '#ffffff' : 'transparent',
-                    color: viewMode === 'card' ? '#3b82f6' : '#64748b',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    boxShadow: viewMode === 'card' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
-                  }}
-                >
-                  <FaThLarge />
-                  <span>Card</span>
-                </button>
-              </div>
-
-              {/* Refresh Button */}
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
+              paddingBottom: '12px',
+              borderBottom: '1px solid #f1f5f9',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: '1 1 auto' }}>
+              <div
                 style={{
+                  width: isSmallScreen ? 34 : 38,
+                  height: isSmallScreen ? 34 : 38,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)',
+                  boxShadow: '0 2px 8px rgba(109, 40, 217, 0.35)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #3b82f6',
-                  background: '#ffffff',
-                  color: '#3b82f6',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.6 : 1,
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.target.style.background = '#3b82f6';
-                    e.target.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!loading) {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.color = '#3b82f6';
-                  }
+                  justifyContent: 'center',
+                  color: '#fff',
+                  flexShrink: 0,
                 }}
               >
-                {loading ? (
-                  <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-                ) : (
-                  <FaSync />
-                )}
-                <span>Refresh</span>
-              </button>
+                <FaClipboardList style={{ fontSize: isSmallScreen ? 14 : 16 }} />
+              </div>
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  fontFamily: 'var(--font-family)',
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                Order list
+              </h1>
+            </div>
+            <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              {effectiveTotalRecords} order{effectiveTotalRecords !== 1 ? 's' : ''}
+            </span>
+          </div>
 
-              {/* Export Button with Dropdown */}
-              <div ref={exportDropdownRef} style={{ position: 'relative' }}>
-                <button
-                  onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  disabled={orders.length === 0}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: '1px solid #3b82f6',
-                    background: '#ffffff',
-                    color: '#3b82f6',
-                    cursor: orders.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: orders.length === 0 ? 0.5 : 1,
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (orders.length > 0) {
-                      e.target.style.background = '#3b82f6';
-                      e.target.style.color = '#ffffff';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (orders.length > 0) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.color = '#3b82f6';
-                    }
-                  }}
-                >
-                  <FaFileExcel />
-                  <span>Export</span>
-                  <FaChevronDown style={{ fontSize: '10px' }} />
-                </button>
-
-                {showExportDropdown && orders.length > 0 && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    right: 0,
-                    marginTop: '8px',
-                    background: '#ffffff',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
-                    zIndex: 1000,
-                    minWidth: '180px',
-                    overflow: 'hidden'
-                  }}>
+          <div
+            style={{
+              marginTop: 12,
+              padding: '10px 12px',
+              borderRadius: 10,
+              background: '#ffffff',
+              border: '1px solid #e5e5e5',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'flex-end',
+                justifyContent: 'space-between',
+                gap: '10px',
+                rowGap: '10px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'flex-end',
+                  gap: '8px',
+                  flex: '1 1 auto',
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ flexShrink: 0 }}>
+                  <label style={labelStyle}>View</label>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 4,
+                      border: '1px solid #e5e5e5',
+                      borderRadius: 8,
+                      padding: 2,
+                      background: '#fafafa',
+                      height: 30,
+                      boxSizing: 'border-box',
+                      alignItems: 'center',
+                    }}
+                  >
                     <button
-                      onClick={handleExportToExcel}
+                      type="button"
+                      onClick={() => setViewMode('table')}
                       style={{
-                        width: '100%',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '10px',
-                        padding: '12px 16px',
-                        fontSize: '13px',
-                        fontWeight: 600,
+                        gap: 4,
+                        padding: '0 10px',
+                        height: 26,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        borderRadius: 6,
                         border: 'none',
-                        background: '#ffffff',
-                        color: '#10b981',
+                        background: viewMode === 'table' ? '#ffffff' : 'transparent',
+                        color: viewMode === 'table' ? '#6d28d9' : '#737373',
                         cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        textAlign: 'left',
-                        borderBottom: '1px solid #f1f5f9'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.background = '#f0fdf4';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.background = '#ffffff';
+                        boxShadow: viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                       }}
                     >
-                      <FaFileExcel style={{ fontSize: '16px' }} />
-                      Export to Excel
+                      <FaThList style={{ fontSize: 12 }} />
+                      Table
                     </button>
                     <button
-                      onClick={handleExportToPDF}
+                      type="button"
+                      onClick={() => setViewMode('card')}
                       style={{
-                        width: '100%',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '10px',
-                        padding: '12px 16px',
-                        fontSize: '13px',
-                        fontWeight: 600,
+                        gap: 4,
+                        padding: '0 10px',
+                        height: 26,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        borderRadius: 6,
                         border: 'none',
-                        background: '#ffffff',
-                        color: '#ef4444',
+                        background: viewMode === 'card' ? '#ffffff' : 'transparent',
+                        color: viewMode === 'card' ? '#6d28d9' : '#737373',
                         cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        textAlign: 'left'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.background = '#fef2f2';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.background = '#ffffff';
+                        boxShadow: viewMode === 'card' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                       }}
                     >
-                      <FaFilePdf style={{ fontSize: '16px' }} />
-                      Export to PDF
+                      <FaThLarge style={{ fontSize: 12 }} />
+                      Card
                     </button>
                   </div>
-                )}
+                </div>
+                <div style={{ flexShrink: 0 }}>
+                  <label style={labelStyle}>&nbsp;</label>
+                  <button
+                    type="button"
+                    onClick={handleRefresh}
+                    disabled={loading}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      height: 30,
+                      padding: '0 12px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      borderRadius: 8,
+                      border: '1px solid #d4d4d8',
+                      background: '#fafafa',
+                      color: '#262626',
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      opacity: loading ? 0.55 : 1,
+                      boxSizing: 'border-box',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {loading ? (
+                      <FaSpinner style={{ animation: 'orderListSpin 1s linear infinite', fontSize: 11 }} />
+                    ) : (
+                      <FaSync style={{ fontSize: 11 }} />
+                    )}
+                    Refresh
+                  </button>
+                </div>
+                <div style={{ flexShrink: 0 }}>
+                  <label style={labelStyle}>&nbsp;</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportErrors({ excel: '', pdf: '', email: '' });
+                      setShowExportModal(true);
+                    }}
+                    disabled={orders.length === 0}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 30,
+                      padding: '0 12px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      borderRadius: 8,
+                      border: '1px solid #c4b5fd',
+                      background: 'linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%)',
+                      color: '#5b21b6',
+                      cursor: orders.length === 0 ? 'not-allowed' : 'pointer',
+                      opacity: orders.length === 0 ? 0.45 : 1,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <FaDownload style={{ fontSize: 12 }} />
+                    Export
+                  </button>
+                </div>
+              </div>
+              <div
+                style={{
+                  flex: isSmallScreen ? '1 1 100%' : '0 1 280px',
+                  minWidth: isSmallScreen ? '100%' : '200px',
+                  maxWidth: '380px',
+                  marginLeft: isSmallScreen ? 0 : 'auto',
+                }}
+              >
+                <label style={{ ...labelStyle, textAlign: isSmallScreen ? 'left' : 'right' }}>Search</label>
+                <div style={{ position: 'relative' }}>
+                  <FaSearch
+                    style={{
+                      position: 'absolute',
+                      left: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#94a3b8',
+                      fontSize: '11px',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Customer, order, product…"
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    style={{
+                      ...inputBase,
+                      width: '100%',
+                      paddingLeft: '30px',
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Error Message */}
       {error && (
-        <div style={{
-          background: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: '8px',
-          padding: '12px 16px',
-          marginBottom: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          color: '#dc2626'
-        }}>
+        <div
+          style={{
+            padding: '8px 12px',
+            marginBottom: '10px',
+            borderRadius: '8px',
+            background: '#fef2f2',
+            border: '1px solid #fecaca',
+            color: '#b91c1c',
+            fontSize: '11px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
           <FaExclamationTriangle />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Table or Card Container */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        marginTop: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb',
-        overflow: 'hidden'
-      }}>
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: 12,
+          border: '1px solid #d4d4d8',
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}
+      >
         {viewMode === 'card' ? (
           /* Card Grid View - vertical scroll */
           <div style={{
@@ -1007,12 +1107,20 @@ const OrderList = () => {
             {currentItems.length === 0 ? (
               <div style={{
                 gridColumn: '1 / -1',
-                padding: '40px',
+                padding: '32px',
                 textAlign: 'center',
-                color: '#94a3b8',
-                fontSize: '14px'
+                color: '#737373',
+                fontSize: '11px',
+                fontWeight: 600,
               }}>
-                {loading ? 'Loading...' : 'No orders found'}
+                {loading ? (
+                  <>
+                    <FaSpinner style={{ fontSize: 18, animation: 'orderListSpin 1s linear infinite', verticalAlign: 'middle' }} />
+                    <span style={{ marginLeft: 8 }}>Loading…</span>
+                  </>
+                ) : (
+                  'No orders found'
+                )}
               </div>
             ) : (
               currentItems.map((order, index) => {
@@ -1221,224 +1329,222 @@ const OrderList = () => {
             )}
           </div>
         ) : (
-          /* Table View - vertical and horizontal scroll */
-          <div style={{
-            overflowX: 'auto',
-            overflowY: 'auto',
-            width: '100%',
-            maxWidth: '100%',
-            maxHeight: 'calc(100vh - 280px)',
-            minHeight: '200px'
-          }}>
-            <table style={{ 
-            width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '12px',
-            tableLayout: 'auto'
-          }}>
-            <thead>
-              <tr style={{
-                background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1,
-                boxShadow: '0 1px 0 #e5e7eb'
-              }}>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap',
-                  width: '60px',
-                  background: '#f8fafc'
-                }}>
-                  Sr No
-                </th>
-                {columns.map((column) => (
-                  <th
-                    key={column.key}
-                    style={{
-                      padding: '12px',
-                      textAlign: 'left',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#475569',
-                      whiteSpace: 'nowrap',
-                      width: column.width,
-                      background: '#f8fafc'
-                    }}
-                  >
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {currentItems.length === 0 ? (
-                <tr>
-                  <td colSpan={columns.length + 1} style={{
-                    padding: '40px',
-                    textAlign: 'center',
-                    color: '#94a3b8',
-                    fontSize: '14px'
-                  }}>
-                    {loading ? 'Loading...' : 'No orders found'}
-                  </td>
-                </tr>
-              ) : (
-                currentItems.map((order, index) => (
-                  <tr
-                    key={order.Id || order.id || index}
-                    style={{
-                      borderBottom: '1px solid #e5e7eb',
-                      background: index % 2 === 0 ? '#ffffff' : '#f8fafc',
-                      transition: 'background 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#f1f5f9';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-                    }}
-                  >
-                    <td style={{
-                      padding: '12px',
-                      textAlign: 'center',
-                      fontSize: '12px',
-                      color: '#1e293b'
-                    }}>
-                      {((currentPage - 1) * itemsPerPage) + index + 1}
-                    </td>
-                    {columns.map(column => {
-                      const value = getOrderValue(order, column.key);
-                      let displayValue = value;
-                      
-                      // Format based on column type
-                      if (['GrossWt', 'FineMetal', 'PaidMetal', 'BalanceMetal'].includes(column.key)) {
-                        displayValue = formatNumber(value);
-                      } else if (['GSTAmount', 'TaxableAmount', 'TotalAmount', 'PaidAmount', 'BalanceAmount'].includes(column.key)) {
-                        displayValue = formatCurrency(value);
-                      } else if (['OrderDate', 'DeliveryDate'].includes(column.key)) {
-                        displayValue = formatDate(value);
-                      } else if (column.key === 'NumberOfItems') {
-                        displayValue = value || '0';
-                      }
-                      
-                      return (
-                        <td key={column.key} style={{
-                          padding: '12px',
-                          fontSize: '12px',
-                          color: '#1e293b',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {displayValue || '-'}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {/* Summary Row */}
-            {currentItems.length > 0 && (
-              <tfoot>
-                <tr style={{
-                  background: '#f1f5f9',
-                  borderTop: '2px solid #e5e7eb',
-                  fontWeight: 600
-                }}>
-                  <td style={{
-                    padding: '12px',
-                    textAlign: 'center',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#1e293b'
-                  }}>
-                    <strong>Total</strong>
-                  </td>
-                  {columns.map(column => {
-                    let displayValue = '-';
-                    
-                    if (column.key === 'NumberOfItems') {
-                      displayValue = totals.NumberOfItems.toString();
-                    } else if (['GrossWt', 'FineMetal', 'PaidMetal', 'BalanceMetal'].includes(column.key)) {
-                      displayValue = formatNumber(totals[column.key]);
-                    } else if (['GSTAmount', 'TaxableAmount', 'TotalAmount', 'PaidAmount', 'BalanceAmount'].includes(column.key)) {
-                      displayValue = formatCurrency(totals[column.key]);
-                    }
-                    
-                    return (
-                      <td key={column.key} style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        <strong>{displayValue}</strong>
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-        )}
-        
-        {/* Pagination */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '16px 20px',
-          borderTop: '1px solid #e5e7eb',
-          flexWrap: 'wrap',
-          gap: '12px'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            flexWrap: 'wrap',
-            fontSize: '12px',
-            color: '#64748b'
-          }}>
-            <span>
-              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, effectiveTotalRecords)} of {effectiveTotalRecords} entries
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Show:</span>
-              <select 
-                value={itemsPerPage}
-                onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
+          <div style={{ overflowX: 'auto', width: '100%', background: '#fafafa' }}>
+            <div
+              style={{
+                overflowY: 'auto',
+                maxHeight: 'calc(100vh - 280px)',
+                minHeight: 200,
+              }}
+            >
+              <table
                 style={{
-                  padding: '6px 10px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none',
-                  cursor: 'pointer'
+                  width: '100%',
+                  borderCollapse: 'separate',
+                  borderSpacing: 0,
+                  fontSize: isSmallScreen ? 10 : 11,
+                  minWidth: 1400,
+                  tableLayout: 'auto',
                 }}
               >
-                {PAGE_SIZE_OPTIONS.map(size => (
-                  <option key={size} value={size}>{size}</option>
-                ))}
-              </select>
-              <span>per page</span>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                  <tr style={{ background: '#f4f4f5', boxShadow: '0 1px 0 #e4e4e7' }}>
+                    <th
+                      style={{
+                        ...thL,
+                        textAlign: 'center',
+                        width: 52,
+                        borderRight: '1px solid #e4e4e7',
+                      }}
+                    >
+                      #
+                    </th>
+                    {columns.map((column, colIdx) => (
+                      <th
+                        key={column.key}
+                        style={{
+                          ...thL,
+                          width: column.width,
+                          borderRight: colIdx === columns.length - 1 ? 'none' : thL.borderRight,
+                        }}
+                      >
+                        {column.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentItems.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={columns.length + 1}
+                        style={{
+                          padding: 24,
+                          textAlign: 'center',
+                          color: '#737373',
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {loading ? (
+                          <>
+                            <FaSpinner style={{ fontSize: 18, animation: 'orderListSpin 1s linear infinite', verticalAlign: 'middle' }} />
+                            <span style={{ marginLeft: 8 }}>Loading…</span>
+                          </>
+                        ) : (
+                          'No orders found'
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    currentItems.map((order, index) => {
+                      const rowNum = ((currentPage - 1) * itemsPerPage) + index + 1;
+                      const stripe = rowNum % 2 === 0;
+                      return (
+                        <tr
+                          key={order.Id || order.id || index}
+                          style={{
+                            background: stripe ? '#fafafa' : '#ffffff',
+                          }}
+                        >
+                          <td
+                            style={{
+                              ...tdL,
+                              textAlign: 'center',
+                              color: '#737373',
+                              fontVariantNumeric: 'tabular-nums',
+                              borderRight: '1px solid #ececec',
+                            }}
+                          >
+                            {rowNum}
+                          </td>
+                          {columns.map((column, colIdx) => {
+                            const value = getOrderValue(order, column.key);
+                            let displayValue = value;
+                            if (['GrossWt', 'FineMetal', 'PaidMetal', 'BalanceMetal'].includes(column.key)) {
+                              displayValue = formatNumber(value);
+                            } else if (['GSTAmount', 'TaxableAmount', 'TotalAmount', 'PaidAmount', 'BalanceAmount'].includes(column.key)) {
+                              displayValue = formatCurrency(value);
+                            } else if (['OrderDate', 'DeliveryDate'].includes(column.key)) {
+                              displayValue = formatDate(value);
+                            } else if (column.key === 'NumberOfItems') {
+                              displayValue = value || '0';
+                            }
+                            const isNumericCol = ['NumberOfItems', 'GrossWt', 'FineMetal', 'PaidMetal', 'BalanceMetal', 'GSTAmount', 'TaxableAmount', 'TotalAmount', 'PaidAmount', 'BalanceAmount'].includes(column.key);
+                            return (
+                              <td
+                                key={column.key}
+                                style={{
+                                  ...tdL,
+                                  textAlign: isNumericCol ? 'right' : 'left',
+                                  fontWeight: column.key === 'OrderNo' ? 700 : 400,
+                                  color: column.key === 'OrderNo' ? '#171717' : tdL.color,
+                                  fontVariantNumeric: isNumericCol ? 'tabular-nums' : undefined,
+                                  whiteSpace: 'nowrap',
+                                  borderRight: colIdx === columns.length - 1 ? 'none' : tdL.borderRight,
+                                }}
+                              >
+                                {displayValue || '-'}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {currentItems.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: '#f4f4f5', boxShadow: 'inset 0 1px 0 #e4e4e7' }}>
+                      <td
+                        style={{
+                          ...tdL,
+                          textAlign: 'center',
+                          fontWeight: 800,
+                          color: '#18181b',
+                        }}
+                      >
+                        Total
+                      </td>
+                      {columns.map((column, colIdx) => {
+                        let displayValue = '—';
+                        if (column.key === 'NumberOfItems') {
+                          displayValue = totals.NumberOfItems.toString();
+                        } else if (['GrossWt', 'FineMetal', 'PaidMetal', 'BalanceMetal'].includes(column.key)) {
+                          displayValue = formatNumber(totals[column.key]);
+                        } else if (['GSTAmount', 'TaxableAmount', 'TotalAmount', 'PaidAmount', 'BalanceAmount'].includes(column.key)) {
+                          displayValue = formatCurrency(totals[column.key]);
+                        }
+                        const isNumericCol = ['NumberOfItems', 'GrossWt', 'FineMetal', 'PaidMetal', 'BalanceMetal', 'GSTAmount', 'TaxableAmount', 'TotalAmount', 'PaidAmount', 'BalanceAmount'].includes(column.key);
+                        return (
+                          <td
+                            key={column.key}
+                            style={{
+                              ...tdL,
+                              fontWeight: 800,
+                              color: '#18181b',
+                              textAlign: isNumericCol ? 'right' : 'left',
+                              fontVariantNumeric: isNumericCol ? 'tabular-nums' : undefined,
+                              borderRight: colIdx === columns.length - 1 ? 'none' : tdL.borderRight,
+                            }}
+                          >
+                            {displayValue}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             </div>
           </div>
-          
-          <div style={{
+        )}
+
+        <div
+          style={{
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '6px',
-            flexWrap: 'wrap'
-          }}>
-            <button 
+            padding: '12px 16px',
+            borderTop: '1px solid #f5f5f5',
+            flexWrap: 'wrap',
+            gap: 10,
+            background: '#fafafa',
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 14px', fontSize: 11, color: '#525252', fontWeight: 600 }}>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {effectiveTotalRecords} record{effectiveTotalRecords === 1 ? '' : 's'}
+              {effectiveTotalRecords > 0
+                ? ` · ${((currentPage - 1) * itemsPerPage) + 1}–${Math.min(currentPage * itemsPerPage, effectiveTotalRecords)} shown`
+                : ''}
+            </span>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#404040' }}>
+              Rows
+              <select
+                value={itemsPerPage}
+                onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value, 10))}
+                style={{
+                  ...inputBase,
+                  width: 'auto',
+                  minWidth: 72,
+                  height: 28,
+                  padding: '0 8px',
+                  cursor: 'pointer',
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              type="button"
               onClick={() => {
                 const newPage = Math.max(currentPage - 1, 1);
                 setCurrentPage(newPage);
@@ -1446,54 +1552,32 @@ const OrderList = () => {
                 fetchOrders(newPage, itemsPerPage, searchQuery);
               }}
               disabled={currentPage === 1}
-              style={{
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '6px',
-                border: '1px solid #e2e8f0',
-                background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
-                color: currentPage === 1 ? '#94a3b8' : '#475569',
-                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s'
-              }}
+              style={orderPageBtnStyle(currentPage === 1)}
             >
-              Previous
+              Prev
             </button>
             {generatePagination().map((page, index) =>
-              page === "..." ? (
-                <span key={`ellipsis-${index}`} style={{
-                  padding: '6px 8px',
-                  fontSize: '12px',
-                  color: '#94a3b8'
-                }}>...</span>
+              page === '...' ? (
+                <span key={`ellipsis-${index}`} style={{ padding: '4px 6px', fontSize: 11, color: '#a3a3a3', fontWeight: 700 }}>
+                  …
+                </span>
               ) : (
                 <button
+                  type="button"
                   key={page}
                   onClick={() => {
                     setCurrentPage(page);
                     setLoading(true);
                     fetchOrders(page, itemsPerPage, searchQuery);
                   }}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid',
-                    background: currentPage === page ? '#9ca3af' : '#ffffff',
-                    color: currentPage === page ? '#ffffff' : '#475569',
-                    borderColor: currentPage === page ? '#9ca3af' : '#e2e8f0',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    minWidth: '36px'
-                  }}
+                  style={orderPageNumStyle(currentPage === page)}
                 >
                   {page}
                 </button>
               )
             )}
             <button
+              type="button"
               onClick={() => {
                 const newPage = Math.min(currentPage + 1, effectiveTotalPages);
                 setCurrentPage(newPage);
@@ -1501,23 +1585,286 @@ const OrderList = () => {
                 fetchOrders(newPage, itemsPerPage, searchQuery);
               }}
               disabled={currentPage === effectiveTotalPages}
-              style={{
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '6px',
-                border: '1px solid #e2e8f0',
-                background: currentPage === effectiveTotalPages ? '#f1f5f9' : '#ffffff',
-                color: currentPage === effectiveTotalPages ? '#94a3b8' : '#475569',
-                cursor: currentPage === effectiveTotalPages ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s'
-              }}
+              style={orderPageBtnStyle(currentPage === effectiveTotalPages)}
             >
               Next
             </button>
           </div>
         </div>
       </div>
+
+      {showExportModal && (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10040,
+            background: 'rgba(15, 23, 42, 0.45)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => !exportLoading && setShowExportModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-export-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 440,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              borderRadius: 16,
+              background: 'linear-gradient(180deg, #ffffff 0%, #fafafa 100%)',
+              border: '1px solid #e9d5ff',
+              boxShadow: '0 25px 50px -12px rgba(91, 33, 182, 0.25), 0 0 0 1px rgba(255,255,255,0.8) inset',
+            }}
+          >
+            <div
+              style={{
+                height: 4,
+                background: 'linear-gradient(90deg, #5b21b6 0%, #7c3aed 50%, #a78bfa 100%)',
+                borderRadius: '16px 16px 0 0',
+              }}
+            />
+            <div style={{ padding: '18px 20px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+                <div>
+                  <h2 id="order-export-title" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}>
+                    Export order list
+                  </h2>
+                  <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b', fontWeight: 600, lineHeight: 1.45 }}>
+                    Same as inventory list: download Excel or PDF, or email the Excel file. Uses <strong style={{ color: '#5b21b6' }}>current page</strong> rows ({orders.length}).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  disabled={exportLoading}
+                  onClick={() => setShowExportModal(false)}
+                  style={{
+                    flexShrink: 0,
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    border: '1px solid #e2e8f0',
+                    background: '#fff',
+                    color: '#64748b',
+                    cursor: exportLoading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <FaTimes size={14} />
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
+                <button
+                  type="button"
+                  onClick={handleExportToExcel}
+                  disabled={exportLoading || !orders.length}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    width: '100%',
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    border: '1px solid #86efac',
+                    background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
+                    cursor: exportLoading || !orders.length ? 'not-allowed' : 'pointer',
+                    opacity: !orders.length ? 0.5 : 1,
+                    textAlign: 'left',
+                    boxShadow: '0 1px 2px rgba(16, 185, 129, 0.08)',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      background: '#fff',
+                      border: '1px solid #bbf7d0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#059669',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FaFileExcel size={22} />
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 14, fontWeight: 800, color: '#065f46' }}>Export as Excel</span>
+                    <span style={{ display: 'block', fontSize: 11, color: '#047857', fontWeight: 600, marginTop: 2, opacity: 0.95 }}>
+                      Download .xlsx with totals row
+                    </span>
+                  </span>
+                </button>
+                {exportErrors.excel ? (
+                  <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, marginTop: -4 }}>{exportErrors.excel}</div>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={handleExportToPDF}
+                  disabled={exportLoading || !orders.length}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    width: '100%',
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    border: '1px solid #fecaca',
+                    background: 'linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%)',
+                    cursor: exportLoading || !orders.length ? 'not-allowed' : 'pointer',
+                    opacity: !orders.length ? 0.5 : 1,
+                    textAlign: 'left',
+                    boxShadow: '0 1px 2px rgba(220, 38, 38, 0.08)',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      background: '#fff',
+                      border: '1px solid #fecaca',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#dc2626',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FaFilePdf size={22} />
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 14, fontWeight: 800, color: '#991b1b' }}>Export as PDF</span>
+                    <span style={{ display: 'block', fontSize: 11, color: '#b91c1c', fontWeight: 600, marginTop: 2, opacity: 0.95 }}>
+                      Landscape table, purple header
+                    </span>
+                  </span>
+                </button>
+                {exportErrors.pdf ? (
+                  <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, marginTop: -4 }}>{exportErrors.pdf}</div>
+                ) : null}
+
+                <div
+                  style={{
+                    borderRadius: 12,
+                    border: '1px solid #ddd6fe',
+                    background: 'linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%)',
+                    padding: '14px 16px',
+                    boxShadow: '0 1px 2px rgba(109, 40, 217, 0.06)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <span
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
+                        background: '#fff',
+                        border: '1px solid #e9d5ff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#6d28d9',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <FaEnvelope size={20} />
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#4c1d95' }}>Send to email</div>
+                      <div style={{ fontSize: 11, color: '#6d28d9', fontWeight: 600, marginTop: 2, opacity: 0.95 }}>
+                        Excel attachment via server (same flow as inventory list)
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <input
+                      type="email"
+                      placeholder="recipient@company.com"
+                      value={emailAddress}
+                      onChange={(e) => {
+                        setEmailAddress(e.target.value);
+                        setExportErrors((er) => ({ ...er, email: '' }));
+                      }}
+                      disabled={exportLoading}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        fontSize: 13,
+                        borderRadius: 10,
+                        border: '1px solid #e9d5ff',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        background: '#fff',
+                        color: '#0f172a',
+                      }}
+                    />
+                    {exportErrors.email ? (
+                      <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600 }}>{exportErrors.email}</div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleEmailExport}
+                      disabled={exportLoading || !emailAddress.trim() || !orders.length}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        padding: '10px 16px',
+                        fontSize: 13,
+                        fontWeight: 800,
+                        borderRadius: 10,
+                        border: 'none',
+                        background:
+                          exportLoading || !emailAddress.trim() || !orders.length
+                            ? '#c4b5fd'
+                            : 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)',
+                        color: '#fff',
+                        cursor: exportLoading || !emailAddress.trim() || !orders.length ? 'not-allowed' : 'pointer',
+                        boxShadow: '0 4px 14px rgba(109, 40, 217, 0.35)',
+                      }}
+                    >
+                      {exportLoading ? (
+                        <>
+                          <FaSpinner style={{ animation: 'orderListSpin 1s linear infinite' }} />
+                          Sending…
+                        </>
+                      ) : (
+                        <>
+                          <FaEnvelope size={14} />
+                          Send email
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes orderListSpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -7,9 +7,9 @@ import {
   FaSync,
   FaFilter,
   FaTimes,
+  FaFileExport,
   FaFileExcel,
-  FaFilePdf,
-  FaChevronDown
+  FaFilePdf
 } from 'react-icons/fa';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import * as XLSX from 'xlsx';
@@ -18,8 +18,8 @@ import 'jspdf-autotable';
 import { useLoading } from '../App';
 import { useNotifications } from '../context/NotificationContext';
 
-const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
-const DEFAULT_PAGE_SIZE = 500;
+/** Fixed page size: table body always reserves 15 row slots (padded when fewer). */
+const STOCK_REPORT_PAGE_SIZE = 15;
 
 const Reports = () => {
   const { loading, setLoading } = useLoading();
@@ -30,7 +30,6 @@ const Reports = () => {
   const [error, setError] = useState(null);
   const [userInfo, setUserInfo] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   // Get current date in YYYY-MM-DD format for default dates
   const getCurrentDate = () => {
@@ -68,8 +67,7 @@ const Reports = () => {
     purityId: { isOpen: false, searchTerm: '', filteredOptions: [] }
   });
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  const [showExportDropdown, setShowExportDropdown] = useState(false);
-  const exportDropdownRef = useRef(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -99,6 +97,10 @@ const Reports = () => {
       }, 100);
     }
   }, [userInfo]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [reportData]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -816,20 +818,23 @@ const Reports = () => {
     );
   };
 
-  // Pagination logic
   const totalRecords = reportData.length;
-  const totalPages = Math.ceil(totalRecords / itemsPerPage);
-  
-  const currentItems = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    const end = start + itemsPerPage;
-    return reportData.slice(start, end);
-  }, [reportData, currentPage, itemsPerPage]);
+  const totalPages = Math.max(1, Math.ceil(totalRecords / STOCK_REPORT_PAGE_SIZE));
 
-  const handleItemsPerPageChange = (newItemsPerPage) => {
-    setItemsPerPage(newItemsPerPage);
-    setCurrentPage(1);
-  };
+  const currentItems = useMemo(() => {
+    const start = (currentPage - 1) * STOCK_REPORT_PAGE_SIZE;
+    return reportData.slice(start, start + STOCK_REPORT_PAGE_SIZE);
+  }, [reportData, currentPage]);
+
+  const paddedStockSlots = useMemo(() => {
+    const slots = [];
+    currentItems.forEach((item) => slots.push({ kind: 'row', item }));
+    const pad = Math.max(0, STOCK_REPORT_PAGE_SIZE - slots.length);
+    for (let i = 0; i < pad; i += 1) {
+      slots.push({ kind: 'pad', key: `sr-pad-${currentPage}-${i}` });
+    }
+    return slots;
+  }, [currentItems, currentPage]);
 
   // Smart Pagination Logic
   const generatePagination = () => {
@@ -906,20 +911,6 @@ const Reports = () => {
     return isNaN(numValue) ? '0' : numValue.toString();
   };
 
-  // Close export dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target)) {
-        setShowExportDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
-
   // Export to Excel
   const handleExportToExcel = () => {
     try {
@@ -936,7 +927,8 @@ const Reports = () => {
       const exportData = reportData.map((item, index) => {
         return {
           'S.No': index + 1,
-          'Name': getValue(item, 'Name'),
+          'Employee': getValue(item, 'Employee'),
+          'Item detail': getValue(item, 'Name'),
           'Opening Qty': parseFloat(item.OpeningQuantity || item.OpeningQty || 0),
           'Opening Gr Wt': parseFloat(item.OpeningGrossWeight || item.OpeningGrWt || 0),
           'Opening Net Wt': parseFloat(item.OpeningNetWeight || item.OpeningNetWt || 0),
@@ -953,7 +945,8 @@ const Reports = () => {
       // Add summary row
       exportData.push({
         'S.No': '',
-        'Name': 'TOTAL',
+        'Employee': '',
+        'Item detail': 'TOTAL',
         'Opening Qty': totals.OpeningQty,
         'Opening Gr Wt': totals.OpeningGrWt,
         'Opening Net Wt': totals.OpeningNetWt,
@@ -970,8 +963,9 @@ const Reports = () => {
       
       // Set column widths
       const colWidths = [
-        { wch: 8 },   // S.No
-        { wch: 25 },  // Name
+        { wch: 8 },
+        { wch: 18 },
+        { wch: 28 },
         { wch: 12 },  // Opening Qty
         { wch: 15 },  // Opening Gr Wt
         { wch: 15 },  // Opening Net Wt
@@ -996,7 +990,7 @@ const Reports = () => {
         message: `Stock report exported to ${fileName} successfully`,
         duration: 3000
       });
-      setShowExportDropdown(false);
+      setShowExportModal(false);
     } catch (err) {
       console.error('Error exporting to Excel:', err);
       addNotification({
@@ -1035,7 +1029,8 @@ const Reports = () => {
       // Table headers
       const tableHeaders = [
         'S.No',
-        'Name',
+        'Employee',
+        'Item',
         'Opening Qty',
         'Opening Gr Wt',
         'Opening Net Wt',
@@ -1051,6 +1046,7 @@ const Reports = () => {
       // Table data
       const tableData = reportData.map((item, index) => [
         index + 1,
+        getValue(item, 'Employee') || '—',
         getValue(item, 'Name') || '-',
         formatQty(item.OpeningQuantity || item.OpeningQty),
         formatNumber(item.OpeningGrossWeight || item.OpeningGrWt),
@@ -1066,6 +1062,7 @@ const Reports = () => {
 
       // Add summary row
       tableData.push([
+        '',
         '',
         'TOTAL',
         formatQty(totals.OpeningQty),
@@ -1085,7 +1082,7 @@ const Reports = () => {
         body: tableData,
         startY: 45,
         styles: { fontSize: 7, cellPadding: 2 },
-        headStyles: { fillColor: [69, 73, 232], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+        headStyles: { fillColor: [13, 148, 136], textColor: 255, fontSize: 8, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [245, 247, 250] },
         margin: { left: 8, right: 8 },
         tableWidth: 'auto',
@@ -1106,7 +1103,7 @@ const Reports = () => {
         message: `Stock report exported to ${fileName} successfully`,
         duration: 3000
       });
-      setShowExportDropdown(false);
+      setShowExportModal(false);
     } catch (err) {
       console.error('Error exporting to PDF:', err);
       addNotification({
@@ -1116,10 +1113,31 @@ const Reports = () => {
       });
     }
   };
+  
+  const handleExportAllReport = () => {
+    handleExportToExcel();
+  };
+
+  const resolveEmployeeName = (item) => {
+    if (!item || typeof item !== 'object') return '—';
+    const v =
+      item.EmployeeName ||
+      item.Employee ||
+      item.UserName ||
+      item.Username ||
+      item.LoginName ||
+      item.SalesmanName ||
+      item.SalesPerson ||
+      item.EmpName ||
+      item.TCode ||
+      item.CreatedBy;
+    return v !== undefined && v !== null && String(v).trim() !== '' ? String(v).trim() : '—';
+  };
 
   const getValue = (item, key) => {
     // Map API response field names to table keys
     const fieldMapping = {
+      'Employee': () => resolveEmployeeName(item),
       'Name': () => {
         // Combine Category, Product, Design for Name
         const parts = [];
@@ -1164,7 +1182,8 @@ const Reports = () => {
   const totals = calculateTotals();
 
   const columns = [
-    { key: 'Name', label: 'Name', width: '200px' },
+    { key: 'Employee', label: 'Employee', width: '120px' },
+    { key: 'Name', label: 'Item detail', width: '200px' },
     { key: 'OpeningQty', label: 'Opening Qty', width: '120px' },
     { key: 'OpeningGrWt', label: 'Opening Gr Wt', width: '140px' },
     { key: 'OpeningNetWt', label: 'Opening Net Wt', width: '140px' },
@@ -1177,268 +1196,349 @@ const Reports = () => {
     { key: 'ClosingNet', label: 'Closing Net', width: '140px' }
   ];
 
+  const isSmallScreen = windowWidth <= 768;
+  const thStock = {
+    padding: isSmallScreen ? '6px 6px' : '7px 8px',
+    textAlign: 'left',
+    fontWeight: 700,
+    fontSize: isSmallScreen ? 10 : 11,
+    color: '#18181b',
+    borderRight: '1px solid #e4e4e7',
+    borderBottom: '2px solid #d4d4d8',
+    whiteSpace: 'nowrap',
+    background: '#f4f4f5',
+  };
+  const tdStock = {
+    padding: isSmallScreen ? '5px 6px' : '6px 8px',
+    color: '#404040',
+    fontSize: isSmallScreen ? 10 : 11,
+    lineHeight: 1.35,
+    borderRight: '1px solid #ececec',
+    borderBottom: '1px solid #e5e5e5',
+  };
+  const stockPageBtn = (disabled) => ({
+    padding: '5px 11px',
+    fontSize: 12,
+    fontWeight: 600,
+    borderRadius: 8,
+    border: '1px solid #e5e5e5',
+    background: '#ffffff',
+    color: disabled ? '#a3a3a3' : '#525252',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+  });
+  const stockPageNum = (active) => ({
+    padding: '5px 10px',
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 8,
+    border: `1px solid ${active ? '#0d9488' : '#e5e5e5'}`,
+    background: active ? '#0d9488' : '#ffffff',
+    color: active ? '#ffffff' : '#525252',
+    cursor: 'pointer',
+    minWidth: 32,
+  });
+
   return (
-    <div style={{
-      padding: '20px',
-      background: '#ffffff',
-      minHeight: '100vh'
-    }}>
-      {/* Header */}
-      <div style={{
+    <div
+      className="stock-report-page"
+      style={{
+        fontFamily: 'var(--font-family)',
+        padding: '12px',
+        fontSize: 11,
+        minHeight: '100%',
         background: '#ffffff',
-        borderRadius: '12px',
-        padding: '20px',
-        marginBottom: '20px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '16px'
-        }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-              <h1 style={{
-                margin: 0,
-                fontSize: '24px',
-                fontWeight: 600,
-                color: '#1e293b'
-              }}>
-                Stock Report 
+      }}
+    >
+      <style>{`
+        @keyframes stockReportSpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: 12,
+          overflow: 'hidden',
+          marginBottom: 12,
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+          border: '1px solid #e2e8f0',
+        }}
+      >
+        <div
+          style={{
+            height: 3,
+            background: 'linear-gradient(90deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%)',
+          }}
+        />
+        <div style={{ padding: '14px 16px' }}>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 14,
+            }}
+          >
+            <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  lineHeight: 1.2,
+                }}
+              >
+                Stock report
               </h1>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  // Navigate to summary page with date filters
+              <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b', fontWeight: 600, lineHeight: 1.45 }}>
+                Opening, stock-in, sale, and closing by item — <strong style={{ color: '#0f766e' }}>{STOCK_REPORT_PAGE_SIZE} rows</strong> per page
+              </p>
+              <button
+                type="button"
+                onClick={() => {
                   const dateFrom = filterValues.dateFrom || getCurrentDate();
                   const dateTo = filterValues.dateTo || getCurrentDate();
                   navigate(`/stock-report-summary?dateFrom=${dateFrom}&dateTo=${dateTo}`);
                 }}
                 style={{
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: '#3b82f6',
-                  textDecoration: 'none',
-                  padding: '4px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #3b82f6',
-                  transition: 'all 0.2s',
-                  cursor: 'pointer'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#3b82f6';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'transparent';
-                  e.target.style.color = '#3b82f6';
+                  marginTop: 10,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #99f6e4',
+                  background: 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 100%)',
+                  color: '#0f766e',
+                  cursor: 'pointer',
                 }}
               >
-                Stock Report Summary
-              </a>
+                Open stock report summary →
+              </button>
             </div>
-            <p style={{
-              margin: 0,
-              fontSize: '14px',
-              color: '#64748b'
-            }}>
-              View detailed stock report by design with opening, stock in, sale, and closing quantities
-            </p>
-          </div>
-          <div style={{
-            display: 'flex',
-            gap: '10px',
-            alignItems: 'center'
-          }}>
-            {/* Filter Button */}
-            <button
-              onClick={() => setShowFilterPanel(!showFilterPanel)}
+
+            <div
               style={{
                 display: 'flex',
+                flexWrap: 'wrap',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #10b981',
-                background: showFilterPanel ? '#10b981' : '#ffffff',
-                color: showFilterPanel ? '#ffffff' : '#10b981',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!showFilterPanel) {
-                  e.target.style.background = '#f0fdf4';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!showFilterPanel) {
-                  e.target.style.background = '#ffffff';
-                }
+                justifyContent: 'flex-end',
+                gap: 8,
+                marginLeft: 'auto',
               }}
             >
-              <FaFilter />
-              <span>Filter</span>
-            </button>
-
-            {/* Refresh Button */}
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                fontSize: '14px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #3b82f6',
-                background: '#ffffff',
-                color: '#3b82f6',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.6 : 1,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) {
-                  e.target.style.background = '#3b82f6';
-                  e.target.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!loading) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#3b82f6';
-                }
-              }}
-            >
-              {loading ? (
-                <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-              ) : (
-                <FaSync />
-              )}
-              Refresh
-            </button>
-
-            {/* Export Button with Dropdown */}
-            <div ref={exportDropdownRef} style={{ position: 'relative' }}>
-              <button
-                onClick={() => setShowExportDropdown(!showExportDropdown)}
-                disabled={reportData.length === 0}
+              <div
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 16px',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #10b981',
-                  background: '#ffffff',
-                  color: '#10b981',
-                  cursor: reportData.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: reportData.length === 0 ? 0.5 : 1,
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (reportData.length > 0) {
-                    e.target.style.background = '#10b981';
-                    e.target.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (reportData.length > 0) {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.color = '#10b981';
-                  }
+                  display: 'inline-flex',
+                  borderRadius: 10,
+                  border: '1px solid #cbd5e1',
+                  padding: 3,
+                  background: '#f8fafc',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
                 }}
               >
-                <FaFileExcel />
-                Export
-                <FaChevronDown style={{ fontSize: '10px' }} />
+                <button
+                  type="button"
+                  onClick={() => setShowFilterPanel(!showFilterPanel)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    borderRadius: 8,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: showFilterPanel ? 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)' : 'transparent',
+                    color: showFilterPanel ? '#fff' : '#475569',
+                    boxShadow: showFilterPanel ? '0 2px 8px rgba(13, 148, 136, 0.35)' : 'none',
+                  }}
+                >
+                  <FaFilter style={{ fontSize: 12 }} />
+                  Filters
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={loading}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 32,
+                  padding: '0 14px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 10,
+                  border: '1px solid #d4d4d8',
+                  background: '#fafafa',
+                  color: '#262626',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.55 : 1,
+                }}
+              >
+                {loading ? (
+                  <FaSpinner style={{ animation: 'stockReportSpin 1s linear infinite' }} />
+                ) : (
+                  <FaSync />
+                )}
+                Refresh
               </button>
 
-              {showExportDropdown && reportData.length > 0 && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  right: 0,
-                  marginTop: '8px',
-                  background: '#ffffff',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
-                  zIndex: 1000,
-                  minWidth: '180px',
-                  overflow: 'hidden'
-                }}>
-                  <button
-                    onClick={handleExportToExcel}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '12px 16px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      border: 'none',
-                      background: '#ffffff',
-                      color: '#10b981',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      textAlign: 'left',
-                      borderBottom: '1px solid #f1f5f9'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#f0fdf4';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = '#ffffff';
-                    }}
-                  >
-                    <FaFileExcel style={{ fontSize: '16px' }} />
-                    Export to Excel
-                  </button>
-                  <button
-                    onClick={handleExportToPDF}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '12px 16px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      border: 'none',
-                      background: '#ffffff',
-                      color: '#ef4444',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      textAlign: 'left'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#fef2f2';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = '#ffffff';
-                    }}
-                  >
-                    <FaFilePdf style={{ fontSize: '16px' }} />
-                    Export to PDF
-                  </button>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowExportModal(true)}
+                disabled={reportData.length === 0}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
+                  cursor: reportData.length === 0 ? 'not-allowed' : 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                  opacity: reportData.length === 0 ? 0.45 : 1,
+                }}
+              >
+                <FaFileExport style={{ fontSize: 11, color: '#475569' }} />
+                <span>Export</span>
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      {showExportModal && (
+        <div
+          onClick={() => setShowExportModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.4)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10000,
+            backdropFilter: 'blur(2px)',
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              background: '#ffffff',
+              borderRadius: 10,
+              padding: 20,
+              width: 460,
+              maxWidth: '95vw',
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Export Stock Report</h2>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  fontSize: 20,
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  lineHeight: 1,
+                }}
+              >
+                &times;
+              </button>
+            </div>
+            <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748b' }}>
+              Choose your preferred export option
+            </p>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              <button
+                type="button"
+                onClick={handleExportToExcel}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #dcfce7',
+                  background: '#f0fdf4',
+                  color: '#166534',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <FaFileExcel style={{ fontSize: 18 }} />
+                <span>Export as Excel</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportToPDF}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #fee2e2',
+                  background: '#fef2f2',
+                  color: '#b91c1c',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <FaFilePdf style={{ fontSize: 18 }} />
+                <span>Export as PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportAllReport}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #e2e8f0',
+                  background: '#f8fafc',
+                  color: '#1e293b',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <FaFileExport style={{ fontSize: 18 }} />
+                <span>Export All Report</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filter Panel */}
       {showFilterPanel && (
@@ -1703,166 +1803,276 @@ const Reports = () => {
         </div>
       )}
 
-      {/* Table Container */}
-      <div className="table-container" style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        marginTop: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb',
-        overflow: 'hidden'
-      }}>
-        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%', position: 'relative' }}>
-          <table style={{ 
+      {/* Table Container — fixed 15 row body height (padded slots) */}
+      <div
+        className="table-container"
+        style={{
+          background: '#ffffff',
+          borderRadius: 12,
+          marginTop: 4,
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+          border: '1px solid #e2e8f0',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            overflowX: 'auto',
+            overflowY: 'visible',
             width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '12px',
-            tableLayout: 'auto'
-          }}>
+            maxWidth: '100%',
+            position: 'relative',
+          }}
+        >
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'separate',
+              borderSpacing: 0,
+              tableLayout: 'auto',
+            }}
+          >
             <thead>
-              <tr style={{
-                background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb'
-              }}>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap',
-                  width: '60px'
-                }}>
+              <tr>
+                <th
+                  style={{
+                    ...thStock,
+                    textAlign: 'center',
+                    width: 44,
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 2,
+                    borderRight: '1px solid #e4e4e7',
+                  }}
+                >
                   S.No
                 </th>
-                {columns.map((column) => (
-                  <th
-                    key={column.key}
-                    style={{
-                      padding: '12px',
-                      textAlign: 'left',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#475569',
-                      whiteSpace: 'nowrap',
-                      width: column.width,
-                      transition: 'background 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                    onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
-                  >
-                    {column.label}
-                  </th>
-                ))}
+                {columns.map((column) => {
+                  const numeric = column.key !== 'Employee' && column.key !== 'Name';
+                  return (
+                    <th
+                      key={column.key}
+                      style={{
+                        ...thStock,
+                        textAlign: numeric ? 'right' : 'left',
+                        width: column.width,
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 2,
+                        borderRight:
+                          column.key === columns[columns.length - 1].key ? 'none' : '1px solid #e4e4e7',
+                      }}
+                    >
+                      {column.label}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
-              {currentItems.length === 0 ? (
+              {loading && totalRecords === 0 ? (
                 <tr>
-                  <td colSpan={columns.length + 1} style={{
-                    padding: '40px',
-                    textAlign: 'center',
-                    color: '#94a3b8',
-                    fontSize: '14px'
-                  }}>
-                    {loading ? 'Loading...' : 'No data found'}
+                  <td
+                    colSpan={columns.length + 1}
+                    style={{
+                      ...tdStock,
+                      padding: '28px 12px',
+                      textAlign: 'center',
+                      color: '#64748b',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Loading…
                   </td>
                 </tr>
               ) : (
-                currentItems.map((item, index) => (
-                  <tr
-                    key={index}
-                    style={{
-                      borderBottom: '1px solid #e5e7eb',
-                      background: index % 2 === 0 ? '#ffffff' : '#f8fafc',
-                      transition: 'background 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#f1f5f9';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-                    }}
-                  >
-                    <td style={{
-                      padding: '12px',
-                      textAlign: 'center',
-                      fontSize: '12px',
-                      color: '#1e293b'
-                    }}>
-                      {((currentPage - 1) * itemsPerPage) + index + 1}
-                    </td>
-                    {columns.map(column => {
-                      const value = getValue(item, column.key);
-                      let displayValue = value;
-                      
-                      if (column.key === 'Name') {
-                        displayValue = value || '-';
-                      } else if (column.key === 'OpeningQty' || column.key === 'StockInQty' || column.key === 'SaleQty' || column.key === 'ClosingQty') {
-                        displayValue = formatQty(value);
-                      } else {
-                        displayValue = formatNumber(value);
-                      }
-                      
+                (() => {
+                  let dataRowOnPage = 0;
+                  return paddedStockSlots.map((slot, slotIndex) => {
+                    if (slot.kind === 'pad') {
                       return (
-                        <td key={column.key} style={{
-                          padding: '12px',
-                          fontSize: '12px',
-                          color: '#1e293b',
-                          whiteSpace: 'nowrap'
-                        }}>
-                          {displayValue || '-'}
-                        </td>
+                        <tr
+                          key={slot.key}
+                          style={{
+                            background: slotIndex % 2 === 0 ? '#fafafa' : '#f4f4f5',
+                            height: 34,
+                          }}
+                        >
+                          <td
+                            style={{
+                              ...tdStock,
+                              textAlign: 'center',
+                              color: '#d4d4d8',
+                              borderRight: '1px solid #ececec',
+                            }}
+                          >
+                            {'\u00a0'}
+                          </td>
+                          {columns.map((column) => (
+                            <td
+                              key={column.key}
+                              style={{
+                                ...tdStock,
+                                textAlign:
+                                  column.key !== 'Employee' && column.key !== 'Name'
+                                    ? 'right'
+                                    : 'left',
+                                color: '#e7e5e4',
+                                borderRight:
+                                  column.key === columns[columns.length - 1].key
+                                    ? 'none'
+                                    : '1px solid #ececec',
+                              }}
+                            >
+                              {'\u00a0'}
+                            </td>
+                          ))}
+                        </tr>
                       );
-                    })}
-                  </tr>
-                ))
+                    }
+                    const item = slot.item;
+                    const index = dataRowOnPage;
+                    dataRowOnPage += 1;
+                    const serial = (currentPage - 1) * STOCK_REPORT_PAGE_SIZE + index + 1;
+                    const zebra = slotIndex % 2 === 0 ? '#ffffff' : '#fafafa';
+                    return (
+                      <tr
+                        key={`${serial}-${index}`}
+                        style={{
+                          background: zebra,
+                          height: 34,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f0fdfa';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = zebra;
+                        }}
+                      >
+                        <td
+                          style={{
+                            ...tdStock,
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            color: '#27272a',
+                            borderRight: '1px solid #ececec',
+                          }}
+                        >
+                          {serial}
+                        </td>
+                        {columns.map((column) => {
+                          const value = getValue(item, column.key);
+                          let displayValue = value;
+                          if (column.key === 'Name' || column.key === 'Employee') {
+                            displayValue = value || (column.key === 'Employee' ? '—' : '-');
+                          } else if (
+                            column.key === 'OpeningQty' ||
+                            column.key === 'StockInQty' ||
+                            column.key === 'SaleQty' ||
+                            column.key === 'ClosingQty'
+                          ) {
+                            displayValue = formatQty(value);
+                          } else {
+                            displayValue = formatNumber(value);
+                          }
+                          const numeric = column.key !== 'Employee' && column.key !== 'Name';
+                          return (
+                            <td
+                              key={column.key}
+                              style={{
+                                ...tdStock,
+                                textAlign: numeric ? 'right' : 'left',
+                                whiteSpace: numeric ? 'nowrap' : 'normal',
+                                borderRight:
+                                  column.key === columns[columns.length - 1].key
+                                    ? 'none'
+                                    : '1px solid #ececec',
+                              }}
+                            >
+                              {displayValue || '-'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  });
+                })()
               )}
             </tbody>
-            {/* Summary Row */}
-            {currentItems.length > 0 && (
+            {totalRecords > 0 && (
               <tfoot>
-                <tr style={{
-                  background: '#f1f5f9',
-                  borderTop: '2px solid #e5e7eb',
-                  fontWeight: 600
-                }}>
-                  <td style={{
-                    padding: '12px',
-                    textAlign: 'center',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#1e293b'
-                  }}>
-                    <strong>Total</strong>
+                <tr
+                  style={{
+                    background: 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 100%)',
+                    boxShadow: 'inset 0 2px 0 #99f6e4',
+                  }}
+                >
+                  <td
+                    style={{
+                      ...tdStock,
+                      textAlign: 'center',
+                      fontWeight: 900,
+                      color: '#0f766e',
+                      fontSize: isSmallScreen ? 11 : 12,
+                      borderTop: '2px solid #5eead4',
+                      borderRight: '1px solid #cce8e4',
+                    }}
+                  >
+                    Total
                   </td>
-                  <td style={{
-                    padding: '12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#1e293b',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    <strong>-</strong>
+                  <td
+                    style={{
+                      ...tdStock,
+                      fontWeight: 900,
+                      color: '#0f766e',
+                      fontSize: isSmallScreen ? 11 : 12,
+                      borderTop: '2px solid #5eead4',
+                      borderRight: '1px solid #cce8e4',
+                    }}
+                  >
+                    —
                   </td>
-                  {columns.slice(1).map(column => {
+                  <td
+                    style={{
+                      ...tdStock,
+                      fontWeight: 900,
+                      color: '#0f766e',
+                      fontSize: isSmallScreen ? 11 : 12,
+                      borderTop: '2px solid #5eead4',
+                      borderRight: '1px solid #cce8e4',
+                    }}
+                  >
+                    —
+                  </td>
+                  {columns.slice(2).map((column) => {
                     let displayValue = '-';
-                    
-                    if (column.key === 'OpeningQty' || column.key === 'StockInQty' || column.key === 'SaleQty' || column.key === 'ClosingQty') {
+                    if (
+                      column.key === 'OpeningQty' ||
+                      column.key === 'StockInQty' ||
+                      column.key === 'SaleQty' ||
+                      column.key === 'ClosingQty'
+                    ) {
                       displayValue = formatQty(totals[column.key]);
                     } else {
                       displayValue = formatNumber(totals[column.key]);
                     }
-                    
                     return (
-                      <td key={column.key} style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        <strong>{displayValue}</strong>
+                      <td
+                        key={column.key}
+                        style={{
+                          ...tdStock,
+                          textAlign: 'right',
+                          fontWeight: 900,
+                          color: '#0f766e',
+                          fontSize: isSmallScreen ? 11 : 12,
+                          borderTop: '2px solid #5eead4',
+                          borderRight:
+                            column.key === columns[columns.length - 1].key
+                              ? 'none'
+                              : '1px solid #cce8e4',
+                        }}
+                      >
+                        {displayValue}
                       </td>
                     );
                   })}
@@ -1871,158 +2081,76 @@ const Reports = () => {
             )}
           </table>
         </div>
-        
-        {/* Pagination */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '16px 20px',
-          borderTop: '1px solid #e5e7eb',
-          flexWrap: 'wrap',
-          gap: '12px'
-        }}>
-          <div style={{
+
+        <div
+          style={{
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '12px',
+            padding: '12px 14px',
+            borderTop: '1px solid #e2e8f0',
             flexWrap: 'wrap',
-            fontSize: '12px',
-            color: '#64748b'
-          }}>
-            <span>
-              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Show:</span>
-              <select 
-                value={itemsPerPage}
-                onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                {PAGE_SIZE_OPTIONS.map(size => (
-                  <option key={size} value={size}>{size}</option>
-                ))}
-              </select>
-              <span>per page</span>
-            </div>
+            gap: 10,
+            background: '#f8fafc',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#64748b',
+            }}
+          >
+            {totalRecords === 0 && !loading ? (
+              <>No records · {STOCK_REPORT_PAGE_SIZE} rows per page</>
+            ) : (
+              <>
+                Showing{' '}
+                <strong style={{ color: '#0f172a' }}>
+                  {totalRecords === 0
+                    ? 0
+                    : (currentPage - 1) * STOCK_REPORT_PAGE_SIZE + 1}
+                </strong>
+                –
+                <strong style={{ color: '#0f172a' }}>
+                  {Math.min(currentPage * STOCK_REPORT_PAGE_SIZE, totalRecords)}
+                </strong>{' '}
+                of <strong style={{ color: '#0f172a' }}>{totalRecords}</strong> ·{' '}
+                {STOCK_REPORT_PAGE_SIZE} / page
+              </>
+            )}
           </div>
-          
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            flexWrap: 'wrap'
-          }}>
-            <button 
-              onClick={() => {
-                const newPage = Math.max(currentPage - 1, 1);
-                setCurrentPage(newPage);
-              }}
-              disabled={currentPage === 1}
-              style={{
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '6px',
-                border: '1px solid #e2e8f0',
-                background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
-                color: currentPage === 1 ? '#94a3b8' : '#475569',
-                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (currentPage !== 1) {
-                  e.target.style.background = '#f8fafc';
-                  e.target.style.borderColor = '#cbd5e1';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (currentPage !== 1) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.borderColor = '#e2e8f0';
-                }
-              }}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+              disabled={currentPage === 1 || totalRecords === 0}
+              style={stockPageBtn(currentPage === 1 || totalRecords === 0)}
             >
-              Previous
+              Prev
             </button>
             {generatePagination().map((page, index) =>
-              page === "..." ? (
-                <span key={`ellipsis-${index}`} style={{
-                  padding: '6px 8px',
-                  fontSize: '12px',
-                  color: '#94a3b8'
-                }}>...</span>
+              page === '...' ? (
+                <span key={`ellipsis-${index}`} style={{ padding: '4px 6px', fontSize: 11, color: '#a3a3a3' }}>
+                  …
+                </span>
               ) : (
                 <button
+                  type="button"
                   key={page}
                   onClick={() => setCurrentPage(page)}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid',
-                    background: currentPage === page ? '#9ca3af' : '#ffffff',
-                    color: currentPage === page ? '#ffffff' : '#475569',
-                    borderColor: currentPage === page ? '#9ca3af' : '#e2e8f0',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    minWidth: '36px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (currentPage !== page) {
-                      e.target.style.background = '#f8fafc';
-                      e.target.style.borderColor = '#cbd5e1';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (currentPage !== page) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.borderColor = '#e2e8f0';
-                    }
-                  }}
+                  style={stockPageNum(currentPage === page)}
                 >
                   {page}
                 </button>
               )
             )}
             <button
-              onClick={() => {
-                const newPage = Math.min(currentPage + 1, totalPages);
-                setCurrentPage(newPage);
-              }}
-              disabled={currentPage === totalPages}
-              style={{
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '6px',
-                border: '1px solid #e2e8f0',
-                background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
-                color: currentPage === totalPages ? '#94a3b8' : '#475569',
-                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (currentPage !== totalPages) {
-                  e.target.style.background = '#f8fafc';
-                  e.target.style.borderColor = '#cbd5e1';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (currentPage !== totalPages) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.borderColor = '#e2e8f0';
-                }
-              }}
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+              disabled={currentPage === totalPages || totalRecords === 0}
+              style={stockPageBtn(currentPage === totalPages || totalRecords === 0)}
             >
               Next
             </button>

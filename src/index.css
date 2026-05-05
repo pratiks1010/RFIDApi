@@ -13,6 +13,15 @@
   /* Font Family */
   --font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+
+  /* Page shell — consistent titles & header cards app-wide */
+  --page-title-size: 18px;
+  --page-title-size-sm: 15px;
+  --page-title-weight: 800;
+  --page-title-color: #0f172a;
+  --page-header-radius: 12px;
+  --page-header-border: 1px solid #e2e8f0;
+  --page-header-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 /* Global Font Settings */
@@ -88,4 +97,22 @@ code {
 
 .font-bold {
   font-weight: 700 !important;
-} 
+}
+
+/* Optional: use on any standalone page title for parity with PageHeader */
+.app-page-title,
+h1.app-page-title {
+  font-size: var(--page-title-size);
+  font-weight: var(--page-title-weight);
+  color: var(--page-title-color);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  font-family: var(--font-family);
+}
+
+@media (max-width: 768px) {
+  .app-page-title,
+  h1.app-page-title {
+    font-size: var(--page-title-size-sm);
+  }
+}

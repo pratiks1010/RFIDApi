@@ -1,4 +1,4 @@
-              import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -25,12 +25,21 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaBoxes,
-  FaBarcode,
   FaTimes
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useLoading } from '../../App';
+
+/** Teal theme — distinct from Sample Out (red) / Sample In palettes */
+const SV = {
+  stripe: 'linear-gradient(90deg, #0f7669 0%, #14b8a6 45%, #0d9488 100%)',
+  accent: '#0d9488',
+  accentDark: '#0f7669',
+  accentMuted: '#ccfbf1',
+  headerBg: '#f4f4f5',
+  tableBg: '#fafafa',
+};
 
 const StockVerification = () => {
   const navigate = useNavigate();
@@ -113,22 +122,10 @@ const StockVerification = () => {
     return today.toISOString().split('T')[0];
   });
   
-  // Navigation State for Zoho-like flow
-  const [currentView, setCurrentView] = useState('branches'); // 'branches', 'categories', 'products'
-  const [selectedBranchForView, setSelectedBranchForView] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [branchDetails, setBranchDetails] = useState({});
-  const [categoryDetails, setCategoryDetails] = useState({});
-  const [loadingBranch, setLoadingBranch] = useState(null);
-  const [loadingCategory, setLoadingCategory] = useState(null);
   const [showExportBranchModal, setShowExportBranchModal] = useState(false);
   const [selectedExportBranchId, setSelectedExportBranchId] = useState('');
-  
-  // Pagination for each view
-  const [branchPage, setBranchPage] = useState(1);
-  const [categoryPage, setCategoryPage] = useState(1);
-  const [productPage, setProductPage] = useState(1);
-  const [consolidationItemsPerPage] = useState(20);
+  const [consolidationTreePage, setConsolidationTreePage] = useState(1);
+  const [consolidationItemsPerPage, setConsolidationItemsPerPage] = useState(15);
 
   const { addNotification } = useNotifications();
   const { t } = useTranslation();
@@ -574,113 +571,6 @@ const StockVerification = () => {
     }
   };
 
-  // Navigate to Branch Categories View
-  const handleBranchClick = async (branch) => {
-    setSelectedBranchForView(branch);
-    setCategoryPage(1);
-    
-    // Load branch details if not cached
-    if (!branchDetails[branch.BranchId]) {
-      try {
-        setLoadingBranch(branch.BranchId);
-        
-        const response = await axios.post(
-          'https://rrgold.loyalstring.co.in/api/ProductMaster/GetConsolidationStockVerificationReport',
-          {
-            ClientCode: clientCode,
-            ReportDate: selectedReportDate,
-            BranchId: branch.BranchId
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-          }
-        );
-
-        if (response.data && response.data.Branches && response.data.Branches.length > 0) {
-          const branchData = response.data.Branches[0];
-          setBranchDetails(prev => ({
-            ...prev,
-            [branch.BranchId]: branchData
-          }));
-        }
-      } catch (err) {
-        console.error('Error fetching branch details:', err);
-        toast.error('Failed to load branch details');
-      } finally {
-        setLoadingBranch(null);
-      }
-    }
-    
-    setCurrentView('categories');
-  };
-
-  // Navigate to Category Products View
-  const handleCategoryClick = async (category) => {
-    setSelectedCategory(category);
-    setProductPage(1);
-    
-    const key = `${selectedBranchForView.BranchId}_${category.CategoryId}`;
-    
-    // Load category details if not cached
-    if (!categoryDetails[key]) {
-      try {
-        setLoadingCategory(key);
-        
-        const response = await axios.post(
-          'https://rrgold.loyalstring.co.in/api/ProductMaster/GetConsolidationStockVerificationReport',
-          {
-            ClientCode: clientCode,
-            ReportDate: selectedReportDate,
-            BranchId: selectedBranchForView.BranchId,
-            CategoryId: category.CategoryId
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-          }
-        );
-
-        if (response.data && response.data.Branches && response.data.Branches.length > 0) {
-          const branchData = response.data.Branches[0];
-          const categoryData = branchData.Categories?.find(cat => cat.CategoryId === category.CategoryId);
-          
-          if (categoryData) {
-            setCategoryDetails(prev => ({
-              ...prev,
-              [key]: categoryData
-            }));
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching category details:', err);
-        toast.error('Failed to load category details');
-      } finally {
-        setLoadingCategory(null);
-      }
-    }
-    
-    setCurrentView('products');
-  };
-
-  // Navigation handlers
-  const handleBackToBranches = () => {
-    setCurrentView('branches');
-    setSelectedBranchForView(null);
-    setSelectedCategory(null);
-    setBranchPage(1);
-  };
-
-  const handleBackToCategories = () => {
-    setCurrentView('categories');
-    setSelectedCategory(null);
-    setProductPage(1);
-  };
-
   // Fetch consolidation data when tab changes
   useEffect(() => {
     if (activeTab === 'combineReport' && clientCode) {
@@ -780,6 +670,92 @@ const StockVerification = () => {
       minute: '2-digit',
       hour12: true
     });
+  };
+
+  const isSmallScreen = windowWidth <= 768;
+  const consolidationBranchCount = (consolidationData?.Branches || []).length;
+  const consolidationBranchTotalPages = Math.max(
+    1,
+    Math.ceil(consolidationBranchCount / consolidationItemsPerPage)
+  );
+  const paginatedConsolidationBranches = useMemo(() => {
+    const list = consolidationData?.Branches || [];
+    const start = (consolidationTreePage - 1) * consolidationItemsPerPage;
+    return list.slice(start, start + consolidationItemsPerPage);
+  }, [consolidationData?.Branches, consolidationTreePage, consolidationItemsPerPage]);
+
+  useEffect(() => {
+    setConsolidationTreePage(1);
+  }, [consolidationItemsPerPage, selectedReportDate, activeTab]);
+
+  useEffect(() => {
+    if (consolidationTreePage > consolidationBranchTotalPages) {
+      setConsolidationTreePage(consolidationBranchTotalPages);
+    }
+  }, [consolidationTreePage, consolidationBranchTotalPages]);
+
+  const svLabelStyle = {
+    fontSize: 11,
+    color: '#737373',
+    fontWeight: 700,
+    display: 'block',
+    marginBottom: 3,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  };
+  const svInputBase = {
+    width: '100%',
+    padding: '0 8px',
+    fontSize: 11,
+    border: '1px solid #e5e5e5',
+    borderRadius: 8,
+    height: 30,
+    boxSizing: 'border-box',
+    color: '#404040',
+    background: '#fff',
+  };
+  const svTh = {
+    padding: isSmallScreen ? '6px 6px' : '7px 8px',
+    textAlign: 'left',
+    fontWeight: 700,
+    fontSize: isSmallScreen ? 10 : 11,
+    color: '#18181b',
+    borderRight: '1px solid #e4e4e7',
+    borderBottom: '2px solid #d4d4d8',
+    whiteSpace: 'nowrap',
+    background: SV.headerBg,
+  };
+  const svTd = {
+    padding: isSmallScreen ? '5px 6px' : '6px 8px',
+    color: '#404040',
+    fontSize: isSmallScreen ? 10 : 11,
+    lineHeight: 1.35,
+    borderRight: '1px solid #ececec',
+    borderBottom: '1px solid #e5e5e5',
+  };
+  const svPageBtn = (disabled) => ({
+    padding: '5px 11px',
+    fontSize: 12,
+    fontWeight: 600,
+    borderRadius: 8,
+    border: '1px solid #d4d4d8',
+    background: disabled ? '#f4f4f5' : '#fff',
+    color: disabled ? '#a3a3a3' : '#262626',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+  });
+  const svActionBtn = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    padding: '4px 10px',
+    border: `1px solid ${SV.accentMuted}`,
+    borderRadius: 6,
+    background: '#fff',
+    color: SV.accentDark,
+    cursor: 'pointer',
+    fontSize: 11,
+    fontWeight: 700,
   };
 
   // Export session details to Excel
@@ -1240,65 +1216,68 @@ const StockVerification = () => {
     useEffect(() => { setPage(1); }, [searchText]);
 
     if (!open) return null;
+    const mTh = (extra = {}) => ({ ...svTh, ...extra });
+    const mTd = (extra = {}) => ({ ...svTd, ...extra });
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-        <div style={{ background: '#fff', borderRadius: '16px', maxWidth: '95vw', width: '900px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>{title}</h3>
-            <button type="button" onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: '8px', padding: '8px', cursor: 'pointer', color: '#64748b' }}><FaTimes size={16} /></button>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(3px)' }} onClick={onClose}>
+        <div style={{ background: '#fff', borderRadius: 12, maxWidth: '95vw', width: '920px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 40px rgba(0,0,0,0.18)', border: '1px solid #e4e4e7', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+          <div style={{ height: 3, background: SV.stripe }} />
+          <div style={{ padding: '12px 16px', background: `linear-gradient(135deg, ${SV.accentDark} 0%, ${SV.accent} 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ margin: 0, fontSize: isSmallScreen ? 13 : 14, fontWeight: 800, color: '#fff' }}>{title}</h3>
+            <button type="button" onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center' }} aria-label="Close"><FaTimes size={14} /></button>
           </div>
-          <div style={{ padding: '12px', overflow: 'auto', flex: 1, minHeight: 0 }}>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 10px', minWidth: '280px', background: '#fff' }}>
-                <FaSearch style={{ color: '#94a3b8', fontSize: '12px' }} />
+          <div style={{ padding: '12px 14px', overflow: 'auto', flex: 1, minHeight: 0, background: SV.tableBg }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #e5e5e5', borderRadius: 8, padding: '6px 10px', minWidth: 260, flex: '1 1 220px', background: '#fff' }}>
+                <FaSearch style={{ color: '#94a3b8', fontSize: 11 }} />
                 <input
                   type="text"
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
-                  placeholder="Search item, RFID, category, product, design, status"
-                  style={{ border: 'none', outline: 'none', width: '100%', fontSize: '12px', color: '#334155', background: 'transparent' }}
+                  placeholder="Search item, RFID, category…"
+                  style={{ border: 'none', outline: 'none', width: '100%', fontSize: 11, color: '#404040', background: 'transparent' }}
                 />
               </div>
               <button
                 type="button"
                 onClick={exportModalItems}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid #d1fae5', background: '#ecfdf5', color: '#047857', borderRadius: '10px', padding: '8px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${SV.accentMuted}`, background: '#ecfdf5', color: SV.accentDark, borderRadius: 8, padding: '7px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
               >
                 <FaFileExcel />
                 Export
               </button>
             </div>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
-              Showing {filteredItems.length.toLocaleString()} of {(items.length || 0).toLocaleString()} item(s)
+            <div style={{ fontSize: 11, color: '#525252', marginBottom: 8, fontWeight: 600 }}>
+              {filteredItems.length.toLocaleString()} of {(items.length || 0).toLocaleString()} item(s)
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Item Code</th>
-                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>RFID Code</th>
-                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Category</th>
-                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Product</th>
-                    <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>Design</th>
-                    <th style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#475569' }}>Gross Wt (g)</th>
-                    <th style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#475569' }}>Net Wt (g)</th>
-                    <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 600, color: '#475569' }}>Status</th>
+            <div style={{ overflowX: 'auto', background: '#fff', border: '1px solid #d4d4d8', borderRadius: 10 }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: isSmallScreen ? 10 : 11, minWidth: 720 }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                  <tr style={{ background: SV.headerBg, boxShadow: '0 1px 0 #e4e4e7' }}>
+                    <th style={mTh()}>Item Code</th>
+                    <th style={mTh()}>RFID Code</th>
+                    <th style={mTh()}>Category</th>
+                    <th style={mTh()}>Product</th>
+                    <th style={mTh()}>Design</th>
+                    <th style={mTh({ textAlign: 'right' })}>Gross Wt</th>
+                    <th style={mTh({ textAlign: 'right' })}>Net Wt</th>
+                    <th style={mTh({ textAlign: 'center', borderRight: 'none' })}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageItems.length === 0 ? (
-                    <tr><td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No items</td></tr>
+                    <tr><td colSpan={8} style={{ ...mTd(), padding: 22, textAlign: 'center', color: '#737373', borderRight: 'none' }}>No items</td></tr>
                   ) : pageItems.map((item, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '8px' }}>{item.ItemCode ?? '–'}</td>
-                      <td style={{ padding: '8px' }}>{item.RFIDCode ?? '–'}</td>
-                      <td style={{ padding: '8px' }}>{item.CategoryName ?? '–'}</td>
-                      <td style={{ padding: '8px' }}>{item.ProductName ?? '–'}</td>
-                      <td style={{ padding: '8px' }}>{item.DesignName ?? '–'}</td>
-                      <td style={{ padding: '8px', textAlign: 'right' }}>{(item.GrossWeight ?? 0).toFixed(2)}</td>
-                      <td style={{ padding: '8px', textAlign: 'right' }}>{(item.NetWeight ?? 0).toFixed(2)}</td>
-                      <td style={{ padding: '8px', textAlign: 'center' }}>
-                        <span style={{ padding: '2px 6px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, background: (item.Status || '').toString().toLowerCase() === 'matched' ? '#dcfce7' : '#ffedd5', color: (item.Status || '').toString().toLowerCase() === 'matched' ? '#166534' : '#c2410c' }}>{item.Status ?? '–'}</span>
+                    <tr key={idx} style={{ background: idx % 2 === 0 ? '#fff' : SV.tableBg }}>
+                      <td style={mTd({ fontWeight: 600, color: '#171717' })}>{item.ItemCode ?? '–'}</td>
+                      <td style={mTd({ fontFamily: 'ui-monospace, monospace' })}>{item.RFIDCode ?? '–'}</td>
+                      <td style={mTd()}>{item.CategoryName ?? '–'}</td>
+                      <td style={mTd()}>{item.ProductName ?? '–'}</td>
+                      <td style={mTd()}>{item.DesignName ?? '–'}</td>
+                      <td style={mTd({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{Number(item.GrossWeight ?? item.GrossWt ?? 0).toFixed(2)}</td>
+                      <td style={mTd({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{Number(item.NetWeight ?? item.NetWt ?? 0).toFixed(2)}</td>
+                      <td style={mTd({ textAlign: 'center', borderRight: 'none' })}>
+                        <span style={{ padding: '1px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, border: '1px solid', borderColor: (item.Status || '').toString().toLowerCase() === 'matched' ? '#86efac' : '#fdba74', background: (item.Status || '').toString().toLowerCase() === 'matched' ? '#f0fdf4' : '#fff7ed', color: (item.Status || '').toString().toLowerCase() === 'matched' ? '#166534' : '#c2410c' }}>{item.Status ?? '–'}</span>
                       </td>
                     </tr>
                   ))}
@@ -1306,10 +1285,10 @@ const StockVerification = () => {
               </table>
             </div>
             {totalPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '12px' }}>
-                <button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: '6px 12px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '8px', cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}><FaChevronLeft /></button>
-                <span style={{ fontSize: '13px', color: '#64748b' }}>Page {page} of {totalPages}</span>
-                <button type="button" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: '6px 12px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '8px', cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}><FaChevronRight /></button>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 }}>
+                <button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={svPageBtn(page <= 1)}>Prev</button>
+                <span style={{ fontSize: 11, color: '#404040', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Page {page} / {totalPages}</span>
+                <button type="button" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={svPageBtn(page >= totalPages)}>Next</button>
               </div>
             )}
           </div>
@@ -1340,8 +1319,8 @@ const StockVerification = () => {
 
     const toggle = (setter, key) => setter(prev => ({ ...prev, [key]: !prev[key] }));
 
-    const StatPill = ({ value, color, grossWeight, netWeight, weightColor = '#64748b', onClick }) => (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+    const StatPill = ({ value, color, grossWeight, netWeight, weightColor = '#334155', onClick }) => (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
         <div
           role="button"
           tabIndex={0}
@@ -1349,15 +1328,15 @@ const StockVerification = () => {
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }}
           className="consolidation-tree-pill"
           style={{
-            padding: '6px 14px',
-            borderRadius: '10px',
-            background: `linear-gradient(135deg, ${color}12 0%, ${color}08 100%)`,
+            padding: '4px 10px',
+            borderRadius: '7px',
+            background: `linear-gradient(135deg, ${color}1f 0%, ${color}12 100%)`,
             color,
-            fontWeight: 700,
-            fontSize: '13px',
-            minWidth: '44px',
+            fontWeight: 800,
+            fontSize: '11px',
+            minWidth: '34px',
             textAlign: 'center',
-            border: `1px solid ${color}25`,
+            border: `1px solid ${color}45`,
             cursor: onClick ? 'pointer' : 'default',
             transition: 'transform 0.15s ease, box-shadow 0.15s ease'
           }}
@@ -1372,11 +1351,8 @@ const StockVerification = () => {
         </div>
         {(grossWeight !== undefined || netWeight !== undefined) && (
           <>
-            <div style={{ fontSize: '10px', color: weightColor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-              G: {grossWeight ? `${Number(grossWeight).toFixed(2)}g` : '0g'}
-            </div>
-            <div style={{ fontSize: '10px', color: weightColor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-              N: {netWeight ? `${Number(netWeight).toFixed(2)}g` : '0g'}
+            <div style={{ fontSize: '9px', color: weightColor, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>
+              G: {grossWeight ? `${Number(grossWeight).toFixed(2)}g` : '0g'} · N: {netWeight ? `${Number(netWeight).toFixed(2)}g` : '0g'}
             </div>
           </>
         )}
@@ -1388,24 +1364,27 @@ const StockVerification = () => {
       setItemsModal({ open: true, title, items, type });
     };
 
-    const rowBase = { transition: 'background 0.15s ease' };
+    const rowBase = { transition: 'background 0.12s ease' };
     const renderRow = (content, isExpanded, onToggle, hasChildren, rowKey) => (
       <tr
         key={rowKey}
         className="consolidation-tree-row"
         style={{
           ...rowBase,
-          background: isExpanded ? 'linear-gradient(90deg, #f0f9ff 0%, #ffffff 100%)' : '#ffffff',
+          background: '#ffffff',
           cursor: hasChildren ? 'pointer' : 'default',
-          borderBottom: '1px solid #f1f5f9'
+          borderBottom: '1px solid #e5e5e5'
         }}
         onClick={hasChildren ? () => onToggle() : undefined}
-        onMouseEnter={(e) => { if (hasChildren) e.currentTarget.style.background = isExpanded ? 'linear-gradient(90deg, #e0f2fe 0%, #f8fafc 100%)' : '#f8fafc'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = isExpanded ? 'linear-gradient(90deg, #f0f9ff 0%, #ffffff 100%)' : '#ffffff'; }}
+        onMouseEnter={(e) => { if (hasChildren) e.currentTarget.style.background = '#fafafa'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
       >
         {content}
       </tr>
     );
+
+    const safeBranches = branches || [];
+    const paddedRows = Math.max(0, consolidationItemsPerPage - safeBranches.length);
 
     return (
       <>
@@ -1414,57 +1393,48 @@ const StockVerification = () => {
           style={{
             overflowX: 'auto',
             background: '#ffffff',
-            borderRadius: '20px',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.04), 0 2px 4px -2px rgba(0,0,0,0.02)',
+            borderRadius: 12,
+            border: '1px solid #d4d4d8',
+            boxShadow: 'none',
             overflow: 'hidden'
           }}
         >
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px', fontSize: '13px' }}>
-            <thead>
-              <tr style={{
-                background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
-                borderBottom: '2px solid #e2e8f0'
-              }}>
-                <th style={{ padding: '16px 20px', textAlign: 'left', width: '40%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Name</th>
-                <th style={{ padding: '16px 12px', textAlign: 'center', width: '20%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total Inventory</th>
-                <th style={{ padding: '16px 12px', textAlign: 'center', width: '20%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Matched</th>
-                <th style={{ padding: '16px 12px', textAlign: 'center', width: '20%', color: '#475569', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Unmatched</th>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 640, fontSize: isSmallScreen ? 10 : 11 }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+              <tr style={{ background: SV.headerBg }}>
+                <th style={{ ...svTh, width: '40%' }}>Name</th>
+                <th style={{ ...svTh, textAlign: 'center', width: '20%' }}>Total Inv.</th>
+                <th style={{ ...svTh, textAlign: 'center', width: '20%' }}>Matched</th>
+                <th style={{ ...svTh, textAlign: 'center', width: '20%', borderRight: 'none' }}>Unmatched</th>
               </tr>
             </thead>
             <tbody>
-              {(branches || []).map((branch) => {
+              {safeBranches.map((branch) => {
                 const branchExp = expandedBranches[branch.BranchId];
                 return (
                   <React.Fragment key={branch.BranchId}>
                     {renderRow(
                       <>
-                        <td style={{ padding: '14px 20px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <td style={{ ...svTd, padding: '7px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div style={{
-                              width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              color: branchExp ? '#2563eb' : '#64748b',
-                              background: branchExp ? 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)' : '#f1f5f9',
-                              borderRadius: '8px',
-                              transition: 'all 0.2s ease',
-                              border: `1px solid ${branchExp ? '#93c5fd' : '#e2e8f0'}`
+                              width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              color: '#737373',
+                              background: 'transparent'
                             }}>
-                              <FaChevronRight size={12} style={{ transform: branchExp ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                              {branchExp ? <FaChevronDown size={10} /> : <FaChevronRight size={10} />}
                             </div>
-                            <div style={{ width: 32, height: 32, borderRadius: '8px', background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              <FaLayerGroup size={14} />
-                            </div>
-                            <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px', letterSpacing: '-0.01em' }}>{branch.BranchName}</span>
+                            <span style={{ fontWeight: 800, color: '#0f172a', fontSize: isSmallScreen ? 10 : 12, letterSpacing: '0.01em' }}>{branch.BranchName}</span>
                           </div>
                         </td>
                         <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
-                          <StatPill value={branch.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${branch.BranchName}`, branch, 'branch', 'total')} />
+                          <StatPill value={branch.TotalInventoryItems} color="#0369a1" onClick={() => openItemsModal(`Total Inventory – ${branch.BranchName}`, branch, 'branch', 'total')} />
                         </td>
                         <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
-                          <StatPill value={branch.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(branch)} netWeight={getMatchNetWeight(branch)} onClick={() => openItemsModal(`Matched – ${branch.BranchName}`, branch, 'branch', 'matched')} />
+                          <StatPill value={branch.MatchedQty} color="#047857" grossWeight={getMatchGrossWeight(branch)} netWeight={getMatchNetWeight(branch)} onClick={() => openItemsModal(`Matched – ${branch.BranchName}`, branch, 'branch', 'matched')} />
                         </td>
                         <td style={{ padding: '12px' }} onClick={e => e.stopPropagation()}>
-                          <StatPill value={branch.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(branch)} netWeight={getUnmatchNetWeight(branch)} onClick={() => openItemsModal(`Unmatched – ${branch.BranchName}`, branch, 'branch', 'unmatched')} />
+                          <StatPill value={branch.UnmatchQty} color="#c2410c" grossWeight={getUnmatchGrossWeight(branch)} netWeight={getUnmatchNetWeight(branch)} onClick={() => openItemsModal(`Unmatched – ${branch.BranchName}`, branch, 'branch', 'unmatched')} />
                         </td>
                       </>,
                       branchExp, () => toggle(setExpandedBranches, branch.BranchId), true, `branch_${branch.BranchId}`
@@ -1476,29 +1446,23 @@ const StockVerification = () => {
                         <React.Fragment key={catKey}>
                           {renderRow(
                             <>
-                              <td style={{ padding: '12px 20px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingLeft: '36px' }}>
+                              <td style={{ ...svTd, padding: '7px 10px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 24 }}>
                                   <div style={{
-                                    width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: catExp ? '#d97706' : '#64748b',
-                                    background: catExp ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : '#f8fafc',
-                                    borderRadius: '6px',
-                                    transition: 'all 0.2s ease',
-                                    border: `1px solid ${catExp ? '#fcd34d' : '#e2e8f0'}`
+                                    width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#737373',
+                                    background: 'transparent'
                                   }}>
-                                    <FaChevronRight size={10} style={{ transform: catExp ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                                    {catExp ? <FaChevronDown size={10} /> : <FaChevronRight size={10} />}
                                   </div>
-                                  <div style={{ width: 28, height: 28, borderRadius: '6px', background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <FaChartBar size={12} />
-                                  </div>
-                                  <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>{category.CategoryName}</span>
+                                  <span style={{ fontWeight: 700, color: '#1f2937', fontSize: isSmallScreen ? 10 : 11 }}>{category.CategoryName}</span>
                                 </div>
                               </td>
                               <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                <StatPill value={category.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${category.CategoryName}`, category, 'category', 'total')} />
+                                <StatPill value={category.TotalInventoryItems} color="#0284c7" onClick={() => openItemsModal(`Total Inventory – ${category.CategoryName}`, category, 'category', 'total')} />
                               </td>
                               <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                <StatPill value={category.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(category)} netWeight={getMatchNetWeight(category)} onClick={() => openItemsModal(`Matched – ${category.CategoryName}`, category, 'category', 'matched')} />
+                                <StatPill value={category.MatchedQty} color="#059669" grossWeight={getMatchGrossWeight(category)} netWeight={getMatchNetWeight(category)} onClick={() => openItemsModal(`Matched – ${category.CategoryName}`, category, 'category', 'matched')} />
                               </td>
                               <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
                                 <StatPill value={category.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(category)} netWeight={getUnmatchNetWeight(category)} onClick={() => openItemsModal(`Unmatched – ${category.CategoryName}`, category, 'category', 'unmatched')} />
@@ -1513,29 +1477,23 @@ const StockVerification = () => {
                               <React.Fragment key={prodKey}>
                                 {renderRow(
                                   <>
-                                    <td style={{ padding: '10px 20px' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '56px' }}>
+                                    <td style={{ ...svTd, padding: '7px 10px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 40 }}>
                                         <div style={{
-                                          width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                          color: prodExp ? '#7c3aed' : '#64748b',
-                                          background: prodExp ? 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)' : '#f8fafc',
-                                          borderRadius: '6px',
-                                          transition: 'all 0.2s ease',
-                                          border: `1px solid ${prodExp ? '#c4b5fd' : '#e2e8f0'}`
+                                          width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          color: '#737373',
+                                          background: 'transparent'
                                         }}>
-                                          <FaChevronRight size={9} style={{ transform: prodExp ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                                          {prodExp ? <FaChevronDown size={9} /> : <FaChevronRight size={9} />}
                                         </div>
-                                        <div style={{ width: 24, height: 24, borderRadius: '6px', background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                          <FaBoxes size={10} />
-                                        </div>
-                                        <span style={{ fontWeight: 600, color: '#334155', fontSize: '12px' }}>{product.ProductName}</span>
+                                        <span style={{ fontWeight: 700, color: '#334155', fontSize: isSmallScreen ? 10 : 11 }}>{product.ProductName}</span>
                                       </div>
                                     </td>
                                     <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                      <StatPill value={product.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${product.ProductName}`, product, 'product', 'total')} />
+                                      <StatPill value={product.TotalInventoryItems} color="#0284c7" onClick={() => openItemsModal(`Total Inventory – ${product.ProductName}`, product, 'product', 'total')} />
                                     </td>
                                     <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                      <StatPill value={product.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(product)} netWeight={getMatchNetWeight(product)} onClick={() => openItemsModal(`Matched – ${product.ProductName}`, product, 'product', 'matched')} />
+                                      <StatPill value={product.MatchedQty} color="#059669" grossWeight={getMatchGrossWeight(product)} netWeight={getMatchNetWeight(product)} onClick={() => openItemsModal(`Matched – ${product.ProductName}`, product, 'product', 'matched')} />
                                     </td>
                                     <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
                                       <StatPill value={product.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(product)} netWeight={getUnmatchNetWeight(product)} onClick={() => openItemsModal(`Unmatched – ${product.ProductName}`, product, 'product', 'unmatched')} />
@@ -1553,19 +1511,16 @@ const StockVerification = () => {
                                       onMouseEnter={(e) => { e.currentTarget.style.background = '#fafafa'; }}
                                       onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
                                     >
-                                      <td style={{ padding: '10px 20px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '80px' }}>
-                                          <div style={{ width: 22, height: 22, borderRadius: '6px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <FaBarcode size={10} />
-                                          </div>
-                                          <span style={{ fontWeight: 500, color: '#64748b', fontSize: '12px' }}>{design.DesignName}</span>
+                                      <td style={{ ...svTd, padding: '7px 10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 56 }}>
+                                          <span style={{ fontWeight: 700, color: '#374151', fontSize: isSmallScreen ? 10 : 11 }}>{design.DesignName}</span>
                                         </div>
                                       </td>
                                       <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                        <StatPill value={design.TotalInventoryItems} color="#0ea5e9" onClick={() => openItemsModal(`Total Inventory – ${design.DesignName}`, design, 'design', 'total')} />
+                                        <StatPill value={design.TotalInventoryItems} color="#0284c7" onClick={() => openItemsModal(`Total Inventory – ${design.DesignName}`, design, 'design', 'total')} />
                                       </td>
                                       <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
-                                        <StatPill value={design.MatchedQty} color="#0d9488" grossWeight={getMatchGrossWeight(design)} netWeight={getMatchNetWeight(design)} onClick={() => openItemsModal(`Matched – ${design.DesignName}`, design, 'design', 'matched')} />
+                                        <StatPill value={design.MatchedQty} color="#059669" grossWeight={getMatchGrossWeight(design)} netWeight={getMatchNetWeight(design)} onClick={() => openItemsModal(`Matched – ${design.DesignName}`, design, 'design', 'matched')} />
                                       </td>
                                       <td style={{ padding: '10px' }} onClick={e => e.stopPropagation()}>
                                         <StatPill value={design.UnmatchQty} color="#ea580c" grossWeight={getUnmatchGrossWeight(design)} netWeight={getUnmatchNetWeight(design)} onClick={() => openItemsModal(`Unmatched – ${design.DesignName}`, design, 'design', 'unmatched')} />
@@ -1582,9 +1537,14 @@ const StockVerification = () => {
                   </React.Fragment>
                 );
               })}
+              {Array.from({ length: paddedRows }).map((_, idx) => (
+                <tr key={`consolidation-pad-${idx}`} style={{ background: SV.tableBg }}>
+                  <td colSpan={4} style={{ ...svTd, borderRight: 'none', height: 36 }} aria-hidden />
+                </tr>
+              ))}
             </tbody>
           </table>
-          {(!branches || branches.length === 0) && (
+          {(!safeBranches || safeBranches.length === 0) && (
             <div style={{ padding: '56px 24px', textAlign: 'center' }}>
               <div style={{ width: 56, height: 56, borderRadius: '16px', background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <FaLayerGroup style={{ fontSize: '24px', color: '#94a3b8' }} />
@@ -1636,254 +1596,228 @@ const StockVerification = () => {
   }
 
   return (
-    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px', position: 'relative' }}>
-      {/* Modern Tabs */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'flex-start',
-        marginBottom: '24px',
-        overflowX: 'auto',
-        paddingBottom: '4px' 
-      }}>
-        <div style={{
-          display: 'flex',
-          padding: '6px',
+    <div
+      style={{
+        fontFamily: 'var(--font-family)',
+        padding: 12,
+        fontSize: 11,
+        minHeight: '100%',
+        background: '#ffffff',
+      }}
+      className="stock-verification-page"
+    >
+      <div
+        style={{
           background: '#ffffff',
-          borderRadius: '16px',
-          gap: '8px',
+          borderRadius: 12,
+          overflow: 'hidden',
+          marginBottom: 12,
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
           border: '1px solid #e2e8f0',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
-        }}>
-          <button
-            onClick={() => setActiveTab('batches')}
+        }}
+      >
+        <div style={{ height: 3, background: SV.stripe }} />
+        <div style={{ padding: '12px 14px 12px' }}>
+          <div
             style={{
-              padding: '10px 24px',
-              background: activeTab === 'batches' ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'transparent',
-              color: activeTab === 'batches' ? '#ffffff' : '#64748b',
-              border: 'none',
-              borderRadius: '12px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              transition: 'all 0.3s ease',
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
-              whiteSpace: 'nowrap',
-              boxShadow: activeTab === 'batches' ? '0 4px 12px rgba(37, 99, 235, 0.2)' : 'none',
-              transform: activeTab === 'batches' ? 'translateY(-1px)' : 'none'
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              paddingBottom: 12,
+              borderBottom: '1px solid #f1f5f9',
             }}
           >
-            <FaLayerGroup /> 
-            <span>Batch Wise Verification</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('combineReport')}
-            style={{
-              padding: '10px 24px',
-              background: activeTab === 'combineReport' ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' : 'transparent',
-              color: activeTab === 'combineReport' ? '#ffffff' : '#64748b',
-              border: 'none',
-              borderRadius: '12px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              transition: 'all 0.3s ease',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              whiteSpace: 'nowrap',
-              boxShadow: activeTab === 'combineReport' ? '0 4px 12px rgba(124, 58, 237, 0.2)' : 'none',
-              transform: activeTab === 'combineReport' ? 'translateY(-1px)' : 'none'
-            }}
-          >
-            <FaChartBar /> 
-            <span>Consolidated Report</span>
-          </button>
-        </div>
-      </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <div
+                style={{
+                  width: isSmallScreen ? 34 : 38,
+                  height: isSmallScreen ? 34 : 38,
+                  borderRadius: 10,
+                  background: SV.stripe,
+                  boxShadow: '0 2px 8px rgba(13, 148, 136, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  flexShrink: 0,
+                }}
+              >
+                <FaClipboardCheck style={{ fontSize: isSmallScreen ? 15 : 17 }} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: isSmallScreen ? '1.05rem' : '1.15rem',
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  Stock verification
+                </h1>
+                <p style={{ margin: '4px 0 0', fontSize: 10, color: '#64748b', fontWeight: 600 }}>
+                  Batch sessions and consolidated tree report
+                </p>
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                padding: 4,
+                background: '#f4f4f5',
+                borderRadius: 10,
+                gap: 4,
+                border: '1px solid #e4e4e7',
+                flexShrink: 0,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setActiveTab('batches')}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: 11,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: activeTab === 'batches' ? SV.stripe : 'transparent',
+                  color: activeTab === 'batches' ? '#fff' : '#525252',
+                  boxShadow: activeTab === 'batches' ? '0 2px 6px rgba(13,148,136,0.25)' : 'none',
+                }}
+              >
+                <FaLayerGroup style={{ fontSize: 12 }} />
+                Batches
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('combineReport')}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: 11,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: activeTab === 'combineReport' ? 'linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%)' : 'transparent',
+                  color: activeTab === 'combineReport' ? '#fff' : '#525252',
+                  boxShadow: activeTab === 'combineReport' ? '0 2px 6px rgba(124,58,237,0.22)' : 'none',
+                }}
+              >
+                <FaChartBar style={{ fontSize: 12 }} />
+                Consolidation
+              </button>
+            </div>
+          </div>
 
       {/* Batches Tab */}
       {activeTab === 'batches' && (
         <>
-      {/* Unified Header & Action Section */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        padding: '16px 20px',
-        marginBottom: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-          marginBottom: '16px'
-        }}>
-                <div>
-            <h2 style={{
-              margin: 0,
-              fontSize: '16px',
-              fontWeight: 700,
-              color: '#1e293b',
-              lineHeight: '1.2'
-            }}>Stock Verification</h2>
-                </div>
-          <div style={{
+      <div
+        style={{
+          marginTop: 12,
+          padding: '10px 12px',
+          borderRadius: 10,
+          background: '#ffffff',
+          border: '1px solid #e5e5e5',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+        }}
+      >
+        <div
+          style={{
             display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-            flexWrap: 'wrap'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 12px',
-              background: '#f0fdf4',
-              borderRadius: '8px',
-              border: '1px solid #dcfce7'
-            }}>
-              <FaCheckCircle style={{ color: '#10b981', fontSize: '14px' }} />
-              <span style={{ fontSize: '12px', color: '#166534', fontWeight: 600 }}>Active: {totalSessions}</span>
-              </div>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 12px',
-              background: '#eff6ff',
-              borderRadius: '8px',
-              border: '1px solid #dbeafe'
-            }}>
-              <FaLayerGroup style={{ color: '#3b82f6', fontSize: '14px' }} />
-              <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: 600 }}>Batches: {totalSessions}</span>
-            </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#64748b',
-              fontWeight: 600
-            }}>
-              Total: {totalRecords} records
-                    </div>
-              </div>
-            </div>
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '10px',
-          alignItems: 'center',
-          paddingTop: '16px',
-          borderTop: '1px solid #e5e7eb'
-        }}>
-          {/* Search Input */}
-          <div style={{
-            position: 'relative',
-            flex: '1',
-            minWidth: windowWidth <= 768 ? '100%' : '250px',
-            maxWidth: windowWidth <= 768 ? '100%' : '350px'
-          }}>
-            <FaSearch style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#94a3b8',
-              fontSize: '14px',
-              zIndex: 1
-            }} />
-            <input
-              type="text"
-              placeholder="Search by branch name, session ID or batch..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
+            flexWrap: 'wrap',
+            alignItems: 'flex-end',
+            justifyContent: 'space-between',
+            gap: 10,
+            rowGap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, flex: '1 1 auto' }}>
+            <span style={{ fontSize: 10, color: '#525252', fontWeight: 700, padding: '4px 8px', borderRadius: 6, background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
+              <FaCheckCircle style={{ color: SV.accent, marginRight: 4, verticalAlign: 'middle' }} />
+              {totalRecords} rows · API batches {totalSessions}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowFilterPanel(true)}
               style={{
-                width: '100%',
-                padding: '8px 12px 8px 36px',
-                fontSize: '12px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                outline: 'none',
-                transition: 'all 0.2s',
-                boxSizing: 'border-box'
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 30,
+                padding: '0 12px',
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 8,
+                border: `1px solid ${showFilterPanel ? SV.accent : '#d4d4d8'}`,
+                background: showFilterPanel ? SV.accentMuted : '#fafafa',
+                color: SV.accentDark,
+                cursor: 'pointer',
               }}
-              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-            />
+            >
+              <FaFilter style={{ fontSize: 11 }} /> Filters
+            </button>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 30,
+                padding: '0 12px',
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 8,
+                border: '1px solid #d4d4d8',
+                background: '#fafafa',
+                color: '#262626',
+                cursor: refreshing ? 'not-allowed' : 'pointer',
+                opacity: refreshing ? 0.55 : 1,
+              }}
+            >
+              <FaSpinner className={refreshing ? 'fa-spin' : ''} style={{ fontSize: 11 }} /> Refresh
+            </button>
           </div>
-          {/* Action Buttons */}
-                <button 
-            onClick={() => setShowFilterPanel(true)}
-            style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid #3b82f6',
-              background: showFilterPanel ? '#3b82f6' : '#ffffff',
-              color: showFilterPanel ? '#ffffff' : '#3b82f6',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              if (!showFilterPanel) {
-                e.target.style.background = '#3b82f6';
-                e.target.style.color = '#ffffff';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!showFilterPanel) {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#3b82f6';
-              }
-            }}
-          >
-            <FaFilter /> Filter
-                </button>
-                                    <button 
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-            style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: '1px solid #3b82f6',
-              background: '#ffffff',
-              color: '#3b82f6',
-              cursor: refreshing ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s',
-              opacity: refreshing ? 0.6 : 1
-            }}
-            onMouseEnter={(e) => {
-              if (!refreshing) {
-                e.target.style.background = '#3b82f6';
-                e.target.style.color = '#ffffff';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!refreshing) {
-                e.target.style.background = '#ffffff';
-                e.target.style.color = '#3b82f6';
-              }
-            }}
-          >
-            <FaSpinner className={refreshing ? 'fa-spin' : ''} /> Refresh
-                </button>
+          <div style={{ flex: isSmallScreen ? '1 1 100%' : '0 1 280px', minWidth: isSmallScreen ? '100%' : 200, maxWidth: 380 }}>
+            <label style={{ ...svLabelStyle, textAlign: isSmallScreen ? 'left' : 'right' }}>Search</label>
+            <div style={{ position: 'relative' }}>
+              <FaSearch
+                style={{
+                  position: 'absolute',
+                  left: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#94a3b8',
+                  fontSize: 11,
+                  pointerEvents: 'none',
+                }}
+              />
+              <input
+                type="text"
+                placeholder="Branch, session, batch…"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ ...svInputBase, width: '100%', paddingLeft: 30 }}
+              />
+            </div>
           </div>
         </div>
+      </div>
 
       {/* Filter Slider (Right-Side) */}
       {showFilterPanel && (
@@ -1920,7 +1854,7 @@ const StockVerification = () => {
           >
             {/* Filter Header */}
             <div style={{
-              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              background: `linear-gradient(135deg, ${SV.accentDark} 0%, ${SV.accent} 100%)`,
               padding: '20px',
               display: 'flex',
               alignItems: 'center',
@@ -1982,8 +1916,8 @@ const StockVerification = () => {
                     background: '#ffffff',
                     cursor: 'pointer'
                   }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  onFocus={(e) => { e.target.style.borderColor = SV.accent; }}
+                  onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; }}
                 >
                   <option value="">All Branches</option>
                   {uniqueBranches.map((branch, index) => (
@@ -2101,19 +2035,19 @@ const StockVerification = () => {
                   fontSize: '12px',
                   fontWeight: 600,
                   borderRadius: '8px',
-                  border: '1px solid #3b82f6',
-                  background: '#3b82f6',
+                  border: `1px solid ${SV.accent}`,
+                  background: SV.accent,
                   color: '#ffffff',
                   cursor: 'pointer',
                   transition: 'all 0.2s'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = '#2563eb';
-                  e.target.style.borderColor = '#2563eb';
+                  e.target.style.background = SV.accentDark;
+                  e.target.style.borderColor = SV.accentDark;
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = '#3b82f6';
-                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.background = SV.accent;
+                  e.target.style.borderColor = SV.accent;
                 }}
               >
                 Apply Filters
@@ -2124,112 +2058,65 @@ const StockVerification = () => {
       )}
 
       {/* Table Container */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        marginTop: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb',
-        overflow: 'hidden'
-      }}>
-        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
-          <table style={{ 
-            width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '12px',
-            tableLayout: 'auto',
-            minWidth: '1200px'
-          }}>
-            <thead>
-              <tr style={{
-                background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb'
-              }}>
-                <th 
+      <div
+        className="table-print-area"
+        style={{
+          marginTop: 12,
+          background: '#ffffff',
+          borderRadius: 12,
+          border: '1px solid #d4d4d8',
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}
+      >
+        <div style={{ overflowX: 'auto', width: '100%', background: SV.tableBg }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'separate',
+              borderSpacing: 0,
+              fontSize: isSmallScreen ? 10 : 11,
+              minWidth: 1100,
+              tableLayout: 'fixed',
+            }}
+          >
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+              <tr style={{ background: SV.headerBg, boxShadow: '0 1px 0 #e4e4e7' }}>
+                <th
                   onClick={() => handleSort('BranchName')}
-                  style={{
-                    padding: '12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#475569',
-                    whiteSpace: 'nowrap',
-                    cursor: 'pointer',
-                    userSelect: 'none'
-                  }}
+                  style={{ ...svTh, cursor: 'pointer', userSelect: 'none' }}
                 >
-                  Branch Name
+                  Branch
                   {renderSortIcon('BranchName')}
                 </th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Batch ID</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Started On</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Ended On</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Total Qty</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Matched Items</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Unmatched Items</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap',
-                  position: 'sticky',
-                  right: 0,
-                  background: '#f8fafc',
-                  zIndex: 10,
-                  borderLeft: '2px solid #e5e7eb'
-                }}>Actions</th>
-                </tr>
-              </thead>
+                <th style={svTh}>Batch ID</th>
+                <th style={svTh}>Started</th>
+                <th style={svTh}>Ended</th>
+                <th style={{ ...svTh, textAlign: 'center' }}>Total</th>
+                <th style={{ ...svTh, textAlign: 'center' }}>Matched</th>
+                <th style={{ ...svTh, textAlign: 'center' }}>Unmatched</th>
+                <th
+                  style={{
+                    ...svTh,
+                    textAlign: 'center',
+                    position: 'sticky',
+                    right: 0,
+                    zIndex: 3,
+                    background: SV.headerBg,
+                    borderLeft: '1px solid #e4e4e7',
+                    borderRight: 'none',
+                  }}
+                >
+                  Actions
+                </th>
+              </tr>
+            </thead>
               <tbody>
                     {currentSessions.length === 0 ? (
                       <tr>
-                  <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                  <td colSpan={8} style={{ ...svTd, padding: 36, textAlign: 'center', color: '#737373', borderRight: 'none' }}>
                     No sessions found
-                    </td>
+                  </td>
                       </tr>
                     ) : (
                 currentSessions.map((session, index) => {
@@ -2238,135 +2125,93 @@ const StockVerification = () => {
                     <tr
                       key={session.ScanBatchId || index}
                       style={{
-                        borderBottom: '1px solid #e5e7eb',
-                        background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
-                        transition: 'background 0.2s'
+                        background: globalIndex % 2 === 0 ? '#ffffff' : SV.tableBg,
+                        transition: 'background 0.15s',
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f1f5f9';
+                        e.currentTarget.style.background = '#f0fdfa';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : SV.tableBg;
                       }}
                     >
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 600
-                      }}>{session.BranchName || 'N/A'}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap',
-                        fontFamily: 'monospace'
-                      }}>{session.ScanBatchId ? session.ScanBatchId.substring(0, 12) + '...' : 'N/A'}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{session.StartedOn ? formatDate(session.StartedOn) : 'N/A'}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{session.EndedOn ? formatDate(session.EndedOn) : 'N/A'}</td>
-                      <td style={{
-                        padding: '12px',
-                        textAlign: 'center',
-                        fontSize: '12px'
-                      }}>
-                        <span style={{
-                          padding: '4px 10px',
-                          fontSize: '10px',
-                          fontWeight: 600,
-                          borderRadius: '6px',
-                          border: '1px solid #3b82f6',
-                          background: '#eff6ff',
-                          color: '#3b82f6'
-                        }}>{session.TotalQty || 0}</span>
-                    </td>
-                      <td style={{
-                        padding: '12px',
-                        textAlign: 'center',
-                        fontSize: '12px'
-                      }}>
-                        <span style={{
-                          padding: '4px 10px',
-                          fontSize: '10px',
-                          fontWeight: 600,
-                          borderRadius: '6px',
-                          border: '1px solid #10b981',
-                          background: '#f0fdf4',
-                          color: '#10b981'
-                        }}>{session.MatchQty || 0}</span>
-                    </td>
-                      <td style={{
-                        padding: '12px',
-                        textAlign: 'center',
-                        fontSize: '12px'
-                      }}>
-                        <span style={{
-                          padding: '4px 10px',
-                          fontSize: '10px',
-                          fontWeight: 600,
-                          borderRadius: '6px',
-                          border: '1px solid #ef4444',
-                          background: '#fef2f2',
-                          color: '#ef4444'
-                        }}>{session.UnmatchQty || 0}</span>
-                    </td>
-                      <td style={{
-                        padding: '12px',
-                        textAlign: 'center',
-                        fontSize: '12px',
-                        position: 'sticky',
-                        right: 0,
-                        background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
-                        zIndex: 5,
-                        borderLeft: '2px solid #e5e7eb'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f1f5f9';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
-                      }}
-                      >
-                        <button 
-                          onClick={() => handleViewSession(session)}
+                      <td style={{ ...svTd, fontWeight: 700, color: '#171717' }}>{session.BranchName || 'N/A'}</td>
+                      <td style={{ ...svTd, fontFamily: 'ui-monospace, monospace', color: '#262626' }}>
+                        {session.ScanBatchId ? `${session.ScanBatchId.substring(0, 12)}…` : 'N/A'}
+                      </td>
+                      <td style={svTd}>{session.StartedOn ? formatDate(session.StartedOn) : 'N/A'}</td>
+                      <td style={svTd}>{session.EndedOn ? formatDate(session.EndedOn) : 'N/A'}</td>
+                      <td style={{ ...svTd, textAlign: 'center' }}>
+                        <span
                           style={{
-                            padding: '4px 12px',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            borderRadius: '6px',
-                            border: '1px solid #3b82f6',
-                            background: '#ffffff',
-                            color: '#3b82f6',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
+                            padding: '1px 7px',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            borderRadius: 6,
+                            border: `1px solid ${SV.accent}`,
+                            background: SV.accentMuted,
+                            color: SV.accentDark,
+                            fontVariantNumeric: 'tabular-nums',
                           }}
-                          onMouseEnter={(e) => {
-                            e.target.style.background = '#3b82f6';
-                            e.target.style.color = '#ffffff';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.target.style.background = '#ffffff';
-                            e.target.style.color = '#3b82f6';
-                          }}
-                              title="View Session Details"
                         >
-                          <FaEye /> View
+                          {session.TotalQty || 0}
+                        </span>
+                      </td>
+                      <td style={{ ...svTd, textAlign: 'center' }}>
+                        <span
+                          style={{
+                            padding: '1px 7px',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            borderRadius: 6,
+                            border: '1px solid #86efac',
+                            background: '#f0fdf4',
+                            color: '#166534',
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {session.MatchQty || 0}
+                        </span>
+                      </td>
+                      <td style={{ ...svTd, textAlign: 'center' }}>
+                        <span
+                          style={{
+                            padding: '1px 7px',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            borderRadius: 6,
+                            border: '1px solid #fca5a5',
+                            background: '#fef2f2',
+                            color: '#b91c1c',
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {session.UnmatchQty || 0}
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          ...svTd,
+                          textAlign: 'center',
+                          position: 'sticky',
+                          right: 0,
+                          background: globalIndex % 2 === 0 ? '#ffffff' : SV.tableBg,
+                          zIndex: 1,
+                          borderLeft: '1px solid #ececec',
+                          borderRight: 'none',
+                        }}
+                        className="no-print"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleViewSession(session)}
+                          style={svActionBtn}
+                          title="View session"
+                        >
+                          <FaEye style={{ fontSize: 11 }} /> View
                         </button>
-                        </td>
-                      </tr>
+                      </td>
+                    </tr>
                   );
                 })
                     )}
@@ -2479,7 +2324,7 @@ const StockVerification = () => {
                       fontWeight: 600,
                       borderRadius: '6px',
                       border: '1px solid #e2e8f0',
-                      background: currentPage === page ? '#3b82f6' : '#ffffff',
+                      background: currentPage === page ? SV.accent : '#ffffff',
                       color: currentPage === page ? '#ffffff' : '#475569',
                       cursor: 'pointer',
                       transition: 'all 0.2s'
@@ -2560,8 +2405,8 @@ const StockVerification = () => {
                     textAlign: 'center',
                     boxSizing: 'border-box'
                   }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  onFocus={(e) => { e.target.style.borderColor = SV.accent; }}
+                  onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; }}
                 />
                 <button
                   onClick={handlePageInputSubmit}
@@ -2571,22 +2416,22 @@ const StockVerification = () => {
                     fontSize: '12px',
                     fontWeight: 600,
                     borderRadius: '6px',
-                    border: '1px solid #3b82f6',
+                    border: `1px solid ${SV.accent}`,
                     background: (!pageInput || pageInput === '') ? '#f1f5f9' : '#ffffff',
-                    color: (!pageInput || pageInput === '') ? '#94a3b8' : '#3b82f6',
+                    color: (!pageInput || pageInput === '') ? '#94a3b8' : SV.accent,
                     cursor: (!pageInput || pageInput === '') ? 'not-allowed' : 'pointer',
                     transition: 'all 0.2s'
                   }}
                   onMouseEnter={(e) => {
                     if (pageInput && pageInput !== '') {
-                      e.target.style.background = '#3b82f6';
+                      e.target.style.background = SV.accent;
                       e.target.style.color = '#ffffff';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (pageInput && pageInput !== '') {
                       e.target.style.background = '#ffffff';
-                      e.target.style.color = '#3b82f6';
+                      e.target.style.color = SV.accent;
                     }
                   }}
                 >
@@ -2636,7 +2481,7 @@ const StockVerification = () => {
           >
             {/* Slider Header */}
             <div style={{
-              background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+              background: `linear-gradient(135deg, ${SV.accentDark} 0%, ${SV.accent} 100%)`,
               padding: '20px',
               display: 'flex',
               alignItems: 'center',
@@ -2692,7 +2537,7 @@ const StockVerification = () => {
                   flexDirection: 'column',
                   gap: '16px'
                 }}>
-                  <FaSpinner className="fa-spin" style={{ color: '#3b82f6', fontSize: '32px' }} />
+                  <FaSpinner className="fa-spin" style={{ color: SV.accent, fontSize: '32px' }} />
                   <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Loading session details...</p>
                   </div>
               ) : sessionDetails ? (
@@ -2716,11 +2561,11 @@ const StockVerification = () => {
                         <div style={{
                           fontSize: '12px',
                           fontFamily: 'monospace',
-                          color: '#8b5cf6',
+                          color: SV.accentDark,
                           background: '#ffffff',
                           padding: '6px 10px',
                           borderRadius: '6px',
-                          border: '1px solid #e9d5ff'
+                          border: `1px solid ${SV.accentMuted}`
                         }}>
                           {sessionDetails.ScanBatchId?.substring(0, 24)}...
                         </div>
@@ -2765,9 +2610,9 @@ const StockVerification = () => {
                           fontSize: '12px',
                           fontWeight: 700,
                           borderRadius: '8px',
-                          border: '1px solid #3b82f6',
-                          background: '#eff6ff',
-                          color: '#3b82f6',
+                          border: `1px solid ${SV.accent}`,
+                          background: SV.accentMuted,
+                          color: SV.accentDark,
                           display: 'inline-block'
                         }}>{sessionDetails.Totals?.TotalQty || 0}</span>
                       </div>
@@ -3195,8 +3040,8 @@ const StockVerification = () => {
                     fontSize: '12px',
                     fontWeight: 600,
                     borderRadius: '8px',
-                    border: '1px solid #3b82f6',
-                    background: '#3b82f6',
+                    border: `1px solid ${SV.accent}`,
+                    background: SV.accent,
                     color: '#ffffff',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
@@ -3205,12 +3050,12 @@ const StockVerification = () => {
                     gap: '6px'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = '#2563eb';
-                    e.target.style.borderColor = '#2563eb';
+                    e.target.style.background = SV.accentDark;
+                    e.target.style.borderColor = SV.accentDark;
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = '#3b82f6';
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.background = SV.accent;
+                    e.target.style.borderColor = SV.accent;
                   }}
                 >
                   <FaFileExcel /> Export
@@ -3232,7 +3077,7 @@ const StockVerification = () => {
             borderRadius: '16px',
             padding: '24px',
             marginBottom: '24px',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            boxShadow: 'none',
             border: '1px solid #f1f5f9'
           }}>
             <div style={{
@@ -3245,17 +3090,16 @@ const StockVerification = () => {
               <div style={{ flex: 1 }}>
                 <h2 style={{
                   margin: 0,
-                  fontSize: '20px',
-                  fontWeight: 700,
+                  fontSize: isSmallScreen ? '1rem' : '1.1rem',
+                  fontWeight: 800,
                   color: '#0f172a',
-                  lineHeight: '1.2',
-                  letterSpacing: '-0.025em'
+                  lineHeight: '1.2'
                 }}>Consolidated Stock Report</h2>
                 <div style={{
-                  fontSize: '13px',
+                  fontSize: '11px',
                   color: '#64748b',
                   marginTop: '4px',
-                  fontWeight: 500
+                  fontWeight: 600
                 }}>
                   Comprehensive view of stock verification across all branches
                 </div>
@@ -3270,20 +3114,11 @@ const StockVerification = () => {
                   onChange={(e) => {
                     const newDate = e.target.value;
                     setSelectedReportDate(newDate);
-                    // Reset view and fetch new data when date changes
-                    setCurrentView('branches');
-                    setSelectedBranchForView(null);
-                    setSelectedCategory(null);
-                    setBranchDetails({});
-                    setCategoryDetails({});
-                    setBranchPage(1);
-                    setCategoryPage(1);
-                    setProductPage(1);
-                    // Fetch data for the new date
+                    setConsolidationTreePage(1);
                     if (clientCode) {
-                      fetchConsolidationReport({ 
-                        ClientCode: clientCode, 
-                        ReportDate: newDate 
+                      fetchConsolidationReport({
+                        ClientCode: clientCode,
+                        ReportDate: newDate,
                       });
                     }
                   }}
@@ -3315,32 +3150,26 @@ const StockVerification = () => {
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button 
                   onClick={() => {
-                    setCurrentView('branches');
-                    setSelectedBranchForView(null);
-                    setSelectedCategory(null);
-                    setBranchDetails({});
-                    setCategoryDetails({});
-                    setBranchPage(1);
-                    setCategoryPage(1);
-                    setProductPage(1);
+                    setConsolidationTreePage(1);
                     fetchConsolidationReport();
                   }}
                   disabled={consolidationLoading}
                   style={{
-                    padding: '10px 20px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: '#475569',
+                    height: 34,
+                    padding: '0 12px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                    border: '1px solid #d4d4d8',
+                    background: '#fafafa',
+                    color: '#262626',
                     cursor: consolidationLoading ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: '6px',
                     transition: 'all 0.2s ease',
                     opacity: consolidationLoading ? 0.7 : 1,
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                    boxSizing: 'border-box'
                   }}
                   onMouseEnter={(e) => {
                     if (!consolidationLoading) {
@@ -3358,7 +3187,7 @@ const StockVerification = () => {
                   }}
                 >
                   <FaSpinner className={consolidationLoading ? 'fa-spin' : ''} /> 
-                  {consolidationLoading ? 'Refreshing...' : 'Refresh Data'}
+                  {consolidationLoading ? 'Refreshing...' : 'Refresh'}
                 </button>
                 <button 
                   onClick={() => {
@@ -3366,30 +3195,31 @@ const StockVerification = () => {
                     setShowExportBranchModal(true);
                   }}
                   style={{
-                    padding: '10px 20px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    borderRadius: '10px',
+                    height: 34,
+                    padding: '0 14px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
                     border: 'none',
                     background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                     color: '#ffffff',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: '6px',
                     transition: 'all 0.2s ease',
-                    boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2), 0 2px 4px -1px rgba(16, 185, 129, 0.1)'
+                    boxShadow: 'none'
                   }}
                   onMouseEnter={(e) => {
                     e.target.style.transform = 'translateY(-1px)';
-                    e.target.style.boxShadow = '0 6px 8px -1px rgba(16, 185, 129, 0.3), 0 3px 6px -1px rgba(16, 185, 129, 0.15)';
+                    e.target.style.boxShadow = 'none';
                   }}
                   onMouseLeave={(e) => {
                     e.target.style.transform = 'translateY(0)';
-                    e.target.style.boxShadow = '0 4px 6px -1px rgba(16, 185, 129, 0.2), 0 2px 4px -1px rgba(16, 185, 129, 0.1)';
+                    e.target.style.boxShadow = 'none';
                   }}
                 >
-                  <FaFileExcel /> Export Excel
+                  <FaFileExcel /> Export
                 </button>
               </div>
             </div>
@@ -3414,15 +3244,17 @@ const StockVerification = () => {
                   width: '100%',
                   maxWidth: 460,
                   background: '#fff',
-                  borderRadius: 14,
+                  borderRadius: 12,
                   border: '1px solid #e2e8f0',
-                  boxShadow: '0 20px 40px rgba(0,0,0,0.18)',
-                  padding: 20,
+                  boxShadow: 'none',
+                  overflow: 'hidden',
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Export Branch Report</h3>
-                <p style={{ margin: '0 0 14px 0', color: '#64748b', fontSize: 13 }}>
+                <div style={{ height: 3, background: SV.stripe }} />
+                <div style={{ padding: 20 }}>
+                <h3 style={{ margin: '0 0 8px 0', fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Export branch report</h3>
+                <p style={{ margin: '0 0 14px 0', color: '#64748b', fontSize: 11 }}>
                   Select a branch to export only that branch details in Excel.
                 </p>
                 <select
@@ -3484,6 +3316,7 @@ const StockVerification = () => {
                     Export Branch Excel
                   </button>
                 </div>
+                </div>
               </div>
             </div>
           )}
@@ -3492,7 +3325,7 @@ const StockVerification = () => {
           <div style={{
             background: '#ffffff',
             borderRadius: '16px',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            boxShadow: 'none',
             border: '1px solid #f1f5f9',
             overflow: 'hidden'
           }}>
@@ -3502,10 +3335,10 @@ const StockVerification = () => {
                   display: 'inline-block', 
                   padding: '16px', 
                   borderRadius: '50%', 
-                  background: '#eff6ff', 
+                  background: SV.accentMuted, 
                   marginBottom: '16px' 
                 }}>
-                  <FaSpinner className="fa-spin" style={{ fontSize: '32px', color: '#3b82f6' }} />
+                  <FaSpinner className="fa-spin" style={{ fontSize: '32px', color: SV.accent }} />
                 </div>
                 <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '16px', fontWeight: 600 }}>Loading Report</h3>
                 <p style={{ margin: 0, color: '#64748b', fontSize: '13px' }}>Fetching consolidated data from all branches...</p>
@@ -3527,7 +3360,7 @@ const StockVerification = () => {
                   onClick={fetchConsolidationReport}
                   style={{
                     padding: '10px 24px',
-                    background: '#3b82f6',
+                    background: SV.accent,
                     color: '#fff',
                     border: 'none',
                     borderRadius: '8px',
@@ -3536,111 +3369,147 @@ const StockVerification = () => {
                     fontSize: '13px',
                     transition: 'all 0.2s'
                   }}
-                  onMouseEnter={(e) => e.target.style.background = '#2563eb'}
-                  onMouseLeave={(e) => e.target.style.background = '#3b82f6'}
+                  onMouseEnter={(e) => { e.target.style.background = SV.accentDark; }}
+                  onMouseLeave={(e) => { e.target.style.background = SV.accent; }}
                 >
                   Retry Request
                 </button>
               </div>
             ) : consolidationData && (consolidationData.Branches || consolidationData.Totals) ? (
               <>
-                {/* Summary Totals - Modern Dashboard Cards */}
-                {consolidationData.Totals && currentView === 'branches' && (
-                  <div style={{ 
-                    padding: '24px', 
-                    background: '#ffffff', 
-                    borderBottom: '1px solid #f1f5f9',
-                    marginBottom: '20px'
-                  }}>
-                    <div style={{ 
-                      display: 'grid', 
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-                      gap: '20px' 
-                  }}>
-                      
-                      {/* Total Inventory Card */}
-                      <div style={{ 
-                        background: '#f0f9ff', 
-                        borderRadius: '12px', 
-                        padding: '20px', 
-                        border: '1px solid #e0f2fe',
-                        boxShadow: '0 2px 4px rgba(14, 165, 233, 0.05)',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
-                          <FaBoxes size={80} color="#0ea5e9" />
+                {consolidationData.Totals && (
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      borderBottom: '1px solid #e5e7eb',
+                      background: '#ffffff',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {[
+                        {
+                          key: 'inv',
+                          title: 'Total Inventory',
+                          qty: consolidationData.Totals.TotalInventoryQty?.toLocaleString() ?? 0,
+                          g: resolveConsolidationTotals(consolidationData.Totals).totalInventoryGrossWeight,
+                          n: resolveConsolidationTotals(consolidationData.Totals).totalInventoryNetWeight,
+                          bg: '#ecfdf5',
+                          bd: '#99f6e4',
+                          fg: '#0f766e',
+                          icon: <FaBoxes />,
+                        },
+                        {
+                          key: 'mat',
+                          title: 'Matched',
+                          qty: consolidationData.Totals.MatchedQty?.toLocaleString() ?? 0,
+                          g: resolveConsolidationTotals(consolidationData.Totals).totalMatchGrossWeight,
+                          n: resolveConsolidationTotals(consolidationData.Totals).totalMatchNetWeight,
+                          bg: '#f0fdfa',
+                          bd: '#99f6e4',
+                          fg: '#0d9488',
+                          icon: <FaCheckCircle />,
+                        },
+                        {
+                          key: 'unm',
+                          title: 'Unmatched',
+                          qty: consolidationData.Totals.UnmatchQty?.toLocaleString() ?? 0,
+                          g: resolveConsolidationTotals(consolidationData.Totals).totalUnmatchGrossWeight,
+                          n: resolveConsolidationTotals(consolidationData.Totals).totalUnmatchNetWeight,
+                          bg: '#fff7ed',
+                          bd: '#fdba74',
+                          fg: '#c2410c',
+                          icon: <FaTimesCircle />,
+                        },
+                      ].map((s) => (
+                        <div
+                          key={s.key}
+                          style={{
+                            flex: '1 1 220px',
+                            minWidth: 190,
+                            border: `1px solid ${s.bd}`,
+                            background: s.bg,
+                            borderRadius: 8,
+                            padding: '8px 10px',
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            columnGap: 8,
+                            rowGap: 2,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase', color: s.fg }}>
+                            {s.title}
+                          </div>
+                          <div style={{ color: s.fg, opacity: 0.45, fontSize: 14 }}>{s.icon}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: s.fg, lineHeight: 1 }}>
+                            {s.qty}
+                          </div>
+                          <div />
+                          <div style={{ gridColumn: '1 / span 2', fontSize: 10, color: '#525252', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                            G: {Number(s.g || 0).toFixed(2)} g · N: {Number(s.n || 0).toFixed(2)} g
+                          </div>
                         </div>
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Inventory</h4>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0284c7', lineHeight: 1 }}>
-                          {consolidationData.Totals.TotalInventoryQty?.toLocaleString() ?? 0}
-                      </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
-                          G: {resolveConsolidationTotals(consolidationData.Totals).totalInventoryGrossWeight.toLocaleString()} g
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', fontWeight: 500 }}>
-                          N: {resolveConsolidationTotals(consolidationData.Totals).totalInventoryNetWeight.toLocaleString()} g
-                        </div>
-                      </div>
-
-                      {/* Matched Qty Card */}
-                      <div style={{ 
-                        background: '#f0fdfa', 
-                        borderRadius: '12px', 
-                        padding: '20px', 
-                        border: '1px solid #ccfbf1',
-                        boxShadow: '0 2px 4px rgba(20, 184, 166, 0.05)',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
-                          <FaCheckCircle size={80} color="#14b8a6" />
-                        </div>
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#0f766e', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Matched Qty</h4>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#0d9488', lineHeight: 1 }}>
-                        {consolidationData.Totals.MatchedQty?.toLocaleString() ?? 0}
-                      </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
-                          G: {resolveConsolidationTotals(consolidationData.Totals).totalMatchGrossWeight.toLocaleString()} g
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', fontWeight: 500 }}>
-                          N: {resolveConsolidationTotals(consolidationData.Totals).totalMatchNetWeight.toLocaleString()} g
-                        </div>
-                      </div>
-
-                      {/* Unmatched Qty Card */}
-                      <div style={{ 
-                        background: '#fff7ed', 
-                        borderRadius: '12px', 
-                        padding: '20px', 
-                        border: '1px solid #ffedd5',
-                        boxShadow: '0 2px 4px rgba(249, 115, 22, 0.05)',
-                        position: 'relative',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ position: 'absolute', right: '-10px', top: '-10px', opacity: 0.1 }}>
-                          <FaTimesCircle size={80} color="#f97316" />
-                    </div>
-                        <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#c2410c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unmatch Qty</h4>
-                        <div style={{ fontSize: '28px', fontWeight: 700, color: '#ea580c', lineHeight: 1 }}>
-                          {consolidationData.Totals.UnmatchQty?.toLocaleString() ?? 0}
-                      </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '8px', fontWeight: 500 }}>
-                          G: {resolveConsolidationTotals(consolidationData.Totals).totalUnmatchGrossWeight.toLocaleString()} g
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', fontWeight: 500 }}>
-                          N: {resolveConsolidationTotals(consolidationData.Totals).totalUnmatchNetWeight.toLocaleString()} g
-                        </div>
-                      </div>
-
+                      ))}
                     </div>
                   </div>
                 )}
 
-                {/* Consolidated Tree View */}
-                <ConsolidatedTreeView 
-                    branches={consolidationData.Branches || []}
-                />
+                {/* Consolidated Tree View (branch-level pagination) */}
+                <ConsolidatedTreeView branches={paginatedConsolidationBranches} />
+                {consolidationBranchCount > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px 16px',
+                      borderTop: '1px solid #e5e5e5',
+                      flexWrap: 'wrap',
+                      gap: 10,
+                      background: SV.tableBg,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
+                        {consolidationBranchCount} branch{consolidationBranchCount !== 1 ? 'es' : ''} · {consolidationItemsPerPage} rows/page
+                        {` · ${(consolidationTreePage - 1) * consolidationItemsPerPage + 1}–${Math.min(consolidationTreePage * consolidationItemsPerPage, consolidationBranchCount)} shown`}
+                      </span>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#404040' }}>
+                        Per page
+                        <select
+                          value={consolidationItemsPerPage}
+                          onChange={(e) => setConsolidationItemsPerPage(Number(e.target.value))}
+                          style={{ ...svInputBase, width: 68, height: 28, padding: '0 6px' }}
+                        >
+                          {[10, 15, 25, 50].map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => setConsolidationTreePage((p) => Math.max(1, p - 1))}
+                        disabled={consolidationTreePage === 1}
+                        style={svPageBtn(consolidationTreePage === 1)}
+                      >
+                        Prev
+                      </button>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#404040', fontVariantNumeric: 'tabular-nums' }}>
+                        Page {consolidationTreePage} / {consolidationBranchTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setConsolidationTreePage((p) => Math.min(consolidationBranchTotalPages, p + 1))}
+                        disabled={consolidationTreePage === consolidationBranchTotalPages}
+                        style={svPageBtn(consolidationTreePage === consolidationBranchTotalPages)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <div style={{ padding: '60px 20px', textAlign: 'center', color: '#64748b' }}>
@@ -3661,6 +3530,9 @@ const StockVerification = () => {
           </div>
         </div>
       )}
+
+        </div>
+      </div>
 
       <style>{`
         * {

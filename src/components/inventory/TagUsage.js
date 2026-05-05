@@ -298,22 +298,30 @@ const TagUsage = () => {
   };
 
   return (
-    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: '16px' }}>
+    <div className="tag-usage-compact" style={{ fontFamily: 'var(--font-family)', padding: '12px' }}>
       <style>
         {`
+          .tag-usage-compact table,
+          .tag-usage-compact th,
+          .tag-usage-compact td,
+          .tag-usage-compact input,
+          .tag-usage-compact select,
+          .tag-usage-compact button {
+            font-size: 11px !important;
+          }
           .table-responsive {
             position: relative;
           }
           .table-responsive table {
             position: relative;
-            font-size: 12px;
+            font-size: 11px;
           }
           .table-responsive th {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 500;
           }
           .table-responsive td {
-            font-size: 12px;
+            font-size: 11px;
           }
           .table-responsive th:last-child,
           .table-responsive td:last-child {
@@ -346,9 +354,9 @@ const TagUsage = () => {
       <div style={{
         background: '#ffffff',
         borderRadius: '12px',
-        padding: '16px 20px',
+        padding: '12px 14px',
         marginBottom: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
         border: '1px solid #e5e7eb'
       }}>
         <div style={{
@@ -362,7 +370,7 @@ const TagUsage = () => {
           <div>
             <h2 style={{
               margin: 0,
-              fontSize: '16px',
+              fontSize: '1.1rem',
               fontWeight: 700,
               color: '#1e293b',
               lineHeight: '1.2'
@@ -384,7 +392,7 @@ const TagUsage = () => {
               border: '1px solid #dbeafe'
             }}>
               <FaTag style={{ color: '#3b82f6', fontSize: '14px' }} />
-              <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: 600 }}>Used: {usedCount}</span>
+              <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: 600 }}>Used: {usedCount}</span>
             </div>
             <div style={{
               display: 'flex',
@@ -396,10 +404,10 @@ const TagUsage = () => {
               border: '1px solid #dcfce7'
             }}>
               <FaTags style={{ color: '#10b981', fontSize: '14px' }} />
-              <span style={{ fontSize: '12px', color: '#166534', fontWeight: 600 }}>Unused: {unusedCount}</span>
+              <span style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>Unused: {unusedCount}</span>
             </div>
             <div style={{
-              fontSize: '12px',
+              fontSize: '11px',
               color: '#64748b',
               fontWeight: 600
             }}>
@@ -442,7 +450,7 @@ const TagUsage = () => {
               style={{
                 width: '100%',
                 padding: '8px 12px 8px 36px',
-                fontSize: '12px',
+                fontSize: '11px',
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 outline: 'none',
@@ -479,7 +487,7 @@ const TagUsage = () => {
               style={{
                 width: '100%',
                 padding: '8px 12px 8px 36px',
-                fontSize: '12px',
+                fontSize: '11px',
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 outline: 'none',
@@ -494,13 +502,13 @@ const TagUsage = () => {
           <button
             onClick={fetchTags}
             style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
+              padding: '6px 12px',
+              fontSize: '11px',
+              fontWeight: 700,
               borderRadius: '8px',
-              border: '1px solid #3b82f6',
-              background: '#ffffff',
-              color: '#3b82f6',
+              border: '1px solid #d4d4d8',
+              background: '#fafafa',
+              color: '#262626',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -508,12 +516,12 @@ const TagUsage = () => {
               transition: 'all 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.target.style.background = '#3b82f6';
-              e.target.style.color = '#ffffff';
+              e.target.style.background = '#f5f5f5';
+              e.target.style.color = '#262626';
             }}
             onMouseLeave={(e) => {
-              e.target.style.background = '#ffffff';
-              e.target.style.color = '#3b82f6';
+              e.target.style.background = '#fafafa';
+              e.target.style.color = '#262626';
             }}
           >
             <IoRefreshOutline /> Refresh
@@ -521,13 +529,13 @@ const TagUsage = () => {
           <button
             onClick={() => setExportModalOpen(true)}
             style={{
-              padding: '8px 16px',
-              fontSize: '12px',
-              fontWeight: 600,
+              padding: '6px 14px',
+              fontSize: '11px',
+              fontWeight: 700,
               borderRadius: '8px',
-              border: '1px solid #3b82f6',
-              background: '#ffffff',
-              color: '#3b82f6',
+              border: '1px solid #cbd5e1',
+              background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+              color: '#0f172a',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -535,12 +543,12 @@ const TagUsage = () => {
               transition: 'all 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.target.style.background = '#3b82f6';
-              e.target.style.color = '#ffffff';
+              e.target.style.background = '#f1f5f9';
+              e.target.style.color = '#0f172a';
             }}
             onMouseLeave={(e) => {
-              e.target.style.background = '#ffffff';
-              e.target.style.color = '#3b82f6';
+              e.target.style.background = 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)';
+              e.target.style.color = '#0f172a';
             }}
           >
             <FaFileExcel /> Export

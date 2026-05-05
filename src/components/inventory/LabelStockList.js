@@ -24,17 +24,19 @@ import {
   FaSave,
   FaPrint,
   FaEye,
-  FaArrowLeft,
   FaImage,
   FaWeightHanging,
   FaRupeeSign,
   FaMapMarkerAlt,
-  FaCamera
+  FaCamera,
+  FaArrowLeft,
+  FaList,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
+import TrayScanModal from '../common/TrayScanModal';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -56,9 +58,38 @@ formDataAxios.interceptors.request.use(
   (err) => Promise.reject(err)
 );
 
-const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
-const DEFAULT_PAGE_SIZE = 500;
+const PAGE_SIZE_OPTIONS = [15, 25, 50, 100, 200];
+const DEFAULT_PAGE_SIZE = 15;
+
+const labelListPageBtnStyle = (disabled) => ({
+  padding: '5px 11px',
+  fontSize: 12,
+  fontWeight: 600,
+  borderRadius: 8,
+  border: '1px solid #e5e5e5',
+  background: '#ffffff',
+  color: disabled ? '#a3a3a3' : '#525252',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.5 : 1,
+});
+
+const labelListIconActionStyle = (disabled) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 28,
+  height: 28,
+  padding: 0,
+  border: '1px solid #e2e8f0',
+  borderRadius: 5,
+  background: disabled ? '#f1f5f9' : '#ffffff',
+  color: disabled ? '#94a3b8' : '#475569',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  fontSize: 11,
+});
 const IMAGE_BASE_URL = 'https://rrgold.loyalstring.co.in/';
+const TRAY_LABELLED_STOCK_BY_TID_URL = process.env.REACT_APP_TRAY_LABELLED_STOCK_BY_TID_URL
+  || 'https://rrgold.loyalstring.co.in/api/ProductMaster/GetLabelledStockByTIDNumbers';
 
 /** Get display image URL for an item: from API "Images" (comma-separated paths) use last image, or Image1/imageurl/ImageUrl */
 const getItemImageUrl = (item) => {
@@ -91,6 +122,40 @@ const formatValue = (value) => {
   if (!value) return '-';
   if (typeof value === 'number') return value.toFixed(3);
   return value.toString();
+};
+
+const resolveClientCodeForTray = (userInfo) => {
+  if (userInfo?.ClientCode) return String(userInfo.ClientCode).trim();
+  try {
+    const stored = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    if (stored?.ClientCode) return String(stored.ClientCode).trim();
+  } catch (_) {
+  }
+  return '';
+};
+
+const normalizeTrayProducts = (responseData) => {
+  const productsFromNested = Array.isArray(responseData?.Products)
+    ? responseData.Products.map((entry) => ({
+        ...(entry?.ProductDetails || {}),
+        RequestedIdentifier: entry?.RequestedIdentifier || '',
+        MatchedBy: entry?.MatchedBy || '',
+        CategoryName: entry?.CategoryName || entry?.ProductDetails?.CategoryName || '',
+        ProductName: entry?.ProductName || entry?.ProductDetails?.ProductName || '',
+        DesignName: entry?.DesignName || entry?.ProductDetails?.DesignName || '',
+        PurityName: entry?.PurityName || entry?.ProductDetails?.PurityName || '',
+        RFIDCode: entry?.ProductDetails?.RFIDCode || entry?.ProductDetails?.RFIDNumber || '',
+        TIDNumber: entry?.ProductDetails?.TIDNumber || entry?.RequestedIdentifier || '',
+      }))
+    : [];
+
+  if (productsFromNested.length > 0) return productsFromNested;
+  if (Array.isArray(responseData)) return responseData;
+  if (Array.isArray(responseData?.Data)) return responseData.Data;
+  if (Array.isArray(responseData?.data)) return responseData.data;
+  if (Array.isArray(responseData?.Items)) return responseData.Items;
+  if (Array.isArray(responseData?.items)) return responseData.items;
+  return [];
 };
 
 const LabelStockList = () => {
@@ -138,6 +203,8 @@ const LabelStockList = () => {
   const [allFilteredData, setAllFilteredData] = useState([]);
   const [loadingAllData, setLoadingAllData] = useState(false);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
+  const [showTrayScanModal, setShowTrayScanModal] = useState(false);
+  const [trayFetchLoading, setTrayFetchLoading] = useState(false);
 
   // Add these state variables for filter options
   const [filterOptions, setFilterOptions] = useState({
@@ -197,6 +264,7 @@ const LabelStockList = () => {
   // Window width state for responsive design
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [windowHeight, setWindowHeight] = useState(window.innerHeight);
+  const isSmallScreen = windowWidth <= 768;
   const filterDropdownOpenRef = useRef(false);
   const handleInnerScrollWheel = (e) => {
     const el = e.currentTarget;
@@ -676,6 +744,10 @@ const LabelStockList = () => {
       const resolvedPurityId = Number(getFilterValueForAPI('purityId', safeFilters.purityId)) || 0;
       const resolvedDesignId = Number(getFilterValueForAPI('designId', safeFilters.designId)) || 0;
 
+      const resolvedStatus = showActiveOnly
+        ? 'ApiActive'
+        : (safeFilters.status !== 'All' ? safeFilters.status : null);
+
       const payload = {
         ClientCode: clientCode,
         CategoryId: resolvedCategoryId,
@@ -688,7 +760,7 @@ const LabelStockList = () => {
         PageNumber: page,
         PageSize: pageSize,
         BranchId: resolvedBranchId,
-        Status: showActiveOnly ? "Active" : (safeFilters.status !== 'All' ? safeFilters.status : "ApiActive"),
+        Status: resolvedStatus,
         SearchQuery: search && search.trim() !== '' ? search.trim() : "",
         ListType: sort && sort.direction === 'desc' ? "descending" : "ascending",
         SortColumn: sort && sort.key ? sort.key : null // Include SortColumn based on current sort configuration
@@ -922,6 +994,98 @@ const LabelStockList = () => {
     // Show loader immediately
     setLoading(true);
     fetchLabeledStock(1, newItemsPerPage, searchQuery, filterValues); // Fetch new page with updated page size
+  };
+
+  const handleTrayFetchData = async (scannedTags = []) => {
+    const normalizedTags = Array.from(
+      new Set((scannedTags || []).map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean))
+    );
+    if (!normalizedTags.length) {
+      addNotification({
+        type: 'warning',
+        title: 'No EPC scanned',
+        description: 'Scan EPC tags first, then load data.',
+      });
+      return;
+    }
+
+    const clientCode = resolveClientCodeForTray(userInfo);
+    if (!clientCode) {
+      addNotification({
+        type: 'error',
+        title: 'Client code missing',
+        description: 'Login session is missing client code. Please login again.',
+      });
+      return;
+    }
+
+    setTrayFetchLoading(true);
+    setLoading(true);
+    try {
+      const response = await axios.post(
+        TRAY_LABELLED_STOCK_BY_TID_URL,
+        {
+          ClientCode: clientCode,
+          TIDNumbers: normalizedTags,
+          TidNumbers: normalizedTags,
+          TIDValues: normalizedTags,
+          TidValues: normalizedTags,
+          EPCValues: normalizedTags,
+          EpcValues: normalizedTags,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 45000,
+        }
+      );
+
+      const products = normalizeTrayProducts(response?.data);
+      if (!products.length) {
+        addNotification({
+          type: 'warning',
+          title: 'No products found',
+          description: `No products returned for ${normalizedTags.length} scanned tag(s).`,
+        });
+        return;
+      }
+
+      const mappedRows = products.map((item, index) => ({
+        ...item,
+        SrNo: index + 1,
+      }));
+
+      setShowAllData(false);
+      setAllFilteredData([]);
+      setSearchQuery('');
+      setCurrentPage(1);
+      setSelectedRows([]);
+      setLabeledStock(mappedRows);
+      setTotalRecords(mappedRows.length);
+      setTotalPages(Math.max(1, Math.ceil(mappedRows.length / itemsPerPage)));
+      setShowTrayScanModal(false);
+
+      addNotification({
+        type: 'success',
+        title: 'Tray scan loaded',
+        description: `Loaded ${mappedRows.length} item(s) from scanned tags.`,
+      });
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Tray fetch failed',
+        description:
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          error?.message ||
+          'Failed to fetch data for scanned tray tags.',
+      });
+    } finally {
+      setLoading(false);
+      setTrayFetchLoading(false);
+    }
   };
 
   const showSuccessNotification = (title, message) => {
@@ -1486,10 +1650,12 @@ const LabelStockList = () => {
       <div data-filter-dropdown style={{ position: 'relative', width: '100%' }}>
         <label style={{
           display: 'block',
-          fontSize: windowWidth <= 768 ? '11px' : '10px',
-          fontWeight: 600,
-          color: '#475569',
-          marginBottom: '6px'
+          fontSize: 10,
+          fontWeight: 700,
+          color: '#737373',
+          marginBottom: 3,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em'
         }}>{label}</label>
         <div style={{ position: 'relative' }}>
           <div
@@ -1499,9 +1665,9 @@ const LabelStockList = () => {
             }}
             style={{
               width: '100%',
-              padding: windowWidth <= 768 ? '10px 12px' : '8px 12px',
-              fontSize: windowWidth <= 768 ? '13px' : '12px',
-              border: '1px solid #e2e8f0',
+              padding: '0 8px',
+              fontSize: 11,
+              border: '1px solid #e5e5e5',
               borderRadius: '8px',
               background: '#ffffff',
               cursor: 'pointer',
@@ -1510,13 +1676,13 @@ const LabelStockList = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              minHeight: windowWidth <= 768 ? '42px' : '36px'
+              minHeight: 30
             }}
-            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#10b981'}
-            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#cbd5e1'}
+            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e5e5e5'}
           >
             <span style={{
-              color: currentValue === 'All' ? '#94a3b8' : '#1e293b',
+              color: currentValue === 'All' ? '#94a3b8' : '#404040',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -1526,7 +1692,7 @@ const LabelStockList = () => {
             </span>
             <KeyboardArrowDownIcon
               style={{
-                fontSize: '16px',
+                  fontSize: '14px',
                 color: '#64748b',
                 transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                 transition: 'transform 0.2s'
@@ -1544,9 +1710,9 @@ const LabelStockList = () => {
                   right: 0,
                   marginTop: '4px',
                   background: '#ffffff',
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid #e5e5e5',
                   borderRadius: '8px',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                  boxShadow: '0 6px 20px rgba(15, 23, 42, 0.08)',
                   zIndex: 10000,
                   maxHeight: '300px',
                   overflow: 'hidden',
@@ -1554,7 +1720,7 @@ const LabelStockList = () => {
                   flexDirection: 'column'
                 }}
               >
-                <div style={{ padding: '8px', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
+                <div style={{ padding: '8px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
                   <input
                     type="text"
                     placeholder={placeholder || `Search ${label.toLowerCase()}...`}
@@ -1567,9 +1733,9 @@ const LabelStockList = () => {
                     onMouseDown={(e) => e.stopPropagation()}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
+                      padding: '6px 10px',
+                      fontSize: '11px',
+                      border: '1px solid #e5e5e5',
                       borderRadius: '6px',
                       outline: 'none',
                       boxSizing: 'border-box',
@@ -1578,11 +1744,11 @@ const LabelStockList = () => {
                     }}
                     onFocus={(e) => {
                       e.stopPropagation();
-                      e.currentTarget.style.borderColor = '#10b981';
-                      e.currentTarget.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                      e.currentTarget.style.boxShadow = 'none';
                     }}
                     onBlur={(e) => {
-                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.borderColor = '#e5e5e5';
                       e.currentTarget.style.boxShadow = 'none';
                     }}
                     autoFocus
@@ -1595,17 +1761,17 @@ const LabelStockList = () => {
                       closeAllDropdowns();
                     }}
                     style={{
-                      padding: '10px 12px',
-                      fontSize: '12px',
+                      padding: '8px 10px',
+                      fontSize: '11px',
                       cursor: 'pointer',
-                      background: currentValue === 'All' ? '#f0fdf4' : '#ffffff',
-                      color: currentValue === 'All' ? '#10b981' : '#1e293b',
+                      background: currentValue === 'All' ? '#fef2f2' : '#ffffff',
+                      color: currentValue === 'All' ? '#b91c1c' : '#404040',
                       fontWeight: currentValue === 'All' ? 600 : 400,
                       borderBottom: '1px solid #f1f5f9'
                     }}
                     onMouseEnter={(e) => {
                       if (currentValue !== 'All') {
-                        e.currentTarget.style.background = '#f8fafc';
+                        e.currentTarget.style.background = '#fafafa';
                       }
                     }}
                     onMouseLeave={(e) => {
@@ -1629,17 +1795,17 @@ const LabelStockList = () => {
                             closeAllDropdowns();
                           }}
                           style={{
-                            padding: '10px 12px',
-                            fontSize: '12px',
+                            padding: '8px 10px',
+                            fontSize: '11px',
                             cursor: 'pointer',
-                            background: isSelected ? '#f0fdf4' : '#ffffff',
-                            color: isSelected ? '#10b981' : '#1e293b',
+                            background: isSelected ? '#fef2f2' : '#ffffff',
+                            color: isSelected ? '#b91c1c' : '#404040',
                             fontWeight: isSelected ? 600 : 400,
                             borderBottom: index < showOptions.length - 1 ? '1px solid #f1f5f9' : 'none'
                           }}
                           onMouseEnter={(e) => {
                             if (!isSelected) {
-                              e.currentTarget.style.background = '#f8fafc';
+                              e.currentTarget.style.background = '#fafafa';
                             }
                           }}
                           onMouseLeave={(e) => {
@@ -1653,7 +1819,7 @@ const LabelStockList = () => {
                       );
                     })
                   ) : (
-                    <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
+                    <div style={{ padding: '10px', textAlign: 'center', color: '#94a3b8', fontSize: '11px' }}>
                       No results found
                     </div>
                   )}
@@ -2390,102 +2556,7 @@ const LabelStockList = () => {
     }
   }, [showActiveOnly]);
 
-  // Effect for filter changes - similar to reference code
-  useEffect(() => {
-    // Skip if this is the initial mount (userInfo not loaded yet)
-    // The initial fetch is handled in the userInfo effect
-    if (!userInfo?.ClientCode) {
-      return;
-    }
-
-    console.log('Filter values changed:', filterValues);
-    console.log('API Filter Data state:', {
-      products: apiFilterData.products?.length || 0,
-      designs: apiFilterData.designs?.length || 0,
-      categories: apiFilterData.categories?.length || 0,
-      counters: apiFilterData.counters?.length || 0,
-      branches: apiFilterData.branches?.length || 0
-    });
-
-    // Always reset to page 1 when filters change
-    if (currentPage !== 1) {
-      setCurrentPage(1);
-    }
-
-    // Only fetch if we have filter data loaded, or if filters are set to 'All'
-    const needsFilterData = (filterValues.categoryId !== 'All' && filterValues.categoryId) ||
-      (filterValues.productId !== 'All' && filterValues.productId) ||
-      (filterValues.designId !== 'All' && filterValues.designId) ||
-      (filterValues.counterName !== 'All' && filterValues.counterName) ||
-      (filterValues.branch !== 'All' && filterValues.branch);
-
-    const hasFilterData = apiFilterData.products?.length > 0 ||
-      apiFilterData.designs?.length > 0 ||
-      apiFilterData.categories?.length > 0 ||
-      apiFilterData.counters?.length > 0 ||
-      apiFilterData.branches?.length > 0;
-
-    if (needsFilterData && !hasFilterData) {
-      console.warn('Filter data not loaded, fetching filter data first...');
-      fetchFilterData().then(() => {
-        // Wait for state update then fetch
-        setTimeout(() => {
-          // Show loader immediately
-          setLoading(true);
-          fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues).catch(err => {
-            console.error('Error fetching filtered stock:', err);
-            // If filter fails, try fetching without filters
-            const defaultFilters = {
-              counterName: 'All',
-              productId: 'All',
-              categoryId: 'All',
-              designId: 'All',
-              boxName: 'All',
-              vendor: 'All',
-              branch: 'All',
-              status: 'All'
-            };
-            setFilterValues(defaultFilters);
-            fetchLabeledStock(1, itemsPerPage, searchQuery, defaultFilters);
-          });
-          if (showAllData) {
-            fetchAllFilteredData();
-          }
-        }, 500);
-      }).catch(err => {
-        console.error('Error fetching filter data:', err);
-        // If filter data fetch fails, still try to fetch stock with current filters
-        setLoading(true);
-        fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues);
-      });
-    } else {
-      // Always fetch data when filters change
-      // Show loader immediately when filters change
-      setLoading(true);
-      fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues).catch(err => {
-        console.error('Error fetching filtered stock:', err);
-        // If filter fails, reset to default and fetch all data
-        const defaultFilters = {
-          counterName: 'All',
-          productId: 'All',
-          categoryId: 'All',
-          designId: 'All',
-          boxName: 'All',
-          vendor: 'All',
-          branch: 'All',
-          status: 'All'
-        };
-        setFilterValues(defaultFilters);
-        fetchLabeledStock(1, itemsPerPage, searchQuery, defaultFilters);
-      });
-
-      // If user is viewing all data, also refresh the all data
-      if (showAllData) {
-        fetchAllFilteredData();
-      }
-    }
-  }, [filterValues.categoryId, filterValues.productId, filterValues.designId, filterValues.purityId,
-  filterValues.branch, filterValues.counterName, filterValues.boxName, filterValues.vendor, filterValues.status]);
+  // Filtered fetch is controlled by Apply/Reset actions to keep UX predictable.
 
   const handleResetFilters = () => {
     const resetFilters = {
@@ -2509,6 +2580,34 @@ const LabelStockList = () => {
     setLoading(true);
     // Fetch data with reset filters
     fetchLabeledStock(1, itemsPerPage, searchQuery, resetFilters);
+  };
+
+  const handleRefreshInventoryView = () => {
+    const defaultFilters = {
+      counterName: 'All',
+      productId: 'All',
+      categoryId: 'All',
+      designId: 'All',
+      purityId: 'All',
+      boxName: 'All',
+      vendor: 'All',
+      branch: 'All',
+      status: 'All',
+      dateFrom: '',
+      dateTo: ''
+    };
+
+    setShowTrayScanModal(false);
+    setShowAllData(false);
+    setAllFilteredData([]);
+    setSelectedRows([]);
+    setSearchQuery('');
+    setShowActiveOnly(false);
+    setFilterValues(defaultFilters);
+    closeAllDropdowns();
+    setCurrentPage(1);
+    setLoading(true);
+    fetchLabeledStock(1, itemsPerPage, '', defaultFilters);
   };
 
   const handleApplyFilters = () => {
@@ -3803,7 +3902,21 @@ const LabelStockList = () => {
 
   /* product details moved to ProductDetailsPage - navigate to /product-details with state: { product, apiFilterData } */
   return (
-    <div className="container-fluid p-3" style={{ position: 'relative', minHeight: '100vh', display: 'flex', flexDirection: 'column', overflowX: 'hidden', overflowY: 'auto' }}>
+    <div
+      className="label-stock-list-page"
+      style={{
+        position: 'relative',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowX: 'hidden',
+        overflowY: 'auto',
+        fontFamily: 'var(--font-family)',
+        padding: '12px',
+        fontSize: 11,
+        background: '#ffffff',
+      }}
+    >
       <SuccessNotification
         title={successMessage.title}
         message={successMessage.message}
@@ -3811,179 +3924,211 @@ const LabelStockList = () => {
         onClose={() => setShowSuccess(false)}
       />
 
-      <div style={{ fontFamily: 'Inter, system-ui, sans-serif', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden', overflowY: 'auto' }}>
-        {/* Unified Header & Action Section - Sticky */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden', overflowY: 'auto' }}>
         <div
           role="banner"
           aria-label="Label Stock List Header with Actions"
           style={{
             background: '#ffffff',
-            borderRadius: '12px',
-            padding: '16px 20px',
-            marginBottom: '16px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            border: '1px solid #e5e7eb',
+            borderRadius: 12,
+            overflow: 'hidden',
+            marginBottom: 12,
+            boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+            border: '1px solid #e2e8f0',
             position: 'sticky',
-            top: '0',
+            top: 0,
             zIndex: 100,
-            transition: 'box-shadow 0.2s'
           }}
         >
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '12px'
-          }}>
-            {/* Left: Title */}
-            <div>
-              <h2 style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: 700,
-                color: '#0f172a',
-                lineHeight: '1.2'
-              }}>Label Stock List</h2>
-            </div>
-
-            {/* Right: Total Count, Template & Print Label */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              flexWrap: 'wrap'
-            }}>
-              {/* Total Count */}
-              <div style={{
-                fontSize: '12px',
-                color: '#64748b',
-                fontWeight: 600
-              }}>
-                Total: {showAllData && allFilteredData.length > 0
-                  ? allFilteredData.length
-                  : totalRecords} records
-              </div>
-
-              {/* Template Selector - Small */}
-              <div style={{
-                minWidth: '160px',
-                flexShrink: 0
-              }}>
-                <select
-                  id="template-selector-header"
-                  value={selectedTemplate?.value || ''}
-                  onChange={(e) => {
-                    const selectedValue = e.target.value;
-                    if (selectedValue === '') {
-                      setSelectedTemplate(null);
-                    } else {
-                      const option = templateOptions.find(opt => String(opt.value) === String(selectedValue));
-                      if (option) {
-                        setSelectedTemplate(option);
-                      }
-                    }
-                  }}
-                  disabled={templatesLoading}
-                  aria-label="Select label template"
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    fontSize: '11px',
-                    fontWeight: 500,
-                    border: selectedTemplate ? '1.5px solid #06b6d4' : '1px solid #cbd5e1',
-                    borderRadius: '6px',
-                    outline: 'none',
-                    background: templatesLoading ? '#f1f5f9' : '#ffffff',
-                    cursor: templatesLoading ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s ease',
-                    color: selectedTemplate ? '#1e293b' : '#64748b'
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#06b6d4';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = selectedTemplate ? '#06b6d4' : '#cbd5e1';
-                  }}
-                >
-                  {templateOptions.length === 0 ? (
-                    <option value="">{templatesLoading ? 'Loading...' : 'No templates'}</option>
-                  ) : (
-                    <>
-                      <option value="">Select Template</option>
-                      {templateOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </select>
-              </div>
-
-              {/* Print Label Button - Small */}
-              <button
-                onClick={handlePrintLabel}
-                disabled={selectedRows.length === 0 || !selectedTemplate || previewLoading}
-                aria-label={selectedRows.length === 0
-                  ? 'Please select items to print labels'
-                  : !selectedTemplate
-                    ? 'Please select a template to print labels'
-                    : `Print labels for ${selectedRows.length} selected item(s)`}
-                title={selectedRows.length === 0
-                  ? 'Please select items to print labels'
-                  : !selectedTemplate
-                    ? 'Please select a template to print labels'
-                    : `Print labels for ${selectedRows.length} selected item(s)`}
+          <div
+            style={{
+              height: 3,
+              background: 'linear-gradient(90deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%)',
+            }}
+          />
+          <div style={{ padding: '12px 14px 12px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+                paddingBottom: 12,
+                borderBottom: '1px solid #f1f5f9',
+              }}
+            >
+              <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 12px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: (selectedRows.length > 0 && selectedTemplate && !previewLoading)
-                    ? 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)'
-                    : '#e2e8f0',
-                  color: (selectedRows.length > 0 && selectedTemplate && !previewLoading)
-                    ? '#ffffff'
-                    : '#94a3b8',
-                  cursor: (selectedRows.length === 0 || !selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer',
-                  opacity: (selectedRows.length === 0 || !selectedTemplate || previewLoading) ? 0.6 : 1,
-                  transition: 'all 0.2s ease',
-                  minWidth: '100px',
-                  justifyContent: 'center',
-                  height: '32px'
-                }}
-                onMouseEnter={(e) => {
-                  if (selectedRows.length > 0 && selectedTemplate && !previewLoading) {
-                    e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedRows.length > 0 && selectedTemplate && !previewLoading) {
-                    e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                    e.target.style.transform = 'translateY(0)';
-                  }
+                  gap: 12,
+                  flex: '1 1 auto',
+                  minWidth: 0,
                 }}
               >
-                {previewLoading ? (
-                  <>
-                    <FaSpinner style={{ animation: 'spin 1s linear infinite', fontSize: '10px' }} />
-                    <span>Printing...</span>
-                  </>
-                ) : (
-                  <>
-                    <FaFilePdf style={{ fontSize: '11px' }} />
-                    <span>Print Label</span>
-                  </>
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(-1)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    borderRadius: 8,
+                    border: '1px solid #e2e8f0',
+                    background: '#fff',
+                    color: '#475569',
+                    cursor: 'pointer',
+                    height: 34,
+                    boxSizing: 'border-box',
+                    flexShrink: 0,
+                  }}
+                >
+                  <FaArrowLeft style={{ fontSize: 12 }} /> Back
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: isSmallScreen ? 34 : 38,
+                      height: isSmallScreen ? 34 : 38,
+                      borderRadius: 10,
+                      background: 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)',
+                      boxShadow: '0 2px 8px rgba(185, 28, 28, 0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FaList style={{ fontSize: isSmallScreen ? 14 : 16 }} />
+                  </div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
+                      fontWeight: 800,
+                      color: '#0f172a',
+                      fontFamily: 'var(--font-family)',
+                      lineHeight: 1.2,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    Label stock list
+                  </h1>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
+                <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {showAllData && allFilteredData.length > 0 ? allFilteredData.length : totalRecords} record
+                  {(showAllData && allFilteredData.length > 0 ? allFilteredData.length : totalRecords) !== 1 ? 's' : ''}
+                </span>
+                <div style={{ minWidth: 160, flexShrink: 0 }}>
+                  <select
+                    id="template-selector-header"
+                    value={selectedTemplate?.value || ''}
+                    onChange={(e) => {
+                      const selectedValue = e.target.value;
+                      if (selectedValue === '') {
+                        setSelectedTemplate(null);
+                      } else {
+                        const option = templateOptions.find((opt) => String(opt.value) === String(selectedValue));
+                        if (option) setSelectedTemplate(option);
+                      }
+                    }}
+                    disabled={templatesLoading}
+                    aria-label="Select label template"
+                    style={{
+                      width: '100%',
+                      padding: '0 8px',
+                      fontSize: 11,
+                      fontWeight: 500,
+                      border: '1px solid #e5e5e5',
+                      borderRadius: 8,
+                      outline: 'none',
+                      height: 30,
+                      boxSizing: 'border-box',
+                      background: templatesLoading ? '#f1f5f9' : '#ffffff',
+                      cursor: templatesLoading ? 'not-allowed' : 'pointer',
+                      color: selectedTemplate ? '#404040' : '#737373',
+                    }}
+                  >
+                    {templateOptions.length === 0 ? (
+                      <option value="">{templatesLoading ? 'Loading...' : 'No templates'}</option>
+                    ) : (
+                      <>
+                        <option value="">Select template</option>
+                        {templateOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                </div>
+                <button
+                  onClick={handlePrintLabel}
+                  disabled={selectedRows.length === 0 || !selectedTemplate || previewLoading}
+                  aria-label={
+                    selectedRows.length === 0
+                      ? 'Please select items to print labels'
+                      : !selectedTemplate
+                        ? 'Please select a template to print labels'
+                        : `Print labels for ${selectedRows.length} selected item(s)`
+                  }
+                  title={
+                    selectedRows.length === 0
+                      ? 'Please select items to print labels'
+                      : !selectedTemplate
+                        ? 'Please select a template to print labels'
+                        : `Print labels for ${selectedRows.length} selected item(s)`
+                  }
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border:
+                      selectedRows.length > 0 && selectedTemplate && !previewLoading
+                        ? '1px solid #991b1b'
+                        : '1px solid #e2e8f0',
+                    background:
+                      selectedRows.length > 0 && selectedTemplate && !previewLoading
+                        ? 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)'
+                        : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                    color:
+                      selectedRows.length > 0 && selectedTemplate && !previewLoading ? '#ffffff' : '#94a3b8',
+                    cursor:
+                      selectedRows.length === 0 || !selectedTemplate || previewLoading ? 'not-allowed' : 'pointer',
+                    opacity: selectedRows.length === 0 || !selectedTemplate || previewLoading ? 0.55 : 1,
+                    boxSizing: 'border-box',
+                    height: 34,
+                    justifyContent: 'center',
+                  }}
+                >
+                  {previewLoading ? (
+                    <>
+                      <FaSpinner style={{ animation: 'spin 1s linear infinite', fontSize: 10 }} />
+                      Printing…
+                    </>
+                  ) : (
+                    <>
+                      <FaFilePdf style={{ fontSize: 12 }} />
+                      Print label
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-          </div>
 
           {/* Action Buttons & Search Row */}
           <div style={{
@@ -3992,9 +4137,9 @@ const LabelStockList = () => {
             gap: '10px',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginTop: '16px',
-            paddingTop: '16px',
-            borderTop: '1px solid #e5e7eb'
+            marginTop: '12px',
+            paddingTop: '12px',
+            borderTop: '1px solid #f1f5f9'
           }}
             role="toolbar"
             aria-label="Action buttons toolbar"
@@ -4008,12 +4153,13 @@ const LabelStockList = () => {
             }}>
               <FaSearch style={{
                 position: 'absolute',
-                left: '12px',
+                left: '10px',
                 top: '50%',
                 transform: 'translateY(-50%)',
                 color: '#94a3b8',
-                fontSize: '14px',
-                zIndex: 1
+                fontSize: 11,
+                zIndex: 1,
+                pointerEvents: 'none',
               }} />
               <input
                 type="text"
@@ -4022,16 +4168,19 @@ const LabelStockList = () => {
                 onChange={e => handleSearchChange(e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '8px 12px 8px 36px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
+                  padding: '0 8px 0 30px',
+                  fontSize: 11,
+                  border: '1px solid #e5e5e5',
+                  borderRadius: 8,
                   outline: 'none',
                   transition: 'all 0.2s',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  height: 30,
+                  color: '#404040',
+                  background: '#fff',
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#9ca3af'}
-                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                onFocus={(e) => { e.target.style.borderColor = '#cbd5e1'; }}
+                onBlur={(e) => { e.target.style.borderColor = '#e5e5e5'; }}
               />
             </div>
 
@@ -4073,7 +4222,7 @@ const LabelStockList = () => {
                 }} />
               </div>
               <span style={{
-                fontSize: '12px',
+                fontSize: 11,
                 fontWeight: 600,
                 color: showActiveOnly ? '#ffffff' : '#64748b'
               }}>
@@ -4085,7 +4234,7 @@ const LabelStockList = () => {
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
-              gap: '10px',
+              gap: '8px',
               alignItems: 'center',
               marginLeft: 'auto',
               minWidth: 'fit-content'
@@ -4097,23 +4246,24 @@ const LabelStockList = () => {
               <button
                 onClick={() => setIsGridView(!isGridView)}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #4f46e5',
-                  background: isGridView ? '#4f46e5' : '#ffffff',
-                  color: isGridView ? '#ffffff' : '#4f46e5',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: `1px solid ${isGridView ? '#991b1b' : '#cbd5e1'}`,
+                  background: isGridView ? 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)' : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: isGridView ? '#ffffff' : '#0f172a',
                   cursor: 'pointer',
-                  transition: 'all 0.2s'
+                  boxSizing: 'border-box',
+                  height: 30,
                 }}
                 title={isGridView ? "Switch to List View" : "Switch to Grid View"}
               >
-                {isGridView ? <FaThList /> : <FaThLarge />}
-                <span>{isGridView ? "List View" : "Grid View"}</span>
+                {isGridView ? <FaThList style={{ fontSize: 12 }} /> : <FaThLarge style={{ fontSize: 12 }} />}
+                <span>{isGridView ? "List" : "Grid"}</span>
               </button>
 
               {/* Delete Button */}
@@ -4121,64 +4271,92 @@ const LabelStockList = () => {
                 onClick={handleDelete}
                 disabled={selectedRows.length === 0}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #dc2626',
-                  background: '#ffffff',
-                  color: '#dc2626',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #fecaca',
+                  background: selectedRows.length === 0 ? '#f8fafc' : 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
+                  color: selectedRows.length === 0 ? '#94a3b8' : '#b91c1c',
                   cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: selectedRows.length === 0 ? 0.5 : 1,
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (selectedRows.length > 0) {
-                    e.target.style.background = '#dc2626';
-                    e.target.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedRows.length > 0) {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.color = '#dc2626';
-                  }
+                  opacity: selectedRows.length === 0 ? 0.55 : 1,
+                  boxSizing: 'border-box',
+                  height: 30,
                 }}
               >
-                <FaTrash />
+                <FaTrash style={{ fontSize: 11 }} />
                 <span>Delete</span>
+              </button>
+
+              {/* Export Button */}
+              <button
+                onClick={() => setShowTrayScanModal(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                }}
+              >
+                <FaSearch style={{ fontSize: 11, color: '#475569' }} />
+                <span>Scan Tray</span>
+              </button>
+
+              <button
+                onClick={handleRefreshInventoryView}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                }}
+                title="Refresh and show default inventory view"
+              >
+                <FaSync style={{ fontSize: 11, color: '#475569' }} />
+                <span>Refresh</span>
               </button>
 
               {/* Export Button */}
               <button
                 onClick={() => setShowExportModal(true)}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #0ea5e9',
-                  background: '#ffffff',
-                  color: '#0ea5e9',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
                   cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#0ea5e9';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#0ea5e9';
+                  boxSizing: 'border-box',
+                  height: 30,
                 }}
               >
-                <FaFileExport />
+                <FaFileExport style={{ fontSize: 11, color: '#475569' }} />
                 <span>Export</span>
               </button>
 
@@ -4186,29 +4364,22 @@ const LabelStockList = () => {
               <button
                 onClick={generateAndShowReport}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #d97706',
-                  background: '#ffffff',
-                  color: '#d97706',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
                   cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#d97706';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#d97706';
+                  boxSizing: 'border-box',
+                  height: 30,
                 }}
               >
-                <FaFilePdf />
+                <FaFilePdf style={{ fontSize: 11, color: '#475569' }} />
                 <span>Report</span>
               </button>
 
@@ -4216,27 +4387,22 @@ const LabelStockList = () => {
               <button
                 onClick={() => setShowFilterPanel(!showFilterPanel)}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #0d9488',
-                  background: showFilterPanel ? '#0d9488' : '#ffffff',
-                  color: showFilterPanel ? '#ffffff' : '#0d9488',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: `1px solid ${showFilterPanel ? '#991b1b' : '#cbd5e1'}`,
+                  background: showFilterPanel ? 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)' : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: showFilterPanel ? '#ffffff' : '#0f172a',
                   cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!showFilterPanel) e.target.style.background = '#ccfbf1';
-                }}
-                onMouseLeave={(e) => {
-                  if (!showFilterPanel) e.target.style.background = '#ffffff';
+                  boxSizing: 'border-box',
+                  height: 30,
                 }}
               >
-                <FaFilter />
+                <FaFilter style={{ fontSize: 11 }} />
                 <span>Filter</span>
               </button>
 
@@ -4244,98 +4410,140 @@ const LabelStockList = () => {
               <button
                 onClick={handleDeleteAllStock}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #e11d48',
-                  background: '#ffffff',
-                  color: '#e11d48',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #fecaca',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
+                  color: '#b91c1c',
                   cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#e11d48';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#e11d48';
+                  boxSizing: 'border-box',
+                  height: 30,
                 }}
               >
-                <FaTrash />
+                <FaTrash style={{ fontSize: 11 }} />
                 <span>Delete All</span>
               </button>
             </div>
           </div>
+          </div>
+        </div>
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {showReportView && (
-          <div style={{
-            background: '#fff',
-            borderRadius: 18,
-            boxShadow: '0 6px 24px #e0e7ef66',
-            border: '1.5px solid #e6eaf0',
-            padding: '24px 32px',
-            margin: '0 auto 32px auto',
-            fontFamily: 'Inter, sans-serif',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h3 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#232a36' }}>Stock Report Summary</h3>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={handleDownloadReportPDF} style={{
-                  background: '#059669',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '8px 20px',
-                  fontWeight: 600,
-                  fontSize: 15,
-                  cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                  <FaFilePdf /> Download
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: 12,
+              border: '1px solid #d4d4d8',
+              overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              marginBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                padding: '10px 12px',
+                borderBottom: '1px solid #f1f5f9',
+                background: '#ffffff',
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Stock report summary</h3>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={handleDownloadReportPDF}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 30,
+                    padding: '0 12px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
+                    background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <FaFilePdf style={{ color: '#475569', fontSize: 11 }} />
+                  Download
                 </button>
-                <button onClick={() => setShowReportView(false)} style={{
-                  background: '#e2e8f0',
-                  color: '#475569',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: 8,
-                  padding: '8px 20px',
-                  fontWeight: 600,
-                  fontSize: 15,
-                  cursor: 'pointer'
-                }}>
+                <button
+                  onClick={() => setShowReportView(false)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 30,
+                    padding: '0 12px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#475569',
+                    cursor: 'pointer',
+                    boxSizing: 'border-box',
+                  }}
+                >
                   Close
                 </button>
               </div>
             </div>
-            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-              <table className="report-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Sr No</th>
-                    <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Counter Name</th>
-                    <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Category</th>
-                    <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Product Name</th>
-                    <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Qty</th>
-                    <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Gross Wt</th>
-                    <th style={{ background: '#f9fafb', padding: '12px 16px', textAlign: 'left', fontWeight: 600, borderBottom: '2px solid #e5e7eb' }}>Net Wt</th>
+            <div style={{ overflowX: 'auto', width: '100%', background: '#fafafa', maxHeight: 400, overflowY: 'auto' }}>
+              <table
+                className="report-table"
+                style={{
+                  width: '100%',
+                  borderCollapse: 'separate',
+                  borderSpacing: 0,
+                  fontSize: isSmallScreen ? 10 : 11,
+                  minWidth: 760,
+                }}
+              >
+                <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                  <tr style={{ background: '#f4f4f5', boxShadow: '0 1px 0 #e4e4e7' }}>
+                    {['#', 'Counter Name', 'Category', 'Product Name', 'Qty', 'Gross Wt', 'Net Wt'].map((h, idx, arr) => (
+                      <th
+                        key={h}
+                        style={{
+                          padding: isSmallScreen ? '6px 6px' : '7px 8px',
+                          textAlign: h === 'Qty' || h === 'Gross Wt' || h === 'Net Wt' ? 'right' : 'left',
+                          fontWeight: 700,
+                          fontSize: isSmallScreen ? 10 : 11,
+                          color: '#18181b',
+                          borderRight: idx === arr.length - 1 ? 'none' : '1px solid #e4e4e7',
+                          borderBottom: '2px solid #d4d4d8',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {reportData.map((row, index) => (
-                    <tr key={index} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '12px 16px' }}>{index + 1}</td>
-                      <td style={{ padding: '12px 16px' }}>{row.counter}</td>
-                      <td style={{ padding: '12px 16px' }}>{row.category}</td>
-                      <td style={{ padding: '12px 16px' }}>{row.product}</td>
-                      <td style={{ padding: '12px 16px' }}>{row.qty}</td>
-                      <td style={{ padding: '12px 16px' }}>{row.grossWt.toFixed(3)}</td>
-                      <td style={{ padding: '12px 16px' }}>{row.netWt.toFixed(3)}</td>
+                    <tr key={index} style={{ background: index % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                      <td style={{ padding: isSmallScreen ? '5px 6px' : '6px 8px', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #ececec', color: '#404040' }}>{index + 1}</td>
+                      <td style={{ padding: isSmallScreen ? '5px 6px' : '6px 8px', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #ececec', color: '#404040' }}>{row.counter}</td>
+                      <td style={{ padding: isSmallScreen ? '5px 6px' : '6px 8px', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #ececec', color: '#404040' }}>{row.category}</td>
+                      <td style={{ padding: isSmallScreen ? '5px 6px' : '6px 8px', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #ececec', color: '#404040' }}>{row.product}</td>
+                      <td style={{ padding: isSmallScreen ? '5px 6px' : '6px 8px', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #ececec', color: '#404040', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.qty}</td>
+                      <td style={{ padding: isSmallScreen ? '5px 6px' : '6px 8px', borderBottom: '1px solid #e5e5e5', borderRight: '1px solid #ececec', color: '#404040', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.grossWt.toFixed(3)}</td>
+                      <td style={{ padding: isSmallScreen ? '5px 6px' : '6px 8px', borderBottom: '1px solid #e5e5e5', color: '#404040', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{row.netWt.toFixed(3)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -4348,23 +4556,23 @@ const LabelStockList = () => {
         {/* Inline filter section - opens below toolbar when Filter clicked (no sidebar) */}
         {showFilterPanel && (
           <div className="filter-inline-section" style={{
-            marginTop: '12px',
-            padding: '12px 16px',
+            marginTop: '10px',
+            padding: '10px 12px',
             background: '#ffffff',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #e5e5e5',
             borderRadius: '10px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
           }}>
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
               alignItems: 'flex-end',
-              gap: '10px',
-              rowGap: '12px'
+              gap: '8px',
+              rowGap: '10px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '4px', flexShrink: 0 }}>
-                <FaFilter style={{ color: '#0d9488', fontSize: '14px' }} />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>Filters</span>
+                <FaFilter style={{ color: '#b91c1c', fontSize: '12px' }} />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#0f172a', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Filters</span>
               </div>
               <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
                 'branch',
@@ -4429,15 +4637,66 @@ const LabelStockList = () => {
                 (item) => item.PurityName || item.Name || item.Purity || item.purityName,
                 'All Purities'
               )}</div>
+              <div style={{ minWidth: 100, flex: '1 1 0', maxWidth: 160 }}>{renderSearchableDropdown(
+                'status',
+                'Status',
+                'Search status...',
+                filterOptions.statuses || [],
+                (item) => item,
+                (item) => item,
+                'All Status'
+              )}</div>
+              <div style={{ minWidth: 120, flex: '1 1 0', maxWidth: 170 }}>
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#737373', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  From Date
+                </label>
+                <input
+                  type="date"
+                  value={filterValues.dateFrom || ''}
+                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: 30,
+                    padding: '0 8px',
+                    fontSize: 11,
+                    border: '1px solid #e5e5e5',
+                    borderRadius: 8,
+                    boxSizing: 'border-box',
+                    color: '#404040',
+                    background: '#fff',
+                  }}
+                />
+              </div>
+              <div style={{ minWidth: 120, flex: '1 1 0', maxWidth: 170 }}>
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#737373', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  To Date
+                </label>
+                <input
+                  type="date"
+                  value={filterValues.dateTo || ''}
+                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: 30,
+                    padding: '0 8px',
+                    fontSize: 11,
+                    border: '1px solid #e5e5e5',
+                    borderRadius: 8,
+                    boxSizing: 'border-box',
+                    color: '#404040',
+                    background: '#fff',
+                  }}
+                />
+              </div>
               <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto', flexShrink: 0 }}>
                 <button
                   onClick={handleResetFilters}
                   style={{
                     padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid #64748b',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
                     background: '#ffffff',
                     color: '#475569',
                     cursor: 'pointer'
@@ -4449,11 +4708,11 @@ const LabelStockList = () => {
                   onClick={handleApplyFilters}
                   style={{
                     padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: '#7c3aed',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: '1px solid #991b1b',
+                    background: 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)',
                     color: '#ffffff',
                     cursor: 'pointer'
                   }}
@@ -4464,9 +4723,9 @@ const LabelStockList = () => {
                   onClick={() => { closeAllDropdowns(); setShowFilterPanel(false); }}
                   style={{
                     padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
                     border: '1px solid #e2e8f0',
                     background: '#f1f5f9',
                     color: '#64748b',
@@ -4486,10 +4745,10 @@ const LabelStockList = () => {
         {/* Data Display Container */}
         <div className="data-display-container" style={{
           background: isGridView ? 'transparent' : '#ffffff',
-          borderRadius: '12px',
-          marginTop: '10px',
-          boxShadow: isGridView ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
-          border: isGridView ? 'none' : '1px solid #e5e7eb',
+          borderRadius: 12,
+          marginTop: 10,
+          boxShadow: isGridView ? 'none' : '0 1px 3px rgba(0,0,0,0.04)',
+          border: isGridView ? 'none' : '1px solid #d4d4d8',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -4604,29 +4863,34 @@ const LabelStockList = () => {
                 scrollbarWidth: 'thin',
                 scrollbarColor: '#888 #f1f1f1',
                 WebkitOverflowScrolling: 'touch',
-                overscrollBehavior: 'contain'
+                overscrollBehavior: 'contain',
+                background: '#fafafa',
               }}
               onWheel={handleInnerScrollWheel}
             >
               <table style={{
                 width: '100%',
                 minWidth: '1400px',
-                borderCollapse: 'collapse',
-                fontSize: windowWidth <= 768 ? '9px' : '10px',
+                borderCollapse: 'separate',
+                borderSpacing: 0,
+                fontSize: isSmallScreen ? 10 : 11,
                 tableLayout: 'auto'
               }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                   <tr style={{
-                    background: '#334155',
-                    borderBottom: '1px solid #334155'
+                    background: '#f4f4f5',
+                    boxShadow: '0 1px 0 #e4e4e7',
                   }}>
                     <th style={{
-                      padding: '6px 8px',
+                      padding: isSmallScreen ? '6px 6px' : '7px 8px',
                       textAlign: 'center',
                       width: '40px',
-                      fontSize: windowWidth <= 768 ? '9px' : '10px',
-                      fontWeight: 600,
-                      color: '#f8fafc'
+                      fontSize: isSmallScreen ? 10 : 11,
+                      fontWeight: 700,
+                      color: '#18181b',
+                      borderRight: '1px solid #e4e4e7',
+                      borderBottom: '2px solid #d4d4d8',
+                      background: '#f4f4f5',
                     }}>
                       <input
                         type="checkbox"
@@ -4649,15 +4913,17 @@ const LabelStockList = () => {
                         <th
                           key={column.key}
                           style={{
-                            padding: '6px 8px',
+                            padding: isSmallScreen ? '6px 6px' : '7px 8px',
                             textAlign: 'left',
-                            fontSize: windowWidth <= 768 ? '9px' : '10px',
-                            fontWeight: 600,
-                            color: '#f8fafc',
+                            fontSize: isSmallScreen ? 10 : 11,
+                            fontWeight: 700,
+                            color: '#18181b',
                             whiteSpace: 'nowrap',
                             cursor: 'pointer',
                             width: column.width,
-                            transition: 'background 0.2s'
+                            borderRight: '1px solid #e4e4e7',
+                            borderBottom: '2px solid #d4d4d8',
+                            background: '#f4f4f5',
                           }}
                           onClick={() => {
                             if (column.key !== 'checkbox') {
@@ -4669,110 +4935,116 @@ const LabelStockList = () => {
                               fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, newSortConfig);
                             }
                           }}
-                          onMouseEnter={(e) => e.target.style.background = '#3f4f66'}
-                          onMouseLeave={(e) => e.target.style.background = '#334155'}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#e4e4e7'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = '#f4f4f5'; }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {column.label}
                             {sortConfig.key === column.key && (
-                              <span>
-                                {sortConfig.direction === 'asc' ? <FaSortAmountUp size={12} /> : <FaSortAmountDown size={12} />}
+                              <span style={{ color: '#525252' }}>
+                                {sortConfig.direction === 'asc' ? <FaSortAmountUp size={11} /> : <FaSortAmountDown size={11} />}
                               </span>
                             )}
                           </div>
                         </th>
                       ))}
                     <th style={{
-                      padding: '6px 8px',
+                      padding: isSmallScreen ? '6px 6px' : '7px 8px',
                       textAlign: 'center',
-                      fontSize: windowWidth <= 768 ? '9px' : '10px',
-                      fontWeight: 600,
-                      color: '#f8fafc',
+                      fontSize: isSmallScreen ? 10 : 11,
+                      fontWeight: 700,
+                      color: '#18181b',
                       whiteSpace: 'nowrap',
                       position: 'sticky',
                       right: '50px',
-                      background: '#334155',
+                      background: '#f4f4f5',
                       zIndex: 10,
                       width: '50px',
                       minWidth: '50px',
-                      borderLeft: '1px solid #e5e7eb'
+                      borderLeft: '1px solid #e4e4e7',
+                      borderRight: '1px solid #e4e4e7',
+                      borderBottom: '2px solid #d4d4d8',
                     }}>View</th>
                     <th style={{
-                      padding: '6px 8px',
+                      padding: isSmallScreen ? '6px 6px' : '7px 8px',
                       textAlign: 'center',
-                      fontSize: windowWidth <= 768 ? '9px' : '10px',
-                      fontWeight: 600,
-                      color: '#f8fafc',
+                      fontSize: isSmallScreen ? 10 : 11,
+                      fontWeight: 700,
+                      color: '#18181b',
                       whiteSpace: 'nowrap',
                       position: 'sticky',
                       right: 0,
-                      background: '#334155',
+                      background: '#f4f4f5',
                       zIndex: 10,
                       width: '50px',
                       minWidth: '50px',
-                      borderLeft: '1px solid #e5e7eb'
+                      borderLeft: '1px solid #e4e4e7',
+                      borderBottom: '2px solid #d4d4d8',
                     }}>Print</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item, index) => (
+                  {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item, index) => {
+                    const rowNum = (currentPage - 1) * itemsPerPage + index + 1;
+                    const stripe = rowNum % 2 === 0;
+                    const selected = selectedRows.includes(item.Id);
+                    const rowBg = selected ? '#fff7ed' : stripe ? '#fafafa' : '#ffffff';
+                    return (
                     <tr
                       key={item.Id}
                       onClick={() => handleRowSelection(item.Id)}
                       style={{
                         cursor: 'pointer',
-                        borderBottom: '1px solid #e2e8f0',
-                        background: selectedRows.includes(item.Id)
-                          ? '#fff7ed'
-                          : index % 2 === 0
-                            ? '#ffffff'
-                            : '#f8fafc',
+                        background: rowBg,
                         transition: 'background 0.2s'
                       }}
                       onMouseEnter={(e) => {
-                        if (!selectedRows.includes(item.Id)) {
-                          e.currentTarget.style.background = '#f8fafc';
-                          const cells = e.currentTarget.querySelectorAll('td');
-                          cells.forEach(cell => {
-                            if (cell.style.position === 'sticky') cell.style.background = '#f8fafc';
+                        if (!selected) {
+                          e.currentTarget.style.background = '#f1f5f9';
+                          e.currentTarget.querySelectorAll('td').forEach((cell) => {
+                            if (cell.style.position === 'sticky') cell.style.background = '#f1f5f9';
                           });
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (!selectedRows.includes(item.Id)) {
-                          const bgColor = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-                          e.currentTarget.style.background = bgColor;
-                          const cells = e.currentTarget.querySelectorAll('td');
-                          cells.forEach(cell => {
-                            if (cell.style.position === 'sticky') cell.style.background = bgColor;
+                        if (!selected) {
+                          e.currentTarget.style.background = rowBg;
+                          e.currentTarget.querySelectorAll('td').forEach((cell) => {
+                            if (cell.style.position === 'sticky') cell.style.background = rowBg;
                           });
                         }
                       }}
                     >
                       <td style={{
-                        padding: '5px 7px',
+                        padding: isSmallScreen ? '5px 6px' : '6px 8px',
                         textAlign: 'center',
-                        fontSize: windowWidth <= 768 ? '9px' : '10px'
+                        fontSize: isSmallScreen ? 10 : 11,
+                        borderRight: '1px solid #ececec',
+                        borderBottom: '1px solid #e5e5e5',
+                        color: '#404040',
                       }}>
                         <input
                           type="checkbox"
-                          checked={selectedRows.includes(item.Id)}
+                          checked={selected}
                           onChange={() => handleRowSelection(item.Id)}
                           onClick={(e) => e.stopPropagation()}
                           style={{
                             cursor: 'pointer',
                             width: '14px',
                             height: '14px',
-                            accentColor: '#4f46e5'
+                            accentColor: '#b91c1c'
                           }}
                         />
                       </td>
                       {columns.map(column => (
                         <td key={column.key} style={{
-                          padding: '5px 7px',
-                          fontSize: windowWidth <= 768 ? '9px' : '10px',
-                          color: '#1e293b',
-                          whiteSpace: 'nowrap'
+                          padding: isSmallScreen ? '5px 6px' : '6px 8px',
+                          fontSize: isSmallScreen ? 10 : 11,
+                          lineHeight: 1.35,
+                          color: '#404040',
+                          whiteSpace: 'nowrap',
+                          borderRight: '1px solid #ececec',
+                          borderBottom: '1px solid #e5e5e5',
                         }}>
                           {column.key === 'srNo' ? ((currentPage - 1) * itemsPerPage) + index + 1 : (() => {
                             const value = column.key === 'Description'
@@ -4794,45 +5066,20 @@ const LabelStockList = () => {
                         textAlign: 'center',
                         position: 'sticky',
                         right: '50px',
-                        background: selectedRows.includes(item.Id)
-                          ? '#fff7ed'
-                          : index % 2 === 0
-                            ? '#ffffff'
-                            : '#f8fafc',
+                        background: rowBg,
                         zIndex: 5,
-                        borderLeft: '1px solid #e2e8f0',
+                        borderLeft: '1px solid #ececec',
+                        borderBottom: '1px solid #e5e5e5',
                         width: '50px',
                         minWidth: '50px'
                       }}>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             navigate('/product-details', { state: { product: item, apiFilterData, labelStockList: (showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems) } });
                           }}
-                          style={{
-                            width: '28px',
-                            height: '28px',
-                            padding: 0,
-                            borderRadius: '6px',
-                            border: 'none',
-                            background: '#6366f1',
-                            color: '#ffffff',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            margin: '0 auto',
-                            boxShadow: '0 1px 2px rgba(99, 102, 241, 0.35)'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#4f46e5';
-                            e.currentTarget.style.transform = 'scale(1.05)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#6366f1';
-                            e.currentTarget.style.transform = 'scale(1)';
-                          }}
+                          style={{ ...labelListIconActionStyle(false), margin: '0 auto' }}
                           title="View Product Details"
                         >
                           <FaEye size={12} />
@@ -4844,50 +5091,22 @@ const LabelStockList = () => {
                         textAlign: 'center',
                         position: 'sticky',
                         right: 0,
-                        background: selectedRows.includes(item.Id)
-                          ? '#fff7ed'
-                          : index % 2 === 0
-                            ? '#ffffff'
-                            : '#f8fafc',
+                        background: rowBg,
                         zIndex: 5,
-                        borderLeft: '1px solid #e2e8f0',
+                        borderLeft: '1px solid #ececec',
+                        borderBottom: '1px solid #e5e5e5',
+                        borderRight: 'none',
                         width: '50px',
                         minWidth: '50px'
                       }}>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handlePrintSingleLabel(item, e);
                           }}
                           disabled={!selectedTemplate || previewLoading}
-                          style={{
-                            width: '28px',
-                            height: '28px',
-                            padding: 0,
-                            borderRadius: '6px',
-                            border: 'none',
-                            background: (!selectedTemplate || previewLoading) ? '#cbd5e1' : '#0ea5a4',
-                            color: '#ffffff',
-                            cursor: (!selectedTemplate || previewLoading) ? 'not-allowed' : 'pointer',
-                            transition: 'all 0.2s',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            margin: '0 auto',
-                            boxShadow: (!selectedTemplate || previewLoading) ? 'none' : '0 1px 2px rgba(14, 165, 164, 0.35)'
-                          }}
-                          onMouseEnter={(e) => {
-                            if (selectedTemplate && !previewLoading) {
-                              e.currentTarget.style.background = '#0f766e';
-                              e.currentTarget.style.transform = 'scale(1.05)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (selectedTemplate && !previewLoading) {
-                              e.currentTarget.style.background = '#0ea5a4';
-                              e.currentTarget.style.transform = 'scale(1)';
-                            }
-                          }}
+                          style={{ ...labelListIconActionStyle(!selectedTemplate || previewLoading), margin: '0 auto' }}
                           title={!selectedTemplate ? "Please select a template first" : "Print Label"}
                         >
                           {previewLoading ? (
@@ -4898,7 +5117,8 @@ const LabelStockList = () => {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
                 </tbody>
               </table>
             </div>
@@ -4908,48 +5128,51 @@ const LabelStockList = () => {
           <div className="label-stock-pagination" style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: windowWidth <= 768 ? 'flex-start' : 'center',
-            padding: windowWidth <= 768 ? '8px 10px' : '10px 14px',
-            borderTop: '1px solid #e5e7eb',
+            alignItems: isSmallScreen ? 'flex-start' : 'center',
+            padding: isSmallScreen ? '10px 12px' : '12px 16px',
+            borderTop: '1px solid #f5f5f5',
             flexWrap: 'wrap',
-            gap: '8px',
+            gap: 10,
             flexShrink: 0,
-            background: '#ffffff',
+            background: '#fafafa',
             borderRadius: '0 0 12px 12px'
           }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: 12,
               flexWrap: 'wrap',
-              fontSize: windowWidth <= 768 ? '10px' : '11px',
-              color: '#64748b',
-              width: windowWidth <= 768 ? '100%' : 'auto'
+              width: isSmallScreen ? '100%' : 'auto'
             }}>
               {showAllData && allFilteredData.length > 0 ? (
-                <span>
+                <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
                   Showing all {allFilteredData.length} filtered records
                 </span>
               ) : (
                 <>
-                  <span>
-                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+                  <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
+                    {totalRecords} record{totalRecords === 1 ? '' : 's'} · {itemsPerPage} rows/page
+                    {totalRecords > 0
+                      ? ` · ${((currentPage - 1) * itemsPerPage) + 1}–${Math.min(currentPage * itemsPerPage, totalRecords)} shown`
+                      : ''}
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', rowGap: '6px' }}>
-                    <span style={{ color: '#64748b' }}>Showing per page</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', rowGap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Per page</span>
                     <select
                       value={itemsPerPage}
-                      onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
+                      onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value, 10))}
                       style={{
-                        padding: '4px 10px',
-                        fontSize: windowWidth <= 768 ? '10px' : '11px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
+                        padding: '0 8px',
+                        height: 30,
+                        fontSize: 11,
+                        border: '1px solid #e5e5e5',
+                        borderRadius: 8,
                         outline: 'none',
                         cursor: 'pointer',
                         background: '#ffffff',
-                        color: '#1e293b',
-                        fontWeight: 500
+                        color: '#404040',
+                        fontWeight: 600,
+                        boxSizing: 'border-box',
                       }}
                     >
                       {PAGE_SIZE_OPTIONS.map(size => (
@@ -4965,88 +5188,55 @@ const LabelStockList = () => {
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                flexWrap: windowWidth <= 768 ? 'nowrap' : 'wrap',
-                width: windowWidth <= 768 ? '100%' : 'auto',
-                overflowX: windowWidth <= 768 ? 'auto' : 'visible',
-                paddingBottom: windowWidth <= 768 ? '2px' : 0,
+                gap: 6,
+                flexWrap: isSmallScreen ? 'nowrap' : 'wrap',
+                width: isSmallScreen ? '100%' : 'auto',
+                overflowX: isSmallScreen ? 'auto' : 'visible',
+                paddingBottom: isSmallScreen ? 2 : 0,
                 WebkitOverflowScrolling: 'touch'
               }}>
                 <button
+                  type="button"
                   onClick={() => {
                     const newPage = Math.max(currentPage - 1, 1);
                     setCurrentPage(newPage);
-                    // Show loader immediately when pagination is clicked
                     setLoading(true);
                     fetchLabeledStock(newPage, itemsPerPage, searchQuery, filterValues);
                   }}
                   disabled={currentPage === 1}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: windowWidth <= 768 ? '10px' : '11px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
-                    color: currentPage === 1 ? '#94a3b8' : '#475569',
-                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (currentPage !== 1) {
-                      e.target.style.background = '#f8fafc';
-                      e.target.style.borderColor = '#cbd5e1';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (currentPage !== 1) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.borderColor = '#e2e8f0';
-                    }
-                  }}
+                  style={labelListPageBtnStyle(currentPage === 1)}
                 >
-                  Previous
+                  Prev
                 </button>
                 {generatePagination().map((page, index) =>
                   page === "..." ? (
                     <span key={`ellipsis-${index}`} style={{
                       padding: '6px 8px',
-                      fontSize: '12px',
-                      color: '#94a3b8'
-                    }}>...</span>
+                      fontSize: 11,
+                      color: '#94a3b8',
+                      fontWeight: 600,
+                    }}>…</span>
                   ) : (
                     <button
+                      type="button"
                       key={page}
                       onClick={() => {
                         setCurrentPage(page);
-                        // Show loader immediately when pagination is clicked
                         setLoading(true);
                         fetchLabeledStock(page, itemsPerPage, searchQuery, filterValues);
                       }}
                       style={{
-                        padding: '4px 10px',
-                        fontSize: windowWidth <= 768 ? '10px' : '11px',
+                        padding: '5px 10px',
+                        fontSize: 11,
                         fontWeight: 600,
-                        borderRadius: '8px',
+                        borderRadius: 8,
                         border: '1px solid',
-                        background: currentPage === page ? '#4f46e5' : '#ffffff',
-                        color: currentPage === page ? '#ffffff' : '#475569',
-                        borderColor: currentPage === page ? '#4f46e5' : '#e2e8f0',
+                        background: currentPage === page ? '#b91c1c' : '#ffffff',
+                        color: currentPage === page ? '#ffffff' : '#525252',
+                        borderColor: currentPage === page ? '#b91c1c' : '#e5e5e5',
                         cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        minWidth: '36px'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (currentPage !== page) {
-                          e.target.style.background = '#f8fafc';
-                          e.target.style.borderColor = '#cbd5e1';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (currentPage !== page) {
-                          e.target.style.background = '#ffffff';
-                          e.target.style.borderColor = '#e2e8f0';
-                        }
+                        minWidth: '36px',
+                        boxSizing: 'border-box',
                       }}
                     >
                       {page}
@@ -5054,6 +5244,7 @@ const LabelStockList = () => {
                   )
                 )}
                 <button
+                  type="button"
                   onClick={() => {
                     const newPage = Math.min(currentPage + 1, totalPages);
                     setCurrentPage(newPage);
@@ -5061,34 +5252,15 @@ const LabelStockList = () => {
                     fetchLabeledStock(newPage, itemsPerPage, searchQuery, filterValues);
                   }}
                   disabled={currentPage === totalPages}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: windowWidth <= 768 ? '10px' : '11px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: '1px solid #e2e8f0',
-                    background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
-                    color: currentPage === totalPages ? '#94a3b8' : '#475569',
-                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (currentPage !== totalPages) {
-                      e.target.style.background = '#f8fafc';
-                      e.target.style.borderColor = '#cbd5e1';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (currentPage !== totalPages) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.borderColor = '#e2e8f0';
-                    }
-                  }}
+                  style={labelListPageBtnStyle(currentPage === totalPages)}
                 >
                   Next
                 </button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '12px', color: '#64748b' }}>Go to page</span>
+                <span style={{ fontSize: 11, color: '#404040', fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginLeft: 4 }}>
+                  Page {currentPage} / {Math.max(1, totalPages || 1)}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 4 }}>
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Go to</span>
                   <input
                     type="number"
                     min={1}
@@ -5110,14 +5282,16 @@ const LabelStockList = () => {
                       }
                     }}
                     style={{
-                      width: '52px',
+                      width: 52,
                       padding: '4px 6px',
-                      fontSize: windowWidth <= 768 ? '10px' : '11px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
+                      fontSize: 11,
+                      border: '1px solid #e5e5e5',
+                      borderRadius: 8,
                       outline: 'none',
                       textAlign: 'center',
-                      background: '#ffffff'
+                      background: '#ffffff',
+                      color: '#404040',
+                      boxSizing: 'border-box',
                     }}
                   />
                   <button
@@ -5127,14 +5301,14 @@ const LabelStockList = () => {
                       fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues);
                     }}
                     style={{
-                      padding: '4px 10px',
-                      fontSize: windowWidth <= 768 ? '10px' : '11px',
-                      fontWeight: 600,
-                      borderRadius: '8px',
-                      border: 'none',
-                      background: '#4f46e5',
-                      color: '#ffffff',
-                      cursor: 'pointer'
+                      padding: '5px 11px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      borderRadius: 8,
+                      border: '1px solid #cbd5e1',
+                      background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                      color: '#0f172a',
+                      cursor: 'pointer',
                     }}
                   >
                     Go
@@ -5192,11 +5366,11 @@ const LabelStockList = () => {
             box-shadow: 0 12px 24px rgba(0,0,0,0.1);
           }
           .product-card--selected {
-            border: 2px solid #4f46e5;
-            box-shadow: 0 8px 24px rgba(79, 70, 229, 0.2);
+            border: 2px solid #b91c1c;
+            box-shadow: 0 8px 24px rgba(185, 28, 28, 0.18);
           }
           .product-card--selected:hover {
-            box-shadow: 0 12px 28px rgba(79, 70, 229, 0.25);
+            box-shadow: 0 12px 28px rgba(185, 28, 28, 0.22);
           }
 
           .product-card__checkbox {
@@ -5209,7 +5383,7 @@ const LabelStockList = () => {
             width: 18px;
             height: 18px;
             cursor: pointer;
-            accent-color: #4f46e5;
+            accent-color: #b91c1c;
           }
 
           .product-card__badge {
@@ -5297,18 +5471,23 @@ const LabelStockList = () => {
           }
           .product-card__action--view {
             background: rgba(255,255,255,0.95);
-            color: #5b21b6;
+            color: #475569;
+            border: 1px solid #e2e8f0;
           }
           .product-card__action--view:hover {
             background: #fff;
-            color: #4c1d95;
+            color: #0f172a;
+            border-color: #cbd5e1;
           }
           .product-card__action--print {
-            background: rgba(37, 99, 235, 0.9);
-            color: #fff;
+            background: rgba(255,255,255,0.95);
+            color: #475569;
+            border: 1px solid #e2e8f0;
           }
           .product-card__action--print:hover:not(:disabled) {
-            background: #2563eb;
+            background: #fef2f2;
+            color: #b91c1c;
+            border-color: #fecaca;
           }
           .product-card__action--print:disabled {
             opacity: 0.6;
@@ -6966,7 +7145,16 @@ const LabelStockList = () => {
             </div>
           </div>
         )}
-      </div>
+
+        <TrayScanModal
+          open={showTrayScanModal}
+          onClose={() => setShowTrayScanModal(false)}
+          onFetchData={handleTrayFetchData}
+          title="Label Stock Tray Scan"
+          subtitle="Scan EPC tags and load matched label stock rows in the table."
+          loadButtonLabel={trayFetchLoading ? 'Fetching...' : 'Load Data'}
+          compactLayout
+        />
     </div>
   );
 };

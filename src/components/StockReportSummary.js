@@ -10,6 +10,8 @@ import { useNavigate } from 'react-router-dom';
 import { useLoading } from '../App';
 import { useNotifications } from '../context/NotificationContext';
 
+const SUMMARY_PAGE_SIZE = 15;
+
 const StockReportSummary = () => {
   const { loading, setLoading } = useLoading();
   const { addNotification } = useNotifications();
@@ -25,6 +27,15 @@ const StockReportSummary = () => {
     dateFrom: '',
     dateTo: ''
   });
+  const [pageLabeled, setPageLabeled] = useState(1);
+  const [pageHallmark, setPageHallmark] = useState(1);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('userInfo');
@@ -54,6 +65,11 @@ const StockReportSummary = () => {
       fetchSummaryData();
     }
   }, [userInfo, filterValues]);
+
+  useEffect(() => {
+    setPageLabeled(1);
+    setPageHallmark(1);
+  }, [summaryData.LabeledStock, summaryData.HallMarkCompleted]);
 
   const getCurrentDate = () => {
     const today = new Date();
@@ -208,404 +224,489 @@ const StockReportSummary = () => {
     }, 0);
   };
 
-  const renderSummaryTable = (title, data) => {
+  const buildSummaryPagination = (totalPages, currentPage) => {
+    const maxPagesToShow = 7;
+    if (totalPages <= maxPagesToShow) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages = [1];
+    if (currentPage > 5) pages.push('...');
+    const start = Math.max(2, currentPage - 1);
+    const end = Math.min(totalPages - 1, currentPage + 1);
+    for (let i = start; i <= end; i += 1) pages.push(i);
+    if (currentPage < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+    return pages;
+  };
+
+  const renderSummaryTable = (title, data, currentPage, setPage) => {
+    const isSmall = windowWidth <= 768;
+    const thBase = {
+      padding: isSmall ? '6px 6px' : '7px 8px',
+      fontWeight: 700,
+      fontSize: isSmall ? 10 : 11,
+      color: '#18181b',
+      borderRight: '1px solid #e4e4e7',
+      borderBottom: '2px solid #d4d4d8',
+      background: '#f4f4f5',
+    };
+    const tdBase = {
+      padding: isSmall ? '5px 6px' : '6px 8px',
+      fontSize: isSmall ? 10 : 11,
+      lineHeight: 1.35,
+      color: '#404040',
+      borderRight: '1px solid #ececec',
+      borderBottom: '1px solid #e5e5e5',
+    };
+    const pageBtn = (disabled) => ({
+      padding: '5px 11px',
+      fontSize: 12,
+      fontWeight: 600,
+      borderRadius: 8,
+      border: '1px solid #e5e5e5',
+      background: '#ffffff',
+      color: disabled ? '#a3a3a3' : '#525252',
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      opacity: disabled ? 0.5 : 1,
+    });
+    const pageNum = (active) => ({
+      padding: '5px 10px',
+      fontSize: 11,
+      fontWeight: 700,
+      borderRadius: 8,
+      border: `1px solid ${active ? '#0d9488' : '#e5e5e5'}`,
+      background: active ? '#0d9488' : '#ffffff',
+      color: active ? '#ffffff' : '#525252',
+      cursor: 'pointer',
+      minWidth: 32,
+    });
+
     if (!data || data.length === 0) {
       return (
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          padding: '20px',
-          marginBottom: '20px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb'
-        }}>
-          <h2 style={{
-            margin: 0,
-            fontSize: '18px',
-            fontWeight: 600,
-            color: '#1e293b',
-            marginBottom: '16px'
-          }}>{title}</h2>
-          <p style={{
-            color: '#94a3b8',
-            fontSize: '14px',
-            textAlign: 'center',
-            padding: '20px'
-          }}>No data available</p>
+        <div
+          style={{
+            background: '#ffffff',
+            borderRadius: 12,
+            marginBottom: 12,
+            boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+            border: '1px solid #e2e8f0',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ height: 3, background: 'linear-gradient(90deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%)' }} />
+          <div style={{ padding: '14px 16px' }}>
+            <h2 style={{ margin: 0, fontSize: isSmall ? '1rem' : '1.05rem', fontWeight: 800, color: '#0f172a' }}>{title}</h2>
+            <p style={{ margin: '10px 0 0', color: '#94a3b8', fontSize: 11, fontWeight: 600, textAlign: 'center', padding: '18px 8px' }}>
+              No data for this range
+            </p>
+          </div>
         </div>
       );
     }
 
     const allPurities = getAllPurities(data);
     const grandTotal = calculateGrandTotal(data);
+    const totalRecords = data.length;
+    const totalPages = Math.max(1, Math.ceil(totalRecords / SUMMARY_PAGE_SIZE));
+
+    const sliceStart = (currentPage - 1) * SUMMARY_PAGE_SIZE;
+    const pageSlice = data.slice(sliceStart, sliceStart + SUMMARY_PAGE_SIZE);
+    const paddedSlots = [];
+    pageSlice.forEach((row) => paddedSlots.push({ kind: 'row', row }));
+    const padCount = Math.max(0, SUMMARY_PAGE_SIZE - paddedSlots.length);
+    for (let i = 0; i < padCount; i += 1) {
+      paddedSlots.push({ kind: 'pad', key: `sum-pad-${currentPage}-${i}` });
+    }
 
     return (
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        padding: '20px',
-        marginBottom: '20px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <h2 style={{
-          margin: 0,
-          fontSize: '18px',
-          fontWeight: 600,
-          color: '#1e293b',
-          marginBottom: '20px',
-          paddingBottom: '12px',
-          borderBottom: '2px solid #e5e7eb'
-        }}>{title}</h2>
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: 12,
+          marginBottom: 12,
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+          border: '1px solid #e2e8f0',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ height: 3, background: 'linear-gradient(90deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%)' }} />
+        <div style={{ padding: '12px 14px 10px' }}>
+          <h2 style={{ margin: 0, fontSize: isSmall ? '1rem' : '1.05rem', fontWeight: 800, color: '#0f172a' }}>{title}</h2>
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+            <strong style={{ color: '#0f766e' }}>{SUMMARY_PAGE_SIZE}</strong> category rows per page · {totalRecords} categories
+          </p>
+        </div>
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '12px',
-            minWidth: '600px',
-            tableLayout: 'fixed'
-          }}>
+        <div style={{ overflowX: 'auto', padding: '0 12px 12px' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'separate',
+              borderSpacing: 0,
+              minWidth: 600,
+              tableLayout: 'fixed',
+            }}
+          >
             <colgroup>
-              <col style={{ width: '120px' }} /> {/* Metal column */}
-              {allPurities.map(() => (
-                <React.Fragment key={`col-${Math.random()}`}>
-                  <col style={{ width: '100px' }} /> {/* Gr Wt */}
-                  <col style={{ width: '100px' }} /> {/* Net Wt */}
-                </React.Fragment>
-              ))}
-              <col style={{ width: '100px' }} /> {/* Total column */}
+              <col style={{ width: '120px' }} />
+              {allPurities.flatMap((purity) => [
+                <col key={`${purity}-gr`} style={{ width: '100px' }} />,
+                <col key={`${purity}-nt`} style={{ width: '100px' }} />,
+              ])}
+              <col style={{ width: '100px' }} />
             </colgroup>
             <thead>
-              <tr style={{
-                background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb'
-              }}>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap',
-                  borderRight: '1px solid #e5e7eb',
-                  position: 'sticky',
-                  left: 0,
-                  background: '#f8fafc',
-                  zIndex: 10
-                }}>Metal</th>
+              <tr>
+                <th
+                  rowSpan={2}
+                  style={{
+                    ...thBase,
+                    textAlign: 'left',
+                    verticalAlign: 'middle',
+                    position: 'sticky',
+                    left: 0,
+                    zIndex: 12,
+                  }}
+                >
+                  Metal
+                </th>
                 {allPurities.map((purity) => (
-                  <th
-                    key={purity}
-                    colSpan={2}
-                    style={{
-                      padding: '12px 8px',
-                      textAlign: 'center',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#475569',
-                      whiteSpace: 'nowrap',
-                      borderRight: '1px solid #e5e7eb'
-                    }}
-                  >
+                  <th key={purity} colSpan={2} style={{ ...thBase, textAlign: 'center' }}>
                     {purity}
                   </th>
                 ))}
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Total</th>
+                <th rowSpan={2} style={{ ...thBase, textAlign: 'center', borderRight: 'none' }}>
+                  Total
+                </th>
               </tr>
-              <tr style={{
-                background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb'
-              }}>
-                <th style={{
-                  padding: '8px 12px',
-                  textAlign: 'left',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: '#64748b',
-                  borderRight: '1px solid #e5e7eb',
-                  position: 'sticky',
-                  left: 0,
-                  background: '#f8fafc',
-                  zIndex: 10
-                }}></th>
+              <tr>
                 {allPurities.map((purity) => (
-                  <React.Fragment key={purity}>
-                    <th style={{
-                      padding: '8px',
-                      textAlign: 'center',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: '#64748b',
-                      borderRight: '1px solid #e5e7eb'
-                    }}>Gr Wt</th>
-                    <th style={{
-                      padding: '8px',
-                      textAlign: 'center',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: '#64748b',
-                      borderRight: '1px solid #e5e7eb'
-                    }}>Net Wt</th>
+                  <React.Fragment key={`${purity}-sub`}>
+                    <th style={{ ...thBase, textAlign: 'center', fontSize: isSmall ? 9 : 10, color: '#52525b' }}>Gr Wt</th>
+                    <th style={{ ...thBase, textAlign: 'center', fontSize: isSmall ? 9 : 10, color: '#52525b' }}>Net Wt</th>
                   </React.Fragment>
                 ))}
-                <th style={{
-                  padding: '8px',
-                  textAlign: 'center',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: '#64748b'
-                }}></th>
               </tr>
             </thead>
             <tbody>
-              {data.map((category, categoryIndex) => {
-                const categoryTotal = calculateCategoryTotal(category);
-                return (
-                  <tr
-                    key={categoryIndex}
-                    style={{
-                      borderBottom: '1px solid #e5e7eb',
-                      background: categoryIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
-                      transition: 'background 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#f1f5f9';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = categoryIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
-                    }}
-                  >
-                    <td style={{
-                      padding: '12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      whiteSpace: 'nowrap',
-                      borderRight: '1px solid #e5e7eb',
-                      position: 'sticky',
-                      left: 0,
-                      background: categoryIndex % 2 === 0 ? '#ffffff' : '#f8fafc',
-                      zIndex: 5
-                    }}>{category.Category || 'N/A'}</td>
-                    {allPurities.map((purity) => {
-                      const grossWt = getPurityValue(category, purity, 'GrossWt');
-                      const netWt = getPurityValue(category, purity, 'NetWt');
-                      return (
-                        <React.Fragment key={purity}>
-                          <td style={{
-                            padding: '10px 8px',
-                            fontSize: '12px',
-                            color: '#1e293b',
-                            textAlign: 'right',
-                            borderRight: '1px solid #e5e7eb',
-                            whiteSpace: 'nowrap'
-                          }}>{grossWt ? formatNumber(grossWt) : '-'}</td>
-                          <td style={{
-                            padding: '10px 8px',
-                            fontSize: '12px',
-                            color: '#1e293b',
-                            textAlign: 'right',
-                            borderRight: '1px solid #e5e7eb',
-                            whiteSpace: 'nowrap'
-                          }}>{netWt ? formatNumber(netWt) : '-'}</td>
-                        </React.Fragment>
-                      );
-                    })}
-                    <td style={{
-                      padding: '12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      textAlign: 'right',
-                      whiteSpace: 'nowrap'
-                    }}>{formatNumber(categoryTotal)}</td>
-                  </tr>
-                );
-              })}
+              {(() => {
+                let idx = 0;
+                return paddedSlots.map((slot, slotIndex) => {
+                  if (slot.kind === 'pad') {
+                    const zebra = slotIndex % 2 === 0 ? '#fafafa' : '#f4f4f5';
+                    return (
+                      <tr key={slot.key} style={{ background: zebra, height: 34 }}>
+                        <td
+                          style={{
+                            ...tdBase,
+                            position: 'sticky',
+                            left: 0,
+                            background: zebra,
+                            zIndex: 4,
+                            color: '#e7e5e4',
+                          }}
+                        >
+                          {'\u00a0'}
+                        </td>
+                        {allPurities.map((purity) => (
+                          <React.Fragment key={`${slot.key}-${purity}`}>
+                            <td style={{ ...tdBase, textAlign: 'right', color: '#e7e5e4' }}>{'\u00a0'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', color: '#e7e5e4' }}>{'\u00a0'}</td>
+                          </React.Fragment>
+                        ))}
+                        <td style={{ ...tdBase, textAlign: 'right', borderRight: 'none', color: '#e7e5e4' }}>{'\u00a0'}</td>
+                      </tr>
+                    );
+                  }
+                  const category = slot.row;
+                  const categoryIndex = idx;
+                  idx += 1;
+                  const categoryTotal = calculateCategoryTotal(category);
+                  const zebra = slotIndex % 2 === 0 ? '#ffffff' : '#fafafa';
+                  const stickyBg = zebra;
+                  return (
+                    <tr
+                      key={`cat-${sliceStart + categoryIndex}`}
+                      style={{ background: zebra, height: 34 }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f0fdfa';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = zebra;
+                      }}
+                    >
+                      <td
+                        style={{
+                          ...tdBase,
+                          fontWeight: 700,
+                          color: '#27272a',
+                          whiteSpace: 'nowrap',
+                          position: 'sticky',
+                          left: 0,
+                          background: stickyBg,
+                          zIndex: 4,
+                          boxShadow: '1px 0 0 #ececec',
+                        }}
+                      >
+                        {category.Category || 'N/A'}
+                      </td>
+                      {allPurities.map((purity) => {
+                        const grossWt = getPurityValue(category, purity, 'GrossWt');
+                        const netWt = getPurityValue(category, purity, 'NetWt');
+                        return (
+                          <React.Fragment key={purity}>
+                            <td style={{ ...tdBase, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {grossWt ? formatNumber(grossWt) : '-'}
+                            </td>
+                            <td style={{ ...tdBase, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {netWt ? formatNumber(netWt) : '-'}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                      <td style={{ ...tdBase, textAlign: 'right', fontWeight: 700, borderRight: 'none', whiteSpace: 'nowrap' }}>
+                        {formatNumber(categoryTotal)}
+                      </td>
+                    </tr>
+                  );
+                });
+              })()}
             </tbody>
             <tfoot>
-              <tr style={{
-                background: '#f1f5f9',
-                borderTop: '2px solid #e5e7eb',
-                fontWeight: 700
-              }}>
-                <td style={{
-                  padding: '12px',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                  borderRight: '1px solid #e5e7eb',
-                  position: 'sticky',
-                  left: 0,
-                  background: '#f1f5f9',
-                  zIndex: 5
-                }}>Total</td>
+              <tr
+                style={{
+                  background: 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 100%)',
+                  boxShadow: 'inset 0 2px 0 #99f6e4',
+                }}
+              >
+                <td
+                  style={{
+                    ...tdBase,
+                    fontWeight: 800,
+                    color: '#0f766e',
+                    borderTop: '2px solid #5eead4',
+                    position: 'sticky',
+                    left: 0,
+                    background: '#ecfdf5',
+                    zIndex: 4,
+                    boxShadow: '1px 0 0 #cce8e4',
+                  }}
+                >
+                  Total
+                </td>
                 {allPurities.map((purity) => {
                   const purityTotals = calculatePurityTotals(data, purity);
                   return (
                     <React.Fragment key={purity}>
-                      <td style={{
-                        padding: '12px 8px',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        color: '#1e293b',
-                        textAlign: 'right',
-                        borderRight: '1px solid #e5e7eb',
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(purityTotals.GrossWt)}</td>
-                      <td style={{
-                        padding: '12px 8px',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        color: '#1e293b',
-                        textAlign: 'right',
-                        borderRight: '1px solid #e5e7eb',
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(purityTotals.NetWt)}</td>
+                      <td
+                        style={{
+                          ...tdBase,
+                          textAlign: 'right',
+                          fontWeight: 800,
+                          color: '#0f766e',
+                          borderTop: '2px solid #5eead4',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {formatNumber(purityTotals.GrossWt)}
+                      </td>
+                      <td
+                        style={{
+                          ...tdBase,
+                          textAlign: 'right',
+                          fontWeight: 800,
+                          color: '#0f766e',
+                          borderTop: '2px solid #5eead4',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {formatNumber(purityTotals.NetWt)}
+                      </td>
                     </React.Fragment>
                   );
                 })}
-                <td style={{
-                  padding: '12px',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                  textAlign: 'right',
-                  whiteSpace: 'nowrap'
-                }}>{formatNumber(grandTotal)}</td>
+                <td
+                  style={{
+                    ...tdBase,
+                    textAlign: 'right',
+                    fontWeight: 800,
+                    color: '#0f766e',
+                    borderTop: '2px solid #5eead4',
+                    borderRight: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {formatNumber(grandTotal)}
+                </td>
               </tr>
             </tfoot>
           </table>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 14px',
+            borderTop: '1px solid #e2e8f0',
+            flexWrap: 'wrap',
+            gap: 10,
+            background: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+            Showing{' '}
+            <strong style={{ color: '#0f172a' }}>{(currentPage - 1) * SUMMARY_PAGE_SIZE + 1}</strong>–
+            <strong style={{ color: '#0f172a' }}>{Math.min(currentPage * SUMMARY_PAGE_SIZE, totalRecords)}</strong> of{' '}
+            <strong style={{ color: '#0f172a' }}>{totalRecords}</strong> · {SUMMARY_PAGE_SIZE} / page
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              style={pageBtn(currentPage === 1)}
+            >
+              Prev
+            </button>
+            {buildSummaryPagination(totalPages, currentPage).map((page, i) =>
+              page === '...' ? (
+                <span key={`e-${i}`} style={{ padding: '4px 6px', fontSize: 11, color: '#a3a3a3' }}>
+                  …
+                </span>
+              ) : (
+                <button type="button" key={page} onClick={() => setPage(page)} style={pageNum(currentPage === page)}>
+                  {page}
+                </button>
+              )
+            )}
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              style={pageBtn(currentPage === totalPages)}
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
     );
   };
 
+  const isSmallScreen = windowWidth <= 768;
+
   return (
-    <div style={{
-      padding: '20px',
-      background: '#ffffff',
-      minHeight: '100vh'
-    }}>
-      {/* Header */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '12px',
-        padding: '20px',
-        marginBottom: '20px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '16px'
-        }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+    <div
+      className="stock-report-summary-page"
+      style={{
+        fontFamily: 'var(--font-family)',
+        padding: '12px',
+        fontSize: 11,
+        minHeight: '100%',
+        background: '#fafafa',
+      }}
+    >
+      <style>{`
+        @keyframes stockSummarySpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: 12,
+          overflow: 'hidden',
+          marginBottom: 12,
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+          border: '1px solid #e2e8f0',
+        }}
+      >
+        <div style={{ height: 3, background: 'linear-gradient(90deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%)' }} />
+        <div style={{ padding: '14px 16px' }}>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 14,
+            }}
+          >
+            <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => navigate('/reports')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                    border: '1px solid #cbd5e1',
+                    background: '#fafafa',
+                    color: '#475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FaArrowLeft />
+                  Back
+                </button>
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  Stock report summary
+                </h1>
+              </div>
+              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600, lineHeight: 1.45 }}>
+                Labeled stock and hallmark completed — by category and purity
+                {filterValues.dateFrom && filterValues.dateTo && (
+                  <span style={{ display: 'block', marginTop: 4, color: '#0f766e' }}>
+                    {filterValues.dateFrom} → {filterValues.dateTo}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
               <button
-                onClick={() => navigate('/reports')}
+                type="button"
+                onClick={handleRefresh}
+                disabled={loading}
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  color: '#64748b',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#f1f5f9';
-                  e.target.style.borderColor = '#94a3b8';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.borderColor = '#cbd5e1';
+                  gap: 6,
+                  height: 32,
+                  padding: '0 14px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 10,
+                  border: '1px solid #d4d4d8',
+                  background: '#fafafa',
+                  color: '#262626',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.55 : 1,
                 }}
               >
-                <FaArrowLeft />
-                Back
+                {loading ? (
+                  <FaSpinner style={{ animation: 'stockSummarySpin 1s linear infinite' }} />
+                ) : (
+                  <FaSync />
+                )}
+                Refresh
               </button>
-              <h1 style={{
-                margin: 0,
-                fontSize: '24px',
-                fontWeight: 600,
-                color: '#1e293b'
-              }}>
-                Stock Report Summary
-              </h1>
             </div>
-            <p style={{
-              margin: 0,
-              fontSize: '14px',
-              color: '#64748b'
-            }}>
-              Summary of labeled stock and hallmark completed items by category and purity
-              {filterValues.dateFrom && filterValues.dateTo && (
-                <span style={{ marginLeft: '8px', fontWeight: 600 }}>
-                  (From: {filterValues.dateFrom} To: {filterValues.dateTo})
-                </span>
-              )}
-            </p>
-          </div>
-          <div style={{
-            display: 'flex',
-            gap: '10px',
-            alignItems: 'center'
-          }}>
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 16px',
-                fontSize: '14px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #3b82f6',
-                background: '#ffffff',
-                color: '#3b82f6',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.6 : 1,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) {
-                  e.target.style.background = '#3b82f6';
-                  e.target.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!loading) {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#3b82f6';
-                }
-              }}
-            >
-              {loading ? (
-                <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-              ) : (
-                <FaSync />
-              )}
-              Refresh
-            </button>
           </div>
         </div>
       </div>
@@ -628,11 +729,9 @@ const StockReportSummary = () => {
         </div>
       )}
 
-      {/* Label Stock Section */}
-      {renderSummaryTable('Label Stock', summaryData.LabeledStock)}
+      {renderSummaryTable('Label stock', summaryData.LabeledStock, pageLabeled, setPageLabeled)}
 
-      {/* HallMark Completed Section */}
-      {renderSummaryTable('Hallmark Completed', summaryData.HallMarkCompleted)}
+      {renderSummaryTable('Hallmark completed', summaryData.HallMarkCompleted, pageHallmark, setPageHallmark)}
     </div>
   );
 };

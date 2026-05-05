@@ -19,7 +19,13 @@ import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import TrayScanModal from '../common/TrayScanModal';
+import CustomerSidebarForm from '../inventory/CustomerSidebarForm';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
+import {
+  getAddCustomerUrl,
+  buildAddCustomerPayloadFromSidebar,
+  validateSidebarCustomerForm,
+} from '../../services/customerOnboardingApi';
 
 const QuotationNew = ({ editStatus, defaultValues }) => {
   const { loading, setLoading } = useLoading();
@@ -31,7 +37,12 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
   // Quotation Header State
   const [quotationNumber, setQuotationNumber] = useState('');
   const [quotationDate, setQuotationDate] = useState(new Date().toISOString().split('T')[0]);
+  /** Selected customer Id (API field); input text is `customerSearch`. */
   const [customerName, setCustomerName] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [filteredCustomers, setFilteredCustomers] = useState([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const customerDropdownRef = useRef(null);
   const [customerList, setCustomerList] = useState([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [customerMobile, setCustomerMobile] = useState('');
@@ -114,6 +125,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
   const [loadingMasterData, setLoadingMasterData] = useState(false);
   const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
   const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
+  const [showCustomerSidebar, setShowCustomerSidebar] = useState(false);
 
   // Form Fields Configuration (Same 21 fields as AddStock)
   const formFields = [
@@ -150,6 +162,33 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
       return data.data || data.items || data.results || data.list || [];
     }
     return [];
+  };
+
+  const getCustomerDisplayName = (customer) => {
+    if (!customer) return '';
+    if (customer.FirstName) {
+      return `${customer.FirstName}${customer.LastName ? ` ${customer.LastName}` : ''}`.trim();
+    }
+    return customer.Name || customer.CustomerName || 'Unknown';
+  };
+
+  const normalizePartyQuery = (s) =>
+    String(s || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+
+  const toProperPersonName = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .trim()
+      .split(/\s+/)
+      .map((word) => {
+        if (!word) return '';
+        if (word.length === 1) return word.toUpperCase();
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+      })
+      .join(' ');
   };
 
   // Fetch user info
@@ -196,7 +235,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
     }
   };
 
-  // Update customer details when customer is selected
+  // Update customer details when customer Id is selected (same pattern as Sample Out party)
   useEffect(() => {
     if (customerName && customerList.length > 0) {
       const customer = customerList.find(c => c.Id == customerName || c.Id === customerName);
@@ -205,18 +244,16 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
         setFineGold(customer.FineGold ? parseFloat(customer.FineGold).toFixed(3) : '0.000');
         setAdvanceAmount(customer.AdvanceAmount ? parseFloat(customer.AdvanceAmount).toFixed(2) : '0.00');
         setBalanceAmount(customer.BalanceAmount ? parseFloat(customer.BalanceAmount).toFixed(3) : '0.000');
-        // Set fine metal from customer's fine gold
         setFineMetal(customer.FineGold ? parseFloat(customer.FineGold).toFixed(3) : '0.000');
+        setCustomerSearch(toProperPersonName(getCustomerDisplayName(customer)));
       } else {
-        // Reset if customer not found
         setCustomerMobile('');
         setFineGold('0.000');
         setAdvanceAmount('0.00');
         setBalanceAmount('0.000');
         setFineMetal('0.000');
       }
-    } else {
-      // Reset when no customer selected
+    } else if (!customerName) {
       setCustomerMobile('');
       setFineGold('0.000');
       setAdvanceAmount('0.00');
@@ -224,6 +261,74 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
       setFineMetal('0.000');
     }
   }, [customerName, customerList]);
+
+  useEffect(() => {
+    const hasQuery = customerSearch.trim().length > 0;
+    if (!hasQuery) {
+      setFilteredCustomers([]);
+      setShowCustomerDropdown(false);
+      return;
+    }
+    const searchTerm = customerSearch.toLowerCase();
+    const filtered = customerList.filter((customer) => {
+      const firstName = (customer.FirstName || '').toLowerCase();
+      const lastName = (customer.LastName || '').toLowerCase();
+      const name = (customer.Name || '').toLowerCase();
+      const cName = (customer.CustomerName || '').toLowerCase();
+      const mobile = (customer.Mobile || customer.MobileNumber || '').toLowerCase();
+      return (
+        firstName.includes(searchTerm) ||
+        lastName.includes(searchTerm) ||
+        name.includes(searchTerm) ||
+        cName.includes(searchTerm) ||
+        mobile.includes(searchTerm)
+      );
+    });
+    const selected = customerName
+      ? customerList.find((c) => String(c.Id) === String(customerName))
+      : null;
+    const lockedLabel = selected
+      ? normalizePartyQuery(toProperPersonName(getCustomerDisplayName(selected)))
+      : '';
+    const q = normalizePartyQuery(customerSearch);
+    const selectionLocksDropdown = Boolean(selected && lockedLabel && q === lockedLabel);
+
+    setFilteredCustomers(filtered);
+    setShowCustomerDropdown(!selectionLocksDropdown);
+  }, [customerSearch, customerList, customerName]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target)) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleQuotationCustomerSelect = (customer) => {
+    setCustomerName(customer.Id);
+    setShowCustomerDropdown(false);
+  };
+
+  const customerAccentColor = '#22c55e';
+  const quotationCustomerDropdownOpen =
+    showCustomerDropdown && customerSearch.trim().length > 0;
+  const quotationCustomerDropdownPanel = {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    background: '#ffffff',
+    border: '1px solid #dbe4f0',
+    borderRadius: 10,
+    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.14)',
+    marginTop: 6,
+    maxHeight: 280,
+    overflowY: 'auto',
+    zIndex: 1100,
+  };
 
   // Fetch branches and counters
   const fetchBranchesAndCounters = async () => {
@@ -1369,6 +1474,9 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
   // Reset form
   const handleReset = () => {
     setCustomerName('');
+    setCustomerSearch('');
+    setFilteredCustomers([]);
+    setShowCustomerDropdown(false);
     setCustomerMobile('');
     setFineGold('0.000');
     setAdvanceAmount('0.00');
@@ -1413,14 +1521,43 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
       background: '#ffffff', 
       minHeight: '100vh' 
     }}>
+      <style>{`
+        .quotation-main-table thead th {
+          background: #2d3e50 !important;
+          color: #ffffff !important;
+          border-bottom: 2px solid #1e293b !important;
+          border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
+          letter-spacing: 0.02em;
+          font-weight: 800 !important;
+        }
+        .quotation-main-table thead th:last-child {
+          border-right: none !important;
+        }
+        .quotation-main-table tbody td {
+          border-bottom: 1px solid #e5e7eb;
+          border-right: 1px solid #ececec;
+          color: #404040;
+          background: #ffffff;
+        }
+        .quotation-main-table tbody tr:nth-child(even) td {
+          background: #fafafa;
+        }
+        .quotation-main-table tbody td:last-child {
+          border-right: none;
+        }
+        .quotation-main-table tbody tr:hover td {
+          background: #eef6ff !important;
+        }
+      `}</style>
       {/* Top Header - Compact */}
       <div style={{
-        background: '#ffffff',
-        borderRadius: '8px',
-        padding: isSmallScreen ? '8px 12px' : '10px 16px',
+        background: 'linear-gradient(120deg, #ecfeff 0%, #f0f9ff 48%, #f8fafc 100%)',
+        borderRadius: '10px',
+        padding: isSmallScreen ? '9px 12px' : '11px 16px',
         marginBottom: '12px',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+        boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
         border: '1px solid #e2e8f0',
+        borderLeft: '4px solid #14b8a6',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -1432,41 +1569,11 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
             margin: 0, 
             fontSize: isSmallScreen ? '14px' : '16px', 
             fontWeight: 700, 
-            color: '#1e293b',
+            color: '#0f172a',
             lineHeight: '1.2'
           }}>
             Quotation
           </h2>
-          {/* Toggle Button to RFID Tray Quotation */}
-          <button
-            onClick={() => navigate('/quotation-rfid-tray')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: 600,
-              border: '1px solid #627282',
-              borderRadius: '6px',
-              background: '#ffffff',
-              color: '#627282',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-            title="Switch to Quotation with RFID Tray"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#627282';
-              e.currentTarget.style.color = '#ffffff';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#ffffff';
-              e.currentTarget.style.color = '#627282';
-            }}
-          >
-            <FaBox />
-            RFID Tray
-          </button>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1517,11 +1624,12 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
            {/* Customer Information */}
            <div style={{
              background: '#ffffff',
-             borderRadius: '8px',
+             borderRadius: '10px',
              padding: isSmallScreen ? '10px 12px' : '12px 16px',
              marginBottom: '12px',
-             boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-             border: '1px solid #e5e7eb'
+             boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
+             border: '1px solid #e2e8f0',
+             borderTop: '3px solid #22c55e'
            }}>
             <div style={{ 
               display: 'grid', 
@@ -1539,36 +1647,132 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                 }}>
                   Customer Name<span style={{ color: '#ef4444' }}>*</span>
                 </label>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <select
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    disabled={loadingCustomers}
-                    style={{
-                      flex: 1,
-                      padding: '8px 10px',
-                      fontSize: '12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
-                      outline: 'none',
-                      background: loadingCustomers ? '#f1f5f9' : '#ffffff'
-                    }}
-                  >
-                  <option value="">Select Customer</option>
-                  {customerList.map(customer => {
-                    const customerName = customer.FirstName 
-                      ? `${customer.FirstName}${customer.LastName ? ' ' + customer.LastName : ''}`
-                      : customer.Name || customer.CustomerName || 'Unknown';
-                    return (
-                      <option key={customer.Id} value={customer.Id}>
-                        {customerName}
-                      </option>
-                    );
-                  })}
-                  </select>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                  <div ref={customerDropdownRef} style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+                    <input
+                      type="text"
+                      value={customerSearch}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setCustomerSearch(v);
+                        setCustomerName('');
+                        setShowCustomerDropdown(true);
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = customerAccentColor;
+                        e.target.style.boxShadow = `0 0 0 3px ${customerAccentColor}33`;
+                        if (customerSearch.trim()) {
+                          setShowCustomerDropdown(true);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                      placeholder="Type to search customer..."
+                      disabled={loadingCustomers}
+                      autoComplete="off"
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        fontSize: '12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        outline: 'none',
+                        background: loadingCustomers ? '#f1f5f9' : '#ffffff',
+                        boxSizing: 'border-box',
+                        transition: 'all 0.2s ease',
+                      }}
+                    />
+                    {quotationCustomerDropdownOpen && (
+                      <div
+                        style={{ ...quotationCustomerDropdownPanel, borderTop: `3px solid ${customerAccentColor}` }}
+                        role="listbox"
+                        aria-label="Customer suggestions"
+                      >
+                        {loadingCustomers && (
+                          <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>Loading…</div>
+                        )}
+                        {!loadingCustomers && filteredCustomers.length === 0 && (
+                          <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>
+                            No matching customer found.
+                          </div>
+                        )}
+                        {!loadingCustomers &&
+                          filteredCustomers.map((customer, idx) => {
+                            const displayName = toProperPersonName(getCustomerDisplayName(customer));
+                            const isSelected = String(customer.Id) === String(customerName);
+                            return (
+                              <div
+                                key={customer.Id}
+                                role="option"
+                                aria-selected={isSelected}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  handleQuotationCustomerSelect(customer);
+                                }}
+                                style={{
+                                  padding: '10px 12px',
+                                  cursor: 'pointer',
+                                  fontSize: 11,
+                                  borderBottom:
+                                    idx < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                  transition: 'all 0.15s ease',
+                                  backgroundColor: isSelected ? `${customerAccentColor}22` : '#ffffff',
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) e.currentTarget.style.background = '#f8fafc';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = isSelected
+                                    ? `${customerAccentColor}22`
+                                    : '#ffffff';
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontWeight: 600,
+                                    color: '#1e293b',
+                                    marginBottom: customer.Mobile || customer.MobileNumber ? 4 : 0,
+                                    fontSize: 12,
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  {displayName}
+                                </div>
+                                {customer.Mobile || customer.MobileNumber ? (
+                                  <div
+                                    style={{
+                                      color: '#64748b',
+                                      fontSize: 11,
+                                      fontWeight: 400,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        width: 4,
+                                        height: 4,
+                                        borderRadius: '50%',
+                                        background: '#94a3b8',
+                                        flexShrink: 0,
+                                      }}
+                                    />
+                                    {customer.Mobile || customer.MobileNumber}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    onClick={() => navigate('/add_customer_new')}
+                    onClick={() => setShowCustomerSidebar(true)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -1581,7 +1785,10 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                       background: '#ffffff',
                       color: '#627282',
                       cursor: 'pointer',
-                      transition: 'all 0.2s'
+                      transition: 'all 0.2s',
+                      flexShrink: 0,
+                      height: 36,
+                      boxSizing: 'border-box',
                     }}
                     title="Add New Customer"
                     onMouseEnter={(e) => {
@@ -1711,11 +1918,12 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
            {/* Items Table */}
            <div style={{
              background: '#ffffff',
-             borderRadius: '8px',
+             borderRadius: '10px',
              padding: isSmallScreen ? '10px 12px' : '12px 16px',
              marginBottom: '12px',
-             boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-             border: '1px solid #e5e7eb'
+             boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
+             border: '1px solid #e2e8f0',
+             borderTop: '3px solid #0284c7'
            }}>
             <div style={{ 
               display: 'flex', 
@@ -1753,10 +1961,10 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   justifyContent: 'center',
                   padding: '6px 10px',
                   fontSize: '13px',
-                  border: '1px solid #627282',
+                  border: '1px solid #0284c7',
                   borderRadius: '6px',
                   background: '#ffffff',
-                  color: '#627282',
+                  color: '#0284c7',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
                   minWidth: '40px',
@@ -1764,12 +1972,12 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                 }}
                 title={trayEnabled ? 'Scan tags with RFID tray' : 'Quotation with RFID Tray'}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#627282';
+                  e.currentTarget.style.background = '#0284c7';
                   e.currentTarget.style.color = '#ffffff';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = '#ffffff';
-                  e.currentTarget.style.color = '#627282';
+                  e.currentTarget.style.color = '#0284c7';
                 }}
               >
                 <FaBox />
@@ -1784,7 +1992,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   fontSize: '11px',
                   border: '1px solid #fecaca',
                   borderRadius: '6px',
-                  background: '#fff1f2',
+                  background: '#fef2f2',
                   color: '#b91c1c',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
@@ -1887,50 +2095,54 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
               overflowY: 'auto',
               maxHeight: isSmallScreen ? '400px' : '600px',
               WebkitOverflowScrolling: 'touch',
-              borderRadius: '6px',
-              border: '1px solid #e5e7eb',
-              position: 'relative'
+              borderRadius: '12px',
+              border: '1px solid #d4d4d8',
+              position: 'relative',
+              background: '#ffffff',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
             }}>
-              <table style={{ 
+              <table className="quotation-main-table" style={{ 
                 width: '100%', 
-                borderCollapse: 'collapse',
+                borderCollapse: 'separate',
+                borderSpacing: 0,
                 fontSize: isSmallScreen ? '10px' : '11px',
-                minWidth: isSmallScreen ? '1500px' : '100%'
+                minWidth: isSmallScreen ? '1500px' : '1700px',
+                tableLayout: 'fixed'
               }}>
                 <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 10 }}>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'center', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Sr.No.</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: isSmallScreen ? '80px' : '100px' }}>RFID</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: isSmallScreen ? '90px' : '110px' }}>Item Code</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: isSmallScreen ? '80px' : '100px' }}>Category</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: isSmallScreen ? '100px' : '120px' }}>Product</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: isSmallScreen ? '100px' : '120px' }}>Design</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc', minWidth: isSmallScreen ? '70px' : '90px' }}>Purity</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>T Wt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Gr Wt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>N Wt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>St Wt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Fine %</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Wastage %</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>F+W Wt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Rate/Gm</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>St Amt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Qty</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Pieces</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Hallmark Amt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>T Item Amt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Packing Wt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>Dia Wt</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>MRP</th>
-                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#f8fafc' }}>URD Amount</th>
+                  <tr style={{ background: '#2d3e50', borderBottom: '2px solid #1e293b', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'center', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Sr.No.</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50', minWidth: isSmallScreen ? '80px' : '100px' }}>RFID</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50', minWidth: isSmallScreen ? '90px' : '110px' }}>Item Code</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50', minWidth: isSmallScreen ? '80px' : '100px' }}>Category</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50', minWidth: isSmallScreen ? '100px' : '120px' }}>Product</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50', minWidth: isSmallScreen ? '100px' : '120px' }}>Design</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50', minWidth: isSmallScreen ? '70px' : '90px' }}>Purity</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>T Wt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Gr Wt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>N Wt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>St Wt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Fine %</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Wastage %</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>F+W Wt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Rate/Gm</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>St Amt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Qty</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Pieces</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Hallmark Amt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>T Item Amt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Packing Wt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>Dia Wt</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>MRP</th>
+                    <th style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#2d3e50' }}>URD Amount</th>
                     <th style={{ 
                       padding: isSmallScreen ? '6px' : '8px', 
                       textAlign: 'center', 
-                      fontWeight: 600, 
-                      color: '#475569', 
+                      fontWeight: 700, 
+                      color: '#ffffff', 
                       whiteSpace: 'nowrap', 
                       fontSize: isSmallScreen ? '10px' : '11px', 
-                      background: '#f8fafc',
+                      background: '#2d3e50',
                       position: 'sticky',
                       right: 0,
                       zIndex: 10,
@@ -1942,11 +2154,11 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   {quotationItems.length > 0 ? (
                     quotationItems.map((item, index) => (
                       <tr key={item.id} style={{ 
-                        borderBottom: '1px solid #e5e7eb',
+                        borderBottom: '1px solid #e5e5e5',
                         transition: 'background 0.2s'
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#eef6ff'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       >
                         <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'center', fontSize: isSmallScreen ? '10px' : '11px' }}>{index + 1}</td>
                         <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
@@ -2095,6 +2307,48 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
           </div>
       </div>
       </div>
+
+      <CustomerSidebarForm
+        open={showCustomerSidebar}
+        onClose={() => setShowCustomerSidebar(false)}
+        onSave={async (form) => {
+          const validationError = validateSidebarCustomerForm(form);
+          if (validationError) {
+            addNotification({ type: 'error', title: 'Customer', message: validationError });
+            throw new Error(validationError);
+          }
+          if (!userInfo?.ClientCode) {
+            addNotification({ type: 'error', title: 'Customer', message: 'Missing client code.' });
+            throw new Error('Missing client code.');
+          }
+          const payload = buildAddCustomerPayloadFromSidebar(form, userInfo.ClientCode);
+          try {
+            setLoading(true);
+            await axios.post(getAddCustomerUrl(), payload, {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            addNotification({
+              type: 'success',
+              title: 'Customer',
+              message: 'Customer saved successfully.',
+            });
+            await fetchCustomers();
+          } catch (err) {
+            const msg =
+              err?.response?.data?.Message ||
+              err?.response?.data?.message ||
+              err.message ||
+              'Failed to add customer.';
+            addNotification({ type: 'error', title: 'Customer', message: msg });
+            throw err;
+          } finally {
+            setLoading(false);
+          }
+        }}
+      />
 
       {/* Edit Product Modal */}
       {showEditModal && editingItem && (
@@ -2601,23 +2855,24 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
             fontSize: '12px',
             fontWeight: 600,
             borderRadius: '8px',
-            border: '1px solid #3b82f6',
-            background: loading ? '#94a3b8' : '#ffffff',
-            color: loading ? '#ffffff' : '#3b82f6',
+            border: '1px solid #0284c7',
+            background: loading ? '#94a3b8' : 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+            color: '#ffffff',
             cursor: loading ? 'not-allowed' : 'pointer',
             opacity: loading ? 0.6 : 1,
-            transition: 'all 0.2s'
+            transition: 'all 0.2s',
+            boxShadow: loading ? 'none' : '0 6px 14px rgba(2, 132, 199, 0.25)'
           }}
           onMouseEnter={(e) => {
             if (!loading) {
-              e.currentTarget.style.background = '#3b82f6';
+              e.currentTarget.style.background = 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)';
               e.currentTarget.style.color = '#ffffff';
             }
           }}
           onMouseLeave={(e) => {
             if (!loading) {
-              e.currentTarget.style.background = '#ffffff';
-              e.currentTarget.style.color = '#3b82f6';
+              e.currentTarget.style.background = 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)';
+              e.currentTarget.style.color = '#ffffff';
             }
           }}
         >
@@ -2650,19 +2905,19 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
             fontSize: '12px',
             fontWeight: 600,
             borderRadius: '8px',
-            border: '1px solid #64748b',
+            border: '1px solid #0f766e',
             background: '#ffffff',
-            color: '#64748b',
+            color: '#0f766e',
             cursor: 'pointer',
             transition: 'all 0.2s'
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#64748b';
+            e.currentTarget.style.background = '#0f766e';
             e.currentTarget.style.color = '#ffffff';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = '#ffffff';
-            e.currentTarget.style.color = '#64748b';
+            e.currentTarget.style.color = '#0f766e';
           }}
         >
           <FaRedo /> Reset
@@ -2678,19 +2933,19 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
             fontSize: '12px',
             fontWeight: 600,
             borderRadius: '8px',
-            border: '1px solid #64748b',
+            border: '1px solid #334155',
             background: '#ffffff',
-            color: '#64748b',
+            color: '#334155',
             cursor: 'pointer',
             transition: 'all 0.2s'
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#64748b';
+            e.currentTarget.style.background = '#334155';
             e.currentTarget.style.color = '#ffffff';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = '#ffffff';
-            e.currentTarget.style.color = '#64748b';
+            e.currentTarget.style.color = '#334155';
           }}
         >
           <FaList /> Quotation List
@@ -2701,7 +2956,9 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
         open={showRfidTrayModal}
         onClose={() => setShowRfidTrayModal(false)}
         onFetchData={handleTrayFetchData}
-        title="Quotation Tray Scan"
+        title="Quotation — Tray scan"
+        subtitle="Place the tray on the reader, connect your COM ports, and start. Tags and item codes appear below; then add them to this quotation in one step."
+        loadButtonLabel="Add scanned items to quotation"
       />
 
       <style>{`

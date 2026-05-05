@@ -1,9 +1,9 @@
 import axios from 'axios';
+import { toRrgoldApiUrl, toSoniApiUrl } from './apiBaseConfig';
 
- const BASE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster';
-// ?const BASE_URL = 'https://localhost:7095/api/ProductMaster';
-const RRGOLD_PRODUCT_URL = 'https://rrgold.loyalstring.co.in/api/ProductMaster';
-const DEVICE_URL = 'https://rrgold.loyalstring.co.in/api/RFIDDevice';
+const soniProductMasterBase = () => toSoniApiUrl('api/ProductMaster');
+const rrgoldProductMasterBase = () => toRrgoldApiUrl('api/ProductMaster');
+const rrgoldDeviceBase = () => toRrgoldApiUrl('api/RFIDDevice');
 
 // Request interceptor for API calls (skip Content-Type for FormData so multipart works)
 axios.interceptors.request.use(
@@ -45,7 +45,7 @@ export const rfidService = {
   // Registration: fetch available auth plans
   getAvailableAuthPlans: async () => {
     try {
-      const response = await axios.get(`${BASE_URL}/GetAvailableAuthPlans`);
+      const response = await axios.get(`${soniProductMasterBase()}/GetAvailableAuthPlans`);
       return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       throw error;
@@ -55,7 +55,7 @@ export const rfidService = {
   // Registration: create new auth user with selected plan
   registerAuthUser: async (data) => {
     try {
-      const response = await axios.post(`${BASE_URL}/AuthRegister`, data);
+      const response = await axios.post(`${soniProductMasterBase()}/AuthRegister`, data);
       return response.data;
     } catch (error) {
       throw error;
@@ -66,7 +66,7 @@ export const rfidService = {
   getRFIDTransactions: async (clientCode, status = "ApiActive") => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/GetRFIDTransactionDetails`, 
+        `${soniProductMasterBase()}/GetRFIDTransactionDetails`, 
         {
           client_code: clientCode,
           status: status
@@ -83,7 +83,7 @@ export const rfidService = {
   getTidByBarcode: async (clientCode, barcodeNumber) => {
     try {
       const response = await axios.post(
-        `${RRGOLD_PRODUCT_URL}/GetTidByBarcode`,
+        `${rrgoldProductMasterBase()}/GetTidByBarcode`,
         {
           ClientCode: clientCode || '',
           BarcodeNumber: barcodeNumber || ''
@@ -99,7 +99,7 @@ export const rfidService = {
   updateRFIDTransaction: async (data) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/UpdateRFIDTransactionDetails`, 
+        `${soniProductMasterBase()}/UpdateRFIDTransactionDetails`, 
         [{
           client_code: data.clientCode,
           itemcode: data.itemCode || data.itemcode || '',
@@ -117,7 +117,7 @@ export const rfidService = {
   deleteLabelledStock: async (clientCode, itemCodes) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/DeleteLabelledStockItems`, 
+        `${soniProductMasterBase()}/DeleteLabelledStockItems`, 
         {
           ClientCode: clientCode,
           ItemCodes: itemCodes
@@ -133,7 +133,7 @@ export const rfidService = {
   getRFIDDeviceDetails: async (clientCode, deviceId) => {
     try {
       const response = await axios.post(
-        `${DEVICE_URL}/GetAllRFIDDetails`,
+        `${rrgoldDeviceBase()}/GetAllRFIDDetails`,
         {
           ClientCode: clientCode,
           DeviceId: deviceId
@@ -149,7 +149,7 @@ export const rfidService = {
   deleteRFIDByClientAndDevice: async (clientCode, deviceId) => {
     try {
       const response = await axios.post(
-        `${DEVICE_URL}/DeleteRFIDByClientAndDevice`,
+        `${rrgoldDeviceBase()}/DeleteRFIDByClientAndDevice`,
         {
           ClientCode: clientCode,
           DeviceId: deviceId
@@ -259,7 +259,7 @@ export const rfidService = {
     try {
       const payload = rfidService.buildPayloadFromData(data);
       const response = await axios.post(
-        `${BASE_URL}/SaveRFIDTransactionDetails`,
+        `${soniProductMasterBase()}/SaveRFIDTransactionDetails`,
         [payload]
       );
       return response.data;
@@ -288,7 +288,7 @@ export const rfidService = {
       headers: { Authorization: `Bearer ${token}` }
     };
     const response = await axios.post(
-      `${BASE_URL}/SaveRFIDTransactionDetailsWithUpload`,
+      `${soniProductMasterBase()}/SaveRFIDTransactionDetailsWithUpload`,
       formData,
       config
     );

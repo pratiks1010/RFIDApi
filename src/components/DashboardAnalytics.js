@@ -18,7 +18,6 @@ import {
   FaSearch,
   FaTachometerAlt,
   FaShoppingCart,
-  FaBuilding,
   FaUsers,
   FaArrowUp,
   FaArrowDown,
@@ -89,7 +88,8 @@ const DashboardAnalytics = () => {
   const [basePurityIdByCategoryId, setBasePurityIdByCategoryId] = useState({});
   const [baseFineByCategoryId, setBaseFineByCategoryId] = useState({});
   const [hoveredCategoryRing, setHoveredCategoryRing] = useState(null);
-  const itemsPerPage = 5;
+  /** Bottom grid tables (Top Items, Counter Wise, Category): fixed 7 visible rows per page */
+  const bottomTableRowsPerPage = 7;
   const { addNotification } = useNotifications();
 
   const ratesCategoryColorPalette = [
@@ -706,10 +706,10 @@ const DashboardAnalytics = () => {
 
   // 1. Define color palettes for categories and branches (modern palette)
   const categoryColorPalette = [
-    '#6366f1', '#0d9488', '#ea580c', '#7c3aed', '#0891b2', '#dc2626', '#a855f7', '#2563eb', '#64748b', '#0f172a', '#14b8a6', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444', '#22c55e', '#475569', '#ec4899', '#f472b6', '#1e293b'
+    '#1d4ed8', '#0ea5e9', '#f59e0b', '#16a34a', '#ef4444', '#7c3aed', '#0891b2', '#f97316', '#0f766e', '#9333ea'
   ];
   const branchColorPalette = [
-    '#6366f1', '#0d9488', '#ea580c', '#7c3aed', '#0891b2', '#dc2626', '#2563eb', '#14b8a6', '#64748b', '#0f172a', '#a855f7', '#f59e0b', '#06b6d4', '#22c55e', '#475569', '#ec4899', '#1e293b', '#f472b6', '#8b5cf6', '#0ea5e9'
+    '#2563eb', '#0284c7', '#eab308', '#dc2626', '#16a34a', '#7c3aed', '#0ea5e9', '#f97316', '#14b8a6', '#64748b'
   ];
 
   const getCategoryDistribution = () => {
@@ -770,14 +770,14 @@ const DashboardAnalytics = () => {
         backgroundColor: (context) => {
           const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
           const colors = [
-            ['#0077d4', '#3b82f6'],
-            ['#22c55e', '#34d399'], 
-            ['#f59e0b', '#fbbf24'],
-            ['#64748b', '#94a3b8'],
-            ['#0077d4', '#60a5fa'],
-            ['#22c55e', '#4ade80'],
-            ['#f59e0b', '#fcd34d'],
-            ['#64748b', '#a1a1aa']
+            ['#1d4ed8', '#3b82f6'],
+            ['#0ea5e9', '#38bdf8'],
+            ['#f59e0b', '#facc15'],
+            ['#16a34a', '#4ade80'],
+            ['#ef4444', '#fb7185'],
+            ['#7c3aed', '#a78bfa'],
+            ['#0891b2', '#22d3ee'],
+            ['#f97316', '#fb923c']
           ];
           const colorPair = colors[context.dataIndex % colors.length];
           gradient.addColorStop(0, colorPair[0]);
@@ -785,14 +785,14 @@ const DashboardAnalytics = () => {
           return gradient;
         },
         borderColor: [
-          '#0077d4',
-          '#22c55e', 
+          '#1d4ed8',
+          '#0ea5e9',
           '#f59e0b',
-          '#64748b',
-          '#0077d4',
-          '#22c55e',
-          '#f59e0b', 
-          '#64748b'
+          '#16a34a',
+          '#ef4444',
+          '#7c3aed',
+          '#0891b2',
+          '#f97316'
         ],
         borderWidth: 0,
         borderRadius: {
@@ -805,14 +805,14 @@ const DashboardAnalytics = () => {
         hoverBackgroundColor: (context) => {
           const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
           const colors = [
-            ['#0066cc', '#2563eb'],
-            ['#16a34a', '#059669'], 
-            ['#d97706', '#ea580c'],
-            ['#475569', '#64748b'],
-            ['#0066cc', '#3b82f6'],
-            ['#16a34a', '#10b981'],
+            ['#1e40af', '#2563eb'],
+            ['#0369a1', '#0ea5e9'],
             ['#d97706', '#f59e0b'],
-            ['#475569', '#6b7280']
+            ['#15803d', '#16a34a'],
+            ['#b91c1c', '#ef4444'],
+            ['#6d28d9', '#7c3aed'],
+            ['#0e7490', '#0891b2'],
+            ['#c2410c', '#f97316']
           ];
           const colorPair = colors[context.dataIndex % colors.length];
           gradient.addColorStop(0, colorPair[0]);
@@ -844,14 +844,14 @@ const DashboardAnalytics = () => {
         backgroundColor: (context) => {
           const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
           const colors = [
-            ['#22c55e', '#34d399'],
-            ['#0077d4', '#3b82f6'],
-            ['#f59e0b', '#fbbf24'], 
-            ['#64748b', '#94a3b8'],
-            ['#22c55e', '#4ade80'],
-            ['#0077d4', '#60a5fa'],
-            ['#f59e0b', '#fcd34d'],
-            ['#64748b', '#a1a1aa']
+            ['#1d4ed8', '#3b82f6'],
+            ['#0ea5e9', '#38bdf8'],
+            ['#f59e0b', '#facc15'],
+            ['#16a34a', '#4ade80'],
+            ['#ef4444', '#fb7185'],
+            ['#7c3aed', '#a78bfa'],
+            ['#0891b2', '#22d3ee'],
+            ['#f97316', '#fb923c']
           ];
           const colorPair = colors[context.dataIndex % colors.length];
           gradient.addColorStop(0, colorPair[0]);
@@ -859,14 +859,14 @@ const DashboardAnalytics = () => {
           return gradient;
         },
         borderColor: [
-          '#22c55e',
-          '#0077d4',
+          '#1d4ed8',
+          '#0ea5e9',
           '#f59e0b',
-          '#64748b',
-          '#22c55e',
-          '#0077d4',
-          '#f59e0b',
-          '#64748b'
+          '#16a34a',
+          '#ef4444',
+          '#7c3aed',
+          '#0891b2',
+          '#f97316'
         ],
         borderWidth: 0,
         borderRadius: {
@@ -879,14 +879,14 @@ const DashboardAnalytics = () => {
         hoverBackgroundColor: (context) => {
           const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
           const colors = [
-            ['#16a34a', '#059669'],
-            ['#0066cc', '#2563eb'],
-            ['#d97706', '#ea580c'],
-            ['#475569', '#64748b'],
-            ['#16a34a', '#10b981'],
-            ['#0066cc', '#3b82f6'],
+            ['#1e40af', '#2563eb'],
+            ['#0369a1', '#0ea5e9'],
             ['#d97706', '#f59e0b'],
-            ['#475569', '#6b7280']
+            ['#15803d', '#16a34a'],
+            ['#b91c1c', '#ef4444'],
+            ['#6d28d9', '#7c3aed'],
+            ['#0e7490', '#0891b2'],
+            ['#c2410c', '#f97316']
           ];
           const colorPair = colors[context.dataIndex % colors.length];
           gradient.addColorStop(0, colorPair[0]);
@@ -917,12 +917,12 @@ const DashboardAnalytics = () => {
       datasets: [{
         label: t('analytics.totalWeightGrams'),
         data: sortedMonths.map(month => monthlyData[month].totalWeight),
-        borderColor: '#0077d4',
-        backgroundColor: 'rgba(0, 119, 212, 0.1)',
+        borderColor: '#1d4ed8',
+        backgroundColor: 'rgba(37, 99, 235, 0.10)',
         borderWidth: 3,
         fill: true,
         tension: 0.4,
-        pointBackgroundColor: '#0077d4',
+        pointBackgroundColor: '#1d4ed8',
         pointBorderColor: '#ffffff',
         pointBorderWidth: 2,
         pointRadius: 6,
@@ -984,12 +984,12 @@ const DashboardAnalytics = () => {
         datasets: [{
           label: t('analytics.tagCount'),
           data: [dummyTotal, dummyUsed, dummyUnused],
-          backgroundColor: ['#2563eb', '#dc2626', '#16a34a'],
-          borderColor: ['#2563eb', '#dc2626', '#16a34a'],
+          backgroundColor: ['#2563eb', '#eab308', '#16a34a'],
+          borderColor: ['#2563eb', '#eab308', '#16a34a'],
           borderWidth: 1,
           borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 4, bottomRight: 4 },
           borderSkipped: false,
-          hoverBackgroundColor: ['#1d4ed8', '#b91c1c', '#15803d'],
+          hoverBackgroundColor: ['#1e40af', '#ca8a04', '#15803d'],
           hoverBorderWidth: 2,
           hoverBorderColor: '#ffffff',
         }]
@@ -1005,12 +1005,12 @@ const DashboardAnalytics = () => {
       datasets: [{
         label: t('analytics.tagCount'),
         data: [totalTags, usedCount, unusedCount],
-        backgroundColor: ['#2563eb', '#dc2626', '#16a34a'],
-        borderColor: ['#2563eb', '#dc2626', '#16a34a'],
+        backgroundColor: ['#2563eb', '#eab308', '#16a34a'],
+        borderColor: ['#2563eb', '#eab308', '#16a34a'],
         borderWidth: 1,
         borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 4, bottomRight: 4 },
         borderSkipped: false,
-        hoverBackgroundColor: ['#1d4ed8', '#b91c1c', '#15803d'],
+        hoverBackgroundColor: ['#1e40af', '#ca8a04', '#15803d'],
         hoverBorderWidth: 2,
         hoverBorderColor: '#ffffff',
       }]
@@ -1069,7 +1069,7 @@ const DashboardAnalytics = () => {
         backgroundColor: 'rgba(0, 0, 0, 0.8)',
         titleColor: 'white',
         bodyColor: 'white',
-        borderColor: '#0077d4',
+        borderColor: '#2563eb',
         borderWidth: 1,
         cornerRadius: 8,
         titleFont: {
@@ -1086,7 +1086,7 @@ const DashboardAnalytics = () => {
       y: {
         beginAtZero: true,
         grid: {
-          color: 'rgba(0, 0, 0, 0.1)'
+          color: 'rgba(37, 99, 235, 0.10)'
         },
         ticks: {
           font: {
@@ -1097,7 +1097,7 @@ const DashboardAnalytics = () => {
       },
       x: {
         grid: {
-          color: 'rgba(0, 0, 0, 0.1)'
+          color: 'rgba(37, 99, 235, 0.10)'
         },
         ticks: {
           font: {
@@ -2038,12 +2038,122 @@ const DashboardAnalytics = () => {
         }
         .charts-grid-responsive > div { min-width: 0; }
         .metrics-cards-grid > div { min-width: 0; }
+        @keyframes metric-card-shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
         .dashboard-analytics-responsive { padding-bottom: 24px !important; }
         @media (max-width: 992px) {
           .bottom-tables-grid { grid-template-columns: 1fr !important; gap: 12px !important; margin-bottom: 16px !important; }
         }
         @media (max-width: 576px) {
           .bottom-tables-grid { gap: 10px !important; margin-bottom: 12px !important; }
+        }
+        .analytics-bottom-panel {
+          background: #ffffff;
+          border-radius: 12px;
+          padding: 12px 14px 10px;
+          box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+          border: 1px solid #e2e8f0;
+        }
+        .analytics-bottom-panel-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 12px;
+        }
+        .analytics-bottom-panel-head--solo { margin-bottom: 12px; }
+        .analytics-bottom-panel--single-title .analytics-bottom-panel-head--solo { justify-content: flex-start; }
+        .analytics-bottom-panel-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: #111827;
+          margin: 0;
+          letter-spacing: -0.02em;
+        }
+        .analytics-bottom-search {
+          background: #ffffff;
+          border-radius: 8px;
+          padding: 6px 10px;
+          border: 1px solid #dbe1ea;
+          display: flex;
+          align-items: center;
+        }
+        .analytics-bottom-search input {
+          border: none;
+          outline: none;
+          background: transparent;
+          font-size: 12px;
+          color: #334155;
+          width: min(140px, 30vw);
+        }
+        .analytics-bottom-table-wrap {
+          overflow-x: auto;
+          min-width: 0;
+          border: 1px solid #d8e0ea;
+          border-radius: 8px;
+          background: #fcfdff;
+        }
+        .analytics-bottom-table-modern {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+          font-size: 11px;
+          font-family: 'Inter', 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        .analytics-bottom-table-modern thead th {
+          padding: 8px 9px;
+          text-align: left;
+          font-weight: 700;
+          font-size: 10px;
+          color: #e2e8f0;
+          letter-spacing: 0.03em;
+          background: #23364a;
+          border-bottom: 1px solid #1e2f42;
+        }
+        .analytics-bottom-table-modern thead th.analytics-bottom-th-num {
+          text-align: right;
+        }
+        .analytics-bottom-table-modern tbody td {
+          padding: 7px 9px;
+          font-size: 11px;
+          color: #334155;
+          border-bottom: 1px solid #edf2f7;
+          vertical-align: middle;
+          background: #ffffff;
+          line-height: 1.35;
+        }
+        .analytics-bottom-td-index {
+          color: #64748b;
+          font-size: 10px;
+          width: 3rem;
+        }
+        .analytics-bottom-td-strong {
+          font-weight: 600;
+          color: #1e293b;
+        }
+        .analytics-bottom-td-num {
+          text-align: right;
+          font-weight: 600;
+          color: #0f172a;
+        }
+        .analytics-bottom-cell-ellipsis {
+          font-weight: 500;
+          color: #1f2937;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 100%;
+        }
+        .analytics-bottom-table-modern tbody tr:not(.analytics-table-row-empty):hover td {
+          background: #f1f7ff;
+        }
+        .analytics-bottom-table-modern tbody tr.analytics-table-row-empty td {
+          border-bottom: 1px solid #edf2f7;
+          height: 36px;
+          background: #fcfdff;
+          color: transparent;
         }
       `}</style>
       {/* Loading Progress Indicator */}
@@ -2120,46 +2230,104 @@ const DashboardAnalytics = () => {
         </div>
       )}
 
-      {/* Header Row: SparkleRFID Dashboard + Rates */}
+      {/* Header: compact branded tile + Rates */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: '12px',
-          marginBottom: '12px',
+          marginBottom: '14px',
           flexWrap: 'wrap',
         }}
       >
         <div
           style={{
+            flex: '1 1 260px',
+            minWidth: 0,
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            minWidth: 240,
+            gap: 12,
+            padding: '7px 14px 7px 5px',
+            borderRadius: 14,
+            background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 48%, #f1f5f9 100%)',
+            border: '1px solid rgba(148, 163, 184, 0.28)',
+            boxShadow:
+              '0 1px 0 rgba(255,255,255,0.9) inset, 0 4px 18px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(255,255,255,0.5) inset',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
           <div
+            aria-hidden
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 14,
-              background: 'linear-gradient(135deg, #0d9488 0%, #6366f1 100%)',
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 5,
+              borderRadius: '14px 0 0 14px',
+              background: 'linear-gradient(180deg, #0078d4 0%, #6366f1 52%, #d60000 100%)',
+            }}
+          />
+          <div
+            style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              boxShadow: '0 8px 24px rgba(13,148,136,0.18)',
-              border: '1px solid rgba(255,255,255,0.3)',
+              gap: 12,
+              paddingLeft: 10,
+              minWidth: 0,
             }}
           >
-            <FaCoins size={18} />
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-              SparkleRFID Dashboard
+            <img
+              src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
+              alt="Sparkle RFID"
+              style={{
+                height: 30,
+                width: 'auto',
+                maxWidth: 132,
+                display: 'block',
+                flexShrink: 0,
+              }}
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.style.display = 'none';
+              }}
+            />
+            <div
+              style={{
+                minWidth: 0,
+                paddingLeft: 12,
+                borderLeft: '1px solid rgba(148, 163, 184, 0.35)',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 800,
+                  letterSpacing: '-0.03em',
+                  lineHeight: 1.2,
+                  background: 'linear-gradient(92deg, #0f172a 0%, #1e3a5f 55%, #0d9488 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                }}
+              >
+                {t('analytics.dashboard')}
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: '#64748b',
+                  marginTop: 2,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {t('analytics.overview')}
+              </div>
             </div>
-          
           </div>
         </div>
 
@@ -2168,18 +2336,22 @@ const DashboardAnalytics = () => {
           onClick={handleOpenRates}
           disabled={ratesLoading || ratesSaving}
           style={{
-            padding: '10px 16px',
+            padding: '9px 16px',
             fontSize: 13,
             fontWeight: 800,
             color: '#fff',
-            background: ratesSaving ? '#94a3b8' : '#0d9488',
+            background: ratesSaving
+              ? '#94a3b8'
+              : 'linear-gradient(135deg, #0d9488 0%, #0f766e 55%, #115e59 100%)',
             border: 'none',
             borderRadius: 12,
             cursor: ratesLoading || ratesSaving ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
-            boxShadow: '0 10px 26px rgba(13,148,136,0.18)',
+            gap: 8,
+            boxShadow: ratesSaving ? 'none' : '0 4px 16px rgba(13, 148, 136, 0.28)',
+            alignSelf: 'center',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
           }}
         >
           {ratesLoading ? <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> : <FaCoins />}
@@ -2480,145 +2652,204 @@ const DashboardAnalytics = () => {
         }}
       >
         {[
-          { 
-            icon: FaGem, 
-            label: t('analytics.totalItems'), 
+          {
+            icon: FaGem,
+            label: t('analytics.totalItems'),
             value: totalItems,
             suffix: '',
             decimals: 0,
-            color: '#6366f1'
+            color: '#2563eb',
+            gradient: 'linear-gradient(155deg, #eff6ff 0%, #ffffff 52%, #dbeafe 100%)',
+            gradientHover: 'linear-gradient(155deg, #dbeafe 0%, #ffffff 45%, #bfdbfe 100%)',
+            border: 'rgba(37, 99, 235, 0.2)',
+            shadow: '0 2px 10px rgba(37, 99, 235, 0.09)',
+            shadowHover: '0 14px 32px rgba(37, 99, 235, 0.16)',
+            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(239,246,255,0.85) 100%)',
           },
-          { 
-            icon: FaWeight, 
-            label: t('analytics.modal.totalWeight'), 
+          {
+            icon: FaWeight,
+            label: t('analytics.modal.totalWeight'),
             value: totalWeight,
             suffix: 'g',
             decimals: 2,
-            color: '#0d9488'
+            color: '#0284c7',
+            gradient: 'linear-gradient(155deg, #ecfeff 0%, #ffffff 52%, #cffafe 100%)',
+            gradientHover: 'linear-gradient(155deg, #a5f3fc 0%, #ffffff 48%, #ecfeff 100%)',
+            border: 'rgba(14, 165, 233, 0.22)',
+            shadow: '0 2px 10px rgba(14, 165, 233, 0.1)',
+            shadowHover: '0 14px 32px rgba(14, 165, 233, 0.17)',
+            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(236,254,255,0.88) 100%)',
           },
-          { 
+          {
             icon: FaTags,
-            label: 'Total RFID New',
+            label: t('analytics.newRfidTags'),
             value: totalRfidNew,
             suffix: '',
             decimals: 0,
-            color: '#7c3aed'
+            color: '#ca8a04',
+            gradient: 'linear-gradient(155deg, #fffbeb 0%, #ffffff 52%, #fef3c7 100%)',
+            gradientHover: 'linear-gradient(155deg, #fde68a 0%, #ffffff 48%, #fffbeb 100%)',
+            border: 'rgba(234, 179, 8, 0.28)',
+            shadow: '0 2px 10px rgba(234, 179, 8, 0.1)',
+            shadowHover: '0 14px 32px rgba(234, 179, 8, 0.18)',
+            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(254,252,232,0.9) 100%)',
           },
-          { 
-            icon: FaShoppingCart, 
-            label: t('analytics.soldItems'), 
+          {
+            icon: FaShoppingCart,
+            label: t('analytics.soldItems'),
             value: soldItemsCount,
             suffix: '',
             decimals: 0,
-            color: '#dc2626'
+            color: '#dc2626',
+            gradient: 'linear-gradient(155deg, #fff1f2 0%, #ffffff 52%, #fecdd3 100%)',
+            gradientHover: 'linear-gradient(155deg, #fecdd3 0%, #ffffff 48%, #ffe4e6 100%)',
+            border: 'rgba(239, 68, 68, 0.22)',
+            shadow: '0 2px 10px rgba(239, 68, 68, 0.09)',
+            shadowHover: '0 14px 32px rgba(239, 68, 68, 0.16)',
+            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(255,241,242,0.88) 100%)',
           },
-          { 
-            icon: FaBoxes, 
-            label: t('analytics.activeItems'), 
+          {
+            icon: FaBoxes,
+            label: t('analytics.activeItems'),
             value: availableItems,
             suffix: '',
             decimals: 0,
-            color: '#2563eb'
+            color: '#16a34a',
+            gradient: 'linear-gradient(155deg, #f0fdf4 0%, #ffffff 52%, #dcfce7 100%)',
+            gradientHover: 'linear-gradient(155deg, #bbf7d0 0%, #ffffff 48%, #f0fdf4 100%)',
+            border: 'rgba(22, 163, 74, 0.22)',
+            shadow: '0 2px 10px rgba(22, 163, 74, 0.09)',
+            shadowHover: '0 14px 32px rgba(22, 163, 74, 0.16)',
+            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(240,253,244,0.88) 100%)',
           },
-          { 
-            icon: FaBuilding, 
-            label: 'No of Counter', 
+          {
+            icon: FaStore,
+            label: t('analytics.counterCount'),
             value: uniqueCounters,
             suffix: '',
             decimals: 0,
-            color: '#0891b2'
-          }
+            color: '#7c3aed',
+            gradient: 'linear-gradient(155deg, #f5f3ff 0%, #ffffff 52%, #ede9fe 100%)',
+            gradientHover: 'linear-gradient(155deg, #ddd6fe 0%, #ffffff 48%, #f5f3ff 100%)',
+            border: 'rgba(124, 58, 237, 0.22)',
+            shadow: '0 2px 10px rgba(124, 58, 237, 0.1)',
+            shadowHover: '0 14px 32px rgba(124, 58, 237, 0.17)',
+            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(245,243,255,0.88) 100%)',
+          },
         ].map((card, index) => (
-          <div key={index} style={{
-            background: `linear-gradient(135deg, ${card.color}10 0%, #ffffff 72%)`,
-            borderRadius: '16px',
-            padding: '14px',
-            border: `1px solid ${card.color}22`,
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-            minWidth: 0,
-            width: '100%',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-            transition: 'transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease',
-            cursor: 'pointer'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = `0 14px 28px ${card.color}22`;
-            e.currentTarget.style.transform = 'translateY(-3px)';
-            e.currentTarget.style.borderColor = `${card.color}55`;
-            e.currentTarget.style.background = `linear-gradient(135deg, ${card.color}18 0%, #ffffff 72%)`;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.borderColor = `${card.color}22`;
-            e.currentTarget.style.background = `linear-gradient(135deg, ${card.color}10 0%, #ffffff 72%)`;
-          }}
-          >
-            {loading && (
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
-                animation: 'shimmer 2s infinite',
-                pointerEvents: 'none'
-              }} />
-            )}
-            <div style={{
-              width: '46px',
-              height: '46px',
-              borderRadius: '14px',
-              background: `linear-gradient(135deg, ${card.color}1A 0%, #ffffff 85%)`,
-              color: card.color,
+          <div
+            key={index}
+            style={{
+              background: card.gradient,
+              borderRadius: '16px',
+              padding: '12px 14px',
+              border: `1px solid ${card.border}`,
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              border: `1px solid ${card.color}2D`
-            }}>
-              {card.icon ? <card.icon style={{ fontSize: '20px' }} /> : null}
-          </div>
-            
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h3 style={{
-                fontSize: '18px',
-                fontWeight: '900',
-                color: '#0f172a',
-                margin: '0 0 6px 0',
-                lineHeight: '1.2',
-                letterSpacing: '-0.02em'
-              }}>
+              alignItems: 'flex-start',
+              gap: '11px',
+              position: 'relative',
+              overflow: 'hidden',
+              minWidth: 0,
+              width: '100%',
+              boxShadow: card.shadow,
+              transition:
+                'transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease',
+              cursor: 'default',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = card.shadowHover;
+              e.currentTarget.style.transform = 'translateY(-3px)';
+              e.currentTarget.style.borderColor = `${card.color}44`;
+              e.currentTarget.style.background = card.gradientHover;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = card.shadow;
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.borderColor = card.border;
+              e.currentTarget.style.background = card.gradient;
+            }}
+          >
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                right: -28,
+                top: -28,
+                width: 100,
+                height: 100,
+                borderRadius: '50%',
+                background: `radial-gradient(circle at 35% 35%, ${card.color}22 0%, transparent 68%)`,
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            />
+            {loading && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background:
+                    'linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)',
+                  animation: 'metric-card-shimmer 2s infinite',
+                  pointerEvents: 'none',
+                  zIndex: 2,
+                }}
+              />
+            )}
+            <div
+              className="metric-card-icon"
+              style={{
+                position: 'relative',
+                zIndex: 1,
+                width: '44px',
+                height: '44px',
+                borderRadius: '13px',
+                background: card.iconBg,
+                color: card.color,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                border: `1px solid ${card.color}33`,
+                boxShadow: `0 2px 8px ${card.color}18`,
+              }}
+            >
+              {card.icon ? <card.icon style={{ fontSize: '19px' }} /> : null}
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
+              <h3
+                style={{
+                  fontSize: '17px',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  margin: '0 0 4px 0',
+                  lineHeight: 1.2,
+                  letterSpacing: '-0.02em',
+                }}
+              >
                 {card.prefix || ''}
-                <AnimatedNumber 
-                  value={card.value} 
-                  suffix={card.suffix} 
-                  decimals={card.decimals}
-                />
+                <AnimatedNumber value={card.value} suffix={card.suffix} decimals={card.decimals} />
               </h3>
-              <p style={{
-                fontSize: '11px',
-                color: '#334155',
-                margin: 0,
-                fontWeight: '800',
-                textTransform: 'uppercase',
-                letterSpacing: '0.55px'
-              }}>
+              <p
+                className="metric-card-label"
+                style={{
+                  fontSize: '9.5px',
+                  color: '#64748b',
+                  margin: 0,
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  letterSpacing: '0.02em',
+                  lineHeight: 1.35,
+                }}
+              >
                 {card.label}
               </p>
+            </div>
           </div>
-          <style>{`
-            @keyframes shimmer {
-              0% { transform: translateX(-100%); }
-              100% { transform: translateX(100%); }
-            }
-          `}</style>
-        </div>
         ))}
       </div>
 
@@ -2635,17 +2866,17 @@ const DashboardAnalytics = () => {
       >
         {/* Status Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 58%, #f8fafc 100%)',
+          background: '#ffffff',
           borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #dbeafe',
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(99, 102, 241, 0.12)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(37, 99, 235, 0.12)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
@@ -2680,12 +2911,12 @@ const DashboardAnalytics = () => {
               width: '36px',
               height: '36px',
               borderRadius: '10px',
-              background: '#6366f118',
-              color: '#6366f1',
+              background: '#2563eb18',
+              color: '#2563eb',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid #6366f130'
+              border: '1px solid #2563eb30'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
           </div>
@@ -2697,17 +2928,17 @@ const DashboardAnalytics = () => {
 
         {/* Category Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f7fffc 58%, #f8fafc 100%)',
+          background: '#ffffff',
           borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #dbeafe',
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(13, 148, 136, 0.12)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(14, 165, 233, 0.12)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
@@ -2742,12 +2973,12 @@ const DashboardAnalytics = () => {
               width: '36px',
               height: '36px',
               borderRadius: '10px',
-              background: '#0d948818',
-              color: '#0d9488',
+              background: '#0ea5e918',
+              color: '#0ea5e9',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid #0d948830'
+              border: '1px solid #0ea5e930'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
           </div>
@@ -2857,17 +3088,17 @@ const DashboardAnalytics = () => {
 
         {/* Branch Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #fff9f5 58%, #f8fafc 100%)',
+          background: '#ffffff',
           borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #fde68a',
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(234, 88, 12, 0.12)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(234, 179, 8, 0.14)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
@@ -2902,12 +3133,12 @@ const DashboardAnalytics = () => {
               width: '36px',
               height: '36px',
               borderRadius: '10px',
-              background: '#ea580c18',
-              color: '#ea580c',
+              background: '#eab30818',
+              color: '#ca8a04',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid #ea580c30'
+              border: '1px solid #eab30830'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
               </div>
@@ -2919,17 +3150,17 @@ const DashboardAnalytics = () => {
 
         {/* Tag Usage Distribution Chart */}
         <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #faf7ff 58%, #f8fafc 100%)',
+          background: '#ffffff',
           borderRadius: '16px',
           padding: '20px',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #ddd6fe',
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
           width: '100%'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(124, 58, 237, 0.12)';
+          e.currentTarget.style.boxShadow = '0 8px 20px rgba(124, 58, 237, 0.14)';
           e.currentTarget.style.transform = 'translateY(-2px)';
         }}
         onMouseLeave={(e) => {
@@ -3075,121 +3306,29 @@ const DashboardAnalytics = () => {
         }}
       >
         {/* Top Products */}
-        <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 58%, #f8fafc 100%)',
-          borderRadius: '16px',
-          padding: '16px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '12px'
-          }}>
-            <h3 style={{
-              fontSize: '14px',
-              fontWeight: '700',
-              color: '#0f172a',
-              margin: 0
-            }}>
-              {t('analytics.modal.topItems')}
-            </h3>
-            <div style={{
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              padding: '6px 10px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}>
-                <input
-                  type="text"
-                  placeholder={t('analytics.searchProducts')}
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                style={{
-                  border: 'none',
-                  outline: 'none',
-                  background: 'transparent',
-                  fontSize: '11px',
-                  color: '#374151',
-                  width: '120px'
-                }}
-                />
-              </div>
+        <div className="analytics-bottom-panel">
+          <div className="analytics-bottom-panel-head">
+            <h3 className="analytics-bottom-panel-title">{t('analytics.modal.topItems')}</h3>
+            <div className="analytics-bottom-search">
+              <input
+                type="text"
+                placeholder={t('analytics.searchProducts')}
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+              />
             </div>
-          
-          <div className="analytics-table-scroll" style={{ maxHeight: '180px', overflowY: 'hidden', overflowX: 'hidden', minWidth: 0 }}>
-            <table className="analytics-bottom-table" style={{
-              width: '100%',
-              minWidth: '0',
-              borderCollapse: 'collapse',
-              fontSize: '12px',
-              tableLayout: 'auto',
-              fontFamily: "'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
-            }}>
+          </div>
+
+          <div className="analytics-bottom-table-wrap">
+            <table className="analytics-bottom-table-modern">
                 <thead>
-                <tr style={{
-                  borderBottom: '1px solid #e2e8f0',
-                  background: '#f8fafc'
-                }}>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '44px'
-                  }}>Sr.No</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '100px'
-                  }}>Product</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '86px'
-                  }}>Category</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '80px'
-                  }}>Design</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '56px'
-                  }}>Qty</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '70px'
-                  }}>Share %</th>
+                <tr>
+                  <th>Sr.No</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Design</th>
+                  <th className="analytics-bottom-th-num">Qty</th>
+                  <th className="analytics-bottom-th-num">Share %</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3215,45 +3354,37 @@ const DashboardAnalytics = () => {
                     const sortedRows = filteredRows.sort((a, b) => b.qty - a.qty);
                     const totalQty = filteredRows.reduce((sum, row) => sum + row.qty, 0);
                     
-                    const startIndex = (productPage - 1) * itemsPerPage;
-                    const paginatedRows = sortedRows.slice(startIndex, startIndex + itemsPerPage);
+                    const startIndex = (productPage - 1) * bottomTableRowsPerPage;
+                    const paginatedRows = sortedRows.slice(startIndex, startIndex + bottomTableRowsPerPage);
+                    const rowSlots = Array.from(
+                      { length: bottomTableRowsPerPage },
+                      (_, i) => paginatedRows[i] ?? null
+                    );
                     
                     return (
                       <>
-                        {paginatedRows.map((row, index) => (
-                        <tr key={`${row.product}-${row.category}-${row.design}-${index}`} style={{
-                          borderBottom: '1px solid #f3f4f6'
-                        }}>
-                          <td style={{
-                            padding: '8px',
-                            color: '#6b7280',
-                            fontSize: '11px'
-                          }}>{startIndex + index + 1}</td>
-                          <td style={{ padding: '8px', fontSize: '11px', fontWeight: '600', color: '#111827' }}>
-                            {row.product}
-                          </td>
-                          <td style={{
-                            padding: '8px',
-                            fontSize: '11px',
-                            color: '#334155'
-                          }}>
-                            {row.category}
-                          </td>
-                          <td style={{
-                            padding: '8px',
-                            fontSize: '11px',
-                            color: '#334155'
-                          }}>
-                            {row.design}
-                          </td>
-                          <td style={{ padding: '8px', fontSize: '11px', fontWeight: '700', color: '#111827', textAlign: 'right' }}>
-                            {row.qty.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '8px', fontSize: '11px', fontWeight: '700', color: '#334155', textAlign: 'right' }}>
-                            {totalQty > 0 ? ((row.qty / totalQty) * 100).toFixed(1) : '0.0'}%
-                          </td>
-                          </tr>
-                        ))}
+                        {rowSlots.map((row, index) => {
+                          const isEmpty = row == null;
+                          return (
+                            <tr
+                              key={isEmpty ? `top-empty-${index}` : `${row.product}-${row.category}-${row.design}-${index}`}
+                              className={isEmpty ? 'analytics-table-row-empty' : undefined}
+                            >
+                              <td className="analytics-bottom-td-index">
+                                {isEmpty ? '\u00a0' : startIndex + index + 1}
+                              </td>
+                              <td className="analytics-bottom-td-strong">{isEmpty ? '\u00a0' : row.product}</td>
+                              <td>{isEmpty ? '\u00a0' : row.category}</td>
+                              <td>{isEmpty ? '\u00a0' : row.design}</td>
+                              <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : row.qty.toLocaleString()}</td>
+                              <td className="analytics-bottom-td-num">
+                                {isEmpty
+                                  ? '\u00a0'
+                                  : `${totalQty > 0 ? ((row.qty / totalQty) * 100).toFixed(1) : '0.0'}%`}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </>
                     );
                   })()}
@@ -3263,110 +3394,34 @@ const DashboardAnalytics = () => {
           <PaginationControls
             currentPage={productPage}
             totalItems={topItemsTotalCount}
-            itemsPerPage={itemsPerPage}
+            itemsPerPage={bottomTableRowsPerPage}
             onPageChange={setProductPage}
             tableType="product"
           />
         </div>
 
         {/* Counter Wise Stock */}
-        <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #f7fffc 58%, #f8fafc 100%)',
-          borderRadius: '16px',
-          padding: '16px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '12px'
-          }}>
-            <h3 style={{
-              fontSize: '14px',
-              fontWeight: '700',
-              color: '#0f172a',
-              margin: 0
-            }}>
-              Counter Wise Stock
-            </h3>
-            <div style={{
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              padding: '6px 10px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}>
-                <input
-                  type="text"
-                  placeholder={t('analytics.searchCounters')}
-                  value={counterSearch}
-                  onChange={(e) => setCounterSearch(e.target.value)}
-                style={{
-                  border: 'none',
-                  outline: 'none',
-                  background: 'transparent',
-                  fontSize: '11px',
-                  color: '#374151',
-                  width: '120px'
-                }}
-                />
-              </div>
+        <div className="analytics-bottom-panel">
+          <div className="analytics-bottom-panel-head">
+            <h3 className="analytics-bottom-panel-title">Counter Wise Stock</h3>
+            <div className="analytics-bottom-search">
+              <input
+                type="text"
+                placeholder={t('analytics.searchCounters')}
+                value={counterSearch}
+                onChange={(e) => setCounterSearch(e.target.value)}
+              />
             </div>
-          
-          <div className="analytics-table-scroll" style={{ maxHeight: '180px', overflowY: 'hidden', overflowX: 'hidden', minWidth: 0 }}>
-            <table className="analytics-bottom-table" style={{
-              width: '100%',
-              minWidth: '0',
-              borderCollapse: 'collapse',
-              fontSize: '12px',
-              tableLayout: 'auto',
-              fontFamily: "'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
-            }}>
+          </div>
+
+          <div className="analytics-bottom-table-wrap">
+            <table className="analytics-bottom-table-modern">
                 <thead>
-                <tr style={{
-                  borderBottom: '1px solid #e2e8f0',
-                  background: '#f8fafc'
-                }}>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '44px'
-                  }}>Sr.No</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '100px'
-                  }}>{t('analytics.counterName')}</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '56px'
-                  }}>Qty</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '90px'
-                  }}>%</th>
+                <tr>
+                  <th>Sr.No</th>
+                  <th>{t('analytics.counterName')}</th>
+                  <th className="analytics-bottom-th-num">Qty</th>
+                  <th className="analytics-bottom-th-num">%</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3384,54 +3439,38 @@ const DashboardAnalytics = () => {
                       .sort(([,a], [,b]) => b - a);
                     const maxCount = filteredCounterCounts.length > 0 ? Math.max(...filteredCounterCounts.map(([,count]) => count)) : 0;
                     
-                    const startIndex = (counterPage - 1) * itemsPerPage;
-                    const paginatedCounters = sortedCounters.slice(startIndex, startIndex + itemsPerPage);
-                    
+                    const startIndex = (counterPage - 1) * bottomTableRowsPerPage;
+                    const paginatedCounters = sortedCounters.slice(startIndex, startIndex + bottomTableRowsPerPage);
+                    const counterSlots = Array.from(
+                      { length: bottomTableRowsPerPage },
+                      (_, i) => paginatedCounters[i] ?? null
+                    );
+
                     return (
                       <>
-                        {paginatedCounters.map(([name, count], index) => (
-                        <tr key={name} style={{
-                          borderBottom: '1px solid #f3f4f6'
-                        }}>
-                          <td style={{
-                            padding: '8px',
-                            color: '#6b7280',
-                            fontSize: '11px'
-                          }}>{startIndex + index + 1}</td>
-                          <td style={{
-                            padding: '8px',
-                            overflow: 'hidden'
-                          }}>
-                            <div style={{
-                              fontSize: '11px',
-                              fontWeight: '500',
-                              color: '#111827',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis'
-                            }}>
-                              {name || 'Unknown'}
-                            </div>
-                          </td>
-                          <td style={{
-                            padding: '8px',
-                            fontSize: '11px',
-                            fontWeight: '600',
-                            color: '#111827',
-                            textAlign: 'right'
-                          }}>
-                            {count.toLocaleString()}
-                            </td>
-                          <td style={{
-                            padding: '8px',
-                            fontSize: '11px',
-                            color: '#6b7280',
-                            textAlign: 'right',
-                            fontWeight: '600'
-                          }}>
-                            {maxCount > 0 ? ((count / maxCount) * 100).toFixed(0) : 0}%
-                          </td>
-                          </tr>
-                        ))}
+                        {counterSlots.map((entry, index) => {
+                          const isEmpty = entry == null;
+                          const [name, count] = entry ?? [, ];
+                          return (
+                            <tr
+                              key={isEmpty ? `cnt-empty-${index}` : name}
+                              className={isEmpty ? 'analytics-table-row-empty' : undefined}
+                            >
+                              <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + index + 1}</td>
+                              <td>
+                                {isEmpty ? (
+                                  '\u00a0'
+                                ) : (
+                                  <div className="analytics-bottom-cell-ellipsis">{name || 'Unknown'}</div>
+                                )}
+                              </td>
+                              <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : count.toLocaleString()}</td>
+                              <td className="analytics-bottom-td-num">
+                                {isEmpty ? '\u00a0' : `${maxCount > 0 ? ((count / maxCount) * 100).toFixed(0) : 0}%`}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </>
                     );
                   })()}
@@ -3441,128 +3480,58 @@ const DashboardAnalytics = () => {
           <PaginationControls
             currentPage={counterPage}
             totalItems={counterWiseTotalCount}
-            itemsPerPage={itemsPerPage}
+            itemsPerPage={bottomTableRowsPerPage}
             onPageChange={setCounterPage}
             tableType="counter"
           />
         </div>
 
         {/* Category Performance Analysis */}
-        <div style={{
-          background: 'linear-gradient(135deg, #ffffff 0%, #fffaf5 58%, #f8fafc 100%)',
-          borderRadius: '16px',
-          padding: '16px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{ marginBottom: '12px' }}>
-            <h3 style={{
-              fontSize: '14px',
-              fontWeight: '700',
-              color: '#0f172a',
-              margin: 0
-            }}>
-              {t('analytics.chart.categoryDistribution')}
-            </h3>
+        <div className="analytics-bottom-panel analytics-bottom-panel--single-title">
+          <div className="analytics-bottom-panel-head analytics-bottom-panel-head--solo">
+            <h3 className="analytics-bottom-panel-title">{t('analytics.chart.categoryDistribution')}</h3>
           </div>
-          
-          <div className="analytics-table-scroll" style={{ maxHeight: '180px', overflowY: 'hidden', overflowX: 'hidden', minWidth: 0 }}>
-            <table className="analytics-bottom-table" style={{
-              width: '100%',
-              minWidth: '0',
-              borderCollapse: 'collapse',
-              fontSize: '11px',
-              tableLayout: 'auto',
-              fontFamily: "'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
-            }}>
+
+          <div className="analytics-bottom-table-wrap">
+            <table className="analytics-bottom-table-modern">
                 <thead>
-                <tr style={{
-                  borderBottom: '1px solid #e2e8f0',
-                  background: '#f8fafc'
-                }}>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '10px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '44px'
-                  }}>Sr.No</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'left',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '10px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '90px'
-                  }}>Category</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '10px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '56px'
-                  }}>Qty</th>
-                  <th style={{
-                    padding: '10px 8px',
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#334155',
-                    fontSize: '10px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '85px'
-                  }}>Total Weight</th>
+                <tr>
+                  <th>Sr.No</th>
+                  <th>Category</th>
+                  <th className="analytics-bottom-th-num">Qty</th>
+                  <th className="analytics-bottom-th-num">Total Weight</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(() => {
                     const analysisData = getCategoryPerformanceAnalysis();
-                    const startIndex = (categoryPage - 1) * itemsPerPage;
-                    const paginatedData = analysisData.slice(startIndex, startIndex + itemsPerPage);
-                    
-                    return paginatedData.map((item, idx) => (
-                    <tr key={item.category} style={{
-                      borderBottom: '1px solid #f3f4f6'
-                    }}>
-                      <td style={{
-                        padding: '8px',
-                        color: '#6b7280',
-                        fontSize: '10px'
-                      }}>
-                        {startIndex + idx + 1}
-                      </td>
-                      <td style={{
-                        padding: '8px'
-                      }}>
-                        <div>
-                          <div style={{ fontSize: '10px', fontWeight: '500', color: '#111827' }}>
-                            {item.category}
-                          </div>
-                          </div>
-                        </td>
-                      <td style={{
-                        padding: '8px',
-                        fontSize: '10px',
-                        fontWeight: '600',
-                        color: '#111827',
-                        textAlign: 'right'
-                      }}>
-                        {item.totalItems.toLocaleString()}
-                        </td>
-                      <td style={{
-                        padding: '8px',
-                        fontSize: '10px',
-                        color: '#111827',
-                        textAlign: 'right'
-                      }}>
-                        {item.totalWeight}g
-                      </td>
-                      </tr>
-                    ));
+                    const startIndex = (categoryPage - 1) * bottomTableRowsPerPage;
+                    const paginatedData = analysisData.slice(startIndex, startIndex + bottomTableRowsPerPage);
+                    const categorySlots = Array.from(
+                      { length: bottomTableRowsPerPage },
+                      (_, i) => paginatedData[i] ?? null
+                    );
+
+                    return categorySlots.map((item, idx) => {
+                      const isEmpty = item == null;
+                      return (
+                        <tr
+                          key={isEmpty ? `cat-empty-${idx}` : item.category}
+                          className={isEmpty ? 'analytics-table-row-empty' : undefined}
+                        >
+                          <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + idx + 1}</td>
+                          <td>
+                            {isEmpty ? '\u00a0' : <div className="analytics-bottom-cell-ellipsis">{item.category}</div>}
+                          </td>
+                          <td className="analytics-bottom-td-num">
+                            {isEmpty ? '\u00a0' : item.totalItems.toLocaleString()}
+                          </td>
+                          <td className="analytics-bottom-td-num">
+                            {isEmpty ? '\u00a0' : `${item.totalWeight}g`}
+                          </td>
+                        </tr>
+                      );
+                    });
                   })()}
                 </tbody>
               </table>
@@ -3570,7 +3539,7 @@ const DashboardAnalytics = () => {
           <PaginationControls
             currentPage={categoryPage}
             totalItems={categoryDistributionTotalCount}
-            itemsPerPage={itemsPerPage}
+            itemsPerPage={bottomTableRowsPerPage}
             onPageChange={setCategoryPage}
             tableType="category"
           />
@@ -5190,62 +5159,64 @@ const DashboardAnalytics = () => {
           display: flex;
           justify-content: flex-end;
           align-items: center;
-          padding: 6px 8px 2px;
+          padding: 8px 2px 2px;
         }
 
         .pagination-controls {
           display: flex;
-          gap: 3px;
+          gap: 6px;
           align-items: center;
         }
 
         .pagination-btn {
-          padding: 2px 7px;
-          border: 1px solid #e2e8f0;
-          background: white;
-          color: #64748b;
-          font-size: 10px;
-          font-weight: 500;
-          border-radius: 5px;
+          padding: 5px 11px;
+          border: 1px solid #d6dde7;
+          background: #ffffff;
+          color: #475569;
+          font-size: 12px;
+          font-weight: 600;
+          border-radius: 8px;
           cursor: pointer;
-          transition: all 0.2s ease;
-          min-width: 22px;
-          height: 22px;
+          transition: all 0.18s ease;
+          min-width: 32px;
+          height: 30px;
           display: flex;
           align-items: center;
           justify-content: center;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
         }
 
         .pagination-btn:hover:not(:disabled) {
           background: #f8fafc;
-          border-color: #cbd5e1;
-          color: #374151;
+          border-color: #b8c3d3;
+          color: #1f2937;
         }
 
         .pagination-btn.active {
-          background: #0077d4;
-          border-color: #0077d4;
-          color: white;
+          background: #0f766e;
+          border-color: #0f766e;
+          color: #ffffff;
         }
 
         .pagination-btn:disabled {
-          opacity: 0.4;
+          opacity: 0.45;
           cursor: not-allowed;
+          box-shadow: none;
         }
 
         .pagination-ellipsis {
           color: #94a3b8;
-          font-size: 10px;
-          font-weight: 600;
+          font-size: 12px;
+          font-weight: 700;
           line-height: 1;
-          padding: 0 1px;
+          padding: 0 2px;
         }
 
         .pagination-mini-info {
-          margin-left: 4px;
-          font-size: 10px;
-          color: #64748b;
-          font-weight: 600;
+          margin-left: 6px;
+          font-size: 11px;
+          color: #475569;
+          font-weight: 700;
           line-height: 1;
         }
 
@@ -5618,7 +5589,7 @@ const DashboardAnalytics = () => {
             gap: 10px !important;
           }
           
-          .metrics-cards-grid > div > div:first-child {
+          .metrics-cards-grid .metric-card-icon {
             width: 40px !important;
             height: 40px !important;
             min-width: 40px !important;
@@ -5628,7 +5599,7 @@ const DashboardAnalytics = () => {
             font-size: 16px !important;
           }
           
-          .metrics-cards-grid > div p {
+          .metrics-cards-grid .metric-card-label {
             font-size: 9px !important;
           }
         }
@@ -5649,14 +5620,14 @@ const DashboardAnalytics = () => {
             flex-direction: row !important;
           }
           
-          .metrics-cards-grid > div > div:first-child {
+          .metrics-cards-grid .metric-card-icon {
             width: 36px !important;
             height: 36px !important;
             min-width: 36px !important;
-            border-radius: 8px !important;
+            border-radius: 10px !important;
           }
           
-          .metrics-cards-grid > div > div:first-child svg {
+          .metrics-cards-grid .metric-card-icon svg {
             font-size: 14px !important;
           }
           
@@ -5665,7 +5636,7 @@ const DashboardAnalytics = () => {
             margin-bottom: 2px !important;
           }
           
-          .metrics-cards-grid > div p {
+          .metrics-cards-grid .metric-card-label {
             font-size: 9px !important;
           }
         }
@@ -5686,7 +5657,7 @@ const DashboardAnalytics = () => {
             border-radius: 10px !important;
           }
           
-          .metrics-cards-grid > div > div:first-child {
+          .metrics-cards-grid .metric-card-icon {
             width: 32px !important;
             height: 32px !important;
             min-width: 32px !important;
@@ -5696,7 +5667,7 @@ const DashboardAnalytics = () => {
             font-size: 14px !important;
           }
           
-          .metrics-cards-grid > div p {
+          .metrics-cards-grid .metric-card-label {
             font-size: 8px !important;
             letter-spacing: 0 !important;
           }
@@ -5799,13 +5770,8 @@ const DashboardAnalytics = () => {
           -webkit-overflow-scrolling: touch;
         }
         
-        .analytics-bottom-table {
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-        
-        .analytics-bottom-table th,
-        .analytics-bottom-table td {
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        .analytics-bottom-table-modern {
+          font-family: 'Inter', 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
         }
         
         @media (max-width: 1200px) {
@@ -5825,16 +5791,16 @@ const DashboardAnalytics = () => {
             padding: 12px !important;
           }
           
-          .bottom-tables-grid .analytics-bottom-table {
+          .bottom-tables-grid .analytics-bottom-table-modern {
             font-size: 11px !important;
           }
           
-          .bottom-tables-grid .analytics-bottom-table th {
+          .bottom-tables-grid .analytics-bottom-table-modern th {
             font-size: 11px !important;
             padding: 8px 6px !important;
           }
           
-          .bottom-tables-grid .analytics-bottom-table td {
+          .bottom-tables-grid .analytics-bottom-table-modern td {
             font-size: 11px !important;
             padding: 6px 4px !important;
           }
@@ -5859,17 +5825,17 @@ const DashboardAnalytics = () => {
             font-size: 13px !important;
           }
           
-          .bottom-tables-grid .analytics-bottom-table {
+          .bottom-tables-grid .analytics-bottom-table-modern {
             font-size: 10px !important;
             min-width: 280px !important;
           }
           
-          .bottom-tables-grid .analytics-bottom-table th {
+          .bottom-tables-grid .analytics-bottom-table-modern th {
             font-size: 10px !important;
             padding: 6px 4px !important;
           }
           
-          .bottom-tables-grid .analytics-bottom-table td {
+          .bottom-tables-grid .analytics-bottom-table-modern td {
             font-size: 10px !important;
             padding: 5px 3px !important;
           }

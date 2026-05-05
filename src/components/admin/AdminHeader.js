@@ -289,7 +289,6 @@ const AdminHeader = ({
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
-    localStorage.removeItem('inventoryTrayEnabled');
     localStorage.removeItem('adminUsername');
     localStorage.removeItem('currentUsername');
     localStorage.removeItem('loginUsername');

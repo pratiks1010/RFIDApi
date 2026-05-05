@@ -8,7 +8,8 @@ const FACE_MODELS_FALLBACK_PATH = (
   process.env.REACT_APP_FACE_MODELS_FALLBACK_URL ||
   'https://justadudewhohacks.github.io/face-api.js/models'
 ).replace(/\/$/, '');
-const FACE_LOCAL_MATCH_THRESHOLD = Number(process.env.REACT_APP_FACE_LOCAL_MATCH_THRESHOLD || 0.38);
+// faceRecognitionNet: same person often ~0.25–0.45 L2; values ≥0.55 often different people. Security skew: lower = stricter.
+const FACE_LOCAL_MATCH_THRESHOLD = Number(process.env.REACT_APP_FACE_LOCAL_MATCH_THRESHOLD || 0.33);
 const FACE_MIN_BRIGHTNESS = Number(process.env.REACT_APP_FACE_MIN_BRIGHTNESS || 55);
 const FACE_MIN_SHARPNESS = Number(process.env.REACT_APP_FACE_MIN_SHARPNESS || 20);
 const isLocalDevHost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '');

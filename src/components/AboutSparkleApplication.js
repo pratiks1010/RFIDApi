@@ -71,8 +71,10 @@ const AboutSparkleApplication = () => {
       if (!result?.ok) {
         setStatus(
           result?.reason === 'skipped'
-            ? 'Update service is available only in packaged EXE with update URL configured.'
-            : (result?.reason || 'Unable to check updates right now.')
+            ? (result?.details || 'Auto-update is disabled in development mode.')
+            : result?.reason === 'not-configured'
+              ? (result?.details || 'Updater feed URL is not configured for this build.')
+              : (result?.reason || 'Unable to check updates right now.')
         );
         setProgress(0);
         return;

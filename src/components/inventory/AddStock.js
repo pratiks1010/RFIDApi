@@ -2111,7 +2111,7 @@ const AddStock = () => {
     return record;
   };
 
-  // Add current form data to record list. When Quantity > 1, first row uses form RFID/ItemCode; rest have empty RFID/ItemCode for user to fill in the table.
+  // Add current form data to record list. For Quantity > 1, ItemCode is auto-generated sequentially from the base code.
   const handleAddToRecordList = () => {
     const errors = [];
     if (!singleProduct.category_id?.trim()) errors.push('Category is not selected');
@@ -2119,13 +2119,39 @@ const AddStock = () => {
     const qty = Math.max(1, parseInt(addStockQuantity, 10) || 1);
     const baseRfid = String(singleProduct.RFIDNumber || '').trim();
     const baseItemCode = String(singleProduct.Itemcode || '').trim();
-    if (qty === 1) {
-      if (!baseItemCode) errors.push('Item Code is not entered');
-      const existingItemCodes = new Set(addedRecords.map(r => String(r.Itemcode || '').toLowerCase()).filter(code => code));
-      const existingRfids = new Set(addedRecords.map(r => String(r.RFIDNumber || '').toLowerCase()).filter(rfid => rfid));
-      if (baseItemCode && existingItemCodes.has(baseItemCode.toLowerCase())) errors.push(`Item Code "${baseItemCode}" is already in the list`);
-      if (baseRfid && existingRfids.has(baseRfid.toLowerCase())) errors.push(`RFID Number "${baseRfid}" is already in the list`);
+    if (!baseItemCode) {
+      errors.push('Item Code is not entered');
     }
+
+    const existingItemCodes = new Set(addedRecords.map(r => String(r.Itemcode || '').toLowerCase()).filter(code => code));
+    const existingRfids = new Set(addedRecords.map(r => String(r.RFIDNumber || '').toLowerCase()).filter(rfid => rfid));
+
+    if (baseRfid && existingRfids.has(baseRfid.toLowerCase())) {
+      errors.push(`RFID Number "${baseRfid}" is already in the list`);
+    }
+
+    const generatedItemCodes = [];
+    if (baseItemCode) {
+      for (let i = 0; i < qty; i++) {
+        const code = qty === 1 ? baseItemCode : generateSequentialCode(baseItemCode, i);
+        const normalizedCode = String(code || '').trim();
+        if (!normalizedCode) {
+          errors.push('Item Code is not valid for sequential generation');
+          break;
+        }
+        const normalizedLower = normalizedCode.toLowerCase();
+        if (existingItemCodes.has(normalizedLower)) {
+          errors.push(`Item Code "${normalizedCode}" is already in the list`);
+          break;
+        }
+        if (generatedItemCodes.some((c) => c.toLowerCase() === normalizedLower)) {
+          errors.push(`Item Code "${normalizedCode}" is duplicated in generated rows`);
+          break;
+        }
+        generatedItemCodes.push(normalizedCode);
+      }
+    }
+
     if (errors.length > 0) {
       setAddFormValidationErrors(errors);
       addNotification({ type: 'error', title: 'Data not added', message: 'Please fix the issues below and try again. ' + errors.join('. ') });
@@ -2135,7 +2161,7 @@ const AddStock = () => {
     const newRecords = [];
     for (let i = 0; i < qty; i++) {
       const rfid = qty === 1 ? baseRfid : (i === 0 ? baseRfid : '');
-      const itemCode = qty === 1 ? baseItemCode : (i === 0 ? baseItemCode : '');
+      const itemCode = generatedItemCodes[i] || (qty === 1 ? baseItemCode : generateSequentialCode(baseItemCode, i));
       newRecords.push(buildRecordFromForm(rfid, itemCode));
     }
     setAddedRecords(prev => [...prev, ...newRecords]);
@@ -2143,7 +2169,14 @@ const AddStock = () => {
     setAddedRecordImages(prev => [...prev, ...newRecords.map((_, i) => (i === 0 && singleProductImage) ? singleProductImage : null)]);
     resetSingleForm();
     setAddStockQuantity(1);
-    addNotification({ type: 'success', title: 'Added', message: qty === 1 ? '1 record added. You can edit RFID and Item Code in the table.' : `${qty} rows added. Enter RFID and Item Code for each row in the table below.` });
+    addNotification({
+      type: 'success',
+      title: 'Added',
+      message:
+        qty === 1
+          ? '1 record added. You can edit RFID and Item Code in the table.'
+          : `${qty} rows added. Item Codes were auto-generated sequentially from "${baseItemCode}".`,
+    });
   };
 
   // Update a single field of an added record (e.g. RFIDNumber, Itemcode)

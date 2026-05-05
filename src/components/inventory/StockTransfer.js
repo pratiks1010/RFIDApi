@@ -16,6 +16,7 @@ import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import { stockTransferService } from '../../services/stockTransferService';
 import TrayScanModal from '../common/TrayScanModal';
+import PageHeader from '../common/PageHeader';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
 
 const StockTransfer = () => {
@@ -422,9 +423,9 @@ const StockTransfer = () => {
   };
 
   const handleTrayFetchData = async (epcs) => {
-    if (!Array.isArray(epcs) || epcs.length === 0) return;
+    if (!Array.isArray(epcs) || epcs.length === 0) return false;
     const scanned = new Set(epcs.map((x) => String(x || '').trim().toUpperCase()).filter(Boolean));
-    if (!scanned.size) return;
+    if (!scanned.size) return false;
     const matched = tableData.filter((item) =>
       scanned.has(String(item.RFIDCode || item.RFIDNumber || '').trim().toUpperCase()) ||
       scanned.has(String(item.TIDNumber || '').trim().toUpperCase()) ||
@@ -433,7 +434,7 @@ const StockTransfer = () => {
     );
     if (!matched.length) {
       addNotification({ type: 'warning', title: 'No Match', message: 'No scanned EPC matched current available stock.' });
-      return;
+      return false;
     }
     const matchedIds = new Set(matched.map((x) => x.Id));
     setTransferredData((prev) => {
@@ -445,6 +446,7 @@ const StockTransfer = () => {
     setSelectedRows([]);
     setSelectAll(false);
     addNotification({ type: 'success', title: 'Tray Fetch Done', message: `Moved ${matched.length} matched item(s) to transfer list.` });
+    return true;
   };
 
   // Handle form submission
@@ -571,7 +573,7 @@ const StockTransfer = () => {
   return (
     <div style={{ 
       padding: isSmallScreen ? '8px' : '20px', 
-      fontFamily: 'Inter, system-ui, sans-serif', 
+      fontFamily: 'var(--font-family)', 
       background: '#ffffff', 
       minHeight: '100vh',
       width: '100%',
@@ -585,28 +587,13 @@ const StockTransfer = () => {
         }
       `}</style>
 
-      {/* Header */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '8px',
-        padding: isSmallScreen ? '8px 10px' : '10px 16px',
-        marginBottom: isSmallScreen ? '8px' : '12px',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-        border: '1px solid #e2e8f0',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: isSmallScreen ? '8px' : '10px'
-      }}>
-        <h2 style={{ 
-          margin: 0, 
-          fontSize: isSmallScreen ? '14px' : '16px', 
-          fontWeight: 700, 
-          color: '#1e293b'
-        }}>
-          Stock Transfer
-        </h2>
+      <PageHeader
+        isSmallScreen={isSmallScreen}
+        title="Stock Transfer"
+        icon={<FaArrowRight style={{ fontSize: isSmallScreen ? 14 : 16 }} />}
+        iconGradient="linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)"
+        actions={
+        <>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button"
@@ -664,7 +651,9 @@ const StockTransfer = () => {
             <FaList /> Transfer List
           </button>
         </div>
-      </div>
+        </>
+        }
+      />
 
       <form onSubmit={handleSubmit}>
         {/* Stock Type Selection */}
@@ -1507,7 +1496,9 @@ const StockTransfer = () => {
         open={showRfidTrayModal}
         onClose={() => setShowRfidTrayModal(false)}
         onFetchData={handleTrayFetchData}
-        title="Stock Transfer Tray Scan"
+        title="Stock transfer — Tray scan"
+        subtitle="Place the tray on the reader, connect your COM ports, and start. Tags and item codes appear below; then add them to this transfer in one step."
+        loadButtonLabel="Add scanned items to transfer"
       />
     </div>
   );

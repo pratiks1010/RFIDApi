@@ -1,12 +1,43 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { FaPrint, FaChevronLeft, FaChevronRight, FaSpinner, FaSearch } from 'react-icons/fa';
+import {
+  FaPrint,
+  FaArrowLeft,
+  FaSpinner,
+  FaSearch,
+  FaFileExcel,
+  FaFilePdf,
+  FaDownload,
+  FaEnvelope,
+  FaList,
+} from 'react-icons/fa';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 
+const EXPORT_EMAIL_URL =
+  process.env.REACT_APP_EXPORT_EMAIL_URL ||
+  'https://rrgold.loyalstring.co.in/api/Export/SendLabelStockEmail';
+
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
 const DEFAULT_PAGE_SIZE = 25;
+/** Same list header treatment as Sample Out items table */
+const LIST_TABLE_HEAD_BG = '#2d3e50';
+
+const pageBtnStyleList = (disabled) => ({
+  padding: '5px 11px',
+  fontSize: 11,
+  fontWeight: 600,
+  borderRadius: 8,
+  border: '1px solid #e5e5e5',
+  background: '#ffffff',
+  color: disabled ? '#a3a3a3' : '#525252',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.5 : 1,
+});
 
 const QuotationList = () => {
   const { loading, setLoading } = useLoading();
@@ -17,10 +48,13 @@ const QuotationList = () => {
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_PAGE_SIZE);
-  const [totalRecords, setTotalRecords] = useState(0);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [userInfo, setUserInfo] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportErrors, setExportErrors] = useState({ excel: '', pdf: '', email: '' });
+  const [exportLoading, setExportLoading] = useState(false);
+  const [emailAddress, setEmailAddress] = useState('');
 
   const isSmallScreen = windowWidth <= 768;
 
@@ -71,9 +105,6 @@ const QuotationList = () => {
         // Normalize response data
         const data = Array.isArray(response.data) ? response.data : (response.data?.data || []);
         setQuotations(data);
-        setTotalRecords(data.length);
-        
-        // Update total records in header
         setCurrentPage(1);
       } catch (error) {
         console.error('Error fetching quotations:', error);
@@ -178,44 +209,6 @@ const QuotationList = () => {
     setCurrentPage(1);
   }, [searchQuery, itemsPerPage]);
 
-  // Generate pagination numbers
-  const generatePagination = () => {
-    const pages = [];
-    const maxVisible = 5;
-    
-    if (totalPages <= maxVisible) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
-    } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= maxVisible; i++) {
-          pages.push(i);
-        }
-        if (totalPages > maxVisible) {
-          pages.push('...');
-          pages.push(totalPages);
-        }
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push('...');
-        for (let i = totalPages - maxVisible + 1; i <= totalPages; i++) {
-          pages.push(i);
-        }
-      } else {
-        pages.push(1);
-        pages.push('...');
-        for (let i = currentPage - 1; i <= currentPage + 1; i++) {
-          pages.push(i);
-        }
-        pages.push('...');
-        pages.push(totalPages);
-      }
-    }
-    
-    return pages;
-  };
-
   const handlePageChange = (page) => {
     if (page >= 1 && page <= totalPages && page !== currentPage) {
       setCurrentPage(page);
@@ -233,254 +226,473 @@ const QuotationList = () => {
     setSearchQuery(value);
   };
 
+  const openExportModal = () => {
+    setExportErrors({ excel: '', pdf: '', email: '' });
+    setShowExportModal(true);
+  };
+
+  const buildExportRows = () =>
+    filteredQuotations.map((q, i) => ({
+      'S No': i + 1,
+      'Quotation No': q.QuotationNo ?? '',
+      'Customer Name': getCustomerName(q),
+      'Gross Wt': formatNumber(q.GrossWt),
+      'Net Wt': formatNumber(q.NetWt),
+      'F+W Wt': calculateFWWeight(q),
+      'Taxable Amount': formatNumber(q.TotalNetAmount ?? q.TotalAmount),
+      'GST Amount': formatNumber(q.TotalGSTAmount ?? q.GST),
+      'Quotation Amount': formatNumber(q.TotalPurchaseAmount ?? q.TotalAmount),
+      Date: formatDate(q.QuotationDate || q.CreatedDate || q.Date),
+    }));
+
+  const exportExcel = () => {
+    if (!filteredQuotations.length) {
+      addNotification({ type: 'warning', title: 'Export', message: 'No rows to export.' });
+      setExportErrors((e) => ({ ...e, excel: 'No rows match the current search.' }));
+      return;
+    }
+    setExportErrors({ excel: '', pdf: '', email: '' });
+    const rows = buildExportRows();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 6 },
+      { wch: 14 },
+      { wch: 22 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 12 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Quotations');
+    const stamp = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `QuotationList_${stamp}.xlsx`);
+    addNotification({ type: 'success', title: 'Export', message: 'Excel file downloaded.' });
+    setShowExportModal(false);
+  };
+
+  const exportPdf = () => {
+    if (!filteredQuotations.length) {
+      addNotification({ type: 'warning', title: 'Export', message: 'No rows to export.' });
+      setExportErrors((e) => ({ ...e, pdf: 'No rows match the current search.' }));
+      return;
+    }
+    setExportErrors({ excel: '', pdf: '', email: '' });
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(14);
+    doc.text('Quotation list', 14, 16);
+    doc.setFontSize(9);
+    doc.text(`Generated ${new Date().toLocaleString()} · ${filteredQuotations.length} row(s)`, 14, 22);
+    const body = filteredQuotations.map((q, i) => [
+      String(i + 1),
+      String(q.QuotationNo ?? '—'),
+      getCustomerName(q),
+      formatNumber(q.GrossWt),
+      formatNumber(q.NetWt),
+      String(calculateFWWeight(q)),
+      formatNumber(q.TotalNetAmount ?? q.TotalAmount),
+      formatNumber(q.TotalGSTAmount ?? q.GST),
+      formatNumber(q.TotalPurchaseAmount ?? q.TotalAmount),
+    ]);
+    doc.autoTable({
+      startY: 26,
+      head: [[
+        '#',
+        'Quot. no',
+        'Customer',
+        'Gross',
+        'Net',
+        'F+W',
+        'Taxable',
+        'GST',
+        'Amount',
+      ]],
+      body,
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [45, 62, 80] },
+    });
+    doc.save(`QuotationList_${new Date().toISOString().split('T')[0]}.pdf`);
+    addNotification({ type: 'success', title: 'Export', message: 'PDF downloaded.' });
+    setShowExportModal(false);
+  };
+
+  const handleEmailExport = async () => {
+    if (!emailAddress?.trim()) {
+      setExportErrors((e) => ({ ...e, email: 'Please enter an email address' }));
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress.trim())) {
+      setExportErrors((e) => ({ ...e, email: 'Please enter a valid email address' }));
+      return;
+    }
+    if (!filteredQuotations.length) {
+      setExportErrors((e) => ({ ...e, email: 'No rows to send.' }));
+      return;
+    }
+    if (!userInfo?.ClientCode) {
+      setExportErrors((e) => ({ ...e, email: 'Client code missing. Log in again.' }));
+      return;
+    }
+
+    setExportLoading(true);
+    setExportErrors((e) => ({ ...e, email: '' }));
+
+    try {
+      const rows = buildExportRows();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 6 },
+        { wch: 14 },
+        { wch: 22 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 12 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Quotations');
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const date = new Date().toISOString().split('T')[0];
+      const filename = `quotation_list_${date}.xlsx`;
+      const excelBlob = new Blob([excelBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      const formData = new FormData();
+      formData.append('email', emailAddress.trim());
+      formData.append('clientCode', userInfo.ClientCode);
+      formData.append('subject', 'Quotation list report');
+      formData.append('file', excelBlob, filename);
+
+      const response = await axios.post(EXPORT_EMAIL_URL, formData, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const ok = response.data?.success ?? response.data?.Success;
+      if (ok) {
+        addNotification({
+          type: 'success',
+          title: 'Email sent',
+          message: `Report sent to ${emailAddress.trim()}`,
+        });
+        setTimeout(() => {
+          setShowExportModal(false);
+          setEmailAddress('');
+          setExportLoading(false);
+        }, 400);
+      } else {
+        throw new Error(response.data?.message || response.data?.Message || 'Failed to send email');
+      }
+    } catch (err) {
+      console.error('Quotation list email export:', err);
+      setExportErrors((e) => ({
+        ...e,
+        email: err.response?.data?.message || err.response?.data?.Message || err.message || 'Failed to send email.',
+      }));
+      setExportLoading(false);
+    }
+  };
+
+  const inputBase = {
+    width: '100%',
+    padding: '0 8px',
+    fontSize: 11,
+    border: '1px solid #e5e5e5',
+    borderRadius: 8,
+    height: 30,
+    boxSizing: 'border-box',
+    color: '#404040',
+    background: '#fff',
+    outline: 'none',
+  };
+
+  const thCell = (align = 'left') => ({
+    padding: isSmallScreen ? '6px 6px' : '7px 8px',
+    textAlign: align,
+    fontWeight: 800,
+    fontSize: isSmallScreen ? 10 : 11,
+    color: '#ffffff',
+    background: LIST_TABLE_HEAD_BG,
+    borderRight: '1px solid rgba(255,255,255,0.12)',
+    borderBottom: '2px solid #1e293b',
+    whiteSpace: 'nowrap',
+    letterSpacing: '0.02em',
+  });
+
+  const tdCell = (extra = {}) => ({
+    padding: isSmallScreen ? '5px 6px' : '6px 8px',
+    fontSize: isSmallScreen ? 10 : 11,
+    lineHeight: 1.35,
+    color: '#404040',
+    borderRight: '1px solid #ececec',
+    borderBottom: '1px solid #e5e5e5',
+    whiteSpace: 'nowrap',
+    ...extra,
+  });
+
   return (
-    <div className="container-fluid p-3" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-      {/* Unified Header & Action Section */}
-      <div style={{
+    <div
+      style={{
+        fontFamily: 'var(--font-family, Inter, system-ui, sans-serif)',
+        padding: 12,
+        fontSize: 11,
+        minHeight: '100%',
         background: '#ffffff',
-        borderRadius: '12px',
-        padding: '16px 20px',
-        marginBottom: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px'
-        }}>
-          {/* Left: Back button + Title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              type="button"
-              onClick={() => navigate('/quotation')}
+      }}
+      className="quotation-list-page"
+    >
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: 12,
+          overflow: 'hidden',
+          marginBottom: 12,
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+          border: '1px solid #e2e8f0',
+        }}
+      >
+        <div
+          style={{
+            height: 3,
+            background: 'linear-gradient(90deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%)',
+          }}
+        />
+        <div style={{ padding: '12px 14px 12px' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              flexWrap: 'wrap',
+              rowGap: 10,
+            }}
+          >
+            <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                background: '#ffffff',
-                color: '#475569',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#f8fafc';
-                e.currentTarget.style.borderColor = '#3b82f6';
-                e.currentTarget.style.color = '#3b82f6';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#ffffff';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-                e.currentTarget.style.color = '#475569';
+                gap: 12,
+                flex: '1 1 auto',
+                minWidth: 0,
               }}
             >
-              <FaChevronLeft style={{ fontSize: '12px' }} />
-              Back
-            </button>
-            <h2 style={{
-              margin: 0,
-              fontSize: '16px',
-              fontWeight: 700,
-              color: '#1e293b',
-              lineHeight: '1.2'
-            }}>Quotation List</h2>
-          </div>
-
-          {/* Right: Total Count */}
-          <div style={{
-            fontSize: '12px',
-            color: '#64748b',
-            fontWeight: 600
-          }}>
-            Total: {filteredQuotations.length} records
-          </div>
-        </div>
-
-        {/* Search Row */}
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '10px',
-          alignItems: 'center',
-          marginTop: '16px',
-          paddingTop: '16px',
-          borderTop: '1px solid #e5e7eb'
-        }}>
-          {/* Search Input */}
-          <div style={{
-            position: 'relative',
-            flex: '1',
-            minWidth: windowWidth <= 768 ? '100%' : '250px',
-            maxWidth: windowWidth <= 768 ? '100%' : '350px'
-          }}>
-            <FaSearch style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#94a3b8',
-              fontSize: '14px',
-              zIndex: 1
-            }} />
-            <input
-              type="text"
-              placeholder="Search by Quotation No, Customer Name..."
-              value={searchQuery}
-              onChange={e => handleSearchChange(e.target.value)}
+              <button
+                type="button"
+                onClick={() => navigate('/quotation')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  border: '1px solid #e2e8f0',
+                  background: '#fff',
+                  color: '#475569',
+                  cursor: 'pointer',
+                  height: 34,
+                  boxSizing: 'border-box',
+                  flexShrink: 0,
+                }}
+              >
+                <FaArrowLeft style={{ fontSize: 12 }} /> Back
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <div
+                  style={{
+                    width: isSmallScreen ? 34 : 38,
+                    height: isSmallScreen ? 34 : 38,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)',
+                    boxShadow: '0 2px 8px rgba(185, 28, 28, 0.35)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    flexShrink: 0,
+                  }}
+                >
+                  <FaList style={{ fontSize: isSmallScreen ? 14 : 16 }} />
+                </div>
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    fontFamily: 'var(--font-family, Inter, system-ui, sans-serif)',
+                    lineHeight: 1.2,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  Quotation list
+                </h1>
+              </div>
+            </div>
+            <div
               style={{
-                width: '100%',
-                padding: '8px 12px 8px 36px',
-                fontSize: '12px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                outline: 'none',
-                transition: 'all 0.2s',
-                boxSizing: 'border-box'
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: 10,
+                flexWrap: 'wrap',
+                flex: isSmallScreen ? '1 1 100%' : '0 1 auto',
+                marginLeft: isSmallScreen ? 0 : 'auto',
+                minWidth: 0,
               }}
-              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-            />
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  color: '#64748b',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {filteredQuotations.length} record{filteredQuotations.length !== 1 ? 's' : ''}
+              </span>
+              <div
+                style={{
+                  position: 'relative',
+                  width: isSmallScreen ? 'min(100%, 280px)' : 240,
+                  flex: isSmallScreen ? '1 1 200px' : '0 0 auto',
+                  minWidth: 160,
+                  maxWidth: 360,
+                }}
+              >
+                <FaSearch
+                  style={{
+                    position: 'absolute',
+                    left: 10,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#94a3b8',
+                    fontSize: 11,
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search quotation, customer…"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  style={{
+                    ...inputBase,
+                    width: '100%',
+                    height: 34,
+                    paddingLeft: 30,
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#94a3b8';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e5e5e5';
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={openExportModal}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  height: 34,
+                  flexShrink: 0,
+                }}
+              >
+                <FaDownload style={{ color: '#475569', fontSize: 12 }} />
+                Export
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Error Message */}
       {error && (
-        <div style={{
-          background: '#fee2e2',
-          border: '1px solid #fca5a5',
-          borderRadius: '6px',
-          padding: '12px 16px',
-          marginBottom: '16px',
-          color: '#991b1b',
-          fontSize: '14px'
-        }}>
+        <div
+          style={{
+            padding: '8px 12px',
+            marginBottom: 10,
+            borderRadius: 8,
+            background: '#fef2f2',
+            border: '1px solid #fecaca',
+            color: '#b91c1c',
+            fontSize: 11,
+          }}
+        >
           {error}
         </div>
       )}
 
       {/* Table Container */}
-      <div className="table-container" style={{
+      <div className="table-container quotation-list-table-wrap" style={{
         background: '#ffffff',
         borderRadius: '12px',
-        marginTop: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        border: '1px solid #e5e7eb',
+        marginTop: '12px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        border: '1px solid #d4d4d8',
         overflow: 'hidden'
       }}>
-        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
-          <table style={{
+        <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%', background: '#fafafa' }}>
+          <table className="quotation-list-table" style={{
             width: '100%',
             minWidth: '1200px',
-            borderCollapse: 'collapse',
-            fontSize: '12px',
-            tableLayout: 'auto'
+            borderCollapse: 'separate',
+            borderSpacing: 0,
+            fontSize: isSmallScreen ? 10 : 11,
+            tableLayout: 'fixed'
           }}>
-            <thead>
-              <tr style={{
-                background: '#f8fafc',
-                borderBottom: '2px solid #e5e7eb'
-              }}>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>S No</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Quotation No</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Customer Name</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'right',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Gross Wt</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'right',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Net Wt</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'right',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>F+W Wt</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'right',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Taxable Amount</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'right',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>GST Amount</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'right',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Quotation Amount</th>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'center',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  whiteSpace: 'nowrap'
-                }}>Action</th>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+              <tr>
+                <th style={thCell('left')}>S No</th>
+                <th style={thCell('left')}>Quotation No</th>
+                <th style={thCell('left')}>Customer Name</th>
+                <th style={thCell('right')}>Gross Wt</th>
+                <th style={thCell('right')}>Net Wt</th>
+                <th style={thCell('right')}>F+W Wt</th>
+                <th style={thCell('right')}>Taxable Amount</th>
+                <th style={thCell('right')}>GST Amount</th>
+                <th style={thCell('right')}>Quotation Amount</th>
+                <th style={{ ...thCell('center'), borderRight: 'none' }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {loading && quotations.length === 0 ? (
                 <tr>
                   <td colSpan="10" style={{
-                    padding: '40px',
+                    padding: '28px 16px',
                     textAlign: 'center',
-                    color: '#64748b',
-                    fontSize: '12px'
+                    color: '#737373',
+                    fontSize: 13,
+                    background: '#fafafa',
+                    borderBottom: '1px solid #ececec',
                   }}>
                     <FaSpinner style={{
-                      fontSize: '24px',
+                      fontSize: '22px',
                       animation: 'spin 1s linear infinite',
                       marginBottom: '8px',
                       display: 'inline-block'
@@ -491,10 +703,12 @@ const QuotationList = () => {
               ) : currentQuotations.length === 0 ? (
                 <tr>
                   <td colSpan="10" style={{
-                    padding: '40px',
+                    padding: '28px 16px',
                     textAlign: 'center',
-                    color: '#64748b',
-                    fontSize: '12px'
+                    color: '#737373',
+                    fontSize: 13,
+                    background: '#fafafa',
+                    borderBottom: '1px solid #ececec',
                   }}>
                     {searchQuery.trim() ? 'No quotations found matching your search.' : 'No quotations found'}
                   </td>
@@ -502,116 +716,53 @@ const QuotationList = () => {
               ) : (
                 currentQuotations.map((quotation, index) => {
                   const rowIndex = startIndex + index + 1;
-                  const isEven = index % 2 === 0;
+                  const stripe = rowIndex % 2 === 0;
+                  const rowBg = stripe ? '#fafafa' : '#ffffff';
                   
                   return (
                     <tr
                       key={quotation.Id || index}
-                      style={{
-                        borderBottom: '1px solid #e5e7eb',
-                        background: isEven ? '#ffffff' : '#f8fafc',
-                        transition: 'background 0.2s'
-                      }}
+                      style={{ background: rowBg }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f1f5f9';
+                        e.currentTarget.style.background = '#eef6ff';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = isEven ? '#ffffff' : '#f8fafc';
+                        e.currentTarget.style.background = rowBg;
                       }}
                     >
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        color: '#475569',
-                        whiteSpace: 'nowrap'
-                      }}>{rowIndex}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        color: '#1e293b',
-                        fontWeight: 600,
-                        whiteSpace: 'nowrap'
-                      }}>{quotation.QuotationNo || '-'}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{getCustomerName(quotation)}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        textAlign: 'right',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(quotation.GrossWt)}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        textAlign: 'right',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(quotation.NetWt)}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        textAlign: 'right',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(calculateFWWeight(quotation))}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        textAlign: 'right',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(quotation.TotalNetAmount || quotation.TotalAmount, 3)}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        textAlign: 'right',
-                        color: '#1e293b',
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(quotation.TotalGSTAmount || quotation.GST, 3)}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        textAlign: 'right',
-                        color: '#1e293b',
-                        fontWeight: 600,
-                        whiteSpace: 'nowrap'
-                      }}>{formatNumber(quotation.TotalPurchaseAmount || quotation.TotalAmount, 3)}</td>
-                      <td style={{
-                        padding: '12px',
-                        fontSize: '12px',
-                        textAlign: 'center',
-                        whiteSpace: 'nowrap'
-                      }}>
+                      <td style={{ ...tdCell({ textAlign: 'center', color: '#737373', fontVariantNumeric: 'tabular-nums' }) }}>{rowIndex}</td>
+                      <td style={{ ...tdCell({ fontWeight: 700, color: '#171717', fontVariantNumeric: 'tabular-nums' }) }}>{quotation.QuotationNo || '-'}</td>
+                      <td style={tdCell({ overflow: 'hidden', textOverflow: 'ellipsis' })}>{getCustomerName(quotation)}</td>
+                      <td style={{ ...tdCell({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }) }}>{formatNumber(quotation.GrossWt)}</td>
+                      <td style={{ ...tdCell({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }) }}>{formatNumber(quotation.NetWt)}</td>
+                      <td style={{ ...tdCell({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }) }}>{formatNumber(calculateFWWeight(quotation))}</td>
+                      <td style={{ ...tdCell({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }) }}>{formatNumber(quotation.TotalNetAmount || quotation.TotalAmount, 3)}</td>
+                      <td style={{ ...tdCell({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }) }}>{formatNumber(quotation.TotalGSTAmount || quotation.GST, 3)}</td>
+                      <td style={{ ...tdCell({ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }) }}>{formatNumber(quotation.TotalPurchaseAmount || quotation.TotalAmount, 3)}</td>
+                      <td style={{ ...tdCell({ textAlign: 'center', borderRight: 'none' }) }}>
                         <button
                           onClick={() => handlePrint(quotation)}
+                          type="button"
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            padding: '6px 10px',
+                            padding: '4px 8px',
                             border: '1px solid #cbd5e1',
                             borderRadius: '6px',
                             background: '#ffffff',
-                            color: '#475569',
+                            color: '#334155',
                             cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            fontSize: '14px'
+                            fontSize: '11px',
                           }}
                           title="Print Quotation"
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#3b82f6';
-                            e.currentTarget.style.borderColor = '#3b82f6';
-                            e.currentTarget.style.color = '#ffffff';
+                            e.currentTarget.style.background = '#f8fafc';
+                            e.currentTarget.style.borderColor = '#94a3b8';
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.background = '#ffffff';
                             e.currentTarget.style.borderColor = '#cbd5e1';
-                            e.currentTarget.style.color = '#475569';
                           }}
                         >
                           <FaPrint />
@@ -630,42 +781,48 @@ const QuotationList = () => {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: '16px 20px',
-          borderTop: '1px solid #e5e7eb',
+          padding: '12px 14px',
+          borderTop: '1px solid #f5f5f5',
           flexWrap: 'wrap',
-          gap: '12px'
+          gap: 10,
+          background: '#fafafa',
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
+            gap: 10,
             flexWrap: 'wrap',
-            fontSize: '12px',
-            color: '#64748b'
+            fontSize: 11,
+            color: '#525252',
+            fontWeight: 600,
           }}>
             <span>
-              Showing {filteredQuotations.length > 0 ? startIndex + 1 : 0} to {Math.min(endIndex, filteredQuotations.length)} of {filteredQuotations.length} entries
+              {filteredQuotations.length > 0
+                ? `${startIndex + 1}–${Math.min(endIndex, filteredQuotations.length)} of ${filteredQuotations.length}`
+                : '0 entries'}
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Show:</span>
+            <span style={{ color: '#a3a3a3' }}>·</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>Rows:</span>
               <select
                 value={itemsPerPage}
                 onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
                 style={{
-                  padding: '6px 10px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
+                  padding: '4px 8px',
+                  fontSize: 11,
+                  border: '1px solid #e5e5e5',
+                  borderRadius: 8,
                   outline: 'none',
                   cursor: 'pointer',
-                  background: '#ffffff'
+                  background: '#ffffff',
+                  color: '#404040',
+                  fontWeight: 600,
                 }}
               >
                 {PAGE_SIZE_OPTIONS.map(size => (
                   <option key={size} value={size}>{size}</option>
                 ))}
               </select>
-              <span>per page</span>
             </div>
           </div>
 
@@ -673,107 +830,27 @@ const QuotationList = () => {
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
+              gap: 6,
               flexWrap: 'wrap'
             }}>
               {totalPages > 1 && (
                 <>
                   <button
+                    type="button"
                     onClick={() => handlePageChange(currentPage - 1)}
                     disabled={currentPage === 1}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
-                      color: currentPage === 1 ? '#94a3b8' : '#475569',
-                      cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (currentPage !== 1) {
-                        e.target.style.background = '#f8fafc';
-                        e.target.style.borderColor = '#cbd5e1';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (currentPage !== 1) {
-                        e.target.style.background = '#ffffff';
-                        e.target.style.borderColor = '#e2e8f0';
-                      }
-                    }}
+                    style={pageBtnStyleList(currentPage === 1)}
                   >
-                    Previous
+                    Prev
                   </button>
-                  {generatePagination().map((page, index) =>
-                    page === '...' ? (
-                      <span key={`ellipsis-${index}`} style={{
-                        padding: '6px 8px',
-                        fontSize: '12px',
-                        color: '#94a3b8'
-                      }}>...</span>
-                    ) : (
-                      <button
-                        key={page}
-                        onClick={() => handlePageChange(page)}
-                        style={{
-                          padding: '6px 12px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          background: currentPage === page ? '#3b82f6' : '#ffffff',
-                          color: currentPage === page ? '#ffffff' : '#475569',
-                          borderColor: currentPage === page ? '#3b82f6' : '#e2e8f0',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          minWidth: '36px'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (currentPage !== page) {
-                            e.target.style.background = '#f8fafc';
-                            e.target.style.borderColor = '#cbd5e1';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (currentPage !== page) {
-                            e.target.style.background = '#ffffff';
-                            e.target.style.borderColor = '#e2e8f0';
-                          }
-                        }}
-                      >
-                        {page}
-                      </button>
-                    )
-                  )}
+                  <span style={{ fontSize: 11, color: '#404040', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    Page {currentPage} / {totalPages}
+                  </span>
                   <button
+                    type="button"
                     onClick={() => handlePageChange(currentPage + 1)}
                     disabled={currentPage === totalPages}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
-                      color: currentPage === totalPages ? '#94a3b8' : '#475569',
-                      cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (currentPage !== totalPages) {
-                        e.target.style.background = '#f8fafc';
-                        e.target.style.borderColor = '#cbd5e1';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (currentPage !== totalPages) {
-                        e.target.style.background = '#ffffff';
-                        e.target.style.borderColor = '#e2e8f0';
-                      }
-                    }}
+                    style={pageBtnStyleList(currentPage === totalPages)}
                   >
                     Next
                   </button>
@@ -784,20 +861,262 @@ const QuotationList = () => {
         </div>
       </div>
 
+      {showExportModal && (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10040,
+            backdropFilter: 'blur(4px)',
+            padding: 16,
+          }}
+          onClick={() => {
+            if (!exportLoading) {
+              setShowExportModal(false);
+              setEmailAddress('');
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="quotation-export-title"
+            style={{
+              background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+              borderRadius: 16,
+              padding: '22px 22px 20px',
+              width: 440,
+              maxWidth: '100%',
+              boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
+              border: '1px solid #e2e8f0',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: 6,
+              }}
+            >
+              <div>
+                <h2
+                  id="quotation-export-title"
+                  style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}
+                >
+                  Export quotations
+                </h2>
+                <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
+                  Current search:{' '}
+                  <strong style={{ color: '#334155' }}>
+                    {filteredQuotations.length} row{filteredQuotations.length !== 1 ? 's' : ''}
+                  </strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                disabled={exportLoading}
+                onClick={() => {
+                  setShowExportModal(false);
+                  setEmailAddress('');
+                }}
+                style={{
+                  border: 'none',
+                  background: '#f1f5f9',
+                  fontSize: 20,
+                  lineHeight: 1,
+                  cursor: exportLoading ? 'not-allowed' : 'pointer',
+                  color: '#64748b',
+                  padding: '4px 10px',
+                  borderRadius: 10,
+                  opacity: exportLoading ? 0.5 : 1,
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={exportExcel}
+                disabled={!filteredQuotations.length || exportLoading}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  width: '100%',
+                  padding: '14px 14px',
+                  borderRadius: 12,
+                  border: '1px solid #a7f3d0',
+                  background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+                  color: '#065f46',
+                  cursor: filteredQuotations.length && !exportLoading ? 'pointer' : 'not-allowed',
+                  opacity: filteredQuotations.length && !exportLoading ? 1 : 0.5,
+                  textAlign: 'left',
+                  boxShadow: '0 1px 0 rgba(255,255,255,0.8) inset',
+                }}
+              >
+                <FaFileExcel style={{ fontSize: 26, flexShrink: 0 }} />
+                <span>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 800 }}>Excel</span>
+                  <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.92 }}>Download .xlsx spreadsheet</span>
+                </span>
+              </button>
+              {exportErrors.excel ? (
+                <div style={{ fontSize: 10, color: '#b91c1c', marginTop: -4 }}>{exportErrors.excel}</div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={exportPdf}
+                disabled={!filteredQuotations.length || exportLoading}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  width: '100%',
+                  padding: '14px 14px',
+                  borderRadius: 12,
+                  border: '1px solid #fecaca',
+                  background: 'linear-gradient(135deg, #fef2f2 0%, #ffe4e6 100%)',
+                  color: '#9f1239',
+                  cursor: filteredQuotations.length && !exportLoading ? 'pointer' : 'not-allowed',
+                  opacity: filteredQuotations.length && !exportLoading ? 1 : 0.5,
+                  textAlign: 'left',
+                  boxShadow: '0 1px 0 rgba(255,255,255,0.8) inset',
+                }}
+              >
+                <FaFilePdf style={{ fontSize: 26, flexShrink: 0 }} />
+                <span>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 800 }}>PDF</span>
+                  <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.92 }}>Download formatted PDF</span>
+                </span>
+              </button>
+              {exportErrors.pdf ? (
+                <div style={{ fontSize: 10, color: '#b91c1c', marginTop: -4 }}>{exportErrors.pdf}</div>
+              ) : null}
+
+              <div
+                style={{
+                  marginTop: 4,
+                  padding: 14,
+                  borderRadius: 12,
+                  border: '1px solid #c7d2fe',
+                  background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 10,
+                      background: '#4f46e5',
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FaEnvelope style={{ fontSize: 18 }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#312e81' }}>Email report</div>
+                    <div style={{ fontSize: 10, color: '#4338ca', fontWeight: 500, opacity: 0.95 }}>
+                      Sends the same Excel file to your inbox
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input
+                    type="email"
+                    placeholder="name@company.com"
+                    value={emailAddress}
+                    disabled={exportLoading}
+                    onChange={(e) => {
+                      setEmailAddress(e.target.value);
+                      setExportErrors((er) => ({ ...er, email: '' }));
+                    }}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '10px 12px',
+                      fontSize: 12,
+                      borderRadius: 10,
+                      border: '1px solid #a5b4fc',
+                      outline: 'none',
+                      background: '#fff',
+                      color: '#0f172a',
+                    }}
+                  />
+                  {exportErrors.email ? (
+                    <div style={{ fontSize: 10, color: '#b91c1c' }}>{exportErrors.email}</div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleEmailExport}
+                    disabled={exportLoading || !filteredQuotations.length}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      padding: '10px 16px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      borderRadius: 10,
+                      border: 'none',
+                      background: exportLoading || !filteredQuotations.length ? '#94a3b8' : 'linear-gradient(180deg, #6366f1 0%, #4f46e5 100%)',
+                      color: '#fff',
+                      cursor: exportLoading || !filteredQuotations.length ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 14px rgba(79, 70, 229, 0.35)',
+                    }}
+                  >
+                    {exportLoading ? (
+                      <>
+                        <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+                        Sending…
+                      </>
+                    ) : (
+                      <>
+                        <FaEnvelope style={{ fontSize: 14 }} />
+                        Send email
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
         
+        .quotation-list-table-wrap table.quotation-list-table {
+          font-size: 10px;
+        }
         @media (max-width: 768px) {
           /* Table responsive */
-          table {
+          .quotation-list-table-wrap table.quotation-list-table {
             font-size: 10px !important;
           }
           
-          th, td {
-            padding: 8px 6px !important;
+          .quotation-list-table-wrap table.quotation-list-table th,
+          .quotation-list-table-wrap table.quotation-list-table td {
+            padding: 6px 5px !important;
             font-size: 10px !important;
           }
           
@@ -810,18 +1129,14 @@ const QuotationList = () => {
         }
         
         @media (max-width: 480px) {
-          /* Smaller fonts for mobile */
-          h2 {
-            font-size: 14px !important;
+          .quotation-list-table-wrap table.quotation-list-table {
+            font-size: 9px !important;
           }
           
-          table {
-            font-size: 10px !important;
-          }
-          
-          th, td {
-            padding: 6px 4px !important;
-            font-size: 10px !important;
+          .quotation-list-table-wrap table.quotation-list-table th,
+          .quotation-list-table-wrap table.quotation-list-table td {
+            padding: 5px 4px !important;
+            font-size: 9px !important;
           }
         }
       `}</style>

@@ -1,19 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { 
   FaUserPlus,
+  FaUserFriends,
+  FaStore,
+  FaUserTie,
   FaCalendarAlt,
   FaSearch,
   FaSpinner,
-  FaTrash,
-  FaEdit,
   FaCheckCircle,
   FaList,
   FaTimes,
   FaFileExcel,
   FaFilePdf,
   FaChevronDown,
-  FaInbox
+  FaInbox,
+  FaRedo,
+  FaClipboardCheck,
+  FaBarcode,
+  FaTags,
+  FaCube,
+  FaShapes,
+  FaBalanceScale,
+  FaFlag,
+  FaCommentAlt,
+  FaHashtag,
+  FaArrowLeft,
+  FaInfoCircle,
+  FaBuilding,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -22,8 +36,325 @@ import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import CustomerSidebarForm from './CustomerSidebarForm';
+import VendorSidebarForm from './VendorSidebarForm';
+import EmployeeSidebarForm from './EmployeeSidebarForm';
+import {
+  getGetAllCustomerUrl,
+  getAddCustomerUrl,
+  buildAddCustomerPayloadFromSidebar,
+  validateSidebarCustomerForm,
+} from '../../services/customerOnboardingApi';
+import {
+  getGetAllVendorUrl,
+  getGetAllVendorsAltUrl,
+  getGetAllEmployeeUrl,
+  getAddVendorUrl,
+  getAddEmployeeUrl,
+  validateVendorSidebarForm,
+  buildAddVendorPayload,
+  validateEmployeeSidebarForm,
+  buildAddEmployeePayload,
+} from '../../services/memberOnboardingApi';
 import TrayScanModal from '../common/TrayScanModal';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
+import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl } from '../../services/apiBaseConfig';
+import {
+  partyTypeToApiEnum,
+  getCreateSampleInUrl,
+  getSampleLotByNoUrl,
+  getSampleLotItemsUrl,
+  getPendingSampleOutLotNosByPartyUrl,
+  getAllSampleOutListUrl,
+} from '../../services/sampleInOutApi';
+
+const normalizeDataArray = (data) => {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    return data.data || data.items || data.results || data.list || [];
+  }
+  return [];
+};
+
+const resolveClientCode = (userInfo) => {
+  const u = userInfo?.ClientCode ?? userInfo?.clientCode ?? userInfo?.clientcode;
+  if (u) return String(u).trim();
+  try {
+    const stored = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    const c = stored.ClientCode || stored.clientCode || stored.clientcode;
+    if (c) return String(c).trim();
+  } catch {
+    /* ignore */
+  }
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return '';
+    const body = token.split('.')[1];
+    if (!body) return '';
+    const payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+    return String(payload.ClientCode || payload.clientcode || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+const extractPendingLotsFromResponse = (payload) => {
+  if (payload == null || typeof payload !== 'object') return [];
+  if (payload.Success === false || payload.success === false) {
+    throw new Error(payload.Message || payload.message || 'Failed to load pending lots');
+  }
+  const nested =
+    payload.Data ??
+    payload.data ??
+    payload.Result ??
+    payload.result;
+  if (Array.isArray(nested)) return nested;
+  return normalizeDataArray(payload);
+};
+
+const extractSampleOutListFromResponse = (payload) => {
+  if (payload == null) return [];
+  if (Array.isArray(payload)) return payload;
+  if (typeof payload !== 'object') return [];
+  const candidates = [
+    payload.Data,
+    payload.data,
+    payload.Result,
+    payload.result,
+    payload.Items,
+    payload.items,
+    typeof payload.data === 'object' ? payload.data?.Data : undefined,
+    typeof payload.data === 'object' ? payload.data?.data : undefined,
+    typeof payload.data === 'object' ? payload.data?.Result : undefined,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
+  }
+  const nested = payload.Data ?? payload.data ?? payload.Result ?? payload.result;
+  if (nested && typeof nested === 'object') {
+    if (Array.isArray(nested.Lots)) return nested.Lots;
+    if (Array.isArray(nested.SampleLots)) return nested.SampleLots;
+  }
+  return normalizeDataArray(payload);
+};
+
+const normalizeSampleOutListRows = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => {
+    if (!entry || typeof entry !== 'object') return { LineItems: [] };
+    const header = entry.Header ?? entry.header;
+    const branchName =
+      entry.BranchName ??
+      entry.branchName ??
+      entry.LotBranchName ??
+      entry.lotBranchName ??
+      null;
+    const pickItems = () => {
+      const src =
+        entry.Items ??
+        entry.items ??
+        entry.LineItems ??
+        entry.lineItems ??
+        header?.Items ??
+        header?.items;
+      return Array.isArray(src) ? src : [];
+    };
+    if (header != null && typeof header === 'object') {
+      const H = header;
+      const { Items: _i1, items: _i2, LineItems: _l1, lineItems: _l2, ...headerRest } = H;
+      return {
+        ...headerRest,
+        LotBranchName: branchName,
+        LineItems: pickItems(),
+      };
+    }
+    return {
+      ...entry,
+      LotBranchName: branchName ?? entry.LotBranchName ?? null,
+      LineItems: pickItems(),
+    };
+  });
+};
+
+/** Every line under each lot from GetAllSampleOutList (Out, Returned, etc.). */
+const flattenAllLotLinesFromLots = (normalizedLots) => {
+  const rows = [];
+  if (!Array.isArray(normalizedLots)) return rows;
+  normalizedLots.forEach((lot, lotIdx) => {
+    const lines = Array.isArray(lot.LineItems) ? lot.LineItems : [];
+    const sampleLotNo = lot.SampleLotNo ?? lot.SampleOutNo ?? '—';
+    const lotStatus = lot.Status ?? '—';
+    const partyName = lot.PartyName ?? '—';
+    const branch = lot.LotBranchName ?? lot.BranchName ?? '—';
+    const lotPartyType = lot.PartyType ?? lot.party_type ?? '';
+    lines.forEach((line, li) => {
+      if (!line || typeof line !== 'object') return;
+      rows.push({
+        _key: `${sampleLotNo}-${line.ItemCode ?? li}-${lotIdx}-${li}`,
+        LotSampleLotNo: sampleLotNo,
+        LotStatus: lotStatus,
+        LotPartyName: partyName,
+        LotBranchName: branch,
+        LotPartyType: lotPartyType,
+        ...line,
+      });
+    });
+  });
+  return rows;
+};
+
+/** One row per sample lot in the grid (aggregates `flattenAllLotLinesFromLots`). */
+const groupFlatRowsBySampleLot = (flatRows) => {
+  if (!Array.isArray(flatRows) || flatRows.length === 0) return [];
+  const order = [];
+  const byLot = new Map();
+  flatRows.forEach((row) => {
+    const lotNo = String(row.LotSampleLotNo ?? '').trim() || '—';
+    if (!byLot.has(lotNo)) {
+      byLot.set(lotNo, []);
+      order.push(lotNo);
+    }
+    byLot.get(lotNo).push(row);
+  });
+  return order.map((lotNo) => ({
+    lotNo,
+    lines: byLot.get(lotNo),
+    _groupKey: `lot-${lotNo}`,
+  }));
+};
+
+const pickSameOrVarious = (lines, pick) => {
+  const vals = lines.map(pick).filter((v) => v != null && String(v).trim() !== '');
+  if (vals.length === 0) return '—';
+  const first = String(vals[0]);
+  return vals.every((v) => String(v) === first) ? first : 'Various';
+};
+
+const sumWtField = (lines, getter) => {
+  let s = 0;
+  let any = false;
+  lines.forEach((line) => {
+    const n = parseFloat(getter(line));
+    if (Number.isFinite(n)) {
+      s += n;
+      any = true;
+    }
+  });
+  return any ? s.toFixed(3) : '—';
+};
+
+const summarizeLotLineStatuses = (lines) => {
+  const labels = lines.map((l) => String(l.ItemStatus ?? l.Status ?? '—').trim());
+  const uniq = [...new Set(labels)];
+  if (uniq.length === 1) return uniq[0];
+  return 'Mixed';
+};
+
+/** Rows for the compact item-detail modal (icons + values). */
+const buildSampleLineDetailFields = (line, formatDate) => [
+  { label: 'Line id', Icon: FaHashtag, value: line.Id ?? '—' },
+  { label: 'Txn id', Icon: FaHashtag, value: line.SampleTransactionId ?? line.SampleTransactionID ?? '—' },
+  { label: 'Stock #', Icon: FaCube, value: line.LabelledStockId ?? '—' },
+  { label: 'Line status', Icon: FaFlag, value: line.ItemStatus ?? line.Status ?? '—' },
+  { label: 'Lot status', Icon: FaFlag, value: line.LotStatus ?? '—' },
+  { label: 'Category', Icon: FaTags, value: line.CategoryName ?? '—' },
+  { label: 'Product', Icon: FaCube, value: line.ProductName ?? '—' },
+  { label: 'Design', Icon: FaShapes, value: line.DesignName ?? '—' },
+  { label: 'Purity', Icon: FaTags, value: line.PurityName ?? '—' },
+  { label: 'Gross wt', Icon: FaBalanceScale, value: line.GrossWt ?? line.grosswt ?? line.TWt ?? '—' },
+  { label: 'Net wt', Icon: FaBalanceScale, value: line.NetWt ?? line.netwt ?? '—' },
+  { label: 'Stone wt', Icon: FaBalanceScale, value: line.StoneWt ?? '—' },
+  { label: 'Diamond wt', Icon: FaBalanceScale, value: line.DiamondWt ?? '—' },
+  { label: 'Branch', Icon: FaBuilding, value: line.BranchName ?? line.LotBranchName ?? '—' },
+  { label: 'RFID / EPC', Icon: FaBarcode, value: line.RFIDNumber ?? line.RFID ?? line.RFIDCode ?? '—' },
+  { label: 'Party', Icon: FaUserFriends, value: line.LotPartyName ?? '—' },
+  { label: 'Party type', Icon: FaUserTie, value: line.LotPartyType ?? line.PartyType ?? '—' },
+  { label: 'Out date', Icon: FaCalendarAlt, value: formatDate(line.OutDate) },
+  { label: 'In date', Icon: FaCalendarAlt, value: formatDate(line.InDate) },
+  {
+    label: 'Remarks',
+    Icon: FaCommentAlt,
+    value: line.Remarks != null && String(line.Remarks).trim() !== '' ? String(line.Remarks) : '—',
+    fullWidth: true,
+  },
+];
+
+const historyLotStatusChipSx = (status) => {
+  const s = String(status ?? '—').toLowerCase();
+  if (s.includes('closed'))
+    return { bg: '#f1f5f9', fg: '#334155', bd: '#94a3b8' };
+  if (s.includes('partial'))
+    return { bg: '#fff7ed', fg: '#9a3412', bd: '#fdba74' };
+  if (s.includes('open'))
+    return { bg: '#eef2ff', fg: '#4338ca', bd: '#a5b4fc' };
+  return { bg: '#fafafa', fg: '#525252', bd: '#d4d4d4' };
+};
+
+const historyLineStatusChipSx = (status) => {
+  const s = String(status ?? '—').toLowerCase();
+  if (s.includes('return'))
+    return { bg: '#ecfdf5', fg: '#047857', bd: '#34d399' };
+  if (s === 'out' || (s.includes('out') && !s.includes('return')))
+    return { bg: '#fffbeb', fg: '#b45309', bd: '#fbbf24' };
+  if (s.includes('pending') || s.includes('partial'))
+    return { bg: '#ecfeff', fg: '#0e7490', bd: '#22d3ee' };
+  return { bg: '#fafafa', fg: '#737373', bd: '#d4d4d4' };
+};
+
+const StatusChip = ({ label, sx }) => (
+  <span
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '1px 7px',
+      borderRadius: 6,
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: '0.03em',
+      border: `1px solid ${sx.bd}`,
+      background: sx.bg,
+      color: sx.fg,
+      maxWidth: '100%',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    }}
+  >
+    {label ?? '—'}
+  </span>
+);
+
+/** Fixed page height for lot-lines grid (empty rows pad short pages). */
+const HISTORY_PAGE_SIZE = 15;
+const LOT_LINES_TABLE_HEAD_BG = '#2d3e50';
+
+function buildCreateSampleInItemFromHistoryRow(row, itemRemarks = 'OK') {
+  const stId =
+    parseInt(
+      row.SampleTransactionItemId ??
+        row.sampleTransactionItemId ??
+        row.Id ??
+        row.LineId ??
+        0,
+      10
+    ) || 0;
+  const lsId =
+    parseInt(row.LabelledStockId ?? row.labelledStockId ?? 0, 10) || 0;
+  const itemCode = String(row.ItemCode ?? row.Itemcode ?? '').trim();
+  return {
+    SampleTransactionItemId: stId,
+    LabelledStockId: lsId,
+    ItemCode: itemCode,
+    Remarks: String(itemRemarks || 'OK').trim() || 'OK',
+  };
+}
+
+function historyRowCanMatchForSampleIn(row) {
+  const it = buildCreateSampleInItemFromHistoryRow(row);
+  return (
+    it.SampleTransactionItemId > 0 ||
+    it.LabelledStockId > 0 ||
+    Boolean(it.ItemCode)
+  );
+}
 
 const SampleIn = () => {
   const { loading, setLoading } = useLoading();
@@ -47,6 +378,22 @@ const SampleIn = () => {
   const [balanceAmount, setBalanceAmount] = useState('0.000');
   const [finePercent, setFinePercent] = useState('0.00');
   const [advanceAmount, setAdvanceAmount] = useState('0.00');
+
+  const [partyType, setPartyType] = useState('customer');
+
+  const [vendorList, setVendorList] = useState([]);
+  const [vendorSearch, setVendorSearch] = useState('');
+  const [filteredVendors, setFilteredVendors] = useState([]);
+  const [showVendorDropdown, setShowVendorDropdown] = useState(false);
+  const [selectedVendorId, setSelectedVendorId] = useState('');
+  const [loadingVendors, setLoadingVendors] = useState(false);
+
+  const [employeeList, setEmployeeList] = useState([]);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [filteredEmployees, setFilteredEmployees] = useState([]);
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
   
   // Sample Out Selection State
   const [sampleOutSearch, setSampleOutSearch] = useState('');
@@ -70,15 +417,13 @@ const SampleIn = () => {
   // Sample In Items State
   const [sampleInItems, setSampleInItems] = useState([]);
   
-  // Pagination State
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
-  const [tableSearch, setTableSearch] = useState('');
   
   // Success Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
   const [showCustomerSidebar, setShowCustomerSidebar] = useState(false);
+  const [showVendorSidebar, setShowVendorSidebar] = useState(false);
+  const [showEmployeeSidebar, setShowEmployeeSidebar] = useState(false);
   const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
   const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
   
@@ -87,6 +432,26 @@ const SampleIn = () => {
   const exportDropdownRef = useRef(null);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
 
+  /** Flat rows from GetAllSampleOutList (one row per lot line). */
+  const [returnedHistoryRows, setReturnedHistoryRows] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+  /** Sample lot: all line rows for one lot (detail popup). */
+  const [lotDetailModal, setLotDetailModal] = useState(null);
+  /** Single line from lot modal: full field detail (nested popup). */
+  const [lotLineItemDetail, setLotLineItemDetail] = useState(null);
+  /** Lot-lines table row selection (`row._key`). */
+  const [selectedHistoryLineKeys, setSelectedHistoryLineKeys] = useState(() => new Set());
+  /** Confirm modal for CreateSampleIn from table selection (grouped by lot). */
+  const [tableSampleInModal, setTableSampleInModal] = useState(null);
+  const [tableSampleInRemarks, setTableSampleInRemarks] = useState('');
+  const [tableSampleInSubmitting, setTableSampleInSubmitting] = useState(false);
+  const historySelectAllRef = useRef(null);
+  /** API lot filter: all lots, or PartialReturned / Closed only */
+  const [historyLotStatus, setHistoryLotStatus] = useState('all');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+
   // Helper function to normalize array responses
   const normalizeArray = (data) => {
     if (!data) return [];
@@ -94,6 +459,51 @@ const SampleIn = () => {
     if (data.data && Array.isArray(data.data)) return data.data;
     if (data.result && Array.isArray(data.result)) return data.result;
     return [];
+  };
+
+  const resolveBranchId = () =>
+    parseInt(userInfo?.BranchId ?? userInfo?.branchId ?? 1, 10) || 1;
+
+  const getVendorDisplayName = (v) =>
+    (v &&
+      (v.DisplayName || v.VendorName || v.Name || v.vendorName || '')) ||
+    'Unknown';
+
+  const getEmployeeDisplayName = (e) => {
+    if (!e) return 'Unknown';
+    if (e.DisplayName) return String(e.DisplayName).trim();
+    if (e.FirstName) {
+      return `${e.FirstName}${e.LastName ? ` ${e.LastName}` : ''}`.trim();
+    }
+    return e.EmployeeName || e.Name || 'Unknown';
+  };
+
+  const getCustomerDisplayName = (customer) => {
+    if (!customer) return '';
+    if (customer.DisplayName) return String(customer.DisplayName).trim();
+    if (customer.FirstName) {
+      return `${customer.FirstName}${customer.LastName ? ` ${customer.LastName}` : ''}`.trim();
+    }
+    return customer.Name || customer.CustomerName || 'Unknown';
+  };
+
+  const normalizePartyQuery = (s) =>
+    String(s || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+
+  const toProperPersonName = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .trim()
+      .split(/\s+/)
+      .map((word) => {
+        if (!word) return '';
+        if (word.length === 1) return word.toUpperCase();
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+      })
+      .join(' ');
   };
 
   // Fetch user info on mount
@@ -132,33 +542,93 @@ const SampleIn = () => {
     setLoadingCustomers(true);
     try {
       const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
       };
       
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllCustomer',
+        getGetAllCustomerUrl(),
         { ClientCode: userInfo.ClientCode },
         { headers }
       );
       
-      const customers = normalizeArray(response.data);
-      setCustomerList(customers);
+      setCustomerList(normalizeArray(response.data));
     } catch (error) {
       console.error('Error fetching customers:', error);
       addNotification({
         type: 'error',
         title: 'Error',
-        message: 'Failed to load customers. Please refresh the page.'
+        message: 'Failed to load customers. Please refresh the page.',
       });
+      setCustomerList([]);
     } finally {
       setLoadingCustomers(false);
     }
   };
 
-  // Fetch sample outs for selected customer
-  const fetchSampleOuts = async (customerId) => {
-    if (!userInfo?.ClientCode || !customerId) {
+  const fetchVendors = async () => {
+    if (!userInfo?.ClientCode) return;
+    setLoadingVendors(true);
+    try {
+      const headers = {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
+      };
+      const body = { ClientCode: userInfo.ClientCode };
+      let response;
+      try {
+        response = await axios.post(getGetAllVendorUrl(), body, { headers });
+      } catch {
+        response = await axios.post(getGetAllVendorsAltUrl(), body, { headers });
+      }
+      setVendorList(normalizeArray(response.data));
+    } catch (error) {
+      console.error('Error fetching vendors:', error);
+      setVendorList([]);
+    } finally {
+      setLoadingVendors(false);
+    }
+  };
+
+  const fetchEmployees = async () => {
+    if (!userInfo?.ClientCode) return;
+    setLoadingEmployees(true);
+    try {
+      const headers = {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
+      };
+      const response = await axios.post(
+        getGetAllEmployeeUrl(),
+        { ClientCode: userInfo.ClientCode },
+        { headers }
+      );
+      setEmployeeList(normalizeArray(response.data));
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      setEmployeeList([]);
+    } finally {
+      setLoadingEmployees(false);
+    }
+  };
+
+  useEffect(() => {
+    if (userInfo?.ClientCode) {
+      fetchVendors();
+      fetchEmployees();
+    }
+  }, [userInfo]);
+
+  /** Pending sample-out lots for the selected party (`GetPendingSampleOutLotNosByParty`). */
+  const fetchPendingSampleLotsForParty = async () => {
+    const partyId =
+      partyType === 'customer'
+        ? selectedCustomerId
+        : partyType === 'vendor'
+          ? selectedVendorId
+          : selectedEmployeeId;
+
+    if (!userInfo?.ClientCode || !partyId) {
       setSampleOutList([]);
       return;
     }
@@ -166,31 +636,30 @@ const SampleIn = () => {
     setLoadingSampleOuts(true);
     try {
       const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
       };
-      
-      const payload = {
+      const body = {
         ClientCode: userInfo.ClientCode,
-        CustomerId: parseInt(customerId),
-        SampleStatus: 'SampleOut'
+        PartyType: partyTypeToApiEnum(partyType),
+        PartyId: parseInt(partyId, 10) || 0,
       };
-      
-      const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/Transaction/GetAllCustSampleOutNo',
-        payload,
-        { headers }
-      );
-      
-      // Response is an array of strings like ["C12", "C8"]
-      const sampleOutNumbers = Array.isArray(response.data) ? response.data : [];
-      setSampleOutList(sampleOutNumbers);
+      const br = resolveBranchId();
+      if (br) body.BranchId = br;
+
+      const { data } = await axios.post(getPendingSampleOutLotNosByPartyUrl(), body, { headers });
+      const rows = extractPendingLotsFromResponse(data);
+      setSampleOutList(rows);
     } catch (error) {
-      console.error('Error fetching sample outs:', error);
+      console.error('Error fetching pending sample out lots:', error);
       addNotification({
         type: 'error',
-        title: 'Error',
-        message: 'Failed to load sample outs. Please try again.'
+        title: 'Pending lots',
+        message:
+          error.response?.data?.Message ||
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to load pending sample lots for this party.',
       });
       setSampleOutList([]);
     } finally {
@@ -198,9 +667,30 @@ const SampleIn = () => {
     }
   };
 
+  useEffect(() => {
+    const partyId =
+      partyType === 'customer'
+        ? selectedCustomerId
+        : partyType === 'vendor'
+          ? selectedVendorId
+          : selectedEmployeeId;
+    if (!userInfo?.ClientCode) return;
+    if (!partyId) {
+      setSampleOutList([]);
+      return;
+    }
+    fetchPendingSampleLotsForParty();
+  }, [partyType, selectedCustomerId, selectedVendorId, selectedEmployeeId, userInfo?.ClientCode]);
+
   // Filter customers based on search input
   useEffect(() => {
-    if (customerSearch.trim() === '') {
+    if (partyType !== 'customer') {
+      setFilteredCustomers([]);
+      setShowCustomerDropdown(false);
+      return;
+    }
+    const hasQuery = customerSearch.trim().length > 0;
+    if (!hasQuery) {
       setFilteredCustomers([]);
       setShowCustomerDropdown(false);
       return;
@@ -211,19 +701,95 @@ const SampleIn = () => {
       const firstName = (customer.FirstName || '').toLowerCase();
       const lastName = (customer.LastName || '').toLowerCase();
       const name = (customer.Name || '').toLowerCase();
-      const customerName = (customer.CustomerName || '').toLowerCase();
+      const custName = (customer.CustomerName || '').toLowerCase();
       const mobile = (customer.Mobile || customer.MobileNumber || '').toLowerCase();
       
       return firstName.includes(searchTerm) || 
              lastName.includes(searchTerm) || 
              name.includes(searchTerm) || 
-             customerName.includes(searchTerm) ||
+             custName.includes(searchTerm) ||
              mobile.includes(searchTerm);
     });
 
+    const selected = selectedCustomerId
+      ? customerList.find((c) => String(c.Id) === String(selectedCustomerId))
+      : null;
+    const lockedLabel = selected
+      ? normalizePartyQuery(toProperPersonName(getCustomerDisplayName(selected)))
+      : '';
+    const q = normalizePartyQuery(customerSearch);
+    const selectionLocksDropdown = Boolean(selected && lockedLabel && q === lockedLabel);
+
     setFilteredCustomers(filtered);
-    setShowCustomerDropdown(filtered.length > 0);
-  }, [customerSearch, customerList]);
+    setShowCustomerDropdown(!selectionLocksDropdown);
+  }, [customerSearch, customerList, partyType, selectedCustomerId]);
+
+  useEffect(() => {
+    if (partyType !== 'vendor') {
+      setFilteredVendors([]);
+      setShowVendorDropdown(false);
+      return;
+    }
+    const hasQuery = vendorSearch.trim().length > 0;
+    if (!hasQuery) {
+      setFilteredVendors([]);
+      setShowVendorDropdown(false);
+      return;
+    }
+    const searchTerm = vendorSearch.toLowerCase();
+    const filtered = vendorList.filter((v) => {
+      const name = (v.VendorName || v.Name || v.vendorName || '').toLowerCase();
+      const mobile = (v.Mobile || v.Phone || v.PhoneNumber || '').toLowerCase();
+      return name.includes(searchTerm) || mobile.includes(searchTerm);
+    });
+    const selected = selectedVendorId
+      ? vendorList.find((v) => String(v.Id) === String(selectedVendorId))
+      : null;
+    const lockedLabel = selected ? normalizePartyQuery(getVendorDisplayName(selected).trim()) : '';
+    const q = normalizePartyQuery(vendorSearch);
+    const selectionLocksDropdown = Boolean(selected && lockedLabel && q === lockedLabel);
+
+    setFilteredVendors(filtered);
+    setShowVendorDropdown(!selectionLocksDropdown);
+  }, [vendorSearch, vendorList, partyType, selectedVendorId]);
+
+  useEffect(() => {
+    if (partyType !== 'employee') {
+      setFilteredEmployees([]);
+      setShowEmployeeDropdown(false);
+      return;
+    }
+    const hasQuery = employeeSearch.trim().length > 0;
+    if (!hasQuery) {
+      setFilteredEmployees([]);
+      setShowEmployeeDropdown(false);
+      return;
+    }
+    const searchTerm = employeeSearch.toLowerCase();
+    const filtered = employeeList.filter((emp) => {
+      const first = (emp.FirstName || '').toLowerCase();
+      const last = (emp.LastName || '').toLowerCase();
+      const ename = (emp.EmployeeName || emp.Name || '').toLowerCase();
+      const mobile = (emp.Mobile || emp.Phone || emp.ContactNo || emp.contactNo || '').toLowerCase();
+      return (
+        first.includes(searchTerm) ||
+        last.includes(searchTerm) ||
+        ename.includes(searchTerm) ||
+        mobile.includes(searchTerm)
+      );
+    });
+    const selected = selectedEmployeeId
+      ? employeeList.find((e) => String(e.Id) === String(selectedEmployeeId))
+      : null;
+    const lockedLabel = selected
+      ? normalizePartyQuery(toProperPersonName(getEmployeeDisplayName(selected)))
+      : '';
+    const q = normalizePartyQuery(employeeSearch);
+    const selectionLocksDropdown = Boolean(selected && lockedLabel && q === lockedLabel);
+
+    setFilteredEmployees(filtered);
+    setShowEmployeeDropdown(!selectionLocksDropdown);
+  }, [employeeSearch, employeeList, partyType, selectedEmployeeId]);
 
   // Filter sample outs based on search input
   useEffect(() => {
@@ -235,40 +801,46 @@ const SampleIn = () => {
       return;
     }
 
-    // sampleOutList is an array of strings like ["C12", "C8"]
-    const filtered = sampleOutList.filter(sampleOutNo => {
-      // Handle both string and object formats
-      if (typeof sampleOutNo === 'string') {
-        return sampleOutNo.toLowerCase().includes(searchTerm);
-      } else {
-        // Fallback for object format if needed
-        const sampleOutNoStr = (sampleOutNo.SampleOutNo || sampleOutNo.SampleOutNumber || '').toLowerCase();
-        const customerName = (sampleOutNo.CustomerName || sampleOutNo.Customer?.FirstName || '').toLowerCase();
-        const description = (sampleOutNo.Description || '').toLowerCase();
-        
-        return sampleOutNoStr.includes(searchTerm) || 
-               customerName.includes(searchTerm) ||
-               description.includes(searchTerm);
+    const filtered = sampleOutList.filter((entry) => {
+      if (typeof entry === 'string') {
+        return entry.toLowerCase().includes(searchTerm);
       }
+      const lot = String(
+        entry.SampleLotNo || entry.SampleOutNo || entry.SampleOutNumber || ''
+      ).toLowerCase();
+      const partyNm = String(entry.PartyName || '').toLowerCase();
+      const rem = String(entry.Remarks || '').toLowerCase();
+      return (
+        lot.includes(searchTerm) ||
+        partyNm.includes(searchTerm) ||
+        rem.includes(searchTerm)
+      );
     });
 
     setFilteredSampleOuts(filtered);
   }, [sampleOutSearch, sampleOutList]);
 
-  // Update customer details when customer is selected
+  // Customer-only fields when party is customer (pending lots load when party is selected)
   useEffect(() => {
+    if (partyType !== 'customer') {
+      return;
+    }
     if (selectedCustomerId && customerList.length > 0) {
-      const customer = customerList.find(c => c.Id == selectedCustomerId || c.Id === selectedCustomerId);
+      const customer = customerList.find(
+        (c) => c.Id == selectedCustomerId || c.Id === selectedCustomerId
+      );
       if (customer) {
-        const customerName = customer.FirstName 
-          ? `${customer.FirstName}${customer.LastName ? ' ' + customer.LastName : ''}`
-          : customer.Name || customer.CustomerName || 'Unknown';
-        setCustomerName(customerName);
-        setCustomerSearch(customerName);
+        const nm = toProperPersonName(getCustomerDisplayName(customer));
+        setCustomerName(nm);
+        setCustomerSearch(nm);
         setCustomerMobile(customer.Mobile || customer.MobileNumber || '');
         setFineGold(customer.FineGold ? parseFloat(customer.FineGold).toFixed(3) : '0.000');
-        setAdvanceAmount(customer.AdvanceAmount ? parseFloat(customer.AdvanceAmount).toFixed(2) : '0.00');
-        setBalanceAmount(customer.BalanceAmount ? parseFloat(customer.BalanceAmount).toFixed(3) : '0.000');
+        setAdvanceAmount(
+          customer.AdvanceAmount ? parseFloat(customer.AdvanceAmount).toFixed(2) : '0.00'
+        );
+        setBalanceAmount(
+          customer.BalanceAmount ? parseFloat(customer.BalanceAmount).toFixed(3) : '0.000'
+        );
         if (customer.FineGold) {
           const fine = parseFloat(customer.FineGold);
           setFinePercent(fine.toFixed(2));
@@ -276,8 +848,6 @@ const SampleIn = () => {
           setFinePercent('0.00');
         }
       }
-      // Fetch sample outs when customer is selected
-      fetchSampleOuts(selectedCustomerId);
     } else if (!selectedCustomerId) {
       setCustomerName('');
       setCustomerSearch('');
@@ -286,55 +856,142 @@ const SampleIn = () => {
       setAdvanceAmount('0.00');
       setBalanceAmount('0.000');
       setFinePercent('0.00');
-      // Clear sample outs when no customer is selected
-      setSampleOutList([]);
       setSampleOutSearch('');
       setSelectedSampleOutId(null);
       setSelectedSampleOutData(null);
+      setSampleInItems([]);
     }
-  }, [selectedCustomerId, customerList]);
+  }, [selectedCustomerId, customerList, partyType]);
 
-  // Handle sample out selection - populate return date and description
-  const handleSampleOutSelect = (sampleOut) => {
-    // Handle both string and object formats
-    if (typeof sampleOut === 'string') {
-      // If it's a string (sample out number like "C12")
-      setSelectedSampleOutId(sampleOut);
-      setSelectedSampleOutData(sampleOut);
-      setSampleOutSearch(sampleOut);
-      setShowSampleOutDropdown(false);
-    } else {
-      // If it's an object (fallback for compatibility)
-      setSelectedSampleOutId(sampleOut.Id || sampleOut.CustomerIssueId || sampleOut);
-      setSelectedSampleOutData(sampleOut);
-      setSampleOutSearch(sampleOut.SampleOutNo || sampleOut.SampleOutNumber || '');
+  const mapLotApiItemToGridRow = (row, idx) => ({
+    id: `${row.Id}-${idx}`,
+    sampleTransactionItemId: row.Id,
+    SampleTransactionItemId: row.Id,
+    RFIDNumber: row.RFIDNumber || '',
+    Itemcode: row.ItemCode || row.Itemcode || '',
+    LabelledStockId: row.LabelledStockId,
+    category_id: '',
+    product_id: '',
+    design_id: '',
+    purity_id: '',
+    grosswt: '0.000',
+    stonewt: '0.000',
+    diamondweight: '0.000',
+    netwt: '0.000',
+    FinePercent: '0.00',
+    WastagePercent: '0.00',
+    Qty: 1,
+    Pieces: 1,
+    TotalWt: '0.000',
+    fullItemData: row,
+    lotLineSource: true,
+  });
+
+  const handleSampleOutSelect = async (sampleOut) => {
+    const headers = {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+      'Content-Type': 'application/json',
+    };
+
+    const lotNo =
+      typeof sampleOut === 'string'
+        ? sampleOut
+        : sampleOut.SampleLotNo || sampleOut.SampleOutNo || sampleOut.SampleOutNumber || '';
+
+    if (!lotNo || !userInfo?.ClientCode) return;
+
+    setSelectedSampleOutId(lotNo);
+    setSelectedSampleOutData(
+      typeof sampleOut === 'object' ? sampleOut : { SampleLotNo: lotNo }
+    );
+    setSampleOutSearch(lotNo);
+    setSampleInNumber(lotNo);
       setShowSampleOutDropdown(false);
       
-      // Auto-populate return date and description
-      if (sampleOut.ReturnDate) {
-        // Format date to YYYY-MM-DD
-        const date = new Date(sampleOut.ReturnDate);
-        if (!isNaN(date.getTime())) {
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          setReturnDate(`${year}-${month}-${day}`);
+    try {
+      const { data: byNo } = await axios.post(
+        getSampleLotByNoUrl(),
+        { ClientCode: userInfo.ClientCode, SampleLotNo: lotNo },
+        { headers }
+      );
+      const header = byNo?.Header ?? byNo?.header;
+      if (header?.ExpectedReturnDate) {
+        const d = new Date(header.ExpectedReturnDate);
+        if (!isNaN(d.getTime())) {
+          setReturnDate(
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+              d.getDate()
+            ).padStart(2, '0')}`
+          );
         }
       }
-      setDescription(sampleOut.Description || '');
-      
-      // Also set customer if available
-      if (sampleOut.CustomerId) {
-        setSelectedCustomerId(sampleOut.CustomerId);
+      if (header && header.Remarks != null) {
+        setDescription(String(header.Remarks));
       }
+
+      const { data: itemsData } = await axios.post(
+        getSampleLotItemsUrl(),
+        {
+          ClientCode: userInfo.ClientCode,
+          SampleLotNo: lotNo,
+          ItemStatus: 'Out',
+        },
+        { headers }
+      );
+      const raw = normalizeArray(itemsData);
+      setSampleInItems(raw.map((row, i) => mapLotApiItemToGridRow(row, i)));
+    } catch (e) {
+      console.error(e);
+      addNotification({
+        type: 'error',
+        title: 'Load failed',
+        message: 'Could not load sample lot details or pending lines.',
+      });
+      setSampleInItems([]);
     }
   };
+
+  useEffect(() => {
+    if (partyType === 'vendor' && !selectedVendorId) {
+      setCustomerMobile('');
+    }
+  }, [partyType, selectedVendorId]);
+
+  useEffect(() => {
+    if (partyType === 'employee' && !selectedEmployeeId) {
+      setCustomerMobile('');
+    }
+  }, [partyType, selectedEmployeeId]);
+
+  useEffect(() => {
+    if (partyType !== 'vendor' || !selectedVendorId || vendorList.length === 0) {
+      return;
+    }
+    const v = vendorList.find((x) => String(x.Id) === String(selectedVendorId));
+    if (v) {
+      setVendorSearch(String(getVendorDisplayName(v)).trim());
+      setCustomerMobile(String(v.Mobile || v.Phone || v.PhoneNumber || ''));
+    }
+  }, [selectedVendorId, vendorList, partyType]);
+
+  useEffect(() => {
+    if (partyType !== 'employee' || !selectedEmployeeId || employeeList.length === 0) {
+      return;
+    }
+    const e = employeeList.find((x) => String(x.Id) === String(selectedEmployeeId));
+    if (e) {
+      setEmployeeSearch(toProperPersonName(getEmployeeDisplayName(e)));
+      setCustomerMobile(String(e.Mobile || e.Phone || e.ContactNo || e.contactNo || ''));
+    }
+  }, [selectedEmployeeId, employeeList, partyType]);
 
   // Handle click outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target)) {
         setShowCustomerDropdown(false);
+        setShowVendorDropdown(false);
+        setShowEmployeeDropdown(false);
       }
       if (sampleOutDropdownRef.current && !sampleOutDropdownRef.current.contains(event.target)) {
         setShowSampleOutDropdown(false);
@@ -356,60 +1013,84 @@ const SampleIn = () => {
     setShowCustomerDropdown(false);
   };
 
-  // Fetch sample in number
-  const fetchSampleInNumber = async () => {
-    if (!userInfo?.ClientCode) return;
-    
-    try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
-      };
-      
-      // Assuming similar API endpoint for sample in number
-      const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/Transaction/GetCustLastSampleOutNo',
-        { ClientCode: userInfo.ClientCode },
-        { headers }
-      );
-      
-      if (response.data) {
-        // Get the value from response (could be in different formats)
-        let lastNumberValue = response.data?.LastSampleOutNo || response.data?.SampleOutNo || response.data?.LastSampleInNo || response.data?.SampleInNo || response.data;
-        
-        // Convert to string if it's not already
-        let lastNumberStr = String(lastNumberValue || '0');
-        
-        // Extract numeric part from string (handles cases like "C22" -> "22")
-        // This regex extracts all digits from the string
-        const numericMatch = lastNumberStr.match(/\d+/);
-        let lastNumber = numericMatch ? numericMatch[0] : '0';
-        
-        // Parse and validate
-        const parsedNumber = parseInt(lastNumber, 10);
-        if (isNaN(parsedNumber) || parsedNumber < 0) {
-          console.warn('Invalid sample in number from API, defaulting to 1. Response:', response.data, 'Extracted:', lastNumber);
-          setSampleInNumber('1');
-        } else {
-          const nextNumber = (parsedNumber + 1).toString();
-          console.log('Sample In Number - API Response:', response.data, 'Extracted Number:', lastNumber, 'Next Number:', nextNumber);
-          setSampleInNumber(nextNumber);
-        }
-      } else {
-        console.warn('No data in API response, defaulting to 1');
-        setSampleInNumber('1');
-      }
-    } catch (error) {
-      console.error('Error fetching sample in number:', error);
-      setSampleInNumber('1');
-    }
+  const handleVendorSelect = (v) => {
+    setSelectedVendorId(v.Id);
+    setShowVendorDropdown(false);
   };
 
+  const handleEmployeeSelect = (eRow) => {
+    setSelectedEmployeeId(eRow.Id);
+    setShowEmployeeDropdown(false);
+  };
+
+  const handlePartyTypeChange = (next) => {
+    setPartyType(next);
+    setSelectedCustomerId('');
+    setCustomerSearch('');
+    setSelectedVendorId('');
+    setVendorSearch('');
+    setSelectedEmployeeId('');
+    setEmployeeSearch('');
+    setCustomerName('');
+    setCustomerMobile('');
+    setFineGold('0.000');
+    setAdvanceAmount('0.00');
+    setBalanceAmount('0.000');
+    setFinePercent('0.00');
+    setShowCustomerDropdown(false);
+    setShowVendorDropdown(false);
+    setShowEmployeeDropdown(false);
+    setSampleOutList([]);
+    setSampleOutSearch('');
+    setSelectedSampleOutId(null);
+    setSelectedSampleOutData(null);
+    setSampleInItems([]);
+    setSampleInNumber('');
+  };
+
+  const partyTypeLabel = (t) =>
+    t === 'customer' ? 'Customer' : t === 'vendor' ? 'Vendor' : 'Employee';
+
+  const partyNameFieldLabel =
+    partyType === 'customer'
+      ? 'Customer Name'
+      : partyType === 'vendor'
+        ? 'Vendor Name'
+        : 'Employee Name';
+
+  const partySearchPlaceholder =
+    partyType === 'customer'
+      ? 'Type to search customer...'
+      : partyType === 'vendor'
+        ? 'Type to search vendor...'
+        : 'Type to search employee...';
+
+  const loadingPartyList =
+    partyType === 'customer' ? loadingCustomers : partyType === 'vendor' ? loadingVendors : loadingEmployees;
+
+  const partySearchValue =
+    partyType === 'customer' ? customerSearch : partyType === 'vendor' ? vendorSearch : employeeSearch;
+
+  const partyDropdownOpen =
+    (partyType === 'customer' && showCustomerDropdown && customerSearch.trim()) ||
+    (partyType === 'vendor' && showVendorDropdown && vendorSearch.trim()) ||
+    (partyType === 'employee' && showEmployeeDropdown && employeeSearch.trim());
+
+  const noMatchPartyLabel =
+    partyType === 'customer' ? 'customer' : partyType === 'vendor' ? 'vendor' : 'employee';
+
+  const sampleOutPartyReady =
+    (partyType === 'customer' && selectedCustomerId) ||
+    (partyType === 'vendor' && selectedVendorId) ||
+    (partyType === 'employee' && selectedEmployeeId);
+
   useEffect(() => {
-    if (userInfo?.ClientCode) {
-      fetchSampleInNumber();
-    }
-  }, [userInfo]);
+    setSelectedSampleOutId(null);
+    setSelectedSampleOutData(null);
+    setSampleOutSearch('');
+    setSampleInNumber('');
+    setSampleInItems([]);
+  }, [selectedCustomerId, selectedVendorId, selectedEmployeeId]);
 
   // Handle window resize
   useEffect(() => {
@@ -598,29 +1279,18 @@ const SampleIn = () => {
   };
 
   // Remove item from sample in
-  const removeItem = (id) => {
-    setSampleInItems(sampleInItems.filter(item => item.id !== id));
-  };
-
-  const editItem = (id) => {
-    const item = sampleInItems.find((row) => row.id === id);
-    if (!item) return;
-    const qtyInput = window.prompt('Enter Qty', String(item.Qty || 1));
-    if (qtyInput === null) return;
-    const pcsInput = window.prompt('Enter Pcs', String(item.Pieces || 1));
-    if (pcsInput === null) return;
-    const qty = Math.max(1, parseInt(qtyInput, 10) || 1);
-    const pcs = Math.max(1, parseInt(pcsInput, 10) || 1);
-    setSampleInItems((prev) => prev.map((row) => (row.id === id ? { ...row, Qty: qty, Pieces: pcs } : row)));
-  };
-
   // Handle Sample In submission
   const handleSampleIn = async () => {
-    if (!selectedCustomerId) {
+    const hasParty =
+      (partyType === 'customer' && selectedCustomerId) ||
+      (partyType === 'vendor' && selectedVendorId) ||
+      (partyType === 'employee' && selectedEmployeeId);
+
+    if (!hasParty) {
       addNotification({
         type: 'error',
         title: 'Validation Error',
-        message: 'Please select a customer.'
+        message: `Please select a ${partyTypeLabel(partyType).toLowerCase()}.`
       });
       return;
     }
@@ -629,7 +1299,7 @@ const SampleIn = () => {
       addNotification({
         type: 'error',
         title: 'Validation Error',
-        message: 'Please select a sample out.'
+        message: 'Please select an open sample lot.',
       });
       return;
     }
@@ -638,7 +1308,21 @@ const SampleIn = () => {
       addNotification({
         type: 'error',
         title: 'Validation Error',
-        message: 'Please add at least one item to sample in.'
+        message: 'Add at least one line to return (load a lot or add items).',
+      });
+      return;
+    }
+
+    const missingLineId = sampleInItems.some((item) => {
+      const tid = parseInt(item.sampleTransactionItemId ?? item.SampleTransactionItemId, 10);
+      return !Number.isFinite(tid) || tid <= 0;
+    });
+    if (missingLineId) {
+      addNotification({
+        type: 'error',
+        title: 'Validation Error',
+        message:
+          'Each row must come from the selected sample lot (outstanding lines). Remove manually added search rows or re-pick the lot.',
       });
       return;
     }
@@ -647,145 +1331,86 @@ const SampleIn = () => {
       addNotification({
         type: 'error',
         title: 'Error',
-        message: 'User information not found. Please refresh the page.'
+        message: 'User information not found. Please refresh the page.',
       });
       return;
     }
 
     setLoading(true);
     try {
-      const totalQuantity = sampleInItems.reduce((sum, item) => sum + (parseInt(item.Qty) || 1), 0);
-      const totalDiamondWeight = sampleInItems.reduce((sum, item) => sum + (parseFloat(item.diamondweight) || 0), 0).toFixed(3);
-      const totalGrossWt = sampleInItems.reduce((sum, item) => sum + (parseFloat(item.grosswt) || 0), 0).toFixed(3);
-      const totalNetWt = sampleInItems.reduce((sum, item) => sum + (parseFloat(item.netwt) || 0), 0).toFixed(3);
-      const totalStoneWeight = sampleInItems.reduce((sum, item) => sum + (parseFloat(item.stonewt) || 0), 0).toFixed(3);
-      const totalWt = sampleInItems.reduce((sum, item) => sum + (parseFloat(item.TotalWt) || 0), 0).toFixed(3);
+      const userId =
+        parseInt(
+          userInfo?.UserId ?? userInfo?.UserID ?? userInfo?.Id ?? userInfo?.id ?? 0,
+          10
+        ) || 0;
+      const remarkIn = String(description || '').trim();
 
-      let formattedReturnDate = returnDate || sampleInDate;
-      if (formattedReturnDate) {
-        if (formattedReturnDate.includes('T')) {
-          formattedReturnDate = formattedReturnDate.split('T')[0];
-        } else if (formattedReturnDate.includes('/')) {
-          const parts = formattedReturnDate.split('/');
-          if (parts.length === 3) {
-            formattedReturnDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-          }
-        }
-      }
-
-      const returnItems = sampleInItems.map(item => {
-        const fullItem = item.fullItemData || {};
-        
-        const returnItem = {
-          Id: parseInt(item.LabelledStockId) || 0,
-          ItemCode: item.Itemcode || '',
-          LabelledStockId: parseInt(item.LabelledStockId) || 0,
-          Quantity: parseInt(item.Qty) || 1,
-          Qty: String(item.Qty || 1),
-          Pieces: String(item.Pieces || 1),
-          GrossWt: String(parseFloat(item.grosswt || 0).toFixed(3)),
-          NetWt: String(parseFloat(item.netwt || 0).toFixed(3)),
-          TotalWt: String(parseFloat(item.TotalWt || item.grosswt || 0).toFixed(3)),
-          TotalStoneWeight: String(parseFloat(item.stonewt || 0).toFixed(3)),
-          TotalDiamondWeight: String(parseFloat(item.diamondweight || 0).toFixed(3)),
-          StoneWeight: String(parseFloat(item.stonewt || 0).toFixed(3)),
-          SampleStatus: 'SampleIn',
-          SampleInNo: sampleInNumber,
-          CustomerId: parseInt(selectedCustomerId) || 0,
-          CustomerIssueId: parseInt(selectedSampleOutId) || 0,
-          return_date: formattedReturnDate ? (() => {
-            const date = new Date(formattedReturnDate);
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            return `${day}-${month}-${year}`;
-          })() : null
-        };
-
-        if (fullItem.CategoryId) returnItem.CategoryId = parseInt(fullItem.CategoryId) || 0;
-        if (fullItem.ProductId) returnItem.ProductId = parseInt(fullItem.ProductId) || 0;
-        if (fullItem.DesignId) returnItem.DesignId = parseInt(fullItem.DesignId) || 0;
-        if (fullItem.PurityId) returnItem.PurityId = parseInt(fullItem.PurityId) || 0;
-        if (fullItem.RFIDNumber || item.RFIDNumber) returnItem.RFIDCode = fullItem.RFIDNumber || item.RFIDNumber || '';
-        if (fullItem.TIDNumber) returnItem.TIDNumber = fullItem.TIDNumber;
-        if (fullItem.BranchId) returnItem.BranchId = parseInt(fullItem.BranchId) || 0;
-        if (fullItem.CounterId) returnItem.CounterId = parseInt(fullItem.CounterId) || 0;
-        if (fullItem.BranchName) returnItem.BranchName = fullItem.BranchName;
-        if (fullItem.CounterName) returnItem.CounterName = fullItem.CounterName;
-        if (fullItem.CategoryName || item.category_id) returnItem.CategoryName = fullItem.CategoryName || item.category_id || '';
-        if (fullItem.ProductName || item.product_id) returnItem.ProductName = fullItem.ProductName || item.product_id || '';
-        if (fullItem.DesignName || item.design_id) returnItem.DesignName = fullItem.DesignName || item.design_id || '';
-        if (fullItem.PurityName || item.purity_id) returnItem.PurityName = fullItem.PurityName || item.purity_id || '';
-        if (fullItem.FinePercent || item.FinePercent) {
-          const finePercent = fullItem.FinePercent || item.FinePercent;
-          if (finePercent !== null && finePercent !== undefined) returnItem.FinePercent = finePercent;
-        }
-        if (fullItem.WastagePercent || item.WastagePercent) {
-          const wastagePercent = fullItem.WastagePercent || item.WastagePercent;
-          if (wastagePercent !== null && wastagePercent !== undefined) returnItem.WastagePercent = wastagePercent;
-        }
-        if (fullItem.ClientCode) returnItem.ClientCode = fullItem.ClientCode;
-        if (fullItem.Status) returnItem.Status = fullItem.Status;
-
-        return returnItem;
-      });
+      const Items = sampleInItems.map((item) => ({
+        SampleTransactionItemId:
+          parseInt(item.sampleTransactionItemId ?? item.SampleTransactionItemId, 10) || 0,
+        LabelledStockId: parseInt(item.LabelledStockId, 10) || 0,
+        ItemCode: item.Itemcode || item.ItemCode || '',
+        Remarks: remarkIn || 'OK',
+      }));
 
       const payload = {
         ClientCode: userInfo.ClientCode,
-        CustomerId: parseInt(selectedCustomerId) || 0,
-        SampleInNo: sampleInNumber,
-        ReturnDate: formattedReturnDate || sampleInDate,
-        Description: description || '',
-        SampleStatus: 'SampleIn',
-        CustomerIssueId: parseInt(selectedSampleOutId) || 0,
-        Quantity: totalQuantity,
-        TotalDiamondWeight: totalDiamondWeight,
-        TotalGrossWt: totalGrossWt,
-        TotalNetWt: totalNetWt,
-        TotalStoneWeight: totalStoneWeight,
-        TotalWt: totalWt,
-        ReturnItems: returnItems
+        SampleLotNo: String(selectedSampleOutId),
+        InByUserId: userId,
+        Remarks: remarkIn || 'Returned to counter',
+        Items,
       };
-
-      Object.keys(payload).forEach(key => {
-        if (payload[key] === null || payload[key] === '' || payload[key] === undefined) {
-          delete payload[key];
-        }
-      });
 
       const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
       };
 
-      // Use similar API endpoint - may need to adjust based on actual API
-      const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/Transaction/AddCustomerReturn',
-        payload,
-        { headers }
-      );
-
-      if (response.data?.Status === 400 || response.data?.status === 400) {
-        throw new Error(response.data?.Message || response.data?.message || 'Failed to create sample in');
+      const response = await axios.post(getCreateSampleInUrl(), payload, { headers });
+      const root = response.data ?? {};
+      if (root.Success === false || root.success === false) {
+        throw new Error(root.Message || root.message || 'Create sample in failed');
+      }
+      if (root.Status === 400 || root.status === 400) {
+        throw new Error(root.Message || root.message || 'Failed to create sample in');
       }
 
-      const selectedCustomer = customerList.find(c => c.Id == selectedCustomerId || c.Id === selectedCustomerId);
-      const customerName = selectedCustomer 
-        ? (selectedCustomer.FirstName 
-          ? `${selectedCustomer.FirstName}${selectedCustomer.LastName ? ' ' + selectedCustomer.LastName : ''}`
-          : selectedCustomer.Name || selectedCustomer.CustomerName || 'Unknown')
-        : 'Customer';
+      const resHeader =
+        root.Data?.Header ??
+        root.Data?.header ??
+        root.Header ??
+        root.header;
+      const resolvedLotNo = resHeader?.SampleLotNo ?? String(selectedSampleOutId);
+
+      let resolvedPartyName = '—';
+      if (partyType === 'customer') {
+        const sc = customerList.find(
+          (c) => c.Id == selectedCustomerId || c.Id === selectedCustomerId
+        );
+        resolvedPartyName = sc ? toProperPersonName(getCustomerDisplayName(sc)) : 'Customer';
+      } else if (partyType === 'vendor') {
+        const v = vendorList.find((x) => String(x.Id) === String(selectedVendorId));
+        resolvedPartyName = v ? getVendorDisplayName(v) : 'Vendor';
+      } else {
+        const e = employeeList.find((x) => String(x.Id) === String(selectedEmployeeId));
+        resolvedPartyName = e ? getEmployeeDisplayName(e) : 'Employee';
+      }
 
       setSuccessData({
-        sampleInNo: sampleInNumber,
-        customerName: customerName
+        sampleInNo: resolvedLotNo,
+        customerName: resolvedPartyName,
       });
       setShowSuccessModal(true);
 
       setTimeout(() => {
         setSampleInItems([]);
+        setPartyType('customer');
         setCustomerSearch('');
         setSelectedCustomerId('');
+        setVendorSearch('');
+        setSelectedVendorId('');
+        setEmployeeSearch('');
+        setSelectedEmployeeId('');
         setCustomerMobile('');
         setFineGold('0.000');
         setBalanceAmount('0.000');
@@ -795,7 +1420,7 @@ const SampleIn = () => {
         setSelectedSampleOutData(null);
         setReturnDate('');
         setDescription('');
-        fetchSampleInNumber();
+        setSampleInNumber('');
       }, 2000);
 
     } catch (error) {
@@ -811,22 +1436,6 @@ const SampleIn = () => {
   };
 
   // Pagination calculations
-  const filteredTableItems = sampleInItems.filter((item) => {
-    const q = tableSearch.trim().toLowerCase();
-    if (!q) return true;
-    return [
-      item.Itemcode,
-      item.RFIDNumber,
-      item.category_id,
-      item.product_id,
-      item.design_id,
-    ].some((v) => String(v || '').toLowerCase().includes(q));
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredTableItems.length / itemsPerPage));
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentItems = filteredTableItems.slice(startIndex, endIndex);
-
   const isSmallScreen = windowWidth <= 768;
   const cardBaseStyle = {
     background: '#ffffff',
@@ -834,6 +1443,341 @@ const SampleIn = () => {
     padding: isSmallScreen ? '12px 14px' : '16px 18px',
     boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
     border: '1px solid #e2e8f0'
+  };
+  const dropdownPanelStyle = {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    background: '#ffffff',
+    border: '1px solid #dbe4f0',
+    borderRadius: '10px',
+    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.14)',
+    marginTop: '6px',
+    maxHeight: '280px',
+    overflowY: 'auto',
+    zIndex: 1100
+  };
+
+  const partyAccentColor =
+    partyType === 'customer' ? '#15803d' : partyType === 'vendor' ? '#a855f7' : '#0ea5e9';
+  const partySegments = [
+    { id: 'customer', label: 'Customer', Icon: FaUserFriends, color: '#15803d' },
+    { id: 'vendor', label: 'Vendor', Icon: FaStore, color: '#a855f7' },
+    { id: 'employee', label: 'Employee', Icon: FaUserTie, color: '#0ea5e9' },
+  ];
+
+  const formatHistoryDate = (v) => {
+    if (v == null || v === '') return '—';
+    try {
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v);
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch {
+      return String(v);
+    }
+  };
+
+  const fetchReturnedHistory = useCallback(async () => {
+    const client = resolveClientCode(userInfo);
+    if (!client) {
+      setReturnedHistoryRows([]);
+      return;
+    }
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const body = { ClientCode: client };
+      if (historyLotStatus === 'PartialReturned' || historyLotStatus === 'Closed') {
+        body.Status = historyLotStatus;
+      }
+      const { data } = await axios.post(getAllSampleOutListUrl(), body, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const fail =
+        (data && data.Success === false) || (data && data.success === false);
+      if (fail) {
+        throw new Error(data.Message || data.message || 'Could not load sample list');
+      }
+      const lots = normalizeSampleOutListRows(extractSampleOutListFromResponse(data));
+      const allLines = flattenAllLotLinesFromLots(lots);
+      setReturnedHistoryRows(allLines);
+    } catch (e) {
+      const msg =
+        e.response?.data?.Message ||
+        e.response?.data?.message ||
+        e.message ||
+        'Failed to load sample lot lines';
+      setHistoryError(msg);
+      setReturnedHistoryRows([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [userInfo, historyLotStatus]);
+
+  const openTableSampleInModal = useCallback(() => {
+    const rows = returnedHistoryRows.filter((r) => r._key && selectedHistoryLineKeys.has(r._key));
+    if (rows.length === 0) {
+      addNotification({
+        type: 'error',
+        title: 'Selection',
+        message: 'Select at least one line in the table.',
+      });
+      return;
+    }
+    const alreadyReturned = rows.filter((r) =>
+      String(r.ItemStatus ?? r.Status ?? '')
+        .toLowerCase()
+        .includes('return')
+    );
+    if (alreadyReturned.length > 0) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid selection',
+        message: `${alreadyReturned.length} selected line(s) are already returned. Choose lines still out.`,
+      });
+      return;
+    }
+    for (const row of rows) {
+      if (!historyRowCanMatchForSampleIn(row)) {
+        addNotification({
+          type: 'error',
+          title: 'Invalid line',
+          message: 'Each line needs a transaction id, labelled stock id, or item code.',
+        });
+        return;
+      }
+    }
+    const map = new Map();
+    rows.forEach((row) => {
+      const lotNo = String(row.LotSampleLotNo || '').trim();
+      if (!lotNo || lotNo === '—') return;
+      if (!map.has(lotNo)) map.set(lotNo, []);
+      map.get(lotNo).push(row);
+    });
+    if (map.size === 0) {
+      addNotification({
+        type: 'error',
+        title: 'Sample out no',
+        message: 'Could not read sample lot number for the selected rows.',
+      });
+      return;
+    }
+    setTableSampleInRemarks(String(description || '').trim() || 'Returned to counter');
+    setTableSampleInModal({
+      groups: Array.from(map.entries()).map(([lotNo, rws]) => ({ lotNo, rows: rws })),
+    });
+  }, [returnedHistoryRows, selectedHistoryLineKeys, description, addNotification]);
+
+  const submitTableSampleInFromSelection = useCallback(async () => {
+    if (!tableSampleInModal?.groups?.length) return;
+    if (!userInfo?.ClientCode) {
+      addNotification({
+        type: 'error',
+        title: 'Error',
+        message: 'User information not found. Please refresh the page.',
+      });
+      return;
+    }
+    const token = localStorage.getItem('token');
+    const userId =
+      parseInt(
+        userInfo?.UserId ?? userInfo?.UserID ?? userInfo?.Id ?? userInfo?.id ?? 0,
+        10
+      ) || 0;
+    const lotRemarks = String(tableSampleInRemarks || '').trim() || 'Returned to counter';
+    const groups = tableSampleInModal.groups;
+    setTableSampleInSubmitting(true);
+    try {
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+      const lotNos = [];
+      let lastParty = '—';
+      for (const g of groups) {
+        const Items = g.rows.map((row) => buildCreateSampleInItemFromHistoryRow(row, 'OK'));
+        const payload = {
+          ClientCode: userInfo.ClientCode,
+          SampleLotNo: g.lotNo,
+          InByUserId: userId,
+          Remarks: lotRemarks,
+          Items,
+        };
+        const { data: root } = await axios.post(getCreateSampleInUrl(), payload, { headers });
+        if (root?.Success === false || root?.success === false) {
+          throw new Error(root.Message || root.message || 'Create sample in failed');
+        }
+        if (root?.Status === 400 || root?.status === 400) {
+          throw new Error(root.Message || root.message || 'Create sample in failed');
+        }
+        const hdr = root?.Data?.Header ?? root?.Data?.header ?? root?.Header ?? root?.header;
+        lotNos.push(String(hdr?.SampleLotNo ?? g.lotNo));
+        lastParty = g.rows[0]?.LotPartyName ?? lastParty;
+      }
+      setTableSampleInModal(null);
+      setSelectedHistoryLineKeys(new Set());
+      await fetchReturnedHistory();
+      setSuccessData({
+        sampleInNo: lotNos.join(', '),
+        customerName: lastParty,
+      });
+      setShowSuccessModal(true);
+    } catch (e) {
+      addNotification({
+        type: 'error',
+        title: 'Sample In',
+        message:
+          e.response?.data?.Message ||
+          e.response?.data?.message ||
+          e.message ||
+          'Failed to process sample in.',
+      });
+    } finally {
+      setTableSampleInSubmitting(false);
+    }
+  }, [
+    tableSampleInModal,
+    tableSampleInRemarks,
+    userInfo,
+    addNotification,
+    fetchReturnedHistory,
+  ]);
+
+  const handleAddSampleInClick = () => {
+    if (selectedHistoryLineKeys.size > 0) {
+      openTableSampleInModal();
+      return;
+    }
+    handleSampleIn();
+  };
+
+  useEffect(() => {
+    fetchReturnedHistory();
+  }, [fetchReturnedHistory]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historyLotStatus, historySearch, selectedSampleOutId]);
+
+  const filteredHistoryGroups = useMemo(() => {
+    const groups = groupFlatRowsBySampleLot(returnedHistoryRows);
+    const lotPick = selectedSampleOutId && String(selectedSampleOutId).trim();
+    let next = lotPick
+      ? groups.filter((g) => String(g.lotNo).trim() === lotPick)
+      : groups;
+
+    if (!historySearch.trim()) return next;
+    const q = historySearch.toLowerCase().trim();
+    return next.filter((g) => {
+      if (String(g.lotNo).toLowerCase().includes(q)) return true;
+      return g.lines.some((row) => {
+        const blob = [
+          row.LotSampleLotNo,
+          row.LotStatus,
+          row.LotPartyName,
+          row.LotPartyType,
+          row.PartyType,
+          row.LotBranchName,
+          row.ItemCode,
+          row.Itemcode,
+          row.ItemStatus,
+          row.CategoryName,
+          row.ProductName,
+          row.DesignName,
+          row.RFIDNumber,
+          row.RFID,
+        ]
+          .filter((x) => x != null)
+          .map((x) => String(x).toLowerCase())
+          .join(' ');
+        return blob.includes(q);
+      });
+    });
+  }, [returnedHistoryRows, historySearch, selectedSampleOutId]);
+
+  const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryGroups.length / HISTORY_PAGE_SIZE));
+  const historyStart = (historyPage - 1) * HISTORY_PAGE_SIZE;
+  const historyPageGroups = filteredHistoryGroups.slice(historyStart, historyStart + HISTORY_PAGE_SIZE);
+
+  const historyPageRowKeys = useMemo(
+    () => historyPageGroups.flatMap((g) => g.lines.map((r) => r._key).filter(Boolean)),
+    [historyPageGroups]
+  );
+
+  const toggleLotGroupSelection = useCallback((group) => {
+    const keys = group.lines.map((l) => l._key).filter(Boolean);
+    setSelectedHistoryLineKeys((prev) => {
+      const next = new Set(prev);
+      const all = keys.length > 0 && keys.every((k) => next.has(k));
+      if (all) keys.forEach((k) => next.delete(k));
+      else keys.forEach((k) => next.add(k));
+      return next;
+    });
+  }, []);
+  const historyPageAllSelected =
+    historyPageRowKeys.length > 0 && historyPageRowKeys.every((k) => selectedHistoryLineKeys.has(k));
+  const historyPageSomeSelected =
+    historyPageRowKeys.some((k) => selectedHistoryLineKeys.has(k)) && !historyPageAllSelected;
+
+  useEffect(() => {
+    const el = historySelectAllRef.current;
+    if (el) el.indeterminate = Boolean(historyPageSomeSelected);
+  }, [historyPageSomeSelected]);
+
+  const toggleHistoryPageSelectAll = useCallback(() => {
+    setSelectedHistoryLineKeys((prev) => {
+      const next = new Set(prev);
+      if (historyPageRowKeys.length === 0) return next;
+      const all = historyPageRowKeys.every((k) => next.has(k));
+      if (all) historyPageRowKeys.forEach((k) => next.delete(k));
+      else historyPageRowKeys.forEach((k) => next.add(k));
+      return next;
+    });
+  }, [historyPageRowKeys]);
+
+  useEffect(() => {
+    setSelectedHistoryLineKeys(new Set());
+  }, [historyLotStatus]);
+
+  const paddedHistorySlots = useMemo(() => {
+    const slots = [];
+    historyPageGroups.forEach((group) => slots.push({ kind: 'row', group }));
+    const pad = Math.max(0, HISTORY_PAGE_SIZE - slots.length);
+    for (let i = 0; i < pad; i += 1) {
+      slots.push({ kind: 'pad', key: `history-pad-${historyPage}-${i}` });
+    }
+    return slots;
+  }, [historyPageGroups, historyPage]);
+
+  const thHistory = {
+    padding: isSmallScreen ? '6px 6px' : '7px 8px',
+    textAlign: 'left',
+    fontWeight: 700,
+    fontSize: isSmallScreen ? 10 : 11,
+    whiteSpace: 'nowrap',
+    letterSpacing: '0.02em',
+  };
+  const tdH = {
+    padding: isSmallScreen ? '5px 6px' : '6px 8px',
+    color: '#404040',
+    whiteSpace: 'nowrap',
+    fontSize: isSmallScreen ? 10 : 11,
+    lineHeight: 1.35,
+  };
+  const tdEmpty = { padding: 16, textAlign: 'center', color: '#737373', fontSize: 13 };
+  const pageBtnBase = {
+    padding: '5px 11px',
+    fontSize: 12,
+    fontWeight: 600,
+    borderRadius: 8,
+    border: '1px solid #e5e5e5',
+    background: '#ffffff',
+    color: '#525252',
+    cursor: 'pointer',
   };
 
   // Calculate totals for export
@@ -1048,7 +1992,7 @@ const SampleIn = () => {
 
   return (
     <div style={{ 
-      padding: isSmallScreen ? '10px' : '24px',
+      padding: isSmallScreen ? '8px' : '12px',
       fontFamily: 'Inter, system-ui, sans-serif', 
       background: '#ffffff',
       minHeight: '100vh',
@@ -1061,19 +2005,24 @@ const SampleIn = () => {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        @keyframes sampleInTick {
+          0% { transform: scale(0); opacity: 0; }
+          55% { transform: scale(1.12); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
         @media (max-width: 768px) {
           * { box-sizing: border-box; }
         }
       `}</style>
       
-      {/* Top Header */}
+      {/* Top Header (layout aligned with Sample Out) */}
       <div style={{
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        borderRadius: '14px',
-        padding: isSmallScreen ? '10px 12px' : '14px 18px',
-        marginBottom: isSmallScreen ? '8px' : '12px',
-        boxShadow: '0 10px 26px rgba(15, 23, 42, 0.08)',
-        border: '1px solid #bae6fd',
+        background: '#ffffff',
+        borderRadius: '10px',
+        padding: isSmallScreen ? '8px 10px' : '10px 12px',
+        marginBottom: '10px',
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
+        border: '1px solid #e2e8f0',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: isSmallScreen ? 'flex-start' : 'center',
@@ -1081,8 +2030,19 @@ const SampleIn = () => {
         gap: isSmallScreen ? '8px' : '10px',
         flexDirection: isSmallScreen ? 'column' : 'row'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: 4,
+            flexShrink: 0,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '8px' : '12px' }}>
+            <span
+              style={{
             width: isSmallScreen ? 30 : 34,
             height: isSmallScreen ? 30 : 34,
             borderRadius: 10,
@@ -1090,53 +2050,83 @@ const SampleIn = () => {
             alignItems: 'center',
             justifyContent: 'center',
             background: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-            color: '#fff'
-          }}>
+                color: '#fff',
+                boxShadow: '0 2px 8px rgba(13, 148, 136, 0.35)',
+              }}
+            >
             <FaCheckCircle style={{ fontSize: isSmallScreen ? 14 : 16 }} />
           </span>
-          <h2 style={{ 
+            <h2
+              style={{
             margin: 0, 
             fontSize: isSmallScreen ? '15px' : '18px', 
-            fontWeight: 700, 
+                fontWeight: 800,
             color: '#1e293b',
-            lineHeight: '1.2'
-          }}>
+                lineHeight: '1.2',
+                letterSpacing: '-0.02em',
+              }}
+            >
             Sample In
           </h2>
         </div>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: isSmallScreen ? '11px' : '12px', color: '#64748b', fontWeight: 600 }}>Sample In No:</span>
-            <span style={{ fontSize: isSmallScreen ? '12px' : '13px', color: '#1e293b', fontWeight: 600 }}>
+          {process.env.REACT_APP_SHOW_SAMPLE_API_BASE === '1' && (
+            <div
+              style={{
+                fontSize: 10,
+                color: '#64748b',
+                lineHeight: 1.35,
+                maxWidth: 'min(100vw - 24px, 520px)',
+                wordBreak: 'break-all',
+              }}
+              title="Shown when REACT_APP_SHOW_SAMPLE_API_BASE=1 at build time"
+            >
+              API mode: {getApiMode()} · RFIDDashboard host: {getSampleApiBaseUrl()} · Party lists host:{' '}
+              {getRrgoldApiBaseUrl()}
+            </div>
+          )}
+        </div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isSmallScreen ? 'stretch' : 'flex-end',
+          flexWrap: 'wrap',
+          gap: isSmallScreen ? '10px' : '12px',
+          marginLeft: isSmallScreen ? 0 : 'auto',
+          width: isSmallScreen ? '100%' : 'auto',
+          minWidth: 0
+        }}>
+          <div
+                style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: isSmallScreen ? '8px 12px' : '8px 14px',
+              borderRadius: '12px',
+              background: 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)',
+                  border: '1px solid #e2e8f0',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(15, 23, 42, 0.06)',
+              flex: isSmallScreen ? 1 : 'none'
+            }}
+          >
+            <span style={{
+              fontSize: isSmallScreen ? '10px' : '11px',
+              color: '#64748b',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}>
+              Sample In No
+            </span>
+            <span style={{
+              fontSize: isSmallScreen ? '14px' : '15px',
+              color: '#0f172a',
+              fontWeight: 800,
+              fontVariantNumeric: 'tabular-nums',
+              letterSpacing: '-0.03em',
+              lineHeight: 1
+            }}>
               {sampleInNumber || 'Auto-generated'}
             </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: isSmallScreen ? '11px' : '12px', color: '#64748b', fontWeight: 600 }}>Date:</span>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <FaCalendarAlt style={{
-                position: 'absolute',
-                left: '6px',
-                color: '#64748b',
-                fontSize: '11px',
-                pointerEvents: 'none',
-                zIndex: 1
-              }} />
-              <input
-                type="date"
-                value={sampleInDate}
-                onChange={(e) => setSampleInDate(e.target.value)}
-                style={{
-                  padding: '4px 6px 4px 24px',
-                  fontSize: isSmallScreen ? '11px' : '12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none',
-                  width: '130px',
-                  height: '28px'
-                }}
-              />
-            </div>
           </div>
           {/* Export Button with Dropdown */}
           {sampleInItems.length > 0 && (
@@ -1247,114 +2237,188 @@ const SampleIn = () => {
         </div>
       </div>
 
-      {/* Main Content Layout */}
+      {/* Main Content Layout — 50% / 50% (aligned with Sample Out) */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isSmallScreen ? '1fr' : '55% 45%',
-        gap: '12px',
+        gridTemplateColumns: isSmallScreen ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)',
+        gap: isSmallScreen ? '10px' : '12px',
         marginBottom: '12px',
-        alignItems: 'stretch'
+        alignItems: 'start'
       }}>
-        {/* Customer Information */}
         <div style={{
           ...cardBaseStyle,
           marginBottom: 0,
-          height: '100%'
+          alignSelf: 'start',
+          borderTop: `3px solid ${partyAccentColor}`,
+          padding: isSmallScreen ? '8px 10px' : '10px 12px',
         }}>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+              Party type
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {partySegments.map(({ id, label, Icon, color }) => {
+                const active = partyType === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => handlePartyTypeChange(id)}
+                    style={{
+                      flex: isSmallScreen ? '1 1 100%' : '1 1 0',
+                      minWidth: isSmallScreen ? '100%' : 96,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      padding: '6px 10px',
+                      borderRadius: 10,
+                      border: active ? `2px solid ${color}` : '1px solid #e2e8f0',
+                      background: active ? `${color}14` : '#f8fafc',
+                      color: active ? color : '#64748b',
+                      fontWeight: active ? 800 : 600,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <Icon style={{ fontSize: 14, opacity: active ? 1 : 0.85 }} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: isSmallScreen ? '1fr' : windowWidth <= 1024 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)', 
-            gap: isSmallScreen ? '10px' : '12px' 
+            gridTemplateColumns: isSmallScreen ? '1fr' : '2fr 1fr',
+            gap: isSmallScreen ? '8px' : '10px'
           }}>
-             {/* Customer Name */}
              <div ref={customerDropdownRef} style={{ position: 'relative' }}>
                <label style={{ 
                  display: 'block', 
-                 fontSize: '12px', 
+                 fontSize: '11px',
                  fontWeight: 600, 
                  color: '#475569', 
                  marginBottom: '4px' 
                }}>
-                 Customer Name<span style={{ color: '#ef4444' }}>*</span>
+                 {partyNameFieldLabel}<span style={{ color: '#ef4444' }}>*</span>
                </label>
                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                  <div style={{ flex: 1, position: 'relative' }}>
                    <input
                      type="text"
-                     value={customerSearch}
+                     value={partySearchValue}
                      onChange={(e) => {
-                       setCustomerSearch(e.target.value);
+                       const v = e.target.value;
+                       if (partyType === 'customer') {
+                         setCustomerSearch(v);
                        setSelectedCustomerId('');
                        setShowCustomerDropdown(true);
+                       } else if (partyType === 'vendor') {
+                         setVendorSearch(v);
+                         setSelectedVendorId('');
+                         setShowVendorDropdown(true);
+                       } else {
+                         setEmployeeSearch(v);
+                         setSelectedEmployeeId('');
+                         setShowEmployeeDropdown(true);
+                       }
                      }}
                      onFocus={(e) => {
-                       e.target.style.borderColor = '#3b82f6';
-                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                       if (customerSearch.trim() && filteredCustomers.length > 0) {
+                       e.target.style.borderColor = partyAccentColor;
+                       e.target.style.boxShadow = `0 0 0 3px ${partyAccentColor}33`;
+                       if (partyType === 'customer' && customerSearch.trim()) {
                          setShowCustomerDropdown(true);
+                       }
+                       if (partyType === 'vendor' && vendorSearch.trim()) {
+                         setShowVendorDropdown(true);
+                       }
+                       if (partyType === 'employee' && employeeSearch.trim()) {
+                         setShowEmployeeDropdown(true);
                        }
                      }}
                      onBlur={(e) => {
                        e.target.style.borderColor = '#d1d5db';
                        e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
                      }}
-                     placeholder="Type to search customer..."
-                     disabled={loadingCustomers}
+                     placeholder={partySearchPlaceholder}
+                     disabled={loadingPartyList}
                      style={{
                        width: '100%',
-                       padding: '10px 12px',
-                       fontSize: '12px',
+                       padding: '8px 10px',
+                       fontSize: '11px',
                        border: '1px solid #d1d5db',
                        borderRadius: '8px',
                        outline: 'none',
-                       background: loadingCustomers ? '#f9fafb' : '#ffffff',
+                       background: loadingPartyList ? '#f9fafb' : '#ffffff',
                        boxSizing: 'border-box',
                        transition: 'all 0.2s ease',
                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                      }}
                    />
-                   {showCustomerDropdown && filteredCustomers.length > 0 && (
-                     <div style={{
-                       position: 'absolute',
-                       top: '100%',
-                       left: 0,
-                       right: 0,
-                       background: '#ffffff',
-                       border: '1px solid #e5e7eb',
-                       borderRadius: '8px',
-                       boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
-                       marginTop: '6px',
-                       maxHeight: '280px',
-                       overflowY: 'auto',
-                       zIndex: 1000,
-                       borderTop: '2px solid #3b82f6'
-                     }}>
-                       {filteredCustomers.map((customer, idx) => {
-                         const customerName = customer.FirstName 
-                           ? `${customer.FirstName}${customer.LastName ? ' ' + customer.LastName : ''}`
-                           : customer.Name || customer.CustomerName || 'Unknown';
+                  {partyDropdownOpen && (
+                    <div
+                      style={{ ...dropdownPanelStyle, borderTop: `3px solid ${partyAccentColor}` }}
+                      role="listbox"
+                      aria-label={`${partyNameFieldLabel} suggestions`}
+                    >
+                      {loadingPartyList && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                          Loading…
+                        </div>
+                      )}
+                      {!loadingPartyList &&
+                        partyType === 'customer' &&
+                        filteredCustomers.length === 0 && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                          No matching {noMatchPartyLabel} found.
+                        </div>
+                      )}
+                      {!loadingPartyList &&
+                        partyType === 'vendor' &&
+                        filteredVendors.length === 0 && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                          No matching {noMatchPartyLabel} found.
+                        </div>
+                      )}
+                      {!loadingPartyList &&
+                        partyType === 'employee' &&
+                        filteredEmployees.length === 0 && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                          No matching {noMatchPartyLabel} found.
+                        </div>
+                      )}
+                      {!loadingPartyList &&
+                        partyType === 'customer' &&
+                        filteredCustomers.map((customer, idx) => {
+                         const displayName = toProperPersonName(getCustomerDisplayName(customer));
+                         const isSelected = String(customer.Id) === String(selectedCustomerId);
                          return (
                            <div
                              key={customer.Id}
-                             data-dropdown-item="true"
                              onMouseDown={(e) => {
-                               e.preventDefault(); // Prevent input blur from firing before selection
+                               e.preventDefault();
                                handleCustomerSelect(customer);
                              }}
+                            role="option"
+                            aria-selected={isSelected}
                              style={{
-                               padding: '12px 14px',
+                              padding: '10px 12px',
                                cursor: 'pointer',
-                               fontSize: '12px',
+                              fontSize: '11px',
                                borderBottom: idx < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
                                transition: 'all 0.15s ease',
-                               backgroundColor: '#ffffff'
+                               backgroundColor: isSelected ? `${partyAccentColor}18` : '#ffffff'
                              }}
                              onMouseEnter={(e) => {
-                               e.currentTarget.style.background = '#f8fafc';
+                               if (!isSelected) e.currentTarget.style.background = '#f8fafc';
                                e.currentTarget.style.transform = 'translateX(2px)';
                              }}
                              onMouseLeave={(e) => {
-                               e.currentTarget.style.background = '#ffffff';
+                               e.currentTarget.style.background = isSelected ? `${partyAccentColor}18` : '#ffffff';
                                e.currentTarget.style.transform = 'translateX(0)';
                              }}
                            >
@@ -1362,10 +2426,10 @@ const SampleIn = () => {
                                fontWeight: 600, 
                                color: '#1e293b',
                                marginBottom: customer.Mobile || customer.MobileNumber ? '4px' : '0',
-                               fontSize: '13px',
+                              fontSize: '12px',
                                lineHeight: '1.4'
                              }}>
-                               {customerName}
+                               {displayName}
                              </div>
                              {customer.Mobile || customer.MobileNumber ? (
                                <div style={{ 
@@ -1390,12 +2454,156 @@ const SampleIn = () => {
                            </div>
                          );
                        })}
+                      {!loadingPartyList &&
+                        partyType === 'vendor' &&
+                        filteredVendors.map((v, idx) => {
+                          const displayName = getVendorDisplayName(v);
+                          const mob = v.Mobile || v.Phone || v.PhoneNumber;
+                          const isSelected = String(v.Id) === String(selectedVendorId);
+                          return (
+                            <div
+                              key={v.Id}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleVendorSelect(v);
+                              }}
+                              role="option"
+                              aria-selected={isSelected}
+                              style={{
+                                padding: '10px 12px',
+                                cursor: 'pointer',
+                                fontSize: '11px',
+                                borderBottom: idx < filteredVendors.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                transition: 'all 0.15s ease',
+                                backgroundColor: isSelected ? `${partyAccentColor}18` : '#ffffff'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected) e.currentTarget.style.background = '#f8fafc';
+                                e.currentTarget.style.transform = 'translateX(2px)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = isSelected ? `${partyAccentColor}18` : '#ffffff';
+                                e.currentTarget.style.transform = 'translateX(0)';
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontWeight: 600,
+                                  color: '#1e293b',
+                                  marginBottom: mob ? '4px' : '0',
+                                  fontSize: '12px',
+                                  lineHeight: '1.4'
+                                }}
+                              >
+                                {displayName}
+                              </div>
+                              {mob ? (
+                                <div
+                                  style={{
+                                    color: '#64748b',
+                                    fontSize: '11px',
+                                    fontWeight: 400,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: 'inline-block',
+                                      width: '4px',
+                                      height: '4px',
+                                      borderRadius: '50%',
+                                      background: '#94a3b8',
+                                      flexShrink: 0
+                                    }}
+                                  />
+                                  {mob}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      {!loadingPartyList &&
+                        partyType === 'employee' &&
+                        filteredEmployees.map((emp, idx) => {
+                          const displayName = toProperPersonName(getEmployeeDisplayName(emp));
+                          const mob = emp.Mobile || emp.Phone || emp.ContactNo || emp.contactNo;
+                          const isSelected = String(emp.Id) === String(selectedEmployeeId);
+                          return (
+                            <div
+                              key={emp.Id}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleEmployeeSelect(emp);
+                              }}
+                              role="option"
+                              aria-selected={isSelected}
+                              style={{
+                                padding: '10px 12px',
+                                cursor: 'pointer',
+                                fontSize: '11px',
+                                borderBottom: idx < filteredEmployees.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                transition: 'all 0.15s ease',
+                                backgroundColor: isSelected ? `${partyAccentColor}18` : '#ffffff'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected) e.currentTarget.style.background = '#f8fafc';
+                                e.currentTarget.style.transform = 'translateX(2px)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = isSelected ? `${partyAccentColor}18` : '#ffffff';
+                                e.currentTarget.style.transform = 'translateX(0)';
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontWeight: 600,
+                                  color: '#1e293b',
+                                  marginBottom: mob ? '4px' : '0',
+                                  fontSize: '12px',
+                                  lineHeight: '1.4'
+                                }}
+                              >
+                                {displayName}
+                              </div>
+                              {mob ? (
+                                <div
+                                  style={{
+                                    color: '#64748b',
+                                    fontSize: '11px',
+                                    fontWeight: 400,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: 'inline-block',
+                                      width: '4px',
+                                      height: '4px',
+                                      borderRadius: '50%',
+                                      background: '#94a3b8',
+                                      flexShrink: 0
+                                    }}
+                                  />
+                                  {mob}
+                               </div>
+                             ) : null}
+                           </div>
+                         );
+                       })}
                      </div>
                    )}
                  </div>
                  <button
                    type="button"
-                  onClick={() => setShowCustomerSidebar(true)}
+                   onClick={() => {
+                     if (partyType === 'customer') setShowCustomerSidebar(true);
+                     if (partyType === 'vendor') setShowVendorSidebar(true);
+                     if (partyType === 'employee') setShowEmployeeSidebar(true);
+                   }}
                    style={{
                      display: 'flex',
                      alignItems: 'center',
@@ -1404,56 +2612,57 @@ const SampleIn = () => {
                      fontSize: '14px',
                      fontWeight: 600,
                      borderRadius: '8px',
-                     border: '1px solid #3b82f6',
-                     background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                     border: `1px solid ${partyAccentColor}`,
+                     background: `linear-gradient(135deg, ${partyAccentColor} 0%, ${partyAccentColor}dd 100%)`,
                      color: '#ffffff',
                      cursor: 'pointer',
                      transition: 'all 0.2s ease',
-                     boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
+                     boxShadow: `0 2px 8px ${partyAccentColor}40`,
                      minWidth: '44px',
-                     height: '40px',
-                     flexShrink: 0
+                     height: '34px',
+                     flexShrink: 0,
                    }}
-                   title="Add New Customer"
-                   onMouseEnter={(e) => {
-                     e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                     e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.3)';
-                     e.currentTarget.style.transform = 'translateY(-1px)';
-                   }}
-                   onMouseLeave={(e) => {
-                     e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                     e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2)';
-                     e.currentTarget.style.transform = 'translateY(0)';
-                   }}
+                   title={
+                     partyType === 'customer'
+                       ? 'Add customer (Create Masters API)'
+                       : partyType === 'vendor'
+                         ? 'Add vendor (Create Masters API)'
+                         : 'Add employee (Create Masters API)'
+                   }
                  >
-                   <FaUserPlus />
+                   <FaUserPlus style={{ fontSize: 12 }} />
                  </button>
                </div>
              </div>
 
-            {/* Mobile */}
             <div>
               <label style={{ 
                 display: 'block', 
-                fontSize: '12px', 
+                fontSize: '11px',
                 fontWeight: 600, 
                 color: '#475569', 
                 marginBottom: '4px' 
               }}>
-                Mobile
+                {partyType === 'customer'
+                  ? 'Customer Mobile'
+                  : partyType === 'vendor'
+                    ? 'Vendor Mobile'
+                    : 'Employee Mobile'}
               </label>
               <input
                 type="text"
                 value={customerMobile}
-                onChange={(e) => setCustomerMobile(e.target.value)}
                 placeholder="Mobile"
+                readOnly
                 style={{
                   width: '100%',
                   padding: '8px 10px',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   border: '1px solid #e2e8f0',
                   borderRadius: '6px',
-                  outline: 'none'
+                  outline: 'none',
+                  background: '#f8fafc',
+                  color: '#475569'
                 }}
               />
             </div>
@@ -1461,42 +2670,48 @@ const SampleIn = () => {
           </div>
         </div>
 
-        {/* Sample Out Selection, Return Date and Description */}
+        {/* Sample lot search + description / dates (aligned with Sample Out item + meta rows) */}
         <div style={{
           ...cardBaseStyle,
           marginBottom: 0,
-          height: '100%'
+          alignSelf: 'start',
+          padding: isSmallScreen ? '8px 10px' : '10px 12px',
         }}>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: isSmallScreen ? '1fr' : windowWidth <= 1024 ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', 
-            gap: isSmallScreen ? '10px' : '12px' 
-          }}>
-            {/* Sample Out Selection */}
-            <div ref={sampleOutDropdownRef} style={{ position: 'relative' }}>
-              <label style={{ 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div ref={sampleOutDropdownRef} style={{ position: 'relative', width: '100%' }}>
+              <label
+                htmlFor="sample-in-lot-search"
+                style={{
                 display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
+                  fontSize: '11px',
+                  fontWeight: 700,
                 color: '#475569', 
-                marginBottom: '4px' 
-              }}>
-                Select Sample Out<span style={{ color: '#ef4444' }}>*</span>
+                  marginBottom: '2px',
+                }}
+              >
+                Select sample lot<span style={{ color: '#ef4444' }}>*</span>
               </label>
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', width: '100%' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
+                  <div style={{ position: 'relative', flex: '1 1 auto', minWidth: 0 }}>
                 <FaSearch style={{
                   position: 'absolute',
-                  left: '12px',
+                      left: '10px',
                   top: '50%',
                   transform: 'translateY(-50%)',
                   color: '#94a3b8',
-                  fontSize: '14px',
+                      fontSize: '13px',
                   zIndex: 1,
-                  pointerEvents: 'none'
+                      pointerEvents: 'none',
                 }} />
                 <input
+                      id="sample-in-lot-search"
                   type="text"
-                  placeholder={!selectedCustomerId ? "Select customer first..." : "Type Sample Out No to search..."}
+                      placeholder={
+                        !sampleOutPartyReady
+                          ? 'Select party first...'
+                          : 'Search pending lots (e.g. SO-3)...'
+                      }
                   value={sampleOutSearch}
                   onChange={(e) => {
                     setSampleOutSearch(e.target.value);
@@ -1507,7 +2722,6 @@ const SampleIn = () => {
                   onFocus={(e) => {
                     e.target.style.borderColor = '#3b82f6';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                    // Show dropdown if there are sample outs available
                     if (sampleOutList.length > 0) {
                       setShowSampleOutDropdown(true);
                     }
@@ -1516,31 +2730,83 @@ const SampleIn = () => {
                     e.target.style.borderColor = '#d1d5db';
                     e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
                   }}
-                  disabled={loadingSampleOuts || !selectedCustomerId}
+                      disabled={loadingSampleOuts || !sampleOutPartyReady}
                   style={{
                     width: '100%',
-                    padding: '10px 12px 10px 38px',
-                    fontSize: '12px',
+                        height: 36,
+                        padding: '0 12px 0 34px',
+                        fontSize: '11px',
                     border: '1px solid #d1d5db',
                     borderRadius: '8px',
                     outline: 'none',
-                    background: loadingSampleOuts || !selectedCustomerId ? '#f9fafb' : '#ffffff',
-                    boxSizing: 'border-box',
                     transition: 'all 0.2s ease',
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                        boxSizing: 'border-box',
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                        background: loadingSampleOuts || !sampleOutPartyReady ? '#f9fafb' : '#ffffff',
                   }}
                 />
                 {loadingSampleOuts && (
                   <FaSpinner style={{
                     position: 'absolute',
-                    right: '12px',
+                        right: '10px',
                     top: '50%',
                     transform: 'translateY(-50%)',
                     color: '#3b82f6',
-                    fontSize: '14px',
-                    animation: 'spin 1s linear infinite'
+                        fontSize: '13px',
+                        animation: 'spin 1s linear infinite',
                   }} />
                 )}
+                  </div>
+                  {trayEnabled && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setShowRfidTrayModal(true)}
+                        title="Scan tag with RFID tray"
+                        style={{
+                          flex: '0 0 auto',
+                          width: 36,
+                          height: 36,
+                          borderRadius: '8px',
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          color: '#334155',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        <FaInbox style={{ fontSize: 13 }} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearScannedTrayItems}
+                        title="Clear scanned tray items"
+                        style={{
+                          flex: '0 0 auto',
+                          height: 36,
+                          borderRadius: '8px',
+                          border: '1px solid #fecaca',
+                          background: '#fff1f2',
+                          color: '#b91c1c',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          padding: '0 10px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Clear Scanned
+                      </button>
+                    </>
+                  )}
+                </div>
                 {showSampleOutDropdown && !loadingSampleOuts && (
                   filteredSampleOuts.length > 0 ? (
                   <div style={{
@@ -1559,22 +2825,41 @@ const SampleIn = () => {
                     borderTop: '2px solid #10b981'
                   }}>
                     {filteredSampleOuts.map((sampleOut, idx) => {
-                      // Handle both string and object formats
-                      let sampleOutNo, customerNameDisplay;
+                      let sampleOutNo; let subtitle;
                       if (typeof sampleOut === 'string') {
                         sampleOutNo = sampleOut;
-                        customerNameDisplay = customerName || 'Customer';
+                        subtitle = customerName || '';
                       } else {
-                        sampleOutNo = sampleOut.SampleOutNo || sampleOut.SampleOutNumber || 'N/A';
-                        customerNameDisplay = sampleOut.CustomerName || 
-                          (sampleOut.Customer?.FirstName 
-                            ? `${sampleOut.Customer.FirstName}${sampleOut.Customer.LastName ? ' ' + sampleOut.Customer.LastName : ''}`
-                            : customerName || 'Unknown');
+                        sampleOutNo =
+                          sampleOut.SampleLotNo ||
+                          sampleOut.SampleOutNo ||
+                          sampleOut.SampleOutNumber ||
+                          'N/A';
+                        const pendingChunk =
+                          sampleOut.PendingItems != null || sampleOut.TotalItems != null
+                            ? `${sampleOut.PendingItems ?? '—'} pending · ${sampleOut.TotalItems ?? '—'} total`
+                            : '';
+                        const issueChunk =
+                          sampleOut.IssueDate != null && sampleOut.IssueDate !== ''
+                            ? `Issue ${formatHistoryDate(sampleOut.IssueDate)}`
+                            : '';
+                        subtitle = [
+                          sampleOut.Status,
+                          pendingChunk,
+                          issueChunk,
+                          sampleOut.PartyName || sampleOut.Remarks || '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ');
                       }
                       
                       return (
                         <div
-                          key={typeof sampleOut === 'string' ? sampleOut : (sampleOut.Id || sampleOut.CustomerIssueId || idx)}
+                          key={
+                            typeof sampleOut === 'string'
+                              ? sampleOut
+                              : sampleOut.Id || sampleOut.SampleLotNo || idx
+                          }
                           onClick={() => handleSampleOutSelect(sampleOut)}
                           style={{
                             padding: '12px 14px',
@@ -1602,15 +2887,15 @@ const SampleIn = () => {
                           }}>
                             {sampleOutNo}
                           </div>
-                          {typeof sampleOut !== 'string' && (
+                          {typeof sampleOut !== 'string' && subtitle ? (
                             <div style={{ 
                               color: '#64748b', 
                               fontSize: '11px',
                               fontWeight: 400
                             }}>
-                              Customer: {customerNameDisplay}
+                              {subtitle}
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       );
                     })}
@@ -1633,26 +2918,42 @@ const SampleIn = () => {
                       color: '#64748b',
                       fontSize: '12px'
                     }}>
-                      {!selectedCustomerId 
-                        ? 'Please select a customer first' 
+                      {!sampleOutPartyReady
+                        ? 'Please select a party first'
                         : sampleOutList.length === 0 
-                          ? 'No sample outs found for this customer' 
-                          : 'No matching sample outs found'}
+                          ? 'No pending sample lots for this party (nothing still out)'
+                          : 'No matching sample lots found'}
                     </div>
                   )
                 )}
               </div>
             </div>
 
-            {/* Description */}
-            <div>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: isSmallScreen ? 'column' : 'row',
+                alignItems: isSmallScreen ? 'stretch' : 'flex-end',
+                gap: 12,
+                width: '100%',
+              }}
+            >
+              <div
+                style={{
+                  flex: isSmallScreen ? '1 1 auto' : '0 0 50%',
+                  width: isSmallScreen ? '100%' : '50%',
+                  maxWidth: isSmallScreen ? '100%' : '50%',
+                  minWidth: 0,
+                }}
+              >
               <label style={{ 
                 display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
+                  fontSize: '11px',
+                  fontWeight: 700,
                 color: '#475569', 
-                marginBottom: '4px' 
-              }}>
+                  marginBottom: '4px',
+                }}
+                >
                 Description
               </label>
               <input
@@ -1662,379 +2963,948 @@ const SampleIn = () => {
                 placeholder="Enter description..."
                 style={{
                   width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '12px',
+                    height: 36,
+                    padding: '0 10px',
+                    fontSize: '11px',
                   border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
+                    borderRadius: '8px',
                   outline: 'none',
                   fontFamily: 'inherit',
-                  boxSizing: 'border-box'
+                    boxSizing: 'border-box',
                 }}
               />
             </div>
 
-            {/* Return Date */}
+              <div
+                style={{
+                  flex: isSmallScreen ? '1 1 auto' : '0 0 50%',
+                  width: isSmallScreen ? '100%' : '50%',
+                  minWidth: isSmallScreen ? '100%' : 220,
+                  maxWidth: isSmallScreen ? '100%' : '50%',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isSmallScreen ? '1fr 1fr' : '1fr 1fr',
+                    gap: 8,
+                  }}
+                >
             <div>
-              <label style={{ 
+                    <label
+                      style={{
                 display: 'block', 
-                fontSize: '12px', 
-                fontWeight: 600, 
-                color: '#475569', 
-                marginBottom: '4px' 
-              }}>
-                Return Date
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        color: '#64748b',
+                        marginBottom: '4px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.03em',
+                      }}
+                    >
+                      Sample in date
               </label>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <FaCalendarAlt style={{
+                      <FaCalendarAlt
+                        style={{
                   position: 'absolute',
                   left: '6px',
                   color: '#64748b',
+                          fontSize: '10px',
+                          pointerEvents: 'none',
+                          zIndex: 1,
+                        }}
+                      />
+                      <input
+                        type="date"
+                        value={sampleInDate}
+                        onChange={(e) => setSampleInDate(e.target.value)}
+                        style={{
+                          width: '100%',
+                          height: 36,
+                          padding: '0 8px 0 22px',
                   fontSize: '11px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                          background: '#f8fafc',
+                          color: '#334155',
+                        }}
+                        title="Defaults to today; change if needed"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        color: '#64748b',
+                        marginBottom: '4px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.03em',
+                      }}
+                    >
+                      Return date
+                    </label>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <FaCalendarAlt
+                        style={{
+                          position: 'absolute',
+                          left: '6px',
+                          color: '#64748b',
+                          fontSize: '10px',
                   pointerEvents: 'none',
-                  zIndex: 1
-                }} />
+                          zIndex: 1,
+                        }}
+                      />
                 <input
                   type="date"
                   value={returnDate}
                   onChange={(e) => setReturnDate(e.target.value)}
+                        min={sampleInDate || undefined}
                   style={{
                     width: '100%',
-                    padding: '8px 10px 8px 24px',
-                    fontSize: '12px',
+                          height: 36,
+                          padding: '0 8px 0 22px',
+                          fontSize: '11px',
                     border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
+                          borderRadius: '8px',
                     outline: 'none',
-                    boxSizing: 'border-box'
+                          boxSizing: 'border-box',
                   }}
                 />
+                    </div>
+                  </div>
+                </div>
+              </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Items Table */}
-        <div style={{
+      {/* All lot line items from GetAllSampleOutList */}
+      <div
+                    style={{
           ...cardBaseStyle,
-          marginBottom: '12px',
-          gridColumn: '1 / -1',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>Sample In Items</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {trayEnabled && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowRfidTrayModal(true)}
-                    title="Scan tag with RFID tray"
-                    style={{
-                      minWidth: '32px',
-                      height: '30px',
-                      borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
+          marginBottom: 12,
+          padding: isSmallScreen ? '10px 12px' : '12px 14px',
+          border: '1px solid #e5e5e5',
+          borderRadius: 12,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
                       background: '#ffffff',
-                      color: '#334155',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <FaInbox style={{ fontSize: 12 }} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearScannedTrayItems}
-                    title="Clear scanned tray items"
-                    style={{
-                      height: '30px',
-                      borderRadius: '6px',
-                      border: '1px solid #fecaca',
-                      background: '#fff1f2',
-                      color: '#b91c1c',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      padding: '0 8px',
-                      fontSize: 11,
-                      fontWeight: 600
-                    }}
-                  >
-                    Clear Scanned
-                  </button>
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#171717', letterSpacing: '-0.02em' }}>All sample lots</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: '#737373', lineHeight: 1.4, maxWidth: '42rem' }}>
+              <code style={{ fontSize: 11, background: '#f5f5f5', padding: '1px 5px', borderRadius: 4, color: '#525252' }}>GetAllSampleOutList</code>
+              {' · '}
+              One row per sample lot. Click Items for line detail.
+              {selectedSampleOutId ? (
+                <>
+                  {' '}
+                  <span style={{ color: '#0e7490', fontWeight: 700 }}>
+                    Table narrowed to lot {selectedSampleOutId}. Clear &quot;Select sample lot&quot; above to show all client lots.
+                  </span>
                 </>
+              ) : (
+                <> {HISTORY_PAGE_SIZE} lots per page (padded when fewer).</>
               )}
-              <span style={{ fontSize: '11px', color: '#64748b' }}>Search</span>
+            </p>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+            <label style={{ fontSize: 11, color: '#737373', fontWeight: 700 }}>Lot status</label>
+            <select
+              value={historyLotStatus}
+              onChange={(e) => setHistoryLotStatus(e.target.value)}
+                    style={{
+                height: 30,
+                      padding: '0 8px',
+                borderRadius: 8,
+                border: '1px solid #e5e5e5',
+                      fontSize: 11,
+                background: '#fff',
+                minWidth: 148,
+                color: '#404040',
+              }}
+            >
+              <option value="all">All lots (client filter only)</option>
+              <option value="PartialReturned">Partial returned</option>
+              <option value="Closed">Closed (all returned)</option>
+            </select>
               <input
-                type="text"
-                value={tableSearch}
+              type="search"
+              value={historySearch}
                 onChange={(e) => {
-                  setTableSearch(e.target.value);
-                  setCurrentPage(1);
+                setHistorySearch(e.target.value);
+                setHistoryPage(1);
                 }}
-                placeholder="Search in table..."
+              placeholder="Filter…"
+              aria-label="Filter lot lines"
                 style={{
-                  width: isSmallScreen ? 160 : 220,
+                width: isSmallScreen ? 140 : 176,
                   height: 30,
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  border: '1px solid #cbd5e1',
+                padding: '0 8px',
+                borderRadius: 8,
+                border: '1px solid #e5e5e5',
                   fontSize: 11,
-                  outline: 'none'
-                }}
-              />
+                background: '#fff',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fetchReturnedHistory()}
+              disabled={historyLoading}
+              title="Refresh"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                height: 30,
+                padding: '0 10px',
+                borderRadius: 8,
+                border: '1px solid #d4d4d8',
+                background: '#fafafa',
+                color: '#262626',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: historyLoading ? 'wait' : 'pointer',
+              }}
+            >
+              <FaRedo style={{ fontSize: 11, animation: historyLoading ? 'spin 0.8s linear infinite' : 'none' }} />
+              Refresh
+            </button>
             </div>
           </div>
-
-          <div style={{ 
-            overflowX: 'auto',
-            overflowY: 'auto',
-            maxHeight: isSmallScreen ? '300px' : '500px',
-            WebkitOverflowScrolling: 'touch',
-            borderRadius: '6px',
-            border: '1px solid #e5e7eb',
-            position: 'relative',
-            width: '100%'
-          }}>
-            <table style={{ 
+        {historyError ? (
+          <div style={{ padding: 10, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 10 }}>
+            {historyError}
+          </div>
+        ) : null}
+        <div
+          style={{
+            overflow: 'auto',
+            maxHeight: isSmallScreen ? 400 : 520,
+            borderRadius: 10,
+            border: '1px solid #d4d4d8',
+            background: '#fafafa',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9)',
+          }}
+        >
+          <table
+            style={{
               width: '100%', 
-              borderCollapse: 'collapse',
-              fontSize: isSmallScreen ? '9px' : '11px',
-              minWidth: isSmallScreen ? '1000px' : '100%'
-            }}>
-              <thead>
-                <tr style={{ background: '#334155', borderBottom: '1px solid #334155', position: 'sticky', top: 0, zIndex: 10 }}>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'center', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Sr.No.</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '100px' }}>Item Code</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '100px' }}>RFID Code</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '100px' }}>Category</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '120px' }}>Product Name</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'left', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155', minWidth: '120px' }}>Design Name</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Total Wt</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Gross Wt</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Net Wt</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Stone Wt</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Diamond Wt</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Fine%</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Wastage%</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Qty</th>
-                  <th style={{ padding: isSmallScreen ? '7px' : '9px', textAlign: 'right', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap', fontSize: isSmallScreen ? '10px' : '11px', background: '#334155' }}>Pcs</th>
-                  <th style={{ 
-                    padding: isSmallScreen ? '7px' : '9px', 
+              borderCollapse: 'separate',
+              borderSpacing: 0,
+              fontSize: isSmallScreen ? 10 : 11,
+              minWidth: 1040,
+              tableLayout: 'fixed',
+            }}
+          >
+            <colgroup>
+              <col style={{ width: 34 }} />
+              <col style={{ width: 40 }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '8%' }} />
+            </colgroup>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+              <tr style={{ background: '#f4f4f5', color: '#18181b', boxShadow: '0 1px 0 #e4e4e7' }}>
+                <th
+                  style={{
+                    ...thHistory,
+                    width: 34,
                     textAlign: 'center', 
-                    fontWeight: 600, 
-                    color: '#f8fafc', 
-                    whiteSpace: 'nowrap', 
-                    fontSize: isSmallScreen ? '10px' : '11px', 
-                    background: '#334155',
-                    position: 'sticky',
-                    right: 0,
-                    zIndex: 10,
-                    minWidth: '112px'
-                  }}>Action</th>
+                    borderRight: '1px solid #e4e4e7',
+                    borderBottom: '2px solid #d4d4d8',
+                  }}
+                >
+                  <input
+                    ref={historySelectAllRef}
+                    type="checkbox"
+                    checked={historyPageAllSelected}
+                    onChange={toggleHistoryPageSelectAll}
+                    disabled={historyPageRowKeys.length === 0 || historyLoading}
+                    title="Select all on this page"
+                    aria-label="Select all rows on this page"
+                    style={{
+                      width: 15,
+                      height: 15,
+                      cursor: historyPageRowKeys.length && !historyLoading ? 'pointer' : 'not-allowed',
+                      accentColor: '#404040',
+                    }}
+                  />
+                </th>
+                <th style={{ ...thHistory, paddingLeft: 6, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Sr.</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Sample out no</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Items</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Category</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Product</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Design</th>
+                <th style={{ ...thHistory, textAlign: 'right', borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Gross wt</th>
+                <th style={{ ...thHistory, textAlign: 'right', borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Net wt</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Party</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Party type</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Branch</th>
+                <th style={{ ...thHistory, borderRight: '1px solid #e4e4e7', borderBottom: '2px solid #d4d4d8' }}>Lot status</th>
+                <th style={{ ...thHistory, borderBottom: '2px solid #d4d4d8' }}>Line status</th>
                 </tr>
               </thead>
               <tbody>
-                {currentItems.length > 0 ? (
-                  currentItems.map((item, index) => (
-                    <tr key={item.id} style={{ 
-                      borderBottom: '1px solid #e5e7eb',
-                      transition: 'background 0.2s',
-                      background: index % 2 === 0 ? '#ffffff' : '#f8fafc'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
-                    >
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'center', fontSize: isSmallScreen ? '10px' : '11px' }}>{startIndex + index + 1}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontWeight: 600, color: '#1e293b' }}>{item.Itemcode || '-'}</span>
+              {historyLoading && returnedHistoryRows.length === 0 ? (
+                <tr>
+                  <td colSpan={14} style={tdEmpty}>
+                    <FaSpinner style={{ verticalAlign: 'middle', marginRight: 8, animation: 'spin 0.9s linear infinite' }} />
+                    Loading…
+                  </td>
+                </tr>
+              ) : (
+                paddedHistorySlots.map((slot, slotIdx) => {
+                  if (slot.kind === 'pad') {
+                    return (
+                      <tr
+                        key={slot.key}
+                        style={{
+                          height: 32,
+                          background: '#fafafa',
+                        }}
+                      >
+                        <td colSpan={14} style={{ padding: 0, borderBottom: '1px solid #ececec' }} aria-hidden />
+                      </tr>
+                    );
+                  }
+                  const group = slot.group;
+                  const lines = group.lines;
+                  const first = lines[0];
+                  const serial =
+                    historyStart +
+                    paddedHistorySlots.slice(0, slotIdx).filter((s) => s.kind === 'row').length +
+                    1;
+                  const lineKeys = lines.map((l) => l._key).filter(Boolean);
+                  const allLinesSelected = lineKeys.length > 0 && lineKeys.every((k) => selectedHistoryLineKeys.has(k));
+                  const anyLineSelected = lineKeys.some((k) => selectedHistoryLineKeys.has(k));
+                  const cat = pickSameOrVarious(lines, (r) => r.CategoryName);
+                  const prod = pickSameOrVarious(lines, (r) => r.ProductName);
+                  const des = pickSameOrVarious(lines, (r) => r.DesignName);
+                  const gw = sumWtField(lines, (r) => r.GrossWt ?? r.grosswt ?? r.TWt);
+                  const nw = sumWtField(lines, (r) => r.NetWt ?? r.netwt);
+                  const partyType = first.PartyType ?? first.LotPartyType ?? '';
+                  const lotSx = historyLotStatusChipSx(first.LotStatus);
+                  const lineStatusLabel = summarizeLotLineStatuses(lines);
+                  const lineSx = historyLineStatusChipSx(
+                    lineStatusLabel === 'Mixed' ? '—' : lineStatusLabel
+                  );
+                  const titleCodes = lines
+                    .map((l) => l.ItemCode || l.Itemcode)
+                    .filter(Boolean)
+                    .join(', ');
+                  const rowBg = anyLineSelected ? '#eff6ff' : serial % 2 === 0 ? '#fafafa' : '#ffffff';
+                  const cellBase = { ...tdH, borderRight: '1px solid #ececec', borderBottom: '1px solid #e5e5e5' };
+                  return (
+                    <tr key={group._groupKey} style={{ background: rowBg }}>
+                      <td
+                        style={{ ...cellBase, textAlign: 'center', width: 34, verticalAlign: 'middle' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          ref={(el) => {
+                            if (el) {
+                              const n = lineKeys.filter((k) => selectedHistoryLineKeys.has(k)).length;
+                              el.indeterminate = n > 0 && n < lineKeys.length;
+                            }
+                          }}
+                          checked={allLinesSelected}
+                          onChange={() => toggleLotGroupSelection(group)}
+                          style={{
+                            width: 15,
+                            height: 15,
+                            cursor: 'pointer',
+                            accentColor: '#404040',
+                          }}
+                          aria-label={`Select all lines in lot ${group.lotNo}`}
+                        />
                       </td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontWeight: 500, color: '#1e293b' }}>{item.RFIDNumber || '-'}</span>
+                      <td style={{ ...cellBase, paddingLeft: 6, color: '#737373', fontVariantNumeric: 'tabular-nums' }}>{serial}</td>
+                      <td
+                        style={{
+                          ...cellBase,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          fontWeight: 600,
+                          color: '#0f172a',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                        title={group.lotNo}
+                      >
+                        {group.lotNo}
                       </td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                        <span style={{ color: '#475569' }}>{item.category_id || '-'}</span>
+                      <td style={{ ...cellBase, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <button
+                          type="button"
+                          onClick={() => setLotDetailModal({ lotNo: group.lotNo, lines })}
+                          title={titleCodes || 'Line details'}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            margin: 0,
+                            font: 'inherit',
+                            color: '#2563eb',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            textUnderlineOffset: 2,
+                            fontSize: isSmallScreen ? 10 : 11,
+                            textAlign: 'left',
+                          }}
+                        >
+                          {lines.length} product{lines.length !== 1 ? 's' : ''}
+                        </button>
                       </td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                        <span style={{ color: '#475569' }}>{item.product_id || '-'}</span>
+                      <td style={{ ...cellBase, overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat}</td>
+                      <td style={{ ...cellBase, overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod}</td>
+                      <td style={{ ...cellBase, overflow: 'hidden', textOverflow: 'ellipsis' }}>{des}</td>
+                      <td style={{ ...cellBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{gw}</td>
+                      <td style={{ ...cellBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{nw}</td>
+                      <td style={{ ...cellBase, overflow: 'hidden', textOverflow: 'ellipsis' }}>{first.LotPartyName ?? '—'}</td>
+                      <td style={{ ...cellBase, overflow: 'hidden', textOverflow: 'ellipsis' }}>{partyType || '—'}</td>
+                      <td style={{ ...cellBase, overflow: 'hidden', textOverflow: 'ellipsis' }}>{first.LotBranchName ?? '—'}</td>
+                      <td style={{ ...cellBase, borderRight: '1px solid #ececec' }}>
+                        <StatusChip label={first.LotStatus ?? '—'} sx={lotSx} />
                       </td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                        <span style={{ color: '#475569' }}>{item.design_id || '-'}</span>
-                      </td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.TotalWt || '0.000'}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.grosswt || '0.000'}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.netwt || '0.000'}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.stonewt || '0.000'}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.diamondweight || '0.000'}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.FinePercent || '0.00'}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.WastagePercent || '0.00'}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.Qty || 1}</td>
-                      <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.Pieces || 1}</td>
-                      <td style={{ 
-                        padding: isSmallScreen ? '6px' : '8px', 
-                        textAlign: 'center',
-                        position: 'sticky',
-                        right: 0,
-                        background: '#ffffff',
-                        zIndex: 5,
-                        borderLeft: '1px solid #e5e7eb'
-                      }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => editItem(item.id)}
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, fontSize: '11px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: 'pointer' }}
-                            title="Edit"
-                          >
-                            <FaEdit />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(item.id)}
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, fontSize: '11px', borderRadius: '6px', border: '1px solid #ef4444', background: '#fff', color: '#ef4444', cursor: 'pointer' }}
-                            title="Delete"
-                          >
-                            <FaTrash />
-                          </button>
-                        </div>
+                      <td style={{ ...cellBase, borderRight: 'none' }}>
+                        <StatusChip label={lineStatusLabel} sx={lineSx} />
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="17" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: isSmallScreen ? '11px' : '12px' }}>
-                      {tableSearch.trim() ? 'No matching rows found.' : 'No items added yet. Search by Item Code to add items.'}
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        {lotDetailModal ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sample-in-lot-lines-modal-title"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 10050,
+              background: 'rgba(15, 23, 42, 0.48)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+            }}
+            onClick={() => {
+              setLotLineItemDetail(null);
+              setLotDetailModal(null);
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: '#fff',
+                borderRadius: 16,
+                maxWidth: 980,
+                width: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                boxShadow: '0 24px 64px rgba(15,23,42,0.22)',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div
+                style={{
+                  padding: '16px 20px',
+                  borderBottom: '1px solid #f1f5f9',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: 12,
+                  background: 'linear-gradient(180deg, #f8fafc 0%, #fff 100%)',
+                }}
+              >
+                <div>
+                  <div id="sample-in-lot-lines-modal-title" style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Sample lot · line items
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>
+                    {lotDetailModal.lotNo}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
+                    {lotDetailModal.lines.length} product line{lotDetailModal.lines.length === 1 ? '' : 's'} in this lot.
+                  </div>
+                </div>
+                          <button
+                            type="button"
+                  onClick={() => {
+                    setLotLineItemDetail(null);
+                    setLotDetailModal(null);
+                  }}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    background: '#fff',
+                    borderRadius: 10,
+                    width: 40,
+                    height: 40,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: '#64748b',
+                  }}
+                  aria-label="Close"
+                >
+                  <FaTimes />
+                          </button>
+              </div>
+              <div style={{ padding: 16, overflowX: 'auto' }}>
+                <table
+                  style={{
+                    width: '100%',
+                    minWidth: 720,
+                    borderCollapse: 'separate',
+                    borderSpacing: 0,
+                    fontSize: 11,
+                    border: '1px solid #d4d4d8',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <thead>
+                    <tr style={{ background: LOT_LINES_TABLE_HEAD_BG, boxShadow: '0 1px 0 rgba(0,0,0,0.12)' }}>
+                      {['Sr.', 'Item code', 'Category', 'Product', 'Design', 'Gross wt', 'Net wt', 'Line status', 'Stock #'].map((h, hi, arr) => (
+                        <th
+                          key={h}
+                          style={{
+                            padding: '9px 10px',
+                            textAlign:
+                              h === 'Gross wt' || h === 'Net wt' || h === 'Stock #' ? 'right' : 'left',
+                            fontWeight: 800,
+                            color: '#ffffff',
+                            whiteSpace: 'nowrap',
+                            fontSize: 10,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            borderRight: hi === arr.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                            borderBottom: '2px solid #1e293b',
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lotDetailModal.lines.map((r, mi) => {
+                      const lineSx = historyLineStatusChipSx(r.ItemStatus ?? r.Status);
+                      const ic = r.ItemCode || r.Itemcode || '—';
+                      return (
+                        <tr key={r._key ?? `${lotDetailModal.lotNo}-${mi}`} style={{ borderTop: mi === 0 ? 'none' : '1px solid #ececec', background: mi % 2 ? '#fafafa' : '#fff' }}>
+                          <td style={{ padding: '8px 10px', textAlign: 'left', color: '#737373', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid #ececec' }}>{mi + 1}</td>
+                          <td style={{ padding: '6px 10px', borderRight: '1px solid #ececec' }}>
+                          <button
+                            type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLotLineItemDetail({ line: r, lotNo: lotDetailModal.lotNo });
+                              }}
+                              title="View full details for this item"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                background: 'none',
+                                border: 'none',
+                                padding: '2px 0',
+                                margin: 0,
+                                font: 'inherit',
+                                fontWeight: 800,
+                                color: '#2563eb',
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                                textUnderlineOffset: 2,
+                              }}
+                            >
+                              <FaBarcode style={{ fontSize: 12, flexShrink: 0, opacity: 0.85 }} />
+                              {ic}
+                          </button>
+                      </td>
+                          <td style={{ padding: '8px 10px', color: '#334155', borderRight: '1px solid #ececec' }}>{r.CategoryName ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', color: '#334155', borderRight: '1px solid #ececec' }}>{r.ProductName ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', color: '#334155', borderRight: '1px solid #ececec' }}>{r.DesignName ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid #ececec' }}>{r.GrossWt ?? r.grosswt ?? r.TWt ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid #ececec' }}>{r.NetWt ?? r.netwt ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', borderRight: '1px solid #ececec' }}>
+                            <StatusChip label={r.ItemStatus ?? r.Status ?? '—'} sx={lineSx} />
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontFamily: 'ui-monospace, monospace', fontSize: 10 }}>
+                            {r.LabelledStockId ?? '—'}
                     </td>
                   </tr>
-                )}
+                      );
+                    })}
               </tbody>
             </table>
           </div>
+            </div>
+          </div>
+        ) : null}
 
-          {/* Pagination */}
-          {filteredTableItems.length > itemsPerPage && (
-            <div style={{
+        {lotLineItemDetail ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sample-in-line-item-detail-title"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 10060,
+              background: 'rgba(15, 23, 42, 0.52)',
               display: 'flex',
-              justifyContent: 'center',
               alignItems: 'center',
-              gap: '8px',
-              marginTop: '12px',
-              padding: '8px 0'
-            }}>
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
+              justifyContent: 'center',
+              padding: 12,
+              backdropFilter: 'blur(3px)',
+            }}
+            onClick={() => setLotLineItemDetail(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: '#fff',
+                borderRadius: 14,
+                width: '100%',
+                maxWidth: 'min(960px, calc(100vw - 24px))',
+                maxHeight: 'min(440px, 78vh)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                boxShadow: '0 25px 50px -12px rgba(15,23,42,0.35), 0 0 0 1px rgba(226,232,240,0.8)',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div
                 style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
-                  color: currentPage === 1 ? '#94a3b8' : '#475569',
-                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s'
+                  padding: '10px 14px',
+                  borderBottom: '1px solid #eef2f6',
+                  background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
+                  display: 'flex',
+              alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  flexShrink: 0,
                 }}
               >
-                Previous
-              </button>
-              <span style={{ fontSize: '12px', color: '#475569', fontWeight: 500 }}>
-                Page {currentPage} of {totalPages}
-              </span>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 10,
+                      background: 'linear-gradient(145deg, #14b8a6 0%, #0d9488 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      flexShrink: 0,
+                      boxShadow: '0 4px 12px rgba(13,148,136,0.35)',
+                    }}
+                  >
+                    <FaInfoCircle style={{ fontSize: 18 }} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div id="sample-in-line-item-detail-title" style={{ fontSize: 9, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      Item · full detail
+                    </div>
+                    <div style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', marginTop: 2, fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>
+                      {lotLineItemDetail.line.ItemCode || lotLineItemDetail.line.Itemcode || '—'}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                      Lot <span style={{ fontWeight: 800, color: '#0e7490' }}>{lotLineItemDetail.lotNo}</span>
+                      {' · '}
+                      Stock # {lotLineItemDetail.line.LabelledStockId ?? '—'}
+                    </div>
+                  </div>
+                </div>
               <button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
+                  type="button"
+                  onClick={() => setLotLineItemDetail(null)}
                 style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
+                    border: '1px solid #e8eef5',
+                    background: '#fff',
+                    borderRadius: 9,
+                    width: 36,
+                    height: 36,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: '#64748b',
+                    flexShrink: 0,
+                  }}
+                  aria-label="Close detail"
+                >
+                  <FaTimes style={{ fontSize: 14 }} />
+              </button>
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  padding: '10px 14px',
+                  background: 'linear-gradient(180deg, #fafbfc 0%, #ffffff 40%)',
+                  WebkitOverflowScrolling: 'touch',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isSmallScreen
+                      ? 'repeat(2, minmax(0, 1fr))'
+                      : 'repeat(4, minmax(0, 1fr))',
+                    gap: 8,
+                  }}
+                >
+                  {buildSampleLineDetailFields(lotLineItemDetail.line, formatHistoryDate).map((f) => {
+                    const Icon = f.Icon;
+                    return (
+                      <div
+                        key={f.label}
+                        style={{
+                          gridColumn: f.fullWidth ? '1 / -1' : undefined,
+                          padding: '8px 10px',
+                          borderRadius: 9,
+                          border: '1px solid #e8eef5',
+                          background: '#ffffff',
+                          boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                          <Icon style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }} />
+                          <span style={{ fontSize: 9, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: 1.2 }}>
+                            {f.label}
+              </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: '#0f172a',
+                            wordBreak: 'break-word',
+                            lineHeight: 1.35,
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {f.value}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div
+                style={{
+                  padding: '8px 14px 10px',
+                  borderTop: '1px solid #f1f5f9',
+                  background: '#fafafa',
+                  flexShrink: 0,
+                }}
+              >
+              <button
+                  type="button"
+                  onClick={() => setLotLineItemDetail(null)}
+                style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 14px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 9,
                   border: '1px solid #e2e8f0',
-                  background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
-                  color: currentPage === totalPages ? '#94a3b8' : '#475569',
-                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s'
+                    background: '#fff',
+                    color: '#475569',
+                    cursor: 'pointer',
+                    boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
+                  }}
+                >
+                  <FaArrowLeft style={{ fontSize: 12 }} />
+                  Back to line items
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+            marginTop: 10,
+            flexWrap: 'wrap',
+            paddingTop: 8,
+            borderTop: '1px solid #f5f5f5',
+          }}
+        >
+          <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
+            {filteredHistoryGroups.length} lot{filteredHistoryGroups.length === 1 ? '' : 's'}
+            {selectedHistoryLineKeys.size > 0 ? ` · ${selectedHistoryLineKeys.size} selected` : ''} · {HISTORY_PAGE_SIZE} rows/page
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+              disabled={historyPage <= 1}
+              style={{
+                ...pageBtnBase,
+                opacity: historyPage <= 1 ? 0.45 : 1,
+                cursor: historyPage <= 1 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Prev
+            </button>
+            <span style={{ fontSize: 11, color: '#404040', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+              Page {historyPage} / {historyTotalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+              disabled={historyPage >= historyTotalPages}
+              style={{
+                ...pageBtnBase,
+                opacity: historyPage >= historyTotalPages ? 0.45 : 1,
+                cursor: historyPage >= historyTotalPages ? 'not-allowed' : 'pointer',
                 }}
               >
                 Next
               </button>
             </div>
-          )}
+        </div>
         </div>
 
-        {/* Submit Button */}
-        <div style={{
+      <div
+        style={{
           display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '12px',
-          marginTop: '12px',
-          gridColumn: '1 / -1',
-        }}>
+          justifyContent: isSmallScreen ? 'center' : 'flex-end',
+          gap: isSmallScreen ? '8px' : '12px',
+          marginBottom: 12,
+          flexWrap: 'wrap',
+        }}
+      >
           <button
             type="button"
             onClick={() => navigate('/sample-out-list')}
             style={{
-              padding: '8px 14px',
-              fontSize: '11px',
-              fontWeight: 600,
-              borderRadius: '6px',
-              border: '1px solid #94a3b8',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            padding: isSmallScreen ? '9px 14px' : '10px 18px',
+            fontSize: isSmallScreen ? '11px' : '12px',
+            fontWeight: 700,
+            borderRadius: '10px',
+            border: '1px solid #cbd5e1',
               background: '#ffffff',
               color: '#475569',
               cursor: 'pointer',
-              transition: 'all 0.2s'
+            transition: 'all 0.2s',
+            width: isSmallScreen ? '100%' : 'auto',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = '#f8fafc';
-              e.currentTarget.style.borderColor = '#cbd5e1';
+            e.currentTarget.style.borderColor = '#94a3b8';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = '#ffffff';
-              e.currentTarget.style.borderColor = '#e2e8f0';
+            e.currentTarget.style.borderColor = '#cbd5e1';
             }}
           >
-            Sample Out List
+          <FaList style={{ fontSize: isSmallScreen ? 14 : 16 }} />
+          <span>Sample Out List</span>
           </button>
           <button
             type="button"
-            onClick={handleSampleIn}
-            disabled={loading || sampleInItems.length === 0}
+          onClick={handleAddSampleInClick}
+          disabled={
+            loading ||
+            tableSampleInSubmitting ||
+            (sampleInItems.length === 0 && selectedHistoryLineKeys.size === 0)
+          }
             style={{
-              padding: '8px 14px',
-              fontSize: '11px',
-              fontWeight: 600,
-              borderRadius: '6px',
-              border: '1px solid #0ea5a4',
-              background: loading || sampleInItems.length === 0 
-                ? '#cbd5e1' 
-                : 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-              color: '#ffffff',
-              cursor: loading || sampleInItems.length === 0 ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
-              boxShadow: loading || sampleInItems.length === 0 
-                ? 'none' 
-                : '0 2px 4px rgba(16, 185, 129, 0.2)',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px'
+            justifyContent: 'center',
+            gap: '8px',
+            padding: isSmallScreen ? '9px 14px' : '10px 18px',
+            fontSize: isSmallScreen ? '11px' : '12px',
+            fontWeight: 700,
+            borderRadius: '10px',
+            border: '1px solid #d4d4d8',
+            background: '#ffffff',
+            color: '#171717',
+            cursor:
+              loading ||
+              tableSampleInSubmitting ||
+              (sampleInItems.length === 0 && selectedHistoryLineKeys.size === 0)
+                ? 'not-allowed'
+                : 'pointer',
+            transition: 'background 0.15s, border-color 0.15s',
+            width: isSmallScreen ? '100%' : 'auto',
+            minWidth: isSmallScreen ? '120px' : 'auto',
+            opacity:
+              loading ||
+              tableSampleInSubmitting ||
+              (sampleInItems.length === 0 && selectedHistoryLineKeys.size === 0)
+                ? 0.55
+                : 1,
+            boxShadow:
+              loading ||
+              tableSampleInSubmitting ||
+              (sampleInItems.length === 0 && selectedHistoryLineKeys.size === 0)
+                ? 'none'
+                : '0 1px 2px rgba(0,0,0,0.06)',
             }}
             onMouseEnter={(e) => {
-              if (!loading && sampleInItems.length > 0) {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
-                e.currentTarget.style.transform = 'translateY(-1px)';
+            if (
+              !loading &&
+              !tableSampleInSubmitting &&
+              (sampleInItems.length > 0 || selectedHistoryLineKeys.size > 0)
+            ) {
+              e.currentTarget.style.background = '#f5f5f5';
+              e.currentTarget.style.borderColor = '#a3a3a3';
               }
             }}
             onMouseLeave={(e) => {
-              if (!loading && sampleInItems.length > 0) {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }
-            }}
-          >
-            {loading ? (
+            if (
+              !loading &&
+              !tableSampleInSubmitting &&
+              (sampleInItems.length > 0 || selectedHistoryLineKeys.size > 0)
+            ) {
+              e.currentTarget.style.background = '#ffffff';
+              e.currentTarget.style.borderColor = '#d4d4d8';
+            }
+          }}
+        >
+          {loading || tableSampleInSubmitting ? (
               <>
                 <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
                 Processing...
@@ -2042,23 +3912,128 @@ const SampleIn = () => {
             ) : (
               <>
                 <FaCheckCircle />
-                Sample
+              <span>Add Sample In</span>
               </>
             )}
           </button>
-        </div>
       </div>
 
-      {/* Success Modal */}
       <CustomerSidebarForm
         open={showCustomerSidebar}
         onClose={() => setShowCustomerSidebar(false)}
-        onSave={() => {
+        onSave={async (form) => {
+          const validationError = validateSidebarCustomerForm(form);
+          if (validationError) {
+            addNotification({ type: 'error', title: 'Customer', message: validationError });
+            throw new Error(validationError);
+          }
+          if (!userInfo?.ClientCode) {
+            addNotification({ type: 'error', title: 'Customer', message: 'Missing client code.' });
+            throw new Error('Missing client code.');
+          }
+          const payload = buildAddCustomerPayloadFromSidebar(form, userInfo.ClientCode);
+          try {
+            setLoading(true);
+            await axios.post(getAddCustomerUrl(), payload, {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json',
+              },
+            });
           addNotification({
             type: 'success',
             title: 'Customer',
-            message: 'Customer profile saved from sidebar.'
-          });
+              message: 'Customer saved successfully.',
+            });
+            await fetchCustomers();
+          } catch (err) {
+            const msg =
+              err?.response?.data?.Message ||
+              err?.response?.data?.message ||
+              err.message ||
+              'Failed to add customer.';
+            addNotification({ type: 'error', title: 'Customer', message: msg });
+            throw err;
+          } finally {
+            setLoading(false);
+          }
+        }}
+      />
+
+      <VendorSidebarForm
+        open={showVendorSidebar}
+        onClose={() => setShowVendorSidebar(false)}
+        onSave={async (form) => {
+          const validationError = validateVendorSidebarForm(form);
+          if (validationError) {
+            addNotification({ type: 'error', title: 'Vendor', message: validationError });
+            throw new Error(validationError);
+          }
+          if (!userInfo?.ClientCode) {
+            addNotification({ type: 'error', title: 'Vendor', message: 'Missing client code.' });
+            throw new Error('Missing client code.');
+          }
+          const payload = buildAddVendorPayload(form, userInfo.ClientCode);
+          try {
+            setLoading(true);
+            await axios.post(getAddVendorUrl(), payload, {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            addNotification({ type: 'success', title: 'Vendor', message: 'Vendor saved successfully.' });
+            await fetchVendors();
+          } catch (err) {
+            const msg =
+              err?.response?.data?.Message ||
+              err?.response?.data?.message ||
+              err.message ||
+              'Failed to add vendor.';
+            addNotification({ type: 'error', title: 'Vendor', message: msg });
+            throw err;
+          } finally {
+            setLoading(false);
+          }
+        }}
+      />
+
+      <EmployeeSidebarForm
+        open={showEmployeeSidebar}
+        onClose={() => setShowEmployeeSidebar(false)}
+        clientCode={userInfo?.ClientCode}
+        onSave={async (form) => {
+          const validationError = validateEmployeeSidebarForm(form);
+          if (validationError) {
+            addNotification({ type: 'error', title: 'Employee', message: validationError });
+            throw new Error(validationError);
+          }
+          if (!userInfo?.ClientCode) {
+            addNotification({ type: 'error', title: 'Employee', message: 'Missing client code.' });
+            throw new Error('Missing client code.');
+          }
+          const payload = buildAddEmployeePayload(form, userInfo.ClientCode);
+          try {
+            setLoading(true);
+            await axios.post(getAddEmployeeUrl(), payload, {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            addNotification({ type: 'success', title: 'Employee', message: 'Employee saved successfully.' });
+            await fetchEmployees();
+          } catch (err) {
+            const msg =
+              err?.response?.data?.Message ||
+              err?.response?.data?.message ||
+              err.message ||
+              'Failed to add employee.';
+            addNotification({ type: 'error', title: 'Employee', message: msg });
+            throw err;
+          } finally {
+            setLoading(false);
+          }
         }}
       />
 
@@ -2066,8 +4041,439 @@ const SampleIn = () => {
         open={showRfidTrayModal}
         onClose={() => setShowRfidTrayModal(false)}
         onFetchData={handleTrayFetchData}
-        title="Sample In Tray Scan"
+        title="Sample In — Tray scan"
+        subtitle="Place the tray on the reader, connect your COM ports, and start. Tags and item codes appear below; then add them to this Sample In in one step."
+        loadButtonLabel="Add scanned items to Sample In"
       />
+
+      {tableSampleInModal ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="table-sample-in-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10020,
+            background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.65) 0%, rgba(30, 41, 59, 0.55) 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            backdropFilter: 'blur(4px)',
+          }}
+          onClick={() => {
+            if (!tableSampleInSubmitting) setTableSampleInModal(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              borderRadius: 18,
+              width: '100%',
+              maxWidth: 'min(1120px, calc(100vw - 32px))',
+              maxHeight: '92vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 32px 64px -12px rgba(15,23,42,0.35), 0 0 0 1px rgba(255,255,255,0.08) inset',
+              border: '1px solid rgba(226, 232, 240, 0.9)',
+            }}
+          >
+            <div
+              style={{
+                padding: '20px 22px 18px',
+                background: 'linear-gradient(135deg, #f0fdfa 0%, #ecfeff 38%, #ffffff 100%)',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 16,
+                flexShrink: 0,
+              }}
+            >
+              <div
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 16,
+                  background: 'linear-gradient(145deg, #14b8a6 0%, #0d9488 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 10px 28px rgba(13, 148, 136, 0.45)',
+                  flexShrink: 0,
+                }}
+              >
+                <FaClipboardCheck style={{ fontSize: 24, color: '#fff' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h3
+                  id="table-sample-in-title"
+                  style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}
+                >
+                  Confirm sample in
+                </h3>
+                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', lineHeight: 1.45 }}>
+                  Review lines below. We submit one request per sample lot with your remarks.
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '5px 11px',
+                      borderRadius: 999,
+                      background: '#fff',
+                      border: '1px solid #ccfbf1',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#0f766e',
+                      boxShadow: '0 1px 2px rgba(15,23,42,0.06)',
+                    }}
+                  >
+                    <FaList style={{ fontSize: 12, opacity: 0.85 }} />
+                    {tableSampleInModal.groups.reduce((n, g) => n + g.rows.length, 0)} line
+                    {tableSampleInModal.groups.reduce((n, g) => n + g.rows.length, 0) === 1 ? '' : 's'}
+                  </span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '5px 11px',
+                      borderRadius: 999,
+                      background: '#fff',
+                      border: '1px solid #e0e7ff',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#4338ca',
+                      boxShadow: '0 1px 2px rgba(15,23,42,0.06)',
+                    }}
+                  >
+                    <FaHashtag style={{ fontSize: 11 }} />
+                    {tableSampleInModal.groups.length} lot{tableSampleInModal.groups.length === 1 ? '' : 's'} ·{' '}
+                    {tableSampleInModal.groups.map((gr) => gr.lotNo).join(', ')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '14px 18px 18px',
+                overflow: 'auto',
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
+              {tableSampleInModal.groups.map((g) => (
+                <div
+                  key={g.lotNo}
+                  style={{
+                    marginBottom: 18,
+                    borderRadius: 14,
+                    border: '1px solid #e2e8f0',
+                    overflow: 'hidden',
+                    boxShadow: '0 4px 14px rgba(15,23,42,0.06)',
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+                      borderBottom: '1px solid #e2e8f0',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: 10,
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          fontSize: 13,
+                          fontWeight: 800,
+                          color: '#0f172a',
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 28,
+                            height: 28,
+                            borderRadius: 8,
+                            background: 'linear-gradient(135deg, #0e7490 0%, #0d9488 100%)',
+                            color: '#fff',
+                          }}
+                        >
+                          <FaHashtag style={{ fontSize: 12 }} />
+                        </span>
+                        <span>
+                          Sample out{' '}
+                          <span style={{ color: '#0e7490', fontVariantNumeric: 'tabular-nums' }}>{g.lotNo}</span>
+                        </span>
+                      </span>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: '#475569',
+                          padding: '4px 10px',
+                          borderRadius: 8,
+                          background: '#fff',
+                          border: '1px solid #e2e8f0',
+                        }}
+                      >
+                        <FaUserFriends style={{ fontSize: 13, color: '#64748b' }} />
+                        {g.rows[0]?.LotPartyName ?? '—'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      {g.rows.length} item{g.rows.length === 1 ? '' : 's'} in this lot
+                    </span>
+                  </div>
+                  <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                    <table
+                      style={{
+                        width: '100%',
+                        minWidth: 880,
+                        borderCollapse: 'collapse',
+                        fontSize: 11,
+                      }}
+                    >
+                      <thead>
+                        <tr style={{ background: '#fafafa', color: '#475569', borderBottom: '2px solid #e2e8f0' }}>
+                          {[
+                            { Icon: FaBarcode, label: 'Item code' },
+                            { Icon: FaTags, label: 'Category' },
+                            { Icon: FaCube, label: 'Product' },
+                            { Icon: FaShapes, label: 'Design' },
+                            { Icon: FaBalanceScale, label: 'Gr wt' },
+                            { Icon: FaBalanceScale, label: 'Nt wt' },
+                            { Icon: FaFlag, label: 'Status' },
+                            { Icon: FaHashtag, label: 'Txn id', right: true },
+                            { Icon: FaHashtag, label: 'Stock id', right: true },
+                          ].map(({ Icon, label, right }) => (
+                            <th
+                              key={label}
+                              style={{
+                                textAlign: right ? 'right' : 'left',
+                                padding: '10px 12px',
+                                fontWeight: 800,
+                                fontSize: 10,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.05em',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  justifyContent: right ? 'flex-end' : 'flex-start',
+                                  width: right ? '100%' : 'auto',
+                                }}
+                              >
+                                <Icon style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }} />
+                                {label}
+                              </span>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.rows.map((row, ri) => {
+                          const it = buildCreateSampleInItemFromHistoryRow(row);
+                          const gw = row.GrossWt ?? row.grosswt ?? row.TWt ?? '—';
+                          const nw = row.NetWt ?? row.netwt ?? '—';
+                          const lineSx = historyLineStatusChipSx(row.ItemStatus ?? row.Status);
+                          const stripe = ri % 2 === 0;
+                          return (
+                            <tr
+                              key={row._key ?? `${g.lotNo}-${ri}`}
+                              style={{
+                                borderTop: ri === 0 ? 'none' : '1px solid #f1f5f9',
+                                background: stripe ? '#ffffff' : '#fafafa',
+                              }}
+                            >
+                              <td style={{ padding: '10px 12px', fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                                {it.ItemCode || '—'}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: '#334155', maxWidth: 120 }}>{row.CategoryName ?? '—'}</td>
+                              <td style={{ padding: '10px 12px', color: '#334155', maxWidth: 130 }}>{row.ProductName ?? '—'}</td>
+                              <td style={{ padding: '10px 12px', color: '#334155', maxWidth: 120 }}>{row.DesignName ?? '—'}</td>
+                              <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#475569', fontWeight: 600 }}>
+                                {gw}
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#475569', fontWeight: 600 }}>
+                                {nw}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <StatusChip label={row.ItemStatus ?? row.Status ?? '—'} sx={lineSx} />
+                              </td>
+                              <td
+                                style={{
+                                  padding: '10px 12px',
+                                  textAlign: 'right',
+                                  fontVariantNumeric: 'tabular-nums',
+                                  color: '#64748b',
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {it.SampleTransactionItemId || '—'}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '10px 12px',
+                                  textAlign: 'right',
+                                  fontVariantNumeric: 'tabular-nums',
+                                  color: '#64748b',
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {it.LabelledStockId || '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+
+              <div
+                style={{
+                  marginTop: 4,
+                  padding: 14,
+                  borderRadius: 12,
+                  background: 'linear-gradient(180deg, #f8fafc 0%, #fff 100%)',
+                  border: '1px solid #e8eef5',
+                }}
+              >
+                <label
+                  htmlFor="table-sample-in-remarks"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: '#475569',
+                    marginBottom: 8,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  <FaCommentAlt style={{ fontSize: 13, color: '#94a3b8' }} />
+                  Lot remarks
+                </label>
+                <textarea
+                  id="table-sample-in-remarks"
+                  value={tableSampleInRemarks}
+                  onChange={(e) => setTableSampleInRemarks(e.target.value)}
+                  rows={3}
+                  disabled={tableSampleInSubmitting}
+                  placeholder="e.g. Customer returned at counter"
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '12px 14px',
+                    borderRadius: 12,
+                    border: '1px solid #e2e8f0',
+                    fontSize: 13,
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.45,
+                    background: '#fff',
+                    boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.04)',
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 12,
+                  justifyContent: 'flex-end',
+                  flexWrap: 'wrap',
+                  marginTop: 16,
+                  paddingTop: 4,
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={tableSampleInSubmitting}
+                  onClick={() => setTableSampleInModal(null)}
+                  style={{
+                    padding: '11px 20px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    borderRadius: 12,
+                    border: '1px solid #e2e8f0',
+                    background: '#fff',
+                    color: '#475569',
+                    cursor: tableSampleInSubmitting ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
+                    transition: 'background 0.15s, border-color 0.15s',
+                  }}
+                >
+                  <FaTimes style={{ fontSize: 14 }} />
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={tableSampleInSubmitting}
+                  onClick={submitTableSampleInFromSelection}
+                  style={{
+                    padding: '11px 22px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    borderRadius: 12,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#fff',
+                    cursor: tableSampleInSubmitting ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    boxShadow: '0 8px 20px rgba(5, 150, 105, 0.35)',
+                  }}
+                >
+                  {tableSampleInSubmitting ? (
+                    <>
+                      <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} />
+                      Processing…
+                    </>
+                  ) : (
+                    <>
+                      <FaCheckCircle style={{ fontSize: 15 }} />
+                      Confirm sample in
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Success Modal */}
       {showSuccessModal && successData && (
@@ -2104,7 +4510,8 @@ const SampleIn = () => {
               height: '64px',
               borderRadius: '50%',
               background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              margin: '0 auto 16px'
+              margin: '0 auto 16px',
+              animation: 'sampleInTick 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
             }}>
               <FaCheckCircle style={{ fontSize: '32px', color: '#ffffff' }} />
             </div>
@@ -2115,7 +4522,7 @@ const SampleIn = () => {
               color: '#1e293b',
               textAlign: 'center'
             }}>
-              Sample In Created Successfully!
+              Sample In processed successfully!
             </h3>
             <p style={{
               margin: '0 0 16px 0',
@@ -2123,9 +4530,9 @@ const SampleIn = () => {
               color: '#64748b',
               textAlign: 'center'
             }}>
-              Sample In No: <strong>{successData.sampleInNo}</strong>
+              Sample lot: <strong>{successData.sampleInNo}</strong>
               <br />
-              Customer: <strong>{successData.customerName}</strong>
+              Party: <strong>{successData.customerName}</strong>
             </p>
             <button
               onClick={() => {

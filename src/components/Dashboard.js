@@ -35,9 +35,7 @@ import {
   FaDownload,
   FaTimes
 } from 'react-icons/fa';
-import RFIDUploadPrompt from './common/RFIDUploadPrompt';
 import BackToProfileMenu from './common/BackToProfileMenu';
-import rfidTagsService from '../services/rfidTagsService';
 
 const METHOD_COLORS = { POST: '#22c55e', GET: '#3b82f6', PUT: '#f59e0b', DELETE: '#ef4444', PATCH: '#8b5cf6' };
 
@@ -279,7 +277,6 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [bodyText, setBodyText] = useState('');
   const [clientError, setClientError] = useState('');
-  const [showRFIDPrompt, setShowRFIDPrompt] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -293,7 +290,6 @@ const Dashboard = () => {
       navigate('/login');
       return;
     }
-    checkRFIDPrompt(info);
   }, [navigate]);
 
   useEffect(() => {
@@ -301,13 +297,6 @@ const Dashboard = () => {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-
-  const checkRFIDPrompt = async (info) => {
-    try {
-      const shouldShow = await rfidTagsService.shouldDisplayPromptOnLogin(info.ClientCode);
-      if (shouldShow) setTimeout(() => setShowRFIDPrompt(true), 1000);
-    } catch (_) {}
-  };
 
   const handleApiClick = (api, fromGroup) => {
     const fullApi = fromGroup ? { ...api, baseUrl: fromGroup.baseUrl } : api;
@@ -1144,12 +1133,6 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <RFIDUploadPrompt
-        isOpen={showRFIDPrompt}
-        onClose={() => { setShowRFIDPrompt(false); rfidTagsService.markPromptAsShown(userInfo.ClientCode); }}
-        onNavigateToUpload={() => { setShowRFIDPrompt(false); rfidTagsService.markPromptAsShown(userInfo.ClientCode); navigate('/upload-rfid'); }}
-        userInfo={userInfo}
-      />
       {showDownloadModal && (
         <>
           <div

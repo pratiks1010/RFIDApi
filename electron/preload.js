@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("electron", {
   readFile: (filePath) => ipcRenderer.invoke("read-file", filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke("write-file", filePath, content),
+  writeBinaryFile: (filePath, base64) => ipcRenderer.invoke("write-binary-file", filePath, base64),
   getFileStats: (filePath) => ipcRenderer.invoke("get-file-stats", filePath)
 });
 
@@ -10,6 +11,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   platform: process.platform,
   readFile: (filePath) => ipcRenderer.invoke("read-file", filePath),
   writeFile: (filePath, content) => ipcRenderer.invoke("write-file", filePath, content),
+  writeBinaryFile: (filePath, base64) => ipcRenderer.invoke("write-binary-file", filePath, base64),
   getFileStats: (filePath) => ipcRenderer.invoke("get-file-stats", filePath),
   selectFolder: () => ipcRenderer.invoke("select-folder"),
   selectFile: (options) => ipcRenderer.invoke("select-file", options),

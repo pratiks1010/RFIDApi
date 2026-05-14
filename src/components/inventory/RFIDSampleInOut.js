@@ -163,6 +163,85 @@ const formatDate = (value) => {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+/** One Sample In transaction can return multiple API rows with the same sample no — collapse for display. */
+const mergeSampleInRowsForDisplay = (list) => {
+  const keyToRows = new Map();
+  for (const row of list) {
+    const dk = row.issueDate ? new Date(row.issueDate) : null;
+    const datePart = dk && !Number.isNaN(dk.getTime()) ? dk.toISOString().slice(0, 10) : '__nodate__';
+    const key = `${String(row.sampleOutNo ?? '').trim()}|||${datePart}|||${String(row.vendorName ?? '').trim().toLowerCase()}`;
+    if (!keyToRows.has(key)) keyToRows.set(key, []);
+    keyToRows.get(key).push(row);
+  }
+
+  const parseNum = (v) => {
+    const n = parseFloat(String(v ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const mergeNums = (rows, field) => {
+    let s = 0;
+    let any = false;
+    for (const r of rows) {
+      const n = parseNum(r[field]);
+      if (n !== null) {
+        s += n;
+        any = true;
+      }
+    }
+    if (!any) return rows[0]?.[field] ?? '—';
+    if (field === 'quantity') return String(Math.round(s));
+    const rounded = Math.round(s * 1000) / 1000;
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  };
+
+  const out = [];
+  for (const [key, group] of keyToRows) {
+    if (group.length === 1) {
+      out.push({ ...group[0], mergedGroup: false, mergedCount: 1, mergedSourceRows: null });
+      continue;
+    }
+
+    const base = group[0];
+    const itemSeen = new Set();
+    const mergedIssueItems = [];
+
+    for (const r of group) {
+      const items = Array.isArray(r.issueItems) ? r.issueItems : [];
+      if (items.length) {
+        for (const it of items) {
+          const code = String(it?.ItemCode ?? it?.Itemcode ?? it?.itemCode ?? '').trim().toUpperCase();
+          const dedupe = code || `id:${it?.Id ?? mergedIssueItems.length}`;
+          if (itemSeen.has(dedupe)) continue;
+          itemSeen.add(dedupe);
+          mergedIssueItems.push(it);
+        }
+      }
+    }
+
+    const nProducts = mergedIssueItems.length > 0 ? mergedIssueItems.length : group.length;
+    const productLabel =
+      nProducts <= 1 ? base.productName : `${nProducts} products — click to view item codes`;
+
+    out.push({
+      ...base,
+      id: `merged-${key}`,
+      mergedGroup: true,
+      mergedCount: nProducts,
+      mergedSourceRows: group,
+      issueItems: mergedIssueItems.length > 0 ? mergedIssueItems : base.issueItems || [],
+      productName: productLabel,
+      totalWt: mergeNums(group, 'totalWt'),
+      totalGrossWt: mergeNums(group, 'totalGrossWt'),
+      totalNetWt: mergeNums(group, 'totalNetWt'),
+      fineWastageWt: mergeNums(group, 'fineWastageWt'),
+      quantity: mergeNums(group, 'quantity'),
+      totalDiamondWeight: mergeNums(group, 'totalDiamondWeight'),
+    });
+  }
+  return out;
+};
+
 const sampleStatusPillStyle = (sampleStatus) => {
   const s = String(sampleStatus || '').toLowerCase();
   if (s.includes('in')) {
@@ -279,13 +358,18 @@ const RFIDSampleInOut = () => {
         .toLowerCase()
         .includes(q);
     });
-  }, [rows, search]);
+  }, [rows, search, filterDate]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const displayRows = useMemo(() => {
+    if (movementType !== 'Sample In') return filteredRows;
+    return mergeSampleInRowsForDisplay(filteredRows);
+  }, [filteredRows, movementType]);
+
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
   const paginatedRows = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredRows.slice(start, start + PAGE_SIZE);
-  }, [currentPage, filteredRows]);
+    return displayRows.slice(start, start + PAGE_SIZE);
+  }, [currentPage, displayRows]);
   const paddedRows = useMemo(() => {
     const slots = paginatedRows.map((row) => ({ kind: 'row', row }));
     const padCount = Math.max(0, PAGE_SIZE - paginatedRows.length);
@@ -296,8 +380,8 @@ const RFIDSampleInOut = () => {
   }, [currentPage, paginatedRows]);
 
   const exportExcel = () => {
-    if (!filteredRows.length) return;
-    const data = filteredRows.map((row, idx) => ({
+    if (!displayRows.length) return;
+    const data = displayRows.map((row, idx) => ({
       SrNo: idx + 1,
       SampleOutNo: row.sampleOutNo,
       IssueDate: formatDate(row.issueDate),
@@ -318,14 +402,14 @@ const RFIDSampleInOut = () => {
   };
 
   const exportPdf = () => {
-    if (!filteredRows.length) return;
+    if (!displayRows.length) return;
     const doc = new jsPDF({ orientation: 'landscape' });
     doc.setFontSize(14);
     doc.text('RFID Vendor Sample In/Out', 14, 16);
     doc.autoTable({
       startY: 24,
       head: [['#', 'Sample Out No', 'Issue Date', 'Vendor', 'Product', 'Total Wt', 'Gr Wt', 'Nt Wt', 'F+Wt', 'Qty', 'D.Wt', 'Sample Status']],
-      body: filteredRows.map((row, idx) => [
+      body: displayRows.map((row, idx) => [
         idx + 1,
         row.sampleOutNo,
         formatDate(row.issueDate),
@@ -391,6 +475,9 @@ const RFIDSampleInOut = () => {
       { label: 'Sample Out No', value: row.sampleOutNo },
       { label: partyType === 'customer' ? 'Customer Name' : 'Vendor Name', value: row.vendorName },
       { label: 'Issue Date', value: formatDate(row.issueDate) },
+      ...(row.mergedGroup && row.mergedCount > 1
+        ? [{ label: 'Products in this sample in', value: `${row.mergedCount} items (open item list for codes)` }]
+        : []),
       { label: 'Sample Status', value: row.sampleStatus || row.status || '—' },
       { label: 'Status', value: row.status || '—' },
       { label: 'Total Wt', value: row.totalWt },
@@ -437,7 +524,7 @@ const RFIDSampleInOut = () => {
             <button type="button" onClick={fetchRows} disabled={loading} style={toolbarBtnStyle}>
               <FaRedo /> Refresh
             </button>
-            <button type="button" onClick={() => setShowExportModal(true)} disabled={!filteredRows.length} style={toolbarBtnStyle}>
+            <button type="button" onClick={() => setShowExportModal(true)} disabled={!displayRows.length} style={toolbarBtnStyle}>
               <FaDownload /> Export
             </button>
           </div>
@@ -499,7 +586,7 @@ const RFIDSampleInOut = () => {
                   Loading...
                 </td>
               </tr>
-            ) : filteredRows.length ? (
+            ) : displayRows.length ? (
               paddedRows.map((slot, index) => {
                 if (slot.kind === 'pad') {
                   return (
@@ -512,6 +599,7 @@ const RFIDSampleInOut = () => {
                 const rowNumber = (currentPage - 1) * PAGE_SIZE + index + 1;
                 const issueItemsList = Array.isArray(row.issueItems) ? row.issueItems : [];
                 const showIssueItemsModalLink =
+                  row.mergedGroup ||
                   issueItemsList.length > 1 ||
                   (movementType === 'Sample In' && issueItemsList.length >= 1);
                 return (
@@ -596,6 +684,7 @@ const RFIDSampleInOut = () => {
               {paginatedRows.map((row) => {
                 const issueItemsList = Array.isArray(row.issueItems) ? row.issueItems : [];
                 const showIssueItemsModalLink =
+                  row.mergedGroup ||
                   issueItemsList.length > 1 ||
                   (movementType === 'Sample In' && issueItemsList.length >= 1);
                 return (
@@ -645,9 +734,13 @@ const RFIDSampleInOut = () => {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderTop: '1px solid #e5e7eb' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderTop: '1px solid #e5e7eb' }}>
         <div style={{ fontSize: 12, color: '#64748b' }}>
-          Showing {movementType} data • {filteredRows.length} records • {PAGE_SIZE} per page
+          Showing {movementType} data • {displayRows.length} record{displayRows.length === 1 ? '' : 's'}
+          {movementType === 'Sample In' && filteredRows.length !== displayRows.length
+            ? ` (${filteredRows.length} line items grouped by sample no.)`
+            : ''}{' '}
+          • {PAGE_SIZE} per page
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} style={btnStyle}>
@@ -667,6 +760,9 @@ const RFIDSampleInOut = () => {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
               <h3 style={{ margin: 0, fontSize: 16, color: '#0f172a', fontWeight: 800 }}>
                 {movementType === 'Sample In' ? 'Sample In Items' : 'Issue Items'} • {itemsModal.sampleOutNo}
+                {itemsModal.mergedGroup && itemsModal.mergedCount > 1 ? (
+                  <span style={{ fontWeight: 600, color: '#64748b', fontSize: 13 }}> ({itemsModal.mergedCount} products)</span>
+                ) : null}
               </h3>
               <button type="button" onClick={() => setItemsModal(null)} style={closeBtnStyle}>
                 <FaTimes />
@@ -740,7 +836,11 @@ const RFIDSampleInOut = () => {
               </button>
             </div>
             <p style={{ margin: '0 0 12px', fontSize: 11, color: '#64748b' }}>
-              Export currently filtered data ({filteredRows.length} row{filteredRows.length === 1 ? '' : 's'}).
+              Export currently filtered data ({displayRows.length} row{displayRows.length === 1 ? '' : 's'}
+              {movementType === 'Sample In' && filteredRows.length !== displayRows.length
+                ? `, ${filteredRows.length} raw line items`
+                : ''}
+              ).
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <button

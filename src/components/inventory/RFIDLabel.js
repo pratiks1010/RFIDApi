@@ -34,6 +34,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { useNotifications } from '../../context/NotificationContext';
 import { generateClientPrn } from '../../utils/prnTemplates';
 import SuccessNotification from '../common/SuccessNotification';
+import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { useLoading } from '../../App';
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100];
@@ -791,27 +792,26 @@ const RFIDLabel = () => {
   };
 
   // Download PRN File
-  const handleDownloadPRN = (label, index) => {
+  const handleDownloadPRN = async (label, index, skipToast = false) => {
     if (!label.GeneratedPrnCode) {
       toast.error('No PRN code available for this label');
       return;
     }
 
     const blob = new Blob([prnToBytes(label.GeneratedPrnCode)], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `label_${label.ItemCode || index}.prn`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    toast.success('Label downloaded successfully');
+    const filename = `label_${label.ItemCode || index}.prn`;
+    const { usedFolder, path } = await saveBlobWithPreferredFolder(blob, filename, 'prn');
+    if (!skipToast) {
+      if (usedFolder && path) {
+        toast.success(`PRN saved: ${path}`);
+      } else {
+        toast.success('Label downloaded successfully');
+      }
+    }
   };
 
   // Download All PRN Files
-  const handleDownloadAllPRN = () => {
+  const handleDownloadAllPRN = async () => {
     const successfulLabels = generatedLabels.filter(l => l.IsSuccess && l.GeneratedPrnCode);
 
     if (successfulLabels.length === 0) {
@@ -819,13 +819,14 @@ const RFIDLabel = () => {
       return;
     }
 
-    successfulLabels.forEach((label, index) => {
-      setTimeout(() => {
-        handleDownloadPRN(label, index);
-      }, index * 200); // Stagger downloads
-    });
+    for (let index = 0; index < successfulLabels.length; index++) {
+      const label = successfulLabels[index];
+      await handleDownloadPRN(label, index, true);
+    }
 
-    toast.success(`Downloading ${successfulLabels.length} label(s)...`);
+    toast.success(
+      `Saved ${successfulLabels.length} PRN file(s) to your PRN folder (EXE) or downloads folder.`
+    );
   };
 
   // Toggle Product Selection
@@ -1074,31 +1075,23 @@ const RFIDLabel = () => {
       
       // Create and download single file
       const blob = new Blob([prnToBytes(combinedPrnContent)], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      
+
       // Generate filename with item codes or use generic name
       const itemCodes = itemsToDownload
         .map(item => item.ItemCode || 'label')
         .slice(0, 3)
         .join('_');
-      const filename = itemsToDownload.length === 1 
+      const filename = itemsToDownload.length === 1
         ? `${itemCodes}_OPJ.prn`
         : `Multiple_Labels_${itemsToDownload.length}_${itemCodes}.prn`;
-      
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      
-      // Cleanup after a short delay
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 100);
 
-      toast.success(`Downloaded ${allPrnContents.length} label(s) in one file`);
+      const { usedFolder, path } = await saveBlobWithPreferredFolder(blob, filename, 'prn');
+
+      toast.success(
+        usedFolder && path
+          ? `Saved ${allPrnContents.length} label(s) to ${path}`
+          : `Downloaded ${allPrnContents.length} label(s) in one file`
+      );
     } catch (err) {
       console.error('Error downloading combined PRN:', err);
       toast.error('Failed to download labels');
@@ -1131,21 +1124,14 @@ const RFIDLabel = () => {
       
       // Create and trigger download
       const blob = new Blob([prnToBytes(prnContent)], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `${item.ItemCode}_OPJ.prn`;
-      document.body.appendChild(a);
-      a.click();
-      
-      // Cleanup after a short delay
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 100);
-      
-      toast.success(`Label for ${item.ItemCode} downloaded successfully`);
+      const filename = `${item.ItemCode}_OPJ.prn`;
+      const { usedFolder, path } = await saveBlobWithPreferredFolder(blob, filename, 'prn');
+
+      toast.success(
+        usedFolder && path
+          ? `Saved ${item.ItemCode} PRN to ${path}`
+          : `Label for ${item.ItemCode} downloaded successfully`
+      );
     } catch (error) {
       console.error('Error printing label:', error);
       toast.error(error.message || 'Failed to generate label');

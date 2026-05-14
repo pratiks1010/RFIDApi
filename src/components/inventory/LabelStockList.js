@@ -38,6 +38,8 @@ import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
 import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
+import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
+import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -1571,9 +1573,9 @@ const LabelStockList = () => {
       const newTab = window.open(pdfUrl, '_blank');
 
       if (!newTab) {
-        // Fallback: download the PDF
-        doc.save(`Label-${labelData.ItemCode || 'N/A'}.pdf`);
-        showSuccessNotification('Info', 'PDF downloaded. Please check your downloads folder.');
+        const fn = `Label-${labelData.ItemCode || 'N/A'}.pdf`;
+        await saveBlobWithPreferredFolder(pdfBlob, fn, 'export');
+        showSuccessNotification('Info', 'PDF saved to your export folder or downloads.');
       } else {
         // Clean up the blob URL after a delay
         setTimeout(() => {
@@ -1989,7 +1991,7 @@ const LabelStockList = () => {
 
       // Call the export API
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/ExportLabelledStockToExcel',
+        toRrgoldApiUrl('/api/ProductMaster/ExportLabelledStockToExcel'),
         payload,
         {
           headers: {
@@ -2006,11 +2008,6 @@ const LabelStockList = () => {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
 
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-
       // Get filename from response headers or use default
       const contentDisposition = response.headers['content-disposition'];
       let filename = 'LabelledStock_Export.xlsx';
@@ -2025,11 +2022,7 @@ const LabelStockList = () => {
         filename = `LabelledStock_Export_${timestamp}.xlsx`;
       }
 
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await saveBlobWithPreferredFolder(blob, filename, 'export');
 
       // Show success popup
       addNotification({
@@ -2346,7 +2339,7 @@ const LabelStockList = () => {
       });
 
       const date = new Date().toISOString().split('T')[0];
-      doc.save(`label_stock_${date}.pdf`);
+      await saveBlobWithPreferredFolder(doc.output('blob'), `label_stock_${date}.pdf`, 'export');
 
       showSuccessNotification('Export Successful', 'Data has been exported to PDF successfully');
       setTimeout(() => {
@@ -3080,9 +3073,9 @@ const LabelStockList = () => {
         const newTab = window.open(pdfUrl, '_blank');
 
         if (!newTab) {
-          // Fallback: download the PDF
-          doc.save(`Labels-${labels.length}-items.pdf`);
-          showSuccessNotification('Info', 'PDF downloaded. Please check your downloads folder.');
+          const fn = `Labels-${labels.length}-items.pdf`;
+          await saveBlobWithPreferredFolder(pdfBlob, fn, 'export');
+          showSuccessNotification('Info', 'PDF saved to your export folder or downloads.');
         } else {
           // Clean up the blob URL after a delay
           setTimeout(() => {
@@ -3498,7 +3491,7 @@ const LabelStockList = () => {
     setShowReportView(true);
   };
 
-  const handleDownloadReportPDF = () => {
+  const handleDownloadReportPDF = async () => {
     if (reportData.length === 0) {
       console.error("No report data to download.");
       return;
@@ -3531,10 +3524,10 @@ const LabelStockList = () => {
       tableWidth: 'auto',
     });
     const fileDate = new Date().toISOString().split('T')[0];
-    doc.save(`label_stock_report_${fileDate}.pdf`);
+    await saveBlobWithPreferredFolder(doc.output('blob'), `label_stock_report_${fileDate}.pdf`, 'export');
   };
 
-  const handleDownloadReport = () => {
+  const handleDownloadReport = async () => {
     // Group data by Category and Product Name, count qty
     const grouped = {};
     filteredStock.forEach(item => {
@@ -3572,7 +3565,7 @@ const LabelStockList = () => {
       tableWidth: 'auto',
     });
     const fileDate = new Date().toISOString().split('T')[0];
-    doc.save(`label_stock_report_${fileDate}.pdf`);
+    await saveBlobWithPreferredFolder(doc.output('blob'), `label_stock_report_${fileDate}.pdf`, 'export');
   };
 
   if (!userInfo) {

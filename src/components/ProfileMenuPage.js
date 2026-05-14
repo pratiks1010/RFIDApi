@@ -1,19 +1,24 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { FaArrowRight } from 'react-icons/fa';
-import { 
-  RiTestTubeFill, 
-  RiBookReadFill, 
-  RiFlashlightFill, 
-  RiFileDownloadFill, 
-  RiFolderDownloadFill, 
+import {
+  RiTestTubeFill,
+  RiBookReadFill,
+  RiFlashlightFill,
+  RiFileDownloadFill,
+  RiFolderDownloadFill,
   RiPriceTag3Fill,
   RiFingerprintFill,
   RiCamera2Fill,
+  RiGlobalLine,
+  RiFolderOpenLine,
 } from 'react-icons/ri';
+import { getApiMode } from '../services/apiBaseConfig';
 
 // Profile menu shows only API & resources; sidebar has the rest
-const buildMenuItems = () => [
+const buildMenuItems = () => {
+  const base = [
+  { path: '/download-folder-settings', icon: RiFolderOpenLine, label: 'Download folders (exports & PRN)', color: '#0f766e', description: 'Choose where labelled stock exports (Excel/PDF) and PRN label files are saved. EXE writes to the folder you pick; browser uses normal downloads.' },
   { path: '/dashboard', icon: RiTestTubeFill, label: 'API Testing (Postman)', color: '#ff6b35', description: 'Test all integrated APIs with request payload and response. Developer API playground.' },
   { path: '/api-documentation', icon: RiBookReadFill, label: 'API Integration Guide', color: '#9333ea', description: 'Documentation and examples for third-party integration.' },
   { path: '/rfid-integration', icon: RiFlashlightFill, label: 'Quick Integration', color: '#8b5cf6', description: 'Get started with RFID API in minutes.' },
@@ -22,7 +27,21 @@ const buildMenuItems = () => [
   { path: '/single-use-tags', icon: RiPriceTag3Fill, label: 'Single Use Tags', color: '#a855f7', description: 'Manage and track single-use RFID tags.' },
   { path: '/fingerprint-register', icon: RiFingerprintFill, label: 'Fingerprint Login Settings', color: '#4f46e5', description: 'Morpho RD capture, PIN, and fingerprint login management.' },
   { path: '/face-register', icon: RiCamera2Fill, label: 'Face Login Settings', color: '#7c3aed', description: 'Register and manage Face ID for camera-based sign-in.' },
-];
+  ];
+  if (getApiMode() === 'offline') {
+    return [
+      {
+        path: '/offline-api-settings',
+        icon: RiGlobalLine,
+        label: 'Offline API base URLs',
+        color: '#0d9488',
+        description: 'Set Soni (ProductMaster) and RRGOLD base URLs for this PC. Defaults: localhost:8080 and 8081.',
+      },
+      ...base,
+    ];
+  }
+  return base;
+};
 
 const Card = ({ item, index }) => {
   const { icon: Icon, label, color, description, path } = item;

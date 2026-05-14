@@ -452,6 +452,15 @@ ipcMain.handle("write-file", async (_, filePath, content) => {
   return true;
 });
 
+ipcMain.handle("write-binary-file", async (_, filePath, base64) => {
+  if (!filePath || typeof filePath !== "string") {
+    throw new Error("Invalid file path");
+  }
+  const buf = Buffer.from(String(base64 || ""), "base64");
+  await fs.writeFile(filePath, buf);
+  return true;
+});
+
 ipcMain.handle("get-file-stats", async (_, filePath) => {
   const stats = await fs.stat(filePath);
   return {

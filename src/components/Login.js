@@ -5,6 +5,8 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import { getAuthForgotPasswordUrl, getAuthLoginUrl } from '../services/authApiConfig';
+import { getApiMode } from '../services/apiBaseConfig';
+import OfflineApiBaseSettingsForm from './OfflineApiBaseSettingsForm';
 import {
   createFingerprintChallenge,
   verifyLogin,
@@ -258,6 +260,7 @@ const Login = () => {
   const [faceTracking, setFaceTracking] = useState({ faceCount: 0, quality: 'no_face', message: 'Align your face in the frame' });
   const [slide, setSlide] = useState(0);
   const [animating, setAnimating] = useState(false);
+  const [showOfflineApiModal, setShowOfflineApiModal] = useState(false);
   const prevSlide = useRef(slide);
   const faceVideoRef = useRef(null);
   const faceStreamRef = useRef(null);
@@ -275,6 +278,15 @@ const Login = () => {
       window.history.replaceState({}, '', '/login');
     }
   }, []);
+
+  useEffect(() => {
+    if (!showOfflineApiModal) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setShowOfflineApiModal(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showOfflineApiModal]);
 
   useEffect(() => {
     setAnimating(true);
@@ -1703,6 +1715,113 @@ const Login = () => {
             </div>
           </div>
         </div>
+
+        {getApiMode() === 'offline' && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowOfflineApiModal(true)}
+              style={{
+                position: 'fixed',
+                right: 20,
+                bottom: 52,
+                zIndex: 120,
+                maxWidth: 'min(calc(100vw - 40px), 320px)',
+                padding: '12px 16px',
+                borderRadius: 14,
+                border: '1px solid rgba(99, 102, 241, 0.35)',
+                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(99, 102, 241, 0.15)',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontFamily: 'inherit',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(139,92,246,0.12) 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#4f46e5',
+                    flexShrink: 0,
+                  }}
+                >
+                  <i className="fas fa-server" style={{ fontSize: 15 }} aria-hidden />
+                </span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#1e1b4b', letterSpacing: '-0.02em', lineHeight: 1.25 }}>
+                    Configure API servers
+                  </span>
+                  <span style={{ display: 'block', marginTop: 4, fontSize: '0.68rem', color: '#64748b', lineHeight: 1.4 }}>
+                    Set Soni (ProductMaster) &amp; RRGOLD base URLs for this PC. Saved addresses apply to the whole app.
+                  </span>
+                </span>
+              </span>
+            </button>
+
+            {showOfflineApiModal && (
+              <div
+                role="presentation"
+                style={{
+                  ...modalOverlayStyle,
+                  zIndex: 10020,
+                }}
+                onClick={() => setShowOfflineApiModal(false)}
+              >
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="offline-api-modal-title"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    ...modalCardStyle,
+                    maxWidth: 480,
+                    width: '100%',
+                    maxHeight: 'min(90vh, 640px)',
+                    overflowY: 'auto',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <h2 id="offline-api-modal-title" style={{ margin: 0, color: '#0f172a', fontSize: '1.05rem', fontWeight: 800 }}>
+                        Offline API server URLs
+                      </h2>
+                      <p style={{ margin: '8px 0 0', color: '#64748b', fontSize: '0.8rem', lineHeight: 1.45 }}>
+                        Defaults: <code style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 6px', borderRadius: 6 }}>http://localhost:8080</code> (Soni) and{' '}
+                        <code style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 6px', borderRadius: 6 }}>http://localhost:8081</code> (RRGOLD). Use Save to apply across the entire application.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Close"
+                      onClick={() => setShowOfflineApiModal(false)}
+                      style={{
+                        border: 'none',
+                        background: 'rgba(15,23,42,0.06)',
+                        color: '#64748b',
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        fontSize: 18,
+                        lineHeight: 1,
+                      }}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                  <OfflineApiBaseSettingsForm variant="page" onApplied={() => setShowOfflineApiModal(false)} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         <footer style={{
           padding: '8px 12px',

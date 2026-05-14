@@ -9,6 +9,10 @@ RewriteRule ^api/TamannaahBS/(.*)$ gati-proxy.php?path=$1 [L,QSA]
 RewriteCond %{REQUEST_URI} ^/api/Feronia/
 RewriteRule ^api/Feronia/(.*)$ feronia-proxy.php?path=$1 [L,QSA]
 
+# Kumar 916 StockMaster: /api/kumar916/<svc-path>?params → kumar916-proxy.php (matches webpack dev /api/kumar916)
+RewriteCond %{REQUEST_URI} ^/api/kumar916/
+RewriteRule ^api/kumar916/(.*)$ kumar916-proxy.php?path=$1 [L,QSA]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [QSA,L]

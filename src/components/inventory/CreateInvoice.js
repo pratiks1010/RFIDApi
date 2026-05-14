@@ -34,6 +34,7 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
 import PageHeader from '../common/PageHeader';
+import GridItemImage from '../common/GridItemImage';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -44,12 +45,15 @@ import TrayScanModal from '../common/TrayScanModal';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
+import { getTrayReaderConfig, parsePowerAttDb10 } from '../../services/trayReaderConfig';
 import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
+import { resolveLocalItemImageBlobUrl } from '../../services/localItemImageService';
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 15;
 const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1200;
 const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 3000;
+const INVOICE_GRID_IMAGE_RESOLVE_LIMIT = 48;
 const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
   || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
 const TRAY_LABELLED_STOCK_BY_TID_URL = process.env.REACT_APP_TRAY_LABELLED_STOCK_BY_TID_URL
@@ -105,6 +109,28 @@ const formatValue = (value) => {
   if (!value) return '-';
   if (typeof value === 'number') return value.toFixed(3);
   return value.toString();
+};
+
+const invoiceStatusPillSx = (status) => {
+  const s = String(status ?? '—').toLowerCase();
+  if (s.includes('sold')) return { bg: '#fef2f2', fg: '#b91c1c', bd: '#fecaca' };
+  if (s.includes('active')) return { bg: '#eef2ff', fg: '#3730a3', bd: '#c7d2fe' };
+  return { bg: '#fafafa', fg: '#525252', bd: '#d4d4d4' };
+};
+
+const IMAGE_BASE_URL = toRrgoldApiUrl('/');
+const getItemImageUrl = (item) => {
+  if (!item) return null;
+  if (item.Images && typeof item.Images === 'string') {
+    const paths = item.Images.split(',').map((s) => s.trim()).filter(Boolean);
+    const lastPath = paths.length > 0 ? paths[paths.length - 1] : null;
+    if (lastPath) {
+      const base = IMAGE_BASE_URL.replace(/\/$/, '');
+      const path = lastPath.replace(/^\//, '');
+      return `${base}/${path}`;
+    }
+  }
+  return item.Image1 || item.imageurl || item.ImageUrl || null;
 };
 
 const mergeTrayRows = (existingRows, incomingRows) => {
@@ -178,6 +204,9 @@ const CreateInvoice = () => {
   const [showAllData, setShowAllData] = useState(false);
   const [allFilteredData, setAllFilteredData] = useState([]);
   const [loadingAllData, setLoadingAllData] = useState(false);
+  const [viewMode, setViewMode] = useState('table');
+  const [gridLocalImageUrls, setGridLocalImageUrls] = useState({});
+  const gridLocalImageUrlsRef = useRef({});
 
   // Add these state variables for filter options
   const [filterOptions, setFilterOptions] = useState({
@@ -233,6 +262,9 @@ const CreateInvoice = () => {
   const [trayResolvingCodes, setTrayResolvingCodes] = useState(false);
   const [trayResolveError, setTrayResolveError] = useState('');
   const [isTrayScanView, setIsTrayScanView] = useState(false);
+  /** 'active' → Status ApiActive, 'sold' → Status Sold for GetAllLabeledStock (main invoice table). */
+  const [invoiceListStockMode, setInvoiceListStockMode] = useState('active');
+  const invoiceStockToggleDisabled = trayEnabled;
   const [trayCurrentPage, setTrayCurrentPage] = useState(1);
   const hasElectronTrayBridge = typeof window !== 'undefined' && !!window.electronAPI?.rfidBridgeCommand;
   const trayPageSize = 16;
@@ -427,6 +459,14 @@ const CreateInvoice = () => {
       await runTrayBridgeCommand('disconnect');
       await runTrayBridgeCommand(`connect-serial ${trayComPrimary} ${trayBaudRate}`);
       await runTrayBridgeCommand(`connect-serial ${trayComSecondary} ${trayBaudRate}`);
+      const txPower = parsePowerAttDb10(getTrayReaderConfig().powerAttDb10);
+      if (txPower !== null) {
+        try {
+          await runTrayBridgeCommand(`set-power ${txPower}`);
+        } catch (_) {
+          /* optional; same preset as tray scan / RFID Tray Connect */
+        }
+      }
       await runTrayBridgeCommand('start');
       setTrayScanning(true);
     } catch (error) {
@@ -721,6 +761,7 @@ const CreateInvoice = () => {
             dateTo: ''
           };
           setFilterValues(defaultFilters);
+          setInvoiceListStockMode('active');
           setCurrentPage(1);
           
           // Fetch filter data and stock data in parallel for faster loading
@@ -754,6 +795,7 @@ const CreateInvoice = () => {
     setSelectedRows([]);
     if (trayEnabled) {
       setIsTrayScanView(true);
+      setInvoiceListStockMode('active');
       setLabeledStock([]);
       setTotalRecords(0);
       setTotalPages(0);
@@ -761,6 +803,7 @@ const CreateInvoice = () => {
       return;
     }
     setIsTrayScanView(false);
+    setInvoiceListStockMode('active');
     setLoading(true);
     fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, { force: true });
   }, [trayEnabled, userInfo?.ClientCode]);
@@ -817,7 +860,10 @@ const CreateInvoice = () => {
           );
           return selectedBranch ? (selectedBranch.Id || selectedBranch.id || 0) : 0;
         })() : 0,
-        Status: filterValues.status !== 'All' ? filterValues.status : "ApiActive",
+        Status:
+          filterValues.status !== 'All'
+            ? filterValues.status
+            : (invoiceListStockMode === 'sold' ? 'Sold' : 'ApiActive'),
         SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : "",
         ListType: "ascending"
       };
@@ -855,7 +901,7 @@ const CreateInvoice = () => {
       console.log('Fetching ALL filtered data:', payload);
 
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
+        toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock'),
         payload,
         {
           headers: {
@@ -959,11 +1005,11 @@ const CreateInvoice = () => {
         countersResponse,
         branchesResponse
       ] = await Promise.all([
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllDesign', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllCategory', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllCounters', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllBranchMaster', requestBody, { headers })
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllProductMaster'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllDesign'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllCategory'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ClientOnboarding/GetAllCounters'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ClientOnboarding/GetAllBranchMaster'), requestBody, { headers })
       ]);
 
       console.log('Counters API Response:', countersResponse.data);
@@ -1118,7 +1164,10 @@ const CreateInvoice = () => {
           }
           return branchId;
         })() : 0,
-        Status: safeFilters.status !== 'All' ? safeFilters.status : "ApiActive",
+        Status:
+          safeFilters.status !== 'All'
+            ? safeFilters.status
+            : ((options?.listMode ?? invoiceListStockMode) === 'sold' ? 'Sold' : 'ApiActive'),
         SearchQuery: search && search.trim() !== '' ? search.trim() : "",
         ListType: "ascending"
       };
@@ -1181,7 +1230,7 @@ const CreateInvoice = () => {
       });
 
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
+        toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock'),
         payload,
         {
           headers: {
@@ -1341,6 +1390,56 @@ const CreateInvoice = () => {
 
   // Pagination - now using server-side pagination
   const currentItems = filteredStock; // filteredStock now contains only the current page data
+  const displayItems = showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems;
+
+  const gridItemCode = (item) =>
+    String(item?.ItemCode || item?.Itemcode || item?.SKU || '')
+      .trim()
+      .toUpperCase();
+
+  const visibleGridImageKeys = useMemo(() => {
+    if (viewMode !== 'card') return [];
+    const keys = [];
+    for (let i = 0; i < displayItems.length; i += 1) {
+      const key = gridItemCode(displayItems[i]);
+      if (key) keys.push(key);
+      if (keys.length >= INVOICE_GRID_IMAGE_RESOLVE_LIMIT) break;
+    }
+    return keys;
+  }, [displayItems, viewMode]);
+
+  useEffect(() => {
+    gridLocalImageUrlsRef.current = gridLocalImageUrls;
+  }, [gridLocalImageUrls]);
+
+  useEffect(() => {
+    if (!visibleGridImageKeys.length) return undefined;
+    let cancelled = false;
+    const missing = visibleGridImageKeys.filter((key) => !gridLocalImageUrlsRef.current[key]);
+    if (!missing.length) return undefined;
+
+    const batchSize = 4;
+    let idx = 0;
+    const processBatch = async () => {
+      if (cancelled) return;
+      const batch = missing.slice(idx, idx + batchSize);
+      idx += batchSize;
+      const resolved = await Promise.all(batch.map(async (key) => [key, await resolveLocalItemImageBlobUrl(key)]));
+      if (cancelled) return;
+      const patch = {};
+      resolved.forEach(([key, url]) => {
+        if (url) patch[key] = url;
+      });
+      if (Object.keys(patch).length) {
+        setGridLocalImageUrls((prev) => ({ ...prev, ...patch }));
+      }
+      if (idx < missing.length) setTimeout(processBatch, 24);
+    };
+    setTimeout(processBatch, 16);
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleGridImageKeys]);
 
   const handleRowSelection = (id) => {
     setSelectedRows(prev => {
@@ -1547,7 +1646,7 @@ const CreateInvoice = () => {
       formData.append('file', excelBlob, filename);
 
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/Export/SendLabelStockEmail',
+        toRrgoldApiUrl('/api/Export/SendLabelStockEmail'),
         formData,
         {
           headers: {
@@ -1814,6 +1913,7 @@ const CreateInvoice = () => {
       dateTo: ''
     };
     setFilterValues(resetFilters);
+    setInvoiceListStockMode('active');
     // Reset to first page when resetting filters
     setCurrentPage(1);
     // Show loader immediately
@@ -1895,26 +1995,23 @@ const CreateInvoice = () => {
     }
   };
 
-  const handleShowInvoiceProductList = () => {
-    if (trayEnabled) {
-      setIsTrayScanView(true);
-      setLabeledStock([]);
-      setSelectedRows([]);
-      setShowAllData(false);
-      setAllFilteredData([]);
-      setSearchQuery('');
-      setTotalRecords(0);
-      setTotalPages(0);
+  const setInvoiceStockModeAndFetch = (mode) => {
+    if (invoiceStockToggleDisabled) {
       addNotification({
-        title: 'Tray mode enabled',
-        description: 'Invoice list stays empty in tray mode. Scan tags to load products.',
-        type: 'info'
+        title: 'Stock view',
+        description: 'Turn off inventory tray in settings to switch Active/Sold list.',
+        type: 'info',
       });
       return;
     }
+    if (mode !== 'active' && mode !== 'sold') return;
     setIsTrayScanView(false);
+    setInvoiceListStockMode(mode);
+    setShowAllData(false);
+    setAllFilteredData([]);
+    setCurrentPage(1);
     setLoading(true);
-    fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, { force: true });
+    fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, { force: true, listMode: mode });
   };
 
   const handleClearScannedTrayProducts = () => {
@@ -2059,6 +2156,7 @@ const CreateInvoice = () => {
   const [reportData, setReportData] = useState([]);
 
   const handleDelete = () => {
+    if (selectedRows.length === 0) return;
     setShowDeleteConfirm(true);
   };
 
@@ -2068,7 +2166,7 @@ const CreateInvoice = () => {
       const deletedItems = labeledStock.filter(item => selectedRows.includes(item.Id));
       const itemCodes = deletedItems.map(item => item.ItemCode); // keep as array
       const clientCode = userInfo?.ClientCode || '';
-              const response = await axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/DeleteLabelledStockItems', {
+              const response = await axios.post(toRrgoldApiUrl('/api/ProductMaster/DeleteLabelledStockItems'), {
         ClientCode: clientCode,
         ItemCodes: itemCodes // send as array
       }, {
@@ -2108,16 +2206,24 @@ const CreateInvoice = () => {
   const confirmDeleteAllStock = async () => {
     setDeleteAllStockLoading(true);
     try {
-      const clientCode = userInfo?.ClientCode || '';
-      
-      const response = await axios.delete(`https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient`, {
+      let clientCode = userInfo?.ClientCode;
+      if (!clientCode) {
+        try {
+          const stored = JSON.parse(localStorage.getItem('userInfo') || '{}');
+          if (stored?.ClientCode) clientCode = String(stored.ClientCode).trim();
+        } catch (_) { /* ignore */ }
+      }
+      clientCode = clientCode ? String(clientCode).trim() : '';
+      if (!clientCode) {
+        showSuccessNotification('Delete All Failed', 'Client code not found. Please login again.');
+        return;
+      }
+
+      const response = await axios.delete('https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient', {
+        params: { ClientCode: clientCode },
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
-        data: {
-          ClientCode: clientCode
-        }
       });
 
       if (response.data && response.data.success !== false) {
@@ -2920,10 +3026,10 @@ const CreateInvoice = () => {
         <div style={{
           background: '#ffffff',
           borderRadius: '12px',
-          padding: '12px 16px 16px',
+          padding: '10px 14px 14px',
           marginBottom: '16px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          border: '1px solid #e5e7eb'
+          boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+          border: '1px solid #d4d4d8'
         }}>
           <PageHeader
             isSmallScreen={windowWidth <= 768}
@@ -2935,7 +3041,7 @@ const CreateInvoice = () => {
             ) : undefined}
             icon={<FaFileInvoice style={{ fontSize: windowWidth <= 768 ? 14 : 16 }} />}
             iconGradient="linear-gradient(135deg, #0d9488 0%, #0f766e 100%)"
-            barStyle={{ marginBottom: 0, boxShadow: 'none', border: 'none', padding: windowWidth <= 768 ? '0 0 8px 0' : '0 0 10px 0' }}
+            barStyle={{ marginBottom: 0, boxShadow: 'none', border: 'none', padding: windowWidth <= 768 ? '0 0 7px 0' : '0 0 8px 0' }}
             actions={
               <div style={{
                 fontSize: '12px',
@@ -2956,9 +3062,9 @@ const CreateInvoice = () => {
             flexWrap: 'wrap',
             gap: '10px',
             alignItems: 'center',
-            marginTop: '16px',
-            paddingTop: '16px',
-            borderTop: '1px solid #e5e7eb'
+            marginTop: '12px',
+            paddingTop: '12px',
+            borderTop: '1px solid #f1f5f9'
           }}>
             {/* Search Input */}
             <div style={{
@@ -2973,7 +3079,7 @@ const CreateInvoice = () => {
                 top: '50%',
                 transform: 'translateY(-50%)',
                 color: '#94a3b8',
-                fontSize: '14px',
+                fontSize: '11px',
                 zIndex: 1
               }} />
               <input
@@ -2983,17 +3089,62 @@ const CreateInvoice = () => {
                 onChange={e => handleSearchChange(e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '8px 12px 8px 36px',
-                  fontSize: '12px',
-                  border: '1px solid #e2e8f0',
+                  height: 34,
+                  padding: '0 12px 0 30px',
+                  fontSize: '11px',
+                  border: '1px solid #e5e5e5',
                   borderRadius: '8px',
                   outline: 'none',
                   transition: 'all 0.2s',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  background: '#ffffff'
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                onFocus={(e) => e.target.style.borderColor = '#94a3b8'}
+                onBlur={(e) => e.target.style.borderColor = '#e5e5e5'}
               />
+            </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('card')}
+                style={{
+                  border: 'none',
+                  borderRight: '1px solid #dbe4f0',
+                  background: viewMode === 'card' ? '#eef2ff' : '#fff',
+                  color: viewMode === 'card' ? '#3730a3' : '#475569',
+                  height: 34,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                }}
+              >
+                <FaThLarge style={{ fontSize: 11 }} />
+                Card
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                style={{
+                  border: 'none',
+                  background: viewMode === 'table' ? '#eef2ff' : '#fff',
+                  color: viewMode === 'table' ? '#3730a3' : '#475569',
+                  height: 34,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                }}
+              >
+                <FaThList style={{ fontSize: 11 }} />
+                Table
+              </button>
             </div>
             {/* Filter Button */}
             <button 
@@ -3002,25 +3153,22 @@ const CreateInvoice = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
+                height: 34,
+                padding: '0 12px',
+                fontSize: '11px',
+                fontWeight: 700,
                 borderRadius: '8px',
-                border: '1px solid #10b981',
-                background: showFilterPanel ? '#10b981' : '#ffffff',
-                color: showFilterPanel ? '#ffffff' : '#10b981',
+                border: '1px solid #cbd5e1',
+                background: showFilterPanel ? '#eef2ff' : '#ffffff',
+                color: showFilterPanel ? '#3730a3' : '#475569',
                 cursor: 'pointer',
                 transition: 'all 0.2s'
               }}
               onMouseEnter={(e) => {
-                if (!showFilterPanel) {
-                  e.target.style.background = '#f0fdf4';
-                }
+                if (!showFilterPanel) e.target.style.background = '#f8fafc';
               }}
               onMouseLeave={(e) => {
-                if (!showFilterPanel) {
-                  e.target.style.background = '#ffffff';
-                }
+                if (!showFilterPanel) e.target.style.background = '#ffffff';
               }}
             >
               <FaFilter />
@@ -3034,25 +3182,26 @@ const CreateInvoice = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
+                height: 34,
+                padding: '0 12px',
+                fontSize: '11px',
+                fontWeight: 700,
                 borderRadius: '8px',
-                border: '1px solid #dc2626',
-                background: selectedRows.length === 0 || markSoldLoading ? '#f3f4f6' : '#dc2626',
-                color: selectedRows.length === 0 || markSoldLoading ? '#9ca3af' : '#ffffff',
+                border: '1px solid #fecaca',
+                background: selectedRows.length === 0 || markSoldLoading ? '#f8fafc' : '#fef2f2',
+                color: selectedRows.length === 0 || markSoldLoading ? '#9ca3af' : '#b91c1c',
                 cursor: selectedRows.length === 0 || markSoldLoading ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s',
                 opacity: selectedRows.length === 0 ? 0.6 : 1
               }}
               onMouseEnter={(e) => {
                 if (selectedRows.length > 0 && !markSoldLoading) {
-                  e.target.style.background = '#b91c1c';
+                  e.target.style.background = '#fee2e2';
                 }
               }}
               onMouseLeave={(e) => {
                 if (selectedRows.length > 0 && !markSoldLoading) {
-                  e.target.style.background = '#dc2626';
+                  e.target.style.background = '#fef2f2';
                 }
               }}
             >
@@ -3118,34 +3267,97 @@ const CreateInvoice = () => {
                 <span>Clear Scanned Data</span>
               </button>
             )}
-            {/* Invoice Product List Button */}
-            <button 
-              onClick={handleShowInvoiceProductList}
+            {/* Active / Sold stock toggle + delete actions */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                overflow: 'hidden',
+                height: 34,
+                opacity: invoiceStockToggleDisabled ? 0.55 : 1,
+              }}
+              title={invoiceStockToggleDisabled ? 'Disable inventory tray in settings to switch list' : 'Switch between active and sold labeled stock'}
+            >
+              <button
+                type="button"
+                disabled={invoiceStockToggleDisabled}
+                onClick={() => setInvoiceStockModeAndFetch('active')}
+                style={{
+                  border: 'none',
+                  borderRight: '1px solid #cbd5e1',
+                  height: '100%',
+                  padding: '0 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: invoiceStockToggleDisabled ? 'not-allowed' : 'pointer',
+                  background: invoiceListStockMode === 'active' ? '#059669' : '#ffffff',
+                  color: invoiceListStockMode === 'active' ? '#ffffff' : '#475569',
+                }}
+              >
+                Active
+              </button>
+              <button
+                type="button"
+                disabled={invoiceStockToggleDisabled}
+                onClick={() => setInvoiceStockModeAndFetch('sold')}
+                style={{
+                  border: 'none',
+                  height: '100%',
+                  padding: '0 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: invoiceStockToggleDisabled ? 'not-allowed' : 'pointer',
+                  background: invoiceListStockMode === 'sold' ? '#b91c1c' : '#ffffff',
+                  color: invoiceListStockMode === 'sold' ? '#ffffff' : '#475569',
+                }}
+              >
+                Sold
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={selectedRows.length === 0}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '8px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
+                height: 34,
+                padding: '0 12px',
+                fontSize: '11px',
+                fontWeight: 700,
                 borderRadius: '8px',
-                border: '1px solid #3b82f6',
-                background: '#3b82f6',
-                color: '#ffffff',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#2563eb';
-                e.target.style.borderColor = '#2563eb';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = '#3b82f6';
-                e.target.style.borderColor = '#3b82f6';
+                border: '1px solid #fecaca',
+                background: selectedRows.length === 0 ? '#f8fafc' : '#ffffff',
+                color: selectedRows.length === 0 ? '#9ca3af' : '#b91c1c',
+                cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
               }}
             >
-              <FaFileInvoice />
-              <span>Invoice Product List</span>
+              <FaTrash />
+              <span>Delete</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteAllStock}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                height: 34,
+                padding: '0 12px',
+                fontSize: '11px',
+                fontWeight: 700,
+                borderRadius: '8px',
+                border: '1px solid #dc2626',
+                background: '#ffffff',
+                color: '#dc2626',
+                cursor: 'pointer',
+              }}
+            >
+              <FaTrash />
+              <span>Delete All</span>
             </button>
           </div>
         </div>
@@ -3654,13 +3866,102 @@ const CreateInvoice = () => {
           border: '1px solid #d4d4d8',
           overflow: 'hidden'
         }}>
+          {viewMode === 'card' ? (
+            <div style={{ padding: 12, background: '#fafafa', minHeight: 320 }}>
+              {displayItems.length === 0 ? (
+                <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13 }}>
+                  No items found
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: windowWidth <= 768 ? 'repeat(1, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+                    gap: 10,
+                  }}
+                >
+                  {displayItems.map((item, index) => {
+                    const itemCodeKey = gridItemCode(item);
+                    const imgUrl = gridLocalImageUrls[itemCodeKey] || getItemImageUrl(item);
+                    const statusSx = invoiceStatusPillSx(item.Status);
+                    return (
+                      <div
+                        key={item.Id || `${itemCodeKey}-${index}`}
+                        onClick={() => handleRowSelection(item.Id)}
+                        style={{
+                          border: selectedRows.includes(item.Id) ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                          borderRadius: 10,
+                          background: selectedRows.includes(item.Id) ? '#eff6ff' : '#fff',
+                          padding: 10,
+                          boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <GridItemImage
+                          src={imgUrl}
+                          alt={item.ItemCode || 'Item'}
+                          wrapperStyle={{ width: '100%', height: 126, borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          placeholder={<div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#94a3b8' }}>No image</div>}
+                        />
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {item.ItemCode || '-'}
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={selectedRows.includes(item.Id)}
+                            onChange={() => handleRowSelection(item.Id)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ width: 14, height: 14, cursor: 'pointer' }}
+                          />
+                        </div>
+                        <div style={{ fontSize: 10, color: '#475569', marginTop: 4, marginBottom: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {(item.CategoryName || '-')} • {(item.ProductName || '-')}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                            <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                            <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{Number(item.GrossWt || 0).toFixed(3)}</div>
+                          </div>
+                          <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                            <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                            <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{Number(item.NetWt || 0).toFixed(3)}</div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <button
+                            onClick={(e) => openRFIDTransactionPopup(item, e)}
+                            style={{
+                              padding: '3px 9px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              borderRadius: '6px',
+                              border: `1px solid ${statusSx.bd}`,
+                              background: statusSx.bg,
+                              color: statusSx.fg,
+                              WebkitTextFillColor: statusSx.fg,
+                              opacity: 1,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {item.Status || 'N/A'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
           <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
             <table className="invoice-stock-table" style={{ 
               width: '100%',
               minWidth: '1400px',
               borderCollapse: 'separate',
               borderSpacing: 0,
-              fontSize: '10px',
+              fontSize: windowWidth <= 768 ? '10px' : '11px',
               tableLayout: 'fixed'
             }}>
               <thead>
@@ -3740,13 +4041,18 @@ const CreateInvoice = () => {
                     textAlign: 'left',
                     fontSize: '11px',
                     fontWeight: 700,
-                    color: '#ffffff',
-                    whiteSpace: 'nowrap'
+                    color: '#0f172a',
+                    whiteSpace: 'nowrap',
+                    background: '#f8fafc',
+                    borderLeft: '1px solid #e5e7eb'
                   }}>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item, index) => (
+                {displayItems.map((item, index) => (
+                  (() => {
+                    const statusSx = invoiceStatusPillSx(item.Status);
+                    return (
                   <tr
                     key={item.Id}
                     onClick={() => handleRowSelection(item.Id)}
@@ -3839,39 +4145,35 @@ const CreateInvoice = () => {
                     })}
                     <td style={{
                       padding: '8px 8px',
-                      fontSize: '10px'
+                      fontSize: '10px',
+                      textAlign: 'center'
                     }}>
                       <button 
                         onClick={(e) => openRFIDTransactionPopup(item, e)}
                         style={{
-                          padding: '4px 12px',
+                          padding: '2px 8px',
                           fontSize: '10px',
-                          fontWeight: 600,
+                          fontWeight: 700,
                           borderRadius: '6px',
-                          border: '1px solid',
-                          background: '#ffffff',
-                          color: item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444',
-                          borderColor: item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444',
+                          border: `1px solid ${statusSx.bd}`,
+                          background: statusSx.bg,
+                          color: statusSx.fg,
+                          WebkitTextFillColor: statusSx.fg,
+                          opacity: 1,
                           cursor: 'pointer',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.target.style.background = item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444';
-                          e.target.style.color = '#ffffff';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.background = '#ffffff';
-                          e.target.style.color = item.Status === 'ApiActive' ? '#3b82f6' : '#ef4444';
                         }}
                       >
                         {item.Status || 'N/A'}
                       </button>
                     </td>
                   </tr>
+                    );
+                  })()
                 ))}
                 </tbody>
               </table>
             </div>
+          )}
             
             {/* Pagination */}
             <div style={{
@@ -3893,15 +4195,15 @@ const CreateInvoice = () => {
             }}>
               {showAllData && allFilteredData.length > 0 ? (
                 <span>
-                  Showing all {allFilteredData.length} filtered records
+                  Showing all {allFilteredData.length} filtered {viewMode === 'card' ? 'cards' : 'rows'}
                 </span>
               ) : (
                 <>
                   <span>
-                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} {viewMode === 'card' ? 'cards' : 'rows'}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>Show:</span>
+                    <span>{viewMode === 'card' ? 'Cards:' : 'Rows:'}</span>
                     <select 
                       value={itemsPerPage}
                       onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
@@ -4221,16 +4523,17 @@ const CreateInvoice = () => {
               boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
               width: 480,
               maxWidth: '98vw',
+              minWidth: 0,
               padding: '0 0 18px 0',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               animation: 'fadeIn 0.2s',
             }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px', width: '100%', boxSizing: 'border-box' }}>
                 <FaExclamationTriangle style={{ color: '#dc3545', fontSize: 48, marginBottom: 12 }} />
                 <div style={{ fontWeight: 700, fontSize: 22, color: '#dc3545', marginBottom: 8, textAlign: 'center' }}>Delete ALL Stock for Client?</div>
-                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', maxWidth: 400 }}>
+                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                   <strong>WARNING:</strong> This will permanently delete ALL stock items for the current client ({userInfo?.ClientCode || 'Unknown'}). This action cannot be undone and will remove all stock data associated with this client.
                   <br /><br />
                   <span style={{ color: '#dc3545', fontWeight: 600 }}>

@@ -11,6 +11,8 @@ import {
   FaDownload,
   FaEnvelope,
   FaList,
+  FaTable,
+  FaThLarge,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -55,6 +57,7 @@ const QuotationList = () => {
   const [exportErrors, setExportErrors] = useState({ excel: '', pdf: '', email: '' });
   const [exportLoading, setExportLoading] = useState(false);
   const [emailAddress, setEmailAddress] = useState('');
+  const [listViewMode, setListViewMode] = useState('table');
 
   const isSmallScreen = windowWidth <= 768;
 
@@ -564,6 +567,49 @@ const QuotationList = () => {
               >
                 {filteredQuotations.length} record{filteredQuotations.length !== 1 ? 's' : ''}
               </span>
+              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                <button
+                  type="button"
+                  onClick={() => setListViewMode('card')}
+                  style={{
+                    border: 'none',
+                    borderRight: '1px solid #dbe4f0',
+                    background: listViewMode === 'card' ? '#eef2ff' : '#fff',
+                    color: listViewMode === 'card' ? '#3730a3' : '#475569',
+                    height: 32,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FaThLarge style={{ fontSize: 11 }} />
+                  Card
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setListViewMode('table')}
+                  style={{
+                    border: 'none',
+                    background: listViewMode === 'table' ? '#eef2ff' : '#fff',
+                    color: listViewMode === 'table' ? '#3730a3' : '#475569',
+                    height: 32,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FaTable style={{ fontSize: 11 }} />
+                  Table
+                </button>
+              </div>
               <div
                 style={{
                   position: 'relative',
@@ -657,6 +703,89 @@ const QuotationList = () => {
         border: '1px solid #d4d4d8',
         overflow: 'hidden'
       }}>
+        {listViewMode === 'card' ? (
+          <div style={{ padding: 12, background: '#fafafa', minHeight: 420 }}>
+            {loading && quotations.length === 0 ? (
+              <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13 }}>
+                <FaSpinner style={{ fontSize: 22, animation: 'spin 1s linear infinite', marginBottom: 8, display: 'inline-block' }} />
+                <div style={{ marginTop: 8 }}>Loading quotations...</div>
+              </div>
+            ) : currentQuotations.length === 0 ? (
+              <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13 }}>
+                {searchQuery.trim() ? 'No quotations found matching your search.' : 'No quotations found'}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: isSmallScreen ? 'repeat(1, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {currentQuotations.map((quotation, index) => {
+                  const rowIndex = startIndex + index + 1;
+                  return (
+                    <div
+                      key={`quotation-card-${quotation.Id || rowIndex}`}
+                      style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 10,
+                        background: '#fff',
+                        padding: 10,
+                        boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>#{quotation.QuotationNo || '-'}</div>
+                        <button
+                          onClick={() => handlePrint(quotation)}
+                          type="button"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 28,
+                            height: 28,
+                            border: '1px solid #cbd5e1',
+                            borderRadius: 7,
+                            background: '#ffffff',
+                            color: '#334155',
+                            cursor: 'pointer',
+                            fontSize: 11,
+                          }}
+                          title="Print Quotation"
+                        >
+                          <FaPrint />
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 10, color: '#475569', marginBottom: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {getCustomerName(quotation)}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{formatNumber(quotation.GrossWt)}</div>
+                        </div>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{formatNumber(quotation.NetWt)}</div>
+                        </div>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GST</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{formatNumber(quotation.TotalGSTAmount || quotation.GST, 3)}</div>
+                        </div>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>AMOUNT</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{formatNumber(quotation.TotalPurchaseAmount || quotation.TotalAmount, 3)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
         <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%', background: '#fafafa' }}>
           <table className="quotation-list-table" style={{
             width: '100%',
@@ -775,6 +904,7 @@ const QuotationList = () => {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Pagination */}
         <div style={{

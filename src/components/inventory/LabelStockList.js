@@ -36,6 +36,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
+import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
@@ -45,6 +46,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import IconButton from '@mui/material/IconButton';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
+import { resolveLocalItemImageBlobUrl } from '../../services/localItemImageService';
 
 // Separate axios instance for FormData uploads so global interceptor does not set Content-Type: application/json
 const formDataAxios = axios.create();
@@ -60,6 +62,7 @@ formDataAxios.interceptors.request.use(
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 15;
+const LABEL_GRID_IMAGE_RESOLVE_LIMIT = 60;
 
 const labelListPageBtnStyle = (disabled) => ({
   padding: '5px 11px',
@@ -205,6 +208,8 @@ const LabelStockList = () => {
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [showTrayScanModal, setShowTrayScanModal] = useState(false);
   const [trayFetchLoading, setTrayFetchLoading] = useState(false);
+  const [labelGridLocalImageUrls, setLabelGridLocalImageUrls] = useState({});
+  const labelGridLocalImageUrlsRef = useRef({});
 
   // Add these state variables for filter options
   const [filterOptions, setFilterOptions] = useState({
@@ -432,7 +437,7 @@ const LabelStockList = () => {
         PageNumber: 1,
         PageSize: 999999,
         BranchId: allBranchId,
-        Status: showActiveOnly ? "Active" : (filterValues.status !== 'All' ? filterValues.status : "ApiActive"),
+        Status: showActiveOnly ? 'Active' : 'ApiActive',
         SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : "",
         ListType: "ascending",
         SortColumn: sortConfig.key || null
@@ -744,10 +749,6 @@ const LabelStockList = () => {
       const resolvedPurityId = Number(getFilterValueForAPI('purityId', safeFilters.purityId)) || 0;
       const resolvedDesignId = Number(getFilterValueForAPI('designId', safeFilters.designId)) || 0;
 
-      const resolvedStatus = showActiveOnly
-        ? 'ApiActive'
-        : (safeFilters.status !== 'All' ? safeFilters.status : null);
-
       const payload = {
         ClientCode: clientCode,
         CategoryId: resolvedCategoryId,
@@ -760,7 +761,7 @@ const LabelStockList = () => {
         PageNumber: page,
         PageSize: pageSize,
         BranchId: resolvedBranchId,
-        Status: resolvedStatus,
+        Status: showActiveOnly ? 'Active' : 'ApiActive',
         SearchQuery: search && search.trim() !== '' ? search.trim() : "",
         ListType: sort && sort.direction === 'desc' ? "descending" : "ascending",
         SortColumn: sort && sort.key ? sort.key : null // Include SortColumn based on current sort configuration
@@ -977,6 +978,68 @@ const LabelStockList = () => {
 
   // Pagination - now using server-side pagination
   const currentItems = filteredStock; // filteredStock now contains only the current page data
+
+  const gridVisibleItems = useMemo(
+    () => (showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems),
+    [showAllData, allFilteredData, currentItems]
+  );
+
+  const labelGridImageKeys = useMemo(() => {
+    if (!isGridView) return [];
+    return Array.from(
+      new Set(
+        gridVisibleItems
+          .map((item) => String(item?.ItemCode || item?.Itemcode || '').trim().toUpperCase())
+          .filter(Boolean)
+      )
+    ).slice(0, LABEL_GRID_IMAGE_RESOLVE_LIMIT);
+  }, [gridVisibleItems, isGridView]);
+
+  useEffect(() => {
+    labelGridLocalImageUrlsRef.current = labelGridLocalImageUrls;
+  }, [labelGridLocalImageUrls]);
+
+  useEffect(() => {
+    if (!isGridView || !labelGridImageKeys.length) return;
+    let disposed = false;
+    const resolveMissing = async () => {
+      const missingKeys = labelGridImageKeys.filter((key) => !labelGridLocalImageUrlsRef.current[key]);
+      if (!missingKeys.length) return;
+      const batchSize = 6;
+      let cursor = 0;
+
+      const processBatch = async () => {
+        if (disposed) return;
+        const batch = missingKeys.slice(cursor, cursor + batchSize);
+        if (!batch.length) return;
+        const pairs = await Promise.all(
+          batch.map(async (key) => {
+            const url = await resolveLocalItemImageBlobUrl(key);
+            return [key, url || ''];
+          })
+        );
+        if (disposed) return;
+        setLabelGridLocalImageUrls((prev) => {
+          const next = { ...prev };
+          pairs.forEach(([key, url]) => {
+            if (key && url && !next[key]) next[key] = url;
+          });
+          return next;
+        });
+        cursor += batchSize;
+        if (cursor < missingKeys.length) {
+          setTimeout(processBatch, 16);
+        }
+      };
+
+      processBatch();
+    };
+
+    resolveMissing();
+    return () => {
+      disposed = true;
+    };
+  }, [isGridView, labelGridImageKeys]);
 
   const handleRowSelection = (id) => {
     setSelectedRows(prev => {
@@ -1897,7 +1960,7 @@ const LabelStockList = () => {
         ToDate: safeFilters.dateTo && safeFilters.dateTo.trim() !== '' ? safeFilters.dateTo.trim() : null,
         RFIDCode: "",
         BranchId: exportBranchId,
-        Status: safeFilters.status !== 'All' ? safeFilters.status : "ApiActive",
+        Status: showActiveOnly ? 'Active' : (safeFilters.status !== 'All' ? safeFilters.status : 'ApiActive'),
         SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : "",
         ListType: sortConfig && (sortConfig.direction === 'desc' || sortConfig.direction === 'descending') ? "descending" : "ascending",
         SortColumn: sortConfig && sortConfig.key ? sortConfig.key : null
@@ -3187,16 +3250,24 @@ const LabelStockList = () => {
   const confirmDeleteAllStock = async () => {
     setDeleteAllStockLoading(true);
     try {
-      const clientCode = userInfo?.ClientCode || '';
+      let clientCode = userInfo?.ClientCode;
+      if (!clientCode) {
+        try {
+          const stored = JSON.parse(localStorage.getItem('userInfo') || '{}');
+          if (stored?.ClientCode) clientCode = String(stored.ClientCode).trim();
+        } catch (_) { /* ignore */ }
+      }
+      clientCode = clientCode ? String(clientCode).trim() : '';
+      if (!clientCode) {
+        showSuccessNotification('Delete All Failed', 'Client code not found. Please login again.');
+        return;
+      }
 
-      const response = await axios.delete(`https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient`, {
+      const response = await axios.delete('https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient', {
+        params: { ClientCode: clientCode },
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
-        data: {
-          ClientCode: clientCode
-        }
       });
 
       if (response.data && response.data.success !== false) {
@@ -4772,8 +4843,9 @@ const LabelStockList = () => {
               onWheel={handleInnerScrollWheel}
             >
               <div className="product-grid">
-              {(showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems).map((item) => {
-                const imgUrl = getItemImageUrl(item);
+              {gridVisibleItems.map((item) => {
+                const itemCodeKey = String(item?.ItemCode || item?.Itemcode || '').trim().toUpperCase();
+                const imgUrl = labelGridLocalImageUrls[itemCodeKey] || getItemImageUrl(item);
                 const isSelected = selectedRows.includes(item.Id);
                 return (
                   <article
@@ -4793,14 +4865,18 @@ const LabelStockList = () => {
                       {item.Status || 'ApiActive'}
                     </span>
                     <div className="product-card__image-wrap">
-                      {imgUrl ? (
-                        <img src={imgUrl} alt={item.ProductName || 'Product'} className="product-card__image" />
-                      ) : (
-                        <div className="product-card__image-placeholder">
-                          <FaGem size={32} />
-                          <span>No Image</span>
-                        </div>
-                      )}
+                      <GridItemImage
+                        src={imgUrl}
+                        alt={item.ProductName || 'Product'}
+                        className="product-card__image"
+                        wrapperStyle={{ width: '100%', height: '100%' }}
+                        placeholder={(
+                          <div className="product-card__image-placeholder">
+                            <FaGem size={32} />
+                            <span>No Image</span>
+                          </div>
+                        )}
+                      />
                       <div className="product-card__actions">
                         <button
                           type="button"
@@ -5331,10 +5407,10 @@ const LabelStockList = () => {
           /* E-commerce product grid */
           .product-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 20px;
-            margin-bottom: 24px;
-            padding: 4px 0;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+            gap: 12px;
+            margin-bottom: 14px;
+            padding: 2px 0;
           }
           @media (min-width: 1400px) {
             .product-grid { grid-template-columns: repeat(5, 1fr); }
@@ -5351,19 +5427,19 @@ const LabelStockList = () => {
 
           .product-card {
             background: #fff;
-            border-radius: 12px;
-            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
             overflow: hidden;
             cursor: pointer;
             position: relative;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            box-shadow: 0 2px 8px rgba(15,23,42,0.06);
             transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
           }
           .product-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 18px rgba(15,23,42,0.12);
           }
           .product-card--selected {
             border: 2px solid #b91c1c;
@@ -5375,28 +5451,28 @@ const LabelStockList = () => {
 
           .product-card__checkbox {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            top: 8px;
+            left: 8px;
             z-index: 3;
           }
           .product-card__checkbox input {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             cursor: pointer;
             accent-color: #b91c1c;
           }
 
           .product-card__badge {
             position: absolute;
-            top: 10px;
-            right: 10px;
+            top: 8px;
+            right: 8px;
             z-index: 2;
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            padding: 4px 8px;
-            border-radius: 6px;
+            padding: 3px 7px;
+            border-radius: 999px;
           }
           .product-card__badge--apiactive {
             background: #d1fae5;
@@ -5413,7 +5489,7 @@ const LabelStockList = () => {
 
           .product-card__image-wrap {
             position: relative;
-            aspect-ratio: 1;
+            aspect-ratio: 1 / 0.9;
             background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
             display: flex;
             align-items: center;
@@ -5423,8 +5499,8 @@ const LabelStockList = () => {
           .product-card__image {
             width: 100%;
             height: 100%;
-            object-fit: contain;
-            padding: 12px;
+            object-fit: cover;
+            padding: 0;
           }
           .product-card__image-placeholder {
             display: flex;
@@ -5445,8 +5521,8 @@ const LabelStockList = () => {
             left: 0;
             right: 0;
             display: flex;
-            gap: 8px;
-            padding: 10px 12px;
+            gap: 6px;
+            padding: 8px;
             background: linear-gradient(transparent, rgba(0,0,0,0.6));
             opacity: 0;
             transition: opacity 0.2s ease;
@@ -5460,12 +5536,12 @@ const LabelStockList = () => {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
-            padding: 8px 10px;
+            gap: 5px;
+            padding: 6px 8px;
             border: none;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 600;
+            border-radius: 7px;
+            font-size: 11px;
+            font-weight: 700;
             cursor: pointer;
             transition: background 0.2s, color 0.2s;
           }
@@ -5495,23 +5571,22 @@ const LabelStockList = () => {
           }
 
           .product-card__body {
-            padding: 14px 12px;
+            padding: 10px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
             flex: 1;
             min-height: 0;
           }
           .product-card__title {
             margin: 0;
-            font-size: 14px;
-            font-weight: 600;
+            font-size: 12px;
+            font-weight: 700;
             color: #1e293b;
-            line-height: 1.35;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
+            line-height: 1.3;
+            white-space: nowrap;
             overflow: hidden;
+            text-overflow: ellipsis;
           }
           .product-card__meta {
             margin: 0;
@@ -5523,7 +5598,7 @@ const LabelStockList = () => {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 11px;
+            font-size: 10px;
           }
           .product-card__meta-row dt {
             margin: 0;
@@ -5534,26 +5609,26 @@ const LabelStockList = () => {
             margin: 0;
             color: #334155;
             font-weight: 600;
-            max-width: 65%;
+            max-width: 68%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
           }
           .product-card__footer {
             margin-top: auto;
-            padding-top: 10px;
+            padding-top: 8px;
             border-top: 1px solid #f1f5f9;
             display: flex;
             justify-content: space-between;
             align-items: center;
           }
           .product-card__weight {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 700;
             color: #059669;
           }
           .product-card__purity {
-            font-size: 12px;
+            font-size: 10px;
             font-weight: 600;
             color: #b45309;
           }
@@ -5725,16 +5800,17 @@ const LabelStockList = () => {
               boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
               width: 480,
               maxWidth: '98vw',
+              minWidth: 0,
               padding: '0 0 18px 0',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               animation: 'fadeIn 0.2s',
             }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px', width: '100%', boxSizing: 'border-box' }}>
                 <FaExclamationTriangle style={{ color: '#dc3545', fontSize: 48, marginBottom: 12 }} />
                 <div style={{ fontWeight: 700, fontSize: 22, color: '#dc3545', marginBottom: 8, textAlign: 'center' }}>Delete ALL Stock for Client?</div>
-                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', maxWidth: 400 }}>
+                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                   <strong>WARNING:</strong> This will permanently delete ALL stock items for the current client ({userInfo?.ClientCode || 'Unknown'}). This action cannot be undone and will remove all stock data associated with this client.
                   <br /><br />
                   <span style={{ color: '#dc3545', fontWeight: 600 }}>

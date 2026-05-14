@@ -27,6 +27,15 @@ const hasPackagedUpdaterConfig = () => {
   }
 };
 
+const reloadAppWindow = (win) => {
+  if (!win || win.isDestroyed()) return;
+  if (isDev) {
+    win.loadURL("http://localhost:3000");
+    return;
+  }
+  win.loadFile(path.join(__dirname, "..", "build", "index.html"), { hash: "/login" });
+};
+
 const escapeHtml = (value) =>
   String(value || "")
     .replace(/&/g, "&amp;")
@@ -92,6 +101,19 @@ function createWindow() {
     win.loadFile(path.join(__dirname, "..", "build", "index.html"), { hash: "/login" });
   }
 
+  const enforceFixedZoom = () => {
+    if (win.isDestroyed()) return;
+    const wc = win.webContents;
+    wc.setZoomFactor(1);
+    wc.setVisualZoomLevelLimits(1, 1).catch(() => {});
+    wc.setZoomLevelLimits(0, 0).catch(() => {});
+  };
+
+  enforceFixedZoom();
+  win.webContents.on("did-finish-load", enforceFixedZoom);
+  win.on("restore", enforceFixedZoom);
+  win.on("show", enforceFixedZoom);
+
   const toggleDevTools = () => {
     if (win.isDestroyed()) return;
     if (win.webContents.isDevToolsOpened()) {
@@ -105,36 +127,81 @@ function createWindow() {
     const key = String(input.key || "").toLowerCase();
     const withCtrlShiftI = input.control && input.shift && key === "i";
     const withF12 = key === "f12";
+    const withCtrlZoomIn = input.control && (key === "+" || key === "=");
+    const withCtrlZoomOut = input.control && key === "-";
+    const withCtrlZoomReset = input.control && key === "0";
+    if (withCtrlZoomIn || withCtrlZoomOut || withCtrlZoomReset) {
+      event.preventDefault();
+      enforceFixedZoom();
+      return;
+    }
     if (!withCtrlShiftI && !withF12) return;
     event.preventDefault();
     toggleDevTools();
   });
 
-  win.webContents.on("did-fail-load", (_event, code, desc, validatedURL) => {
+  win.webContents.on("did-fail-load", async (_event, code, desc, validatedURL) => {
     const reason = `Code: ${code}\nDescription: ${desc || "Unknown"}\nURL: ${validatedURL || "N/A"}`;
-    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildFatalPage("Failed to load app screen", reason))}`);
+    const result = await dialog.showMessageBox(win, {
+      type: "error",
+      buttons: ["Retry", "Close"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Failed to load app screen",
+      message: "The app failed to load the screen.",
+      detail: reason
+    });
+    if (result.response === 0) reloadAppWindow(win);
   });
 
-  win.webContents.on("render-process-gone", (_event, details) => {
+  win.webContents.on("render-process-gone", async (_event, details) => {
     const reason = `Reason: ${details?.reason || "unknown"}\nExit code: ${details?.exitCode ?? "N/A"}`;
-    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildFatalPage("Renderer crashed", reason))}`);
+    const result = await dialog.showMessageBox(win, {
+      type: "warning",
+      buttons: ["Reload", "Close"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Renderer crashed",
+      message: "Renderer process crashed.",
+      detail: reason
+    });
+    if (result.response === 0) reloadAppWindow(win);
   });
 
-  win.on("unresponsive", () => {
-    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildFatalPage("Window is unresponsive", "The renderer stopped responding. Retry to recover without closing app."))}`);
+  win.on("unresponsive", async () => {
+    const result = await dialog.showMessageBox(win, {
+      type: "warning",
+      buttons: ["Wait", "Reload"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Window is unresponsive",
+      message: "The renderer stopped responding.",
+      detail: "Choose Reload to recover without closing the app."
+    });
+    if (result.response === 1) reloadAppWindow(win);
   });
 
   mainWindow = win;
 }
 
+const sendToAllWindows = (channel, payload) => {
+  const windows = BrowserWindow.getAllWindows().filter((win) => win && !win.isDestroyed());
+  if (!windows.length) return;
+  windows.forEach((win) => {
+    try {
+      win.webContents.send(channel, payload);
+    } catch {
+      // Ignore send failures for closing/reloading windows.
+    }
+  });
+};
+
 const sendBridgeEvent = (channel, payload) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send(channel, payload);
+  sendToAllWindows(channel, payload);
 };
 
 const sendUpdaterEvent = (payload) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send("app-updater-status", payload);
+  sendToAllWindows("app-updater-status", payload);
 };
 
 const setupAutoUpdater = () => {
@@ -239,18 +306,32 @@ const checkForAppUpdates = async () => {
 };
 
 const parseTagLine = (line) => {
-  const match = line.match(
-    /^TAG dev=([^\s]+)\s+epc=([^\s]+)\s+tid=([^\s]*)\s+rssi=([^\s]*)\s+ant=([^\s]*)\s+phase=([^\s]*)\s+user=([^\s]*)/i
-  );
-  if (!match) return null;
+  const raw = String(line || "").trim();
+  const tagStart = raw.search(/\bTAG\b/i);
+  if (tagStart < 0) return null;
+  const normalized = raw.slice(tagStart);
+  const body = normalized.replace(/^TAG\s+/i, "").trim();
+  if (!body) return null;
+  const fields = {};
+  body.split(/\s+/).forEach((token) => {
+    const eqIndex = token.indexOf("=");
+    if (eqIndex <= 0) return;
+    const key = token.slice(0, eqIndex).trim().toLowerCase();
+    const value = token.slice(eqIndex + 1).trim();
+    if (!key) return;
+    fields[key] = value;
+  });
+
+  const epc = String(fields.epc || "").trim();
+  if (!epc) return null;
   return {
-    deviceId: match[1],
-    epc: match[2],
-    tid: match[3] || "",
-    rssi: match[4] || "",
-    antenna: match[5] || "",
-    phase: match[6] || "",
-    user: match[7] || "",
+    deviceId: fields.dev || fields.device || fields.deviceid || "",
+    epc,
+    tid: fields.tid || "",
+    rssi: fields.rssi || "",
+    antenna: fields.ant || fields.antenna || "",
+    phase: fields.phase || "",
+    user: fields.user || "",
     raw: line
   };
 };
@@ -258,9 +339,10 @@ const parseTagLine = (line) => {
 const handleBridgeOutputLine = (line) => {
   if (!line) return;
   sendBridgeEvent("rfid-bridge-line", line);
-  if (line.startsWith("TAG ")) {
+  if (/\bTAG\b/i.test(line)) {
     const tag = parseTagLine(line);
     if (tag) sendBridgeEvent("rfid-bridge-tag", tag);
+    else sendBridgeEvent("rfid-bridge-error", `Unable to parse TAG line: ${line}`);
   }
 };
 
@@ -300,6 +382,7 @@ const ensureBridgeProcess = async () => {
     cwd: cfg.cwd,
     windowsHide: true
   });
+  sendBridgeEvent("rfid-bridge-line", `Bridge spawn: ${cfg.command} ${cfg.args.join(" ")} (cwd=${cfg.cwd})`);
 
   bridgeStdoutBuffer = "";
 
@@ -333,6 +416,7 @@ const sendBridgeCommand = async (command) => {
   if (!bridgeProcess || bridgeProcess.killed || !bridgeProcess.stdin.writable) {
     throw new Error("RFID bridge is not available.");
   }
+  sendBridgeEvent("rfid-bridge-line", `IPC CMD: ${command}`);
   bridgeProcess.stdin.write(`${command}\n`);
   return true;
 };
@@ -491,8 +575,14 @@ ipcMain.handle("rfid-bridge-command", async (_, command) => {
   if (!command || typeof command !== "string") {
     return { ok: false, error: "Invalid command." };
   }
-  await sendBridgeCommand(command.trim());
-  return { ok: true };
+  const normalized = command.trim();
+  await sendBridgeCommand(normalized);
+  return {
+    ok: true,
+    command: normalized,
+    bridgeRunning: !!(bridgeProcess && !bridgeProcess.killed),
+    bridgePid: bridgeProcess?.pid || null
+  };
 });
 
 ipcMain.handle("rfid-bridge-stop-service", async () => {

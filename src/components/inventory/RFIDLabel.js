@@ -36,8 +36,8 @@ import { generateClientPrn } from '../../utils/prnTemplates';
 import SuccessNotification from '../common/SuccessNotification';
 import { useLoading } from '../../App';
 
-const PAGE_SIZE_OPTIONS = [500, 1000, 2000, 5000];
-const DEFAULT_PAGE_SIZE = 500;
+const PAGE_SIZE_OPTIONS = [15, 30, 50, 100];
+const DEFAULT_PAGE_SIZE = 15;
 const PRN_ENABLED_CLIENT_CODES = ['LS000224', 'LS000428', 'LS000431', 'LS000443'];
 const LS000431_PRN_FILE_PATH = `${process.env.PUBLIC_URL || ''}/DELHILOGOOPRemarkNew.prn`;
 
@@ -135,7 +135,7 @@ const RFIDLabel = () => {
   const ls000431TemplateRef = useRef(null);
 
   // Tab Management
-  const [activeTab, setActiveTab] = useState('templates'); // 'templates' or 'generate'
+  const [activeTab, setActiveTab] = useState('generate'); // 'templates' or 'generate'
 
   // Template Management
   const [templates, setTemplates] = useState([]);
@@ -1156,36 +1156,47 @@ const RFIDLabel = () => {
 
   return (
     <div style={{
-      padding: '16px',
+      padding: '12px',
       fontFamily: 'Inter, system-ui, sans-serif',
+      fontSize: '11px',
       maxWidth: '100%',
-      overflowX: 'hidden'
+      overflowX: 'hidden',
+      background: '#ffffff'
     }}>
+      <div
+        style={{
+          background: '#ffffff',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          marginBottom: '12px',
+          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
+          border: '1px solid #e2e8f0',
+        }}
+      >
+        <div
+          style={{
+            height: '3px',
+            background: 'linear-gradient(90deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%)',
+          }}
+        />
+        <div style={{ padding: '12px 14px 10px' }}>
+          <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>
+            PRN Label Manager
+          </h1>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '11px', fontWeight: 600 }}>
+            Generate labels first, then manage PRN templates.
+          </p>
+        </div>
+      </div>
+
       {/* Tabs */}
       <div style={{
         display: 'flex',
         gap: '8px',
-        marginBottom: '20px',
-        borderBottom: '2px solid #e5e7eb',
+        marginBottom: '14px',
+        borderBottom: '1px solid #e2e8f0',
         flexWrap: 'wrap'
       }}>
-        <button
-          onClick={() => setActiveTab('templates')}
-          style={{
-            padding: '12px 24px',
-            background: activeTab === 'templates' ? '#667eea' : 'transparent',
-            color: activeTab === 'templates' ? 'white' : '#6b7280',
-            border: 'none',
-            borderRadius: '8px 8px 0 0',
-            cursor: 'pointer',
-            fontWeight: 600,
-            fontSize: '15px',
-            transition: 'all 0.2s'
-          }}
-        >
-          <FaFileAlt style={{ marginRight: '8px' }} />
-          {t('rfidLabel.templates', 'Templates')}
-        </button>
         <button
           onClick={() => {
             setActiveTab('generate');
@@ -1194,19 +1205,36 @@ const RFIDLabel = () => {
             }
           }}
           style={{
-            padding: '12px 24px',
-            background: activeTab === 'generate' ? '#667eea' : 'transparent',
-            color: activeTab === 'generate' ? 'white' : '#6b7280',
+            padding: '9px 14px',
+            background: activeTab === 'generate' ? '#eef2ff' : 'transparent',
+            color: activeTab === 'generate' ? '#3730a3' : '#64748b',
             border: 'none',
             borderRadius: '8px 8px 0 0',
             cursor: 'pointer',
-            fontWeight: 600,
-            fontSize: '15px',
+            fontWeight: 700,
+            fontSize: '11px',
             transition: 'all 0.2s'
           }}
         >
-          <FaPrint style={{ marginRight: '8px' }} />
+          <FaPrint style={{ marginRight: '6px' }} />
           {t('rfidLabel.generate', 'Generate Labels')}
+        </button>
+        <button
+          onClick={() => setActiveTab('templates')}
+          style={{
+            padding: '9px 14px',
+            background: activeTab === 'templates' ? '#eef2ff' : 'transparent',
+            color: activeTab === 'templates' ? '#3730a3' : '#64748b',
+            border: 'none',
+            borderRadius: '8px 8px 0 0',
+            cursor: 'pointer',
+            fontWeight: 700,
+            fontSize: '11px',
+            transition: 'all 0.2s'
+          }}
+        >
+          <FaFileAlt style={{ marginRight: '6px' }} />
+          {t('rfidLabel.templates', 'Templates')}
         </button>
       </div>
 
@@ -1638,6 +1666,7 @@ const RFIDLabel = () => {
                 marginLeft: 'auto',
                 minWidth: 'fit-content'
               }}>
+                {/** SampleOutList-like compact toolbar buttons */}
                 {/* Export All Report Button */}
                 <button
                   onClick={() => {
@@ -1648,16 +1677,15 @@ const RFIDLabel = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '8px 14px',
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    padding: '7px 12px',
+                    fontSize: '11px',
+                    fontWeight: 700,
                     borderRadius: '8px',
-                    border: '1px solid #3b82f6',
-                    background: '#3b82f6',
-                    color: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                    color: '#0f172a',
                     cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
+                    transition: 'all 0.2s'
                   }}
                 >
                   <FaFileExport />
@@ -1680,15 +1708,15 @@ const RFIDLabel = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '8px 14px',
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    padding: '7px 12px',
+                    fontSize: '11px',
+                    fontWeight: 700,
                     borderRadius: '8px',
-                    border: '1px solid #ef4444',
+                    border: '1px solid #cbd5e1',
                     background: '#ffffff',
-                    color: '#ef4444',
+                    color: selectedRows.length === 0 ? '#94a3b8' : '#334155',
                     cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: selectedRows.length === 0 ? 0.5 : 1,
+                    opacity: selectedRows.length === 0 ? 0.65 : 1,
                     transition: 'all 0.2s'
                   }}
                 >
@@ -1705,13 +1733,13 @@ const RFIDLabel = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '8px 14px',
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    padding: '7px 12px',
+                    fontSize: '11px',
+                    fontWeight: 700,
                     borderRadius: '8px',
-                    border: '1px solid #3b82f6',
+                    border: '1px solid #cbd5e1',
                     background: '#ffffff',
-                    color: '#3b82f6',
+                    color: '#334155',
                     cursor: 'pointer',
                     transition: 'all 0.2s'
                   }}
@@ -1729,13 +1757,13 @@ const RFIDLabel = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '8px 14px',
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    padding: '7px 12px',
+                    fontSize: '11px',
+                    fontWeight: 700,
                     borderRadius: '8px',
-                    border: '1px solid #f59e0b',
+                    border: '1px solid #cbd5e1',
                     background: '#ffffff',
-                    color: '#f59e0b',
+                    color: '#334155',
                     cursor: 'pointer',
                     transition: 'all 0.2s'
                   }}
@@ -1751,13 +1779,13 @@ const RFIDLabel = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '8px 14px',
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    padding: '7px 12px',
+                    fontSize: '11px',
+                    fontWeight: 700,
                     borderRadius: '8px',
-                    border: '1px solid #10b981',
-                    background: showFilterPanel ? '#10b981' : '#ffffff',
-                    color: showFilterPanel ? '#ffffff' : '#10b981',
+                    border: '1px solid #cbd5e1',
+                    background: showFilterPanel ? '#eef2ff' : '#ffffff',
+                    color: showFilterPanel ? '#3730a3' : '#334155',
                     cursor: 'pointer',
                     transition: 'all 0.2s'
                   }}
@@ -1785,27 +1813,17 @@ const RFIDLabel = () => {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '6px',
-                      padding: '8px 14px',
-                      fontSize: '12px',
-                      fontWeight: 600,
+                      padding: '7px 12px',
+                      fontSize: '11px',
+                      fontWeight: 700,
                       borderRadius: '8px',
-                      border: '1px solid #10b981',
-                      background: (selectedItems.length > 0 && selectedTemplateId && !generating) ? '#10b981' : '#f1f5f9',
-                      color: (selectedItems.length > 0 && selectedTemplateId && !generating) ? '#ffffff' : '#94a3b8',
+                      border: '1px solid #cbd5e1',
+                      background: (selectedItems.length > 0 && selectedTemplateId && !generating)
+                        ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
+                        : '#f1f5f9',
+                      color: (selectedItems.length > 0 && selectedTemplateId && !generating) ? '#0f172a' : '#94a3b8',
                       cursor: (selectedItems.length === 0 || !selectedTemplateId || generating) ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (selectedItems.length > 0 && selectedTemplateId && !generating) {
-                        e.target.style.background = '#059669';
-                        e.target.style.borderColor = '#059669';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedItems.length > 0 && selectedTemplateId && !generating) {
-                        e.target.style.background = '#10b981';
-                        e.target.style.borderColor = '#10b981';
-                      }
                     }}
                   >
                     {generating ? (
@@ -1831,27 +1849,17 @@ const RFIDLabel = () => {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '6px',
-                      padding: '8px 14px',
-                      fontSize: '12px',
-                      fontWeight: 600,
+                      padding: '7px 12px',
+                      fontSize: '11px',
+                      fontWeight: 700,
                       borderRadius: '8px',
-                      border: '1px solid #6366f1',
-                      background: selectedItems.length > 0 ? '#6366f1' : '#f1f5f9',
-                      color: selectedItems.length > 0 ? '#ffffff' : '#94a3b8',
+                      border: '1px solid #cbd5e1',
+                      background: selectedItems.length > 0
+                        ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
+                        : '#f1f5f9',
+                      color: selectedItems.length > 0 ? '#0f172a' : '#94a3b8',
                       cursor: selectedItems.length === 0 ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (selectedItems.length > 0) {
-                        e.target.style.background = '#4f46e5';
-                        e.target.style.borderColor = '#4f46e5';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedItems.length > 0) {
-                        e.target.style.background = '#6366f1';
-                        e.target.style.borderColor = '#6366f1';
-                      }
                     }}
                   >
                     <FaDownload />
@@ -1929,29 +1937,30 @@ const RFIDLabel = () => {
               scrollbarColor: '#888 #f1f1f1'
             }}>
               {currentItems.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
-                  No products found
+                <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '11px', fontWeight: 600 }}>
+                  No labeled stock records found for current filters.
                 </div>
               ) : (
                 <table style={{
                   width: '100%',
                   minWidth: '1400px',
                   borderCollapse: 'collapse',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   tableLayout: 'auto'
                 }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                     <tr style={{
-                      background: '#f8fafc',
-                      borderBottom: '2px solid #e5e7eb'
+                      background: '#f4f4f5',
+                      borderBottom: '2px solid #d4d4d8'
                     }}>
                       <th style={{
-                        padding: '12px',
+                        padding: '7px 8px',
                         textAlign: 'center',
                         width: '40px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#475569'
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: '#18181b',
+                        borderRight: '1px solid #e4e4e7'
                       }}>
                         <input
                           type="checkbox"
@@ -1971,15 +1980,16 @@ const RFIDLabel = () => {
                           <th
                             key={column.key}
                             style={{
-                              padding: '12px',
+                              padding: '7px 8px',
                               textAlign: 'left',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              color: '#475569',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: '#18181b',
                               whiteSpace: 'nowrap',
                               cursor: 'pointer',
                               width: column.width,
-                              transition: 'background 0.2s'
+                              transition: 'background 0.2s',
+                              borderRight: '1px solid #e4e4e7'
                             }}
                             onClick={() => {
                               const direction = sortConfig.key === column.key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
@@ -2003,18 +2013,18 @@ const RFIDLabel = () => {
                         );
                       })}
                       <th style={{
-                        padding: '12px',
+                        padding: '7px 8px',
                         textAlign: 'center',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: '#475569',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: '#18181b',
                         whiteSpace: 'nowrap',
                         position: 'sticky',
                         right: 0,
-                        background: '#f8fafc',
+                        background: '#f4f4f5',
                         zIndex: 10,
                         width: '120px',
-                        borderLeft: '1px solid #e5e7eb'
+                        borderLeft: '1px solid #e4e4e7'
                       }}>Print Label</th>
                     </tr>
                   </thead>
@@ -2049,9 +2059,10 @@ const RFIDLabel = () => {
                           }}
                         >
                           <td style={{
-                            padding: '12px',
+                            padding: '6px 8px',
                             textAlign: 'center',
-                            fontSize: '12px'
+                            fontSize: '11px',
+                            borderRight: '1px solid #ececec'
                           }}>
                             <input
                               type="checkbox"
@@ -2068,10 +2079,11 @@ const RFIDLabel = () => {
                           {columns.map(column => {
                             return (
                               <td key={column.key} style={{
-                                padding: '12px',
-                                fontSize: '12px',
-                                color: '#1e293b',
-                                whiteSpace: 'nowrap'
+                                padding: '6px 8px',
+                                fontSize: '11px',
+                                color: '#404040',
+                                whiteSpace: 'nowrap',
+                                borderRight: '1px solid #ececec'
                               }}>
                                 {column.key === 'srNo' ? ((currentProductPage - 1) * productsPerPage) + index + 1 : (() => {
                                   const value = column.key === 'Description'
@@ -2105,7 +2117,7 @@ const RFIDLabel = () => {
                             );
                           })}
                           <td style={{
-                            padding: '12px',
+                            padding: '6px 8px',
                             textAlign: 'center',
                             position: 'sticky',
                             right: 0,
@@ -2115,7 +2127,7 @@ const RFIDLabel = () => {
                                 ? '#ffffff'
                                 : '#f8fafc',
                             zIndex: 5,
-                            borderLeft: '1px solid #e5e7eb'
+                            borderLeft: '1px solid #ececec'
                           }}>
                             <button
                               onClick={(e) => {
@@ -2193,7 +2205,9 @@ const RFIDLabel = () => {
                 ) : (
                   <>
                     <span>
-                      Showing {((currentProductPage - 1) * productsPerPage) + 1} to {Math.min(currentProductPage * productsPerPage, totalRecords)} of {totalRecords} entries
+                      {totalRecords > 0
+                        ? `Showing ${((currentProductPage - 1) * productsPerPage) + 1} to ${Math.min(currentProductPage * productsPerPage, totalRecords)} of ${totalRecords} records`
+                        : 'No records to show'}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>Show:</span>
@@ -2268,13 +2282,13 @@ const RFIDLabel = () => {
                             }}
                             style={{
                               padding: '6px 12px',
-                              fontSize: '12px',
-                              fontWeight: 600,
+                              fontSize: '11px',
+                              fontWeight: 700,
                               borderRadius: '6px',
                               border: '1px solid',
-                              background: currentProductPage === page ? '#9ca3af' : '#ffffff',
-                              color: currentProductPage === page ? '#ffffff' : '#475569',
-                              borderColor: currentProductPage === page ? '#9ca3af' : '#e2e8f0',
+                              background: currentProductPage === page ? '#eef2ff' : '#ffffff',
+                              color: currentProductPage === page ? '#3730a3' : '#475569',
+                              borderColor: currentProductPage === page ? '#a5b4fc' : '#e2e8f0',
                               cursor: 'pointer',
                               transition: 'all 0.2s',
                               minWidth: '36px'
@@ -2298,13 +2312,13 @@ const RFIDLabel = () => {
                           }}
                           style={{
                             padding: '6px 12px',
-                            fontSize: '12px',
-                            fontWeight: 600,
+                            fontSize: '11px',
+                            fontWeight: 700,
                             borderRadius: '6px',
                             border: '1px solid',
-                            background: currentProductPage === page ? '#9ca3af' : '#ffffff',
-                            color: currentProductPage === page ? '#ffffff' : '#475569',
-                            borderColor: currentProductPage === page ? '#9ca3af' : '#e2e8f0',
+                            background: currentProductPage === page ? '#eef2ff' : '#ffffff',
+                            color: currentProductPage === page ? '#3730a3' : '#475569',
+                            borderColor: currentProductPage === page ? '#a5b4fc' : '#e2e8f0',
                             cursor: 'pointer',
                             transition: 'all 0.2s',
                             minWidth: '36px'

@@ -3,9 +3,24 @@ const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 module.exports = function setupProxy(app) {
+  const kumar916Target = process.env.REACT_APP_KUMAR916_PROXY_TARGET || 'http://103.87.92.69:8080';
+
+  // Must run before package.json "proxy" fallback (Tamannaah host); strips prefix and hits 916 server.
+  app.use(
+    '/api/kumar916',
+    createProxyMiddleware({
+      target: kumar916Target,
+      changeOrigin: true,
+      secure: false,
+      pathRewrite: {
+        '^/api/kumar916': '',
+      },
+      logLevel: 'warn',
+    })
+  );
+
   const feroniaTarget = process.env.REACT_APP_FERONIA_PROXY_TARGET || 'http://192.168.29.245:93';
   const feroniaPath = process.env.REACT_APP_FERONIA_API_PATH || '/api/TamannaahBS';
-
   app.use(
     '/api/Feronia',
     createProxyMiddleware({

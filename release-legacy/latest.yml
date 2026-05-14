@@ -1,8 +1,8 @@
-version: 0.1.13
+version: 0.1.22
 files:
-  - url: Sparkle-RFID-Dashboard-0.1.13-legacy-x64.exe
-    sha512: qq5F+JVwSicuqcg8LZ/9z86FjooKG8ErzeTQ76Szh4pC7u/C7pHgKMIxJVnpm14JAikOVjOVUwlPM8z4paNf9g==
-    size: 230392175
-path: Sparkle-RFID-Dashboard-0.1.13-legacy-x64.exe
-sha512: qq5F+JVwSicuqcg8LZ/9z86FjooKG8ErzeTQ76Szh4pC7u/C7pHgKMIxJVnpm14JAikOVjOVUwlPM8z4paNf9g==
-releaseDate: '2026-05-04T11:11:54.607Z'
+  - url: Sparkle-RFID-Dashboard-0.1.22-legacy-x64.exe
+    sha512: 5BQsrNUkteny2/Ndb5LeRXSoF6DNEJL2/RBIYkB+7GHZyPEl79OwXY5krlio3P9blIxNEVy+NEGPH34fJhCgXA==
+    size: 230441296
+path: Sparkle-RFID-Dashboard-0.1.22-legacy-x64.exe
+sha512: 5BQsrNUkteny2/Ndb5LeRXSoF6DNEJL2/RBIYkB+7GHZyPEl79OwXY5krlio3P9blIxNEVy+NEGPH34fJhCgXA==
+releaseDate: '2026-05-07T07:08:02.664Z'

@@ -7,6 +7,7 @@ export const getAuthApiBaseUrl = () =>
   (process.env.REACT_APP_AUTH_API_BASE_URL || getSoniApiBaseUrl()).replace(/\/$/, '');
 
 export const getAuthLoginUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthLogin`;
+export const getAuthForgotPasswordUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthForgotPassword`;
 
 /**
  * Local ASP.NET Kestrel default for /api/auth/fingerprint/* and /api/auth/passkey/*.

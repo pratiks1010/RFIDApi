@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/AutoPushStockUtility.css";
-
-const TEMPLATE_API_BASE_URL = "https://rrgold.loyalstring.co.in/api";
-const SAVE_API_BASE_URL = "https://soni.loyalstring.co.in/api";
+import { toRrgoldApiUrl, toSoniApiUrl } from "../services/apiBaseConfig";
 
 const SYSTEM_FIELDS = [
   "RFIDNumber",
@@ -191,7 +189,7 @@ function AutoPushStockUtility() {
         Accept: "application/json",
       };
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
-      const response = await fetch(`${TEMPLATE_API_BASE_URL}/Invoice/alltemplate`, {
+      const response = await fetch(toRrgoldApiUrl("/api/Invoice/alltemplate"), {
         method: "POST",
         headers,
         body: JSON.stringify({ ClientCode: clientCode }),
@@ -363,7 +361,7 @@ function AutoPushStockUtility() {
       Accept: "application/json",
     };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const response = await fetch(`${SAVE_API_BASE_URL}/ProductMaster/SaveRFIDTransactionDetails`, {
+    const response = await fetch(toSoniApiUrl("/api/ProductMaster/SaveRFIDTransactionDetails"), {
       method: "POST",
       headers,
       body: JSON.stringify(mappedData),

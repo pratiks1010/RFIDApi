@@ -2447,16 +2447,24 @@ const Labeling = () => {
   const confirmDeleteAllStock = async () => {
     setDeleteAllStockLoading(true);
     try {
-      const clientCode = userInfo?.ClientCode || '';
-      
-      const response = await axios.delete(`https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient`, {
+      let clientCode = userInfo?.ClientCode;
+      if (!clientCode) {
+        try {
+          const stored = JSON.parse(localStorage.getItem('userInfo') || '{}');
+          if (stored?.ClientCode) clientCode = String(stored.ClientCode).trim();
+        } catch (_) { /* ignore */ }
+      }
+      clientCode = clientCode ? String(clientCode).trim() : '';
+      if (!clientCode) {
+        showSuccessNotification('Delete All Failed', 'Client code not found. Please login again.');
+        return;
+      }
+
+      const response = await axios.delete('https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient', {
+        params: { ClientCode: clientCode },
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
-        data: {
-          ClientCode: clientCode
-        }
       });
 
       if (response.data && response.data.success !== false) {
@@ -4430,16 +4438,17 @@ const Labeling = () => {
               boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
               width: 480,
               maxWidth: '98vw',
+              minWidth: 0,
               padding: '0 0 18px 0',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               animation: 'fadeIn 0.2s',
             }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px', width: '100%', boxSizing: 'border-box' }}>
                 <FaExclamationTriangle style={{ color: '#dc3545', fontSize: 48, marginBottom: 12 }} />
                 <div style={{ fontWeight: 700, fontSize: 22, color: '#dc3545', marginBottom: 8, textAlign: 'center' }}>Delete ALL Stock for Client?</div>
-                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', maxWidth: 400 }}>
+                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                   <strong>WARNING:</strong> This will permanently delete ALL stock items for the current client ({userInfo?.ClientCode || 'Unknown'}). This action cannot be undone and will remove all stock data associated with this client.
                   <br /><br />
                   <span style={{ color: '#dc3545', fontWeight: 600 }}>

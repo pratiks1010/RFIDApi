@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { FaPlug, FaLock, FaInfoCircle, FaSync, FaSpinner, FaCheckCircle, FaExclamationCircle, FaCloudUploadAlt, FaEdit } from 'react-icons/fa';
 import { HiChip, HiDocumentText, HiLightningBolt } from 'react-icons/hi';
-import { getFeroniaTestService, getFeroniaStockData, getFeroniaBaseUrl, hasFeroniaAuthToken } from '../services/feroniaService';
+import { getFeroniaTestService, getFeroniaStockData, getFeroniaBaseUrl, hasFeroniaAuthToken } from './feroniaService';
 
 const LOYALSTRING_SAVE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails';
 const LOYALSTRING_DELETE_ALL_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient';
@@ -227,11 +227,10 @@ const FeroniaIntegration = () => {
     try {
       setPushProgress(1);
       const deleteRes = await axios.delete(LOYALSTRING_DELETE_ALL_URL, {
+        params: { ClientCode: clientCode },
         headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
         },
-        data: { ClientCode: clientCode },
       });
       const deleteBody = deleteRes?.data;
       deleteOk = deleteBody?.success !== false;

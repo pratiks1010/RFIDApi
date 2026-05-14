@@ -92,6 +92,7 @@ const SidebarLayout = ({ children }) => {
     { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#15803d' },
     { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#0d9488' },
     { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#b91c1c' },
+    { path: '/rfid-sample-in-out', icon: FaListUl, label: 'RFID Sample In/Out', color: '#7c3aed' },
     { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#c2410c' },
     { path: '/order-list', icon: FaClipboardList, label: 'Order List', color: '#6d28d9' },
     { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490' },
@@ -108,13 +109,18 @@ const SidebarLayout = ({ children }) => {
   const clientCode = userInfo.ClientCode || userInfo.clientcode || userInfo.clientCode || 'N/A';
   const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
   const FERONIA_ALLOWED_CLIENT = 'LS000512';
+  const KUMAR916_ALLOWED_CLIENT = 'LS000456';
   const showThirdPartyMenu = (clientCode || '').trim().toUpperCase() === THIRD_PARTY_ALLOWED_CLIENT;
   const showFeroniaMenu = (clientCode || '').trim().toUpperCase() === FERONIA_ALLOWED_CLIENT;
+  const showKumar916Menu = (clientCode || '').trim().toUpperCase() === KUMAR916_ALLOWED_CLIENT;
   const navigationSection5 = [
     { path: '/third-party-integration', icon: FaPlug, label: 'Third Party Software Integration', color: '#0d9488' },
   ];
   const navigationSectionFeronia = [
     { path: '/feronia-integration', icon: FaPlug, label: 'Feronia Integration', color: '#0f766e' },
+  ];
+  const navigationSectionKumar916 = [
+    { path: '/kumar916-stock-master', icon: FaPlug, label: `Third Party (${KUMAR916_ALLOWED_CLIENT})`, color: '#0d9488' },
   ];
 
   // Effects
@@ -790,6 +796,21 @@ const SidebarLayout = ({ children }) => {
                     <>
                       {renderSectionHeader('Third Party', ['#0f766e', '#0f766e'])}
                       {navigationSectionFeronia.map(renderMenuItem)}
+                      {!sidebarCollapsed && (
+                        <div style={{
+                          height: '1px',
+                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
+                          margin: '2px 10px',
+                          opacity: 0.4
+                        }} />
+                      )}
+                    </>
+                  )}
+
+                  {showKumar916Menu && (
+                    <>
+                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
+                      {navigationSectionKumar916.map(renderMenuItem)}
                       {!sidebarCollapsed && (
                         <div style={{
                           height: '1px',

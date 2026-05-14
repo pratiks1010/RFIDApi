@@ -28,6 +28,8 @@ import {
   FaArrowLeft,
   FaInfoCircle,
   FaBuilding,
+  FaTable,
+  FaThLarge,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -66,6 +68,8 @@ import {
   getPendingSampleOutLotNosByPartyUrl,
   getAllSampleOutListUrl,
 } from '../../services/sampleInOutApi';
+import GridItemImage from '../common/GridItemImage';
+import { resolveLocalItemImageBlobUrls } from '../../services/localItemImageService';
 
 const normalizeDataArray = (data) => {
   if (Array.isArray(data)) return data;
@@ -299,6 +303,7 @@ const historyLineStatusChipSx = (status) => {
     return { bg: '#ecfeff', fg: '#0e7490', bd: '#22d3ee' };
   return { bg: '#fafafa', fg: '#737373', bd: '#d4d4d4' };
 };
+const SAMPLE_IN_LOT_GRID_IMAGE_LIMIT = 36;
 
 const StatusChip = ({ label, sx }) => (
   <span
@@ -438,6 +443,9 @@ const SampleIn = () => {
   const [historyError, setHistoryError] = useState(null);
   /** Sample lot: all line rows for one lot (detail popup). */
   const [lotDetailModal, setLotDetailModal] = useState(null);
+  const [lotDetailViewMode, setLotDetailViewMode] = useState('grid');
+  const [lotDetailLocalImageUrls, setLotDetailLocalImageUrls] = useState({});
+  const lotDetailLocalImageUrlsRef = useRef({});
   /** Single line from lot modal: full field detail (nested popup). */
   const [lotLineItemDetail, setLotLineItemDetail] = useState(null);
   /** Lot-lines table row selection (`row._key`). */
@@ -449,6 +457,7 @@ const SampleIn = () => {
   const historySelectAllRef = useRef(null);
   /** API lot filter: all lots, or PartialReturned / Closed only */
   const [historyLotStatus, setHistoryLotStatus] = useState('all');
+  const [historyLotsViewMode, setHistoryLotsViewMode] = useState('table');
   const [historySearch, setHistorySearch] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
 
@@ -486,6 +495,42 @@ const SampleIn = () => {
     }
     return customer.Name || customer.CustomerName || 'Unknown';
   };
+
+  const lotLineItemCode = (line) => String(line?.ItemCode || line?.Itemcode || '').trim();
+  const lotLineImageKey = (line) => lotLineItemCode(line).toUpperCase();
+  const lotLineImageUrl = (line) => {
+    const raw = String(
+      line?.ImageUrl || line?.ImageURL || line?.ImagePath || line?.PhotoUrl || line?.Photo || line?.ProductImage || ''
+    ).trim();
+    return /^https?:\/\//i.test(raw) ? raw : '';
+  };
+
+  useEffect(() => {
+    lotDetailLocalImageUrlsRef.current = lotDetailLocalImageUrls;
+  }, [lotDetailLocalImageUrls]);
+
+  const lotDetailVisibleImageKeys = useMemo(() => {
+    if (lotDetailViewMode !== 'grid') return [];
+    const lines = Array.isArray(lotDetailModal?.lines) ? lotDetailModal.lines : [];
+    return Array.from(new Set(lines.map((line) => lotLineImageKey(line)).filter(Boolean))).slice(0, SAMPLE_IN_LOT_GRID_IMAGE_LIMIT);
+  }, [lotDetailModal?.lines, lotDetailViewMode]);
+
+  useEffect(() => {
+    if (lotDetailViewMode !== 'grid' || !lotDetailVisibleImageKeys.length) return;
+    let disposed = false;
+    const resolveMissing = async () => {
+      const missing = lotDetailVisibleImageKeys.filter((key) => !lotDetailLocalImageUrlsRef.current[key]);
+      if (!missing.length) return;
+      const resolved = await resolveLocalItemImageBlobUrls(missing, { concurrency: 4 });
+      if (disposed || !Object.keys(resolved).length) return;
+      setLotDetailLocalImageUrls((prev) => ({ ...prev, ...resolved }));
+    };
+
+    resolveMissing();
+    return () => {
+      disposed = true;
+    };
+  }, [lotDetailViewMode, lotDetailVisibleImageKeys]);
 
   const normalizePartyQuery = (s) =>
     String(s || '')
@@ -3112,11 +3157,54 @@ const SampleIn = () => {
                   </span>
                 </>
               ) : (
-                <> {HISTORY_PAGE_SIZE} lots per page (padded when fewer).</>
+                <> {HISTORY_PAGE_SIZE} lots per page{historyLotsViewMode === 'table' ? ' (padded when fewer)' : ''}.</>
               )}
             </p>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+              <button
+                type="button"
+                onClick={() => setHistoryLotsViewMode('grid')}
+                style={{
+                  border: 'none',
+                  borderRight: '1px solid #dbe4f0',
+                  background: historyLotsViewMode === 'grid' ? '#eef2ff' : '#fff',
+                  color: historyLotsViewMode === 'grid' ? '#3730a3' : '#475569',
+                  height: 30,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                }}
+              >
+                <FaThLarge style={{ fontSize: 11 }} />
+                Card
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryLotsViewMode('table')}
+                style={{
+                  border: 'none',
+                  background: historyLotsViewMode === 'table' ? '#eef2ff' : '#fff',
+                  color: historyLotsViewMode === 'table' ? '#3730a3' : '#475569',
+                  height: 30,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                }}
+              >
+                <FaTable style={{ fontSize: 11 }} />
+                Table
+              </button>
+            </div>
             <label style={{ fontSize: 11, color: '#737373', fontWeight: 700 }}>Lot status</label>
             <select
               value={historyLotStatus}
@@ -3185,6 +3273,7 @@ const SampleIn = () => {
             {historyError}
           </div>
         ) : null}
+        {historyLotsViewMode === 'table' ? (
         <div
           style={{
             overflow: 'auto',
@@ -3396,6 +3485,90 @@ const SampleIn = () => {
             </tbody>
           </table>
         </div>
+        ) : (
+          <div
+            style={{
+              borderRadius: 10,
+              border: '1px solid #d4d4d8',
+              background: '#fafafa',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9)',
+              padding: 10,
+              minHeight: 220,
+            }}
+          >
+            {historyLoading && returnedHistoryRows.length === 0 ? (
+              <div style={{ ...tdEmpty, paddingTop: 28 }}>
+                <FaSpinner style={{ verticalAlign: 'middle', marginRight: 8, animation: 'spin 0.9s linear infinite' }} />
+                Loading…
+              </div>
+            ) : historyPageGroups.length === 0 ? (
+              <div style={tdEmpty}>No lots found.</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: isSmallScreen ? '1fr' : 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+                {historyPageGroups.map((group, gi) => {
+                  const lines = group.lines || [];
+                  const first = lines[0] || {};
+                  const cat = pickSameOrVarious(lines, (r) => r.CategoryName);
+                  const prod = pickSameOrVarious(lines, (r) => r.ProductName);
+                  const des = pickSameOrVarious(lines, (r) => r.DesignName);
+                  const gw = sumWtField(lines, (r) => r.GrossWt ?? r.grosswt ?? r.TWt);
+                  const nw = sumWtField(lines, (r) => r.NetWt ?? r.netwt);
+                  return (
+                    <div
+                      key={`history-card-${group._groupKey || gi}`}
+                      style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 10,
+                        background: '#fff',
+                        padding: 10,
+                        boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {group.lotNo}
+                        </div>
+                        <StatusChip label={first.LotStatus ?? '—'} sx={historyLotStatusChipSx(first.LotStatus)} />
+                      </div>
+                      <div style={{ fontSize: 10, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{first.LotPartyName ?? '—'}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>{first.LotPartyType ?? first.PartyType ?? '—'}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{des}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{gw}</div>
+                        </div>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{nw}</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setLotDetailModal({ lotNo: group.lotNo, lines })}
+                        style={{
+                          marginTop: 8,
+                          border: '1px solid #dbe4f0',
+                          background: '#fff',
+                          color: '#334155',
+                          borderRadius: 8,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '6px 10px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Line items ({lines.length})
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
         {lotDetailModal ? (
           <div
             role="dialog"
@@ -3451,6 +3624,49 @@ const SampleIn = () => {
                     {lotDetailModal.lines.length} product line{lotDetailModal.lines.length === 1 ? '' : 's'} in this lot.
                   </div>
                 </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff', marginLeft: 'auto' }}>
+                  <button
+                    type="button"
+                    onClick={() => setLotDetailViewMode('grid')}
+                    style={{
+                      border: 'none',
+                      borderRight: '1px solid #dbe4f0',
+                      background: lotDetailViewMode === 'grid' ? '#eef2ff' : '#fff',
+                      color: lotDetailViewMode === 'grid' ? '#3730a3' : '#475569',
+                      height: 32,
+                      padding: '0 10px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FaThLarge style={{ fontSize: 11 }} />
+                    Grid
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLotDetailViewMode('table')}
+                    style={{
+                      border: 'none',
+                      background: lotDetailViewMode === 'table' ? '#eef2ff' : '#fff',
+                      color: lotDetailViewMode === 'table' ? '#3730a3' : '#475569',
+                      height: 32,
+                      padding: '0 10px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FaTable style={{ fontSize: 11 }} />
+                    Table
+                  </button>
+                </div>
                           <button
                             type="button"
                   onClick={() => {
@@ -3475,6 +3691,46 @@ const SampleIn = () => {
                           </button>
               </div>
               <div style={{ padding: 16, overflowX: 'auto' }}>
+                {lotDetailViewMode === 'grid' ? (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: isSmallScreen ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(0, 1fr))',
+                      gap: 10,
+                    }}
+                  >
+                    {lotDetailModal.lines.map((r, mi) => {
+                      const key = lotLineImageKey(r);
+                      const img = lotDetailLocalImageUrls[key] || lotLineImageUrl(r);
+                      return (
+                        <div key={r._key ?? `${lotDetailModal.lotNo}-${mi}`} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fff', boxShadow: '0 2px 8px rgba(15,23,42,0.06)' }}>
+                          <GridItemImage
+                            src={img}
+                            alt={lotLineItemCode(r) || 'Item'}
+                            wrapperStyle={{ height: 118, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                          <div style={{ padding: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: '#0f172a', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lotLineItemCode(r) || '—'}</div>
+                            <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.CategoryName ?? '—'}</div>
+                            <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.ProductName ?? '—'}</div>
+                            <div style={{ fontSize: 9, color: '#475569', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.DesignName ?? '—'}</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                              <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                                <div style={{ fontSize: 9, color: '#0f172a', fontWeight: 700 }}>{r.GrossWt ?? r.grosswt ?? r.TWt ?? '—'}</div>
+                              </div>
+                              <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                                <div style={{ fontSize: 9, color: '#0f172a', fontWeight: 700 }}>{r.NetWt ?? r.netwt ?? '—'}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
                 <table
                   style={{
                     width: '100%',
@@ -3562,6 +3818,7 @@ const SampleIn = () => {
                     })}
               </tbody>
             </table>
+                )}
           </div>
             </div>
           </div>

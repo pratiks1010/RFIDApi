@@ -2,7 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { FaPlay, FaPlug, FaSearch, FaStop } from 'react-icons/fa';
 import { toSoniApiUrl } from '../../services/apiBaseConfig';
-import { getTrayReaderConfig, saveTrayReaderConfig } from '../../services/trayReaderConfig';
+import {
+  getTrayReaderConfig,
+  saveTrayReaderConfig,
+  parsePowerAttDb10,
+  snapPowerAttDb10ToPreset,
+  TRAY_POWER_ATT_MAX,
+  TRAY_POWER_PRESET_OPTIONS
+} from '../../services/trayReaderConfig';
 
 const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1000;
 const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 1000;
@@ -110,6 +117,7 @@ const TrayScanModal = ({
   const [comPrimary, setComPrimary] = useState(initialReaderConfig.comPrimary);
   const [comSecondary, setComSecondary] = useState(initialReaderConfig.comSecondary);
   const [baudRate, setBaudRate] = useState(initialReaderConfig.baudRate);
+  const [powerAttDb10, setPowerAttDb10] = useState(initialReaderConfig.powerAttDb10);
   const [busy, setBusy] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [autoLoading, setAutoLoading] = useState(false);
@@ -154,6 +162,8 @@ const TrayScanModal = ({
       const lower = String(line || '').toLowerCase();
       if (lower.includes('inventory started')) setIsScanning(true);
       if (lower.includes('inventory stopped')) setIsScanning(false);
+      const powerMatch = String(line || '').match(/\bPOWER\s+attDb10\s*=\s*(\d+)/i);
+      if (powerMatch) setPowerAttDb10(String(snapPowerAttDb10ToPreset(powerMatch[1])));
     });
     return () => {
       unsubTag?.();
@@ -171,6 +181,7 @@ const TrayScanModal = ({
     setComPrimary(saved.comPrimary);
     setComSecondary(saved.comSecondary);
     setBaudRate(saved.baudRate);
+    setPowerAttDb10(saved.powerAttDb10);
     setTags([]);
     setRfidCodeMap({});
     setResolveError('');
@@ -265,6 +276,14 @@ const TrayScanModal = ({
       await run('disconnect');
       await run(`connect-serial ${comPrimary} ${baudRate}`);
       await run(`connect-serial ${comSecondary} ${baudRate}`);
+      const pwr = parsePowerAttDb10(powerAttDb10);
+      if (pwr !== null) {
+        try {
+          await run(`set-power ${pwr}`);
+        } catch (_) {
+          /* bridge may not support UHFAPI power on some DLL builds */
+        }
+      }
       await run('start');
       setIsScanning(true);
     } finally {
@@ -291,11 +310,16 @@ const TrayScanModal = ({
   };
 
   const savePorts = () => {
-    const saved = saveTrayReaderConfig({ comPrimary, comSecondary, baudRate });
+    if (parsePowerAttDb10(powerAttDb10) === null) {
+      setFetchMessage('Select a transmit power level from the list.');
+      return;
+    }
+    const saved = saveTrayReaderConfig({ comPrimary, comSecondary, baudRate, powerAttDb10 });
     setComPrimary(saved.comPrimary);
     setComSecondary(saved.comSecondary);
     setBaudRate(saved.baudRate);
-    setFetchMessage('Reader ports saved. These settings will be reused.');
+    setPowerAttDb10(saved.powerAttDb10);
+    setFetchMessage('Reader settings (ports, baud, power) saved. All tray scan popups use this.');
   };
 
   useEffect(() => {
@@ -421,6 +445,29 @@ const TrayScanModal = ({
                   <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-baud">Baud rate</label>
                   <input id="tray-baud" className="form-control" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} placeholder="e.g. 115200" style={{ ...inputStyle, minWidth: 130, maxWidth: 180 }} autoComplete="off" />
                 </div>
+                <div className="col-12 col-md">
+                  <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-power-select-modal">
+                    Transmit power (0 = strongest, {TRAY_POWER_ATT_MAX} = weakest)
+                  </label>
+                  <select
+                    id="tray-power-select-modal"
+                    className="form-select"
+                    value={powerAttDb10}
+                    onChange={(e) => setPowerAttDb10(e.target.value)}
+                    disabled={busy || !hasBridge}
+                    style={{ ...inputStyle, width: 160, maxWidth: 'min(160px, 100%)', minWidth: 120, fontSize: 11 }}
+                    aria-label="Transmit power preset"
+                  >
+                    {TRAY_POWER_PRESET_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={String(opt.value)}>
+                        {opt.label} ({opt.value})
+                      </option>
+                    ))}
+                  </select>
+                  <div className="small mt-1" style={{ color: '#94a3b8', fontSize: 11 }}>
+                    Same preset as RFID Tray Connect; saving stores it for every tray popup.
+                  </div>
+                </div>
                 <div className="col-12">
                   <div className="d-flex flex-wrap gap-2 pt-1">
                     <button type="button" className="btn d-flex align-items-center gap-2" onClick={connectAndStart} disabled={busy || !hasBridge} style={{ ...btnBase, background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: '#082f49' }}>
@@ -430,7 +477,7 @@ const TrayScanModal = ({
                     </button>
                     <button type="button" className="btn d-flex align-items-center gap-2" onClick={savePorts} disabled={busy} style={{ ...btnBase, background: '#ffffff', color: '#0b3a67', border: '1px solid #93c5fd' }}>
                       <FaPlug aria-hidden />
-                      Save port settings
+                      Save reader settings
                     </button>
                     <button type="button" className="btn d-flex align-items-center gap-2" onClick={stopScan} disabled={busy || !isScanning || !hasBridge} style={{ ...btnBase, background: 'linear-gradient(135deg, #fb7185 0%, #e11d48 100%)', color: '#fff' }}>
                       <FaStop aria-hidden />

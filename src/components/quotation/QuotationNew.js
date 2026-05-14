@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { 
   FaPlus, 
@@ -13,7 +13,9 @@ import {
   FaSearch,
   FaSpinner,
   FaEdit,
-  FaBox
+  FaBox,
+  FaTable,
+  FaThLarge
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
@@ -26,6 +28,7 @@ import {
   buildAddCustomerPayloadFromSidebar,
   validateSidebarCustomerForm,
 } from '../../services/customerOnboardingApi';
+import { resolveLocalItemImageBlobUrl } from '../../services/localItemImageService';
 
 const QuotationNew = ({ editStatus, defaultValues }) => {
   const { loading, setLoading } = useLoading();
@@ -126,6 +129,10 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
   const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
   const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
   const [showCustomerSidebar, setShowCustomerSidebar] = useState(false);
+  const [itemTablePage, setItemTablePage] = useState(1);
+  const [itemTablePageSize, setItemTablePageSize] = useState(15);
+  const [itemViewMode, setItemViewMode] = useState('table');
+  const [gridLocalImageUrls, setGridLocalImageUrls] = useState({});
 
   // Form Fields Configuration (Same 21 fields as AddStock)
   const formFields = [
@@ -613,6 +620,83 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
     return () => clearTimeout(timeoutId);
   }, [itemCodeSearch]);
 
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(quotationItems.length / itemTablePageSize));
+    if (itemTablePage > totalPages) {
+      setItemTablePage(totalPages);
+    }
+  }, [quotationItems.length, itemTablePage, itemTablePageSize]);
+
+  const itemTableTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(quotationItems.length / itemTablePageSize)),
+    [quotationItems.length, itemTablePageSize]
+  );
+
+  const paginatedQuotationItems = useMemo(() => {
+    const start = (itemTablePage - 1) * itemTablePageSize;
+    return quotationItems.slice(start, start + itemTablePageSize);
+  }, [quotationItems, itemTablePage, itemTablePageSize]);
+
+  const paddedItemTableRows = useMemo(() => {
+    const slots = [];
+    paginatedQuotationItems.forEach((item) => slots.push({ kind: 'row', item }));
+    const padCount = Math.max(0, itemTablePageSize - paginatedQuotationItems.length);
+    for (let i = 0; i < padCount; i += 1) {
+      slots.push({ kind: 'pad', key: `quotation-pad-${itemTablePage}-${i}` });
+    }
+    return slots;
+  }, [paginatedQuotationItems, itemTablePage, itemTablePageSize]);
+
+  const getItemImageUrl = (item) =>
+    String(
+      item?.imageurl ||
+      item?.ImageUrl ||
+      item?.ImageURL ||
+      item?.ImagePath ||
+      item?.PhotoUrl ||
+      item?.Photo ||
+      item?.ProductImage ||
+      ''
+    ).trim();
+
+  useEffect(() => {
+    if (itemViewMode !== 'grid' || !paginatedQuotationItems.length) return;
+    let disposed = false;
+
+    const resolveMissing = async () => {
+      const keys = Array.from(
+        new Set(
+          paginatedQuotationItems
+            .map((item) => String(item?.Itemcode || item?.ItemCode || '').trim().toUpperCase())
+            .filter(Boolean)
+        )
+      );
+      const missing = keys.filter((k) => !gridLocalImageUrls[k]);
+      if (!missing.length) return;
+
+      const pairs = await Promise.all(
+        missing.map(async (key) => {
+          const url = await resolveLocalItemImageBlobUrl(key);
+          return [key, url || ''];
+        })
+      );
+      if (disposed) return;
+
+      setGridLocalImageUrls((prev) => {
+        const next = { ...prev };
+        pairs.forEach(([key, url]) => {
+          if (key && url && !next[key]) next[key] = url;
+        });
+        return next;
+      });
+    };
+
+    resolveMissing();
+    return () => {
+      disposed = true;
+    };
+  }, [itemViewMode, paginatedQuotationItems, gridLocalImageUrls]);
+
   // Search for item by Item Code using GetAllLabeledStock API
   const handleItemCodeSearch = async (searchTerm) => {
     if (!searchTerm || searchTerm.trim().length === 0) {
@@ -657,6 +741,40 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
     } finally {
       setSearching(false);
     }
+  };
+
+  const handleItemCodeSubmit = async () => {
+    const query = String(itemCodeSearch || '').trim();
+    if (!query) return;
+
+    // Prefer visible exact match if search already fetched data.
+    const exactExisting = searchResults.find((item) =>
+      String(item.Itemcode || item.ItemCode || '').trim().toLowerCase() === query.toLowerCase()
+    );
+    if (exactExisting) {
+      selectItemFromSearch(exactExisting);
+      return;
+    }
+
+    // Fallback: search now and then add exact/first item.
+    await handleItemCodeSearch(query);
+    setTimeout(() => {
+      setSearchResults((latest) => {
+        if (!Array.isArray(latest) || latest.length === 0) {
+          addNotification({
+            type: 'warning',
+            title: 'No Stock Found',
+            message: `No item found for "${query}".`,
+          });
+          return latest;
+        }
+        const exact = latest.find((item) =>
+          String(item.Itemcode || item.ItemCode || '').trim().toLowerCase() === query.toLowerCase()
+        );
+        selectItemFromSearch(exact || latest[0]);
+        return latest;
+      });
+    }, 0);
   };
 
   // Select item from search results and add to quotation
@@ -721,6 +839,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
 
     // Add to quotation items
     setQuotationItems(prev => [...prev, productData]);
+    setItemTablePage(1);
     
     // Clear search
     setSearchResults([]);
@@ -805,6 +924,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
         });
         return next;
       });
+      setItemTablePage(1);
       addNotification({
         type: 'success',
         title: 'Tray Data Fetched',
@@ -1941,6 +2061,49 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
               }}>
                 Item Details
               </h3>
+              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                <button
+                  type="button"
+                  onClick={() => setItemViewMode('grid')}
+                  style={{
+                    border: 'none',
+                    borderRight: '1px solid #dbe4f0',
+                    background: itemViewMode === 'grid' ? '#eef2ff' : '#fff',
+                    color: itemViewMode === 'grid' ? '#3730a3' : '#475569',
+                    height: 30,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FaThLarge style={{ fontSize: 11 }} />
+                  Grid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setItemViewMode('table')}
+                  style={{
+                    border: 'none',
+                    background: itemViewMode === 'table' ? '#eef2ff' : '#fff',
+                    color: itemViewMode === 'table' ? '#3730a3' : '#475569',
+                    height: 30,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FaTable style={{ fontSize: 11 }} />
+                  Table
+                </button>
+              </div>
             </div>
 
             {/* Search Box for Item Code - Reduced Width */}
@@ -1950,7 +2113,8 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
               display: 'flex',
               justifyContent: 'flex-end',
               alignItems: 'center',
-              gap: '8px'
+              gap: '8px',
+              flexWrap: 'wrap'
             }}>
               {/* Tray Scanning Icon Button */}
               <button
@@ -2007,7 +2171,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                 position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
-                width: isSmallScreen ? '100%' : '300px'
+                width: isSmallScreen ? '100%' : '360px'
               }}>
                 <FaSearch style={{
                   position: 'absolute',
@@ -2022,10 +2186,16 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   placeholder="Search by Item Code..."
                   value={itemCodeSearch}
                   onChange={(e) => setItemCodeSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleItemCodeSubmit();
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '6px 10px 6px 32px',
-                    fontSize: '12px',
+                    fontSize: '11px',
                     border: '1px solid #e2e8f0',
                     borderRadius: '6px',
                     outline: 'none',
@@ -2049,6 +2219,29 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   }} />
                 )}
               </div>
+              <button
+                type="button"
+                onClick={handleItemCodeSubmit}
+                disabled={searching || !String(itemCodeSearch || '').trim()}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '6px 12px',
+                  fontSize: '11px',
+                  border: '1px solid #0ea5e9',
+                  borderRadius: '6px',
+                  background: searching || !String(itemCodeSearch || '').trim() ? '#f1f5f9' : '#0ea5e9',
+                  color: searching || !String(itemCodeSearch || '').trim() ? '#94a3b8' : '#ffffff',
+                  cursor: searching || !String(itemCodeSearch || '').trim() ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  height: '32px',
+                  fontWeight: 700
+                }}
+                title="Search and add by item code"
+              >
+                Add Item
+              </button>
               
               {/* Search Results Dropdown - Only Item Code */}
               {showSearchResults && searchResults.length > 0 && (
@@ -2056,25 +2249,28 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   position: 'absolute',
                   top: '100%',
                   right: 0,
-                  width: isSmallScreen ? '100%' : '300px',
+                  width: isSmallScreen ? '100%' : '360px',
                   background: '#ffffff',
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid #cbd5e1',
                   borderRadius: '8px',
-                  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                  boxShadow: '0 10px 18px rgba(15,23,42,0.12)',
                   zIndex: 1000,
                   maxHeight: '250px',
                   overflowY: 'auto',
                   marginTop: '4px'
                 }}>
+                  <div style={{ padding: '7px 10px', borderBottom: '1px solid #e2e8f0', fontSize: 10, fontWeight: 700, color: '#64748b', background: '#f8fafc' }}>
+                    Select item to add
+                  </div>
                   {searchResults.map((item, idx) => (
                     <div
                       key={idx}
                       onClick={() => selectItemFromSearch(item)}
                       style={{
-                        padding: '10px 12px',
+                        padding: '9px 12px',
                         cursor: 'pointer',
                         borderBottom: idx < searchResults.length - 1 ? '1px solid #e5e7eb' : 'none',
-                        fontSize: '12px',
+                        fontSize: '11px',
                         transition: 'background 0.2s'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
@@ -2082,6 +2278,12 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                     >
                       <div style={{ fontWeight: 600, color: '#1e293b' }}>
                         {item.Itemcode || item.ItemCode || '-'}
+                      </div>
+                      <div style={{ color: '#64748b', fontSize: '10px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.ProductName || item.Product || '-'}
+                      </div>
+                      <div style={{ color: '#94a3b8', fontSize: '9px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.CategoryName || item.Category || '-'}
                       </div>
                     </div>
                   ))}
@@ -2101,13 +2303,79 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
               background: '#ffffff',
               boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
             }}>
+              {itemViewMode === 'grid' ? (
+                <div style={{ padding: 10, background: '#fafafa', minHeight: 220 }}>
+                  {paginatedQuotationItems.length === 0 ? (
+                    <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13 }}>
+                      No items added yet. Search by Item Code to add items.
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isSmallScreen ? 'repeat(1, minmax(0, 1fr))' : 'repeat(5, minmax(0, 1fr))',
+                        gap: 10,
+                      }}
+                    >
+                      {paginatedQuotationItems.map((item, index) => {
+                        const itemCodeKey = String(item?.Itemcode || item?.ItemCode || '').trim().toUpperCase();
+                        const imgUrl = gridLocalImageUrls[itemCodeKey] || getItemImageUrl(item);
+                        return (
+                          <div
+                            key={item.id || `${item.Itemcode}-${index}`}
+                            style={{
+                              border: '1px solid #e2e8f0',
+                              borderRadius: 10,
+                              background: '#fff',
+                              padding: 8,
+                              boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                            }}
+                          >
+                            <div style={{ width: '100%', height: 108, borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc', marginBottom: 8 }}>
+                              {imgUrl ? (
+                                <img
+                                  src={imgUrl}
+                                  alt={item.Itemcode || 'Item'}
+                                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
+                                  No image
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 4 }}>
+                              {item.Itemcode || '-'}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 6 }}>
+                              {(item.category_id || '-')} - {(item.product_id || '-')}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                              <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                                <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{Number(item.grosswt || 0).toFixed(3)}</div>
+                              </div>
+                              <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                                <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{Number(item.netwt || 0).toFixed(3)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
               <table className="quotation-main-table" style={{ 
                 width: '100%', 
                 borderCollapse: 'separate',
                 borderSpacing: 0,
                 fontSize: isSmallScreen ? '10px' : '11px',
                 minWidth: isSmallScreen ? '1500px' : '1700px',
-                tableLayout: 'fixed'
+                tableLayout: 'fixed',
+                color: '#334155'
               }}>
                 <thead>
                   <tr style={{ background: '#2d3e50', borderBottom: '2px solid #1e293b', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -2152,122 +2420,135 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                 </thead>
                 <tbody>
                   {quotationItems.length > 0 ? (
-                    quotationItems.map((item, index) => (
-                      <tr key={item.id} style={{ 
-                        borderBottom: '1px solid #e5e5e5',
-                        transition: 'background 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#eef6ff'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'center', fontSize: isSmallScreen ? '10px' : '11px' }}>{index + 1}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                          <span style={{ fontWeight: 500, color: '#1e293b' }}>{item.RFIDNumber || '-'}</span>
-                        </td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                          <span style={{ fontWeight: 600, color: '#1e293b' }}>{item.Itemcode || '-'}</span>
-                        </td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                          <span style={{ color: '#475569' }}>{item.category_id || '-'}</span>
-                        </td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                          <span style={{ color: '#475569' }}>{item.product_id || '-'}</span>
-                        </td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                          <span style={{ color: '#475569' }}>{item.design_id || '-'}</span>
-                        </td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
-                          <span style={{ color: '#475569' }}>{item.purity_id || '-'}</span>
-                        </td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.grosswt || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.grosswt || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.netwt || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.stonewt || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.FinePercent || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.WastagePercent || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.FineWastageWt || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.RatePerGram || '0.00'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.stoneamount || '0.00'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.Qty || 1}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.Pieces || 1}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.HallmarkAmount || '0.00'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.TotalItemAmt || '0.00'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.PackingWt || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.diamondweight || '0.000'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.MRP || '0.00'}</td>
-                        <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.URDAmount || '0.00'}</td>
-                        <td style={{ 
-                          padding: isSmallScreen ? '6px' : '8px', 
-                          textAlign: 'center',
-                          position: 'sticky',
-                          right: 0,
-                          background: '#ffffff',
-                          zIndex: 5,
-                          borderLeft: '1px solid #e5e7eb'
-                        }}>
-                          <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', alignItems: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => startEditProduct(item)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px 8px',
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                border: '1px solid #3b82f6',
-                                background: '#ffffff',
-                                color: '#3b82f6',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = '#3b82f6';
-                                e.currentTarget.style.color = '#ffffff';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = '#ffffff';
-                                e.currentTarget.style.color = '#3b82f6';
-                              }}
-                              title="Edit"
-                            >
-                              <FaEdit />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeProduct(item.id)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '4px 8px',
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                border: '1px solid #ef4444',
-                                background: '#ffffff',
-                                color: '#ef4444',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = '#ef4444';
-                                e.currentTarget.style.color = '#ffffff';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = '#ffffff';
-                                e.currentTarget.style.color = '#ef4444';
-                              }}
-                              title="Delete"
-                            >
-                              <FaTrash />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    paddedItemTableRows.map((slot, index) => {
+                      if (slot.kind === 'pad') {
+                        return (
+                          <tr key={slot.key} style={{ height: 34, background: index % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                            <td colSpan="24" style={{ borderBottom: '1px solid #e2e8f0' }} />
+                          </tr>
+                        );
+                      }
+                      const item = slot.item;
+                      return (
+                        <tr key={item.id} style={{ 
+                          borderBottom: '1px solid #e2e8f0',
+                          background: index % 2 === 0 ? '#ffffff' : '#fafafa',
+                          transition: 'background 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#eef6ff'}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#fafafa';
+                        }}
+                        >
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'center', fontSize: isSmallScreen ? '10px' : '11px' }}>{((itemTablePage - 1) * itemTablePageSize) + index + 1}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontWeight: 500, color: '#1e293b' }}>{item.RFIDNumber || '-'}</span>
+                          </td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontWeight: 600, color: '#1e293b' }}>{item.Itemcode || '-'}</span>
+                          </td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: '#475569' }}>{item.category_id || '-'}</span>
+                          </td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: '#475569' }}>{item.product_id || '-'}</span>
+                          </td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: '#475569' }}>{item.design_id || '-'}</span>
+                          </td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'left', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: '#475569' }}>{item.purity_id || '-'}</span>
+                          </td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.grosswt || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.grosswt || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.netwt || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.stonewt || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.FinePercent || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.WastagePercent || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.FineWastageWt || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.RatePerGram || '0.00'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.stoneamount || '0.00'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.Qty || 1}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.Pieces || 1}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.HallmarkAmount || '0.00'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.TotalItemAmt || '0.00'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.PackingWt || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.diamondweight || '0.000'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.MRP || '0.00'}</td>
+                          <td style={{ padding: isSmallScreen ? '6px' : '8px', textAlign: 'right', fontSize: isSmallScreen ? '10px' : '11px', whiteSpace: 'nowrap' }}>{item.URDAmount || '0.00'}</td>
+                          <td style={{ 
+                            padding: isSmallScreen ? '6px' : '8px', 
+                            textAlign: 'center',
+                            position: 'sticky',
+                            right: 0,
+                            background: '#ffffff',
+                            zIndex: 5,
+                            borderLeft: '1px solid #e5e7eb'
+                          }}>
+                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => startEditProduct(item)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  padding: '4px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  borderRadius: '6px',
+                                  border: '1px solid #3b82f6',
+                                  background: '#ffffff',
+                                  color: '#3b82f6',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = '#3b82f6';
+                                  e.currentTarget.style.color = '#ffffff';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = '#ffffff';
+                                  e.currentTarget.style.color = '#3b82f6';
+                                }}
+                                title="Edit"
+                              >
+                                <FaEdit />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeProduct(item.id)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  padding: '4px 8px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  borderRadius: '6px',
+                                  border: '1px solid #ef4444',
+                                  background: '#ffffff',
+                                  color: '#ef4444',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = '#ef4444';
+                                  e.currentTarget.style.color = '#ffffff';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = '#ffffff';
+                                  e.currentTarget.style.color = '#ef4444';
+                                }}
+                                title="Delete"
+                              >
+                                <FaTrash />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan="23" style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: isSmallScreen ? '11px' : '12px' }}>
@@ -2303,6 +2584,83 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                   )}
                 </tbody>
               </table>
+              )}
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 6px 2px',
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
+                {quotationItems.length} record{quotationItems.length === 1 ? '' : 's'} · {itemTablePageSize}/page
+                {quotationItems.length > 0
+                  ? ` · ${((itemTablePage - 1) * itemTablePageSize) + 1}-${Math.min(itemTablePage * itemTablePageSize, quotationItems.length)} shown`
+                  : ''}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <select
+                  value={itemTablePageSize}
+                  onChange={(e) => {
+                    setItemTablePageSize(parseInt(e.target.value, 10));
+                    setItemTablePage(1);
+                  }}
+                  style={{
+                    height: 28,
+                    borderRadius: 6,
+                    border: '1px solid #d1d5db',
+                    fontSize: 11,
+                    color: '#334155',
+                    padding: '0 8px',
+                    background: '#fff',
+                  }}
+                >
+                  {[15, 25, 50].map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setItemTablePage((p) => Math.max(1, p - 1))}
+                  disabled={itemTablePage === 1}
+                  style={{
+                    padding: '5px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    borderRadius: 6,
+                    border: '1px solid #e5e7eb',
+                    background: '#ffffff',
+                    color: itemTablePage === 1 ? '#a3a3a3' : '#525252',
+                    cursor: itemTablePage === 1 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Prev
+                </button>
+                <span style={{ fontSize: 11, color: '#334155', fontWeight: 700 }}>
+                  Page {itemTablePage} / {itemTableTotalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setItemTablePage((p) => Math.min(itemTableTotalPages, p + 1))}
+                  disabled={itemTablePage >= itemTableTotalPages}
+                  style={{
+                    padding: '5px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    borderRadius: 6,
+                    border: '1px solid #e5e7eb',
+                    background: '#ffffff',
+                    color: itemTablePage >= itemTableTotalPages ? '#a3a3a3' : '#525252',
+                    cursor: itemTablePage >= itemTableTotalPages ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </div>
       </div>

@@ -17,7 +17,9 @@ import {
   FaEdit,
   FaDownload,
   FaTimes,
-  FaChevronDown
+  FaChevronDown,
+  FaTable,
+  FaThLarge
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -51,6 +53,7 @@ const InvoiceStock = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [viewMode, setViewMode] = useState('table');
   const searchTimeoutRef = useRef(null);
 
   // Filter States
@@ -620,6 +623,49 @@ const InvoiceStock = () => {
             />
           </div>
           {/* Action Buttons */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('card')}
+              style={{
+                border: 'none',
+                borderRight: '1px solid #dbe4f0',
+                background: viewMode === 'card' ? '#eef2ff' : '#fff',
+                color: viewMode === 'card' ? '#3730a3' : '#475569',
+                height: 34,
+                padding: '0 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                cursor: 'pointer',
+              }}
+            >
+              <FaThLarge style={{ fontSize: 11 }} />
+              Card
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              style={{
+                border: 'none',
+                background: viewMode === 'table' ? '#eef2ff' : '#fff',
+                color: viewMode === 'table' ? '#3730a3' : '#475569',
+                height: 34,
+                padding: '0 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                cursor: 'pointer',
+              }}
+            >
+              <FaTable style={{ fontSize: 11 }} />
+              Table
+            </button>
+          </div>
           <button
             onClick={handleDelete}
             disabled={selectedItems.length === 0}
@@ -1201,6 +1247,100 @@ const InvoiceStock = () => {
         border: '1px solid #e5e7eb',
         overflow: 'hidden'
       }}>
+        {viewMode === 'card' ? (
+          <div style={{ padding: 12, background: '#f8fafc' }}>
+            {currentItems.length === 0 ? (
+              <div style={{ padding: '32px 12px', textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+                No invoice rows found
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: windowWidth <= 768 ? 'repeat(1, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {currentItems.map((item, index) => {
+                  const selected = selectedItems.includes(item.Id);
+                  const statusColor = item.Status === 'Sold' ? '#ef4444' : (item.Status === 'ApiActive' ? '#3b82f6' : '#64748b');
+                  return (
+                    <div
+                      key={`invoice-card-${item.Id || index}`}
+                      onClick={() => handleRowSelection(item.Id)}
+                      style={{
+                        border: selected ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                        borderRadius: 10,
+                        background: selected ? '#eff6ff' : '#ffffff',
+                        padding: 10,
+                        boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>{item.ItemCode || 'N/A'}</div>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => handleRowSelection(item.Id)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ width: 14, height: 14, cursor: 'pointer' }}
+                        />
+                      </div>
+                      <div style={{ fontSize: 10, color: '#475569', marginBottom: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {(item.CategoryName || 'N/A')} • {(item.ProductName || 'N/A')}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{parseFloat(item.GrossWt || 0).toFixed(3)}</div>
+                        </div>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 6px' }}>
+                          <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                          <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{parseFloat(item.NetWt || 0).toFixed(3)}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewDetails(item);
+                          }}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            borderRadius: 6,
+                            border: '1px solid #cbd5e1',
+                            background: '#ffffff',
+                            color: '#334155',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          View
+                        </button>
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 999,
+                            border: `1px solid ${statusColor}`,
+                            color: statusColor,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            background: '#fff',
+                          }}
+                        >
+                          {item.Status || 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
         <div style={{ overflowX: 'auto', overflowY: 'visible', width: '100%', maxWidth: '100%' }}>
           <table style={{ 
             width: '100%',
@@ -1427,6 +1567,7 @@ const InvoiceStock = () => {
             </tbody>
           </table>
         </div>
+        )}
         
         {/* Pagination */}
         <div style={{

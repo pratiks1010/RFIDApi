@@ -1,10 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { FaBroadcastTower, FaLink, FaListUl, FaMicrochip, FaPlug, FaPowerOff, FaSearch, FaSyncAlt, FaTerminal, FaWaveSquare } from 'react-icons/fa';
+import { FaBolt, FaDownload, FaEraser, FaLink, FaListUl, FaMicrochip, FaPlug, FaPowerOff, FaSearch, FaSyncAlt, FaTerminal, FaWaveSquare } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import '../styles/RFIDTrayConnect.css';
 import { toSoniApiUrl } from '../services/apiBaseConfig';
-import { getTrayReaderConfig, saveTrayReaderConfig } from '../services/trayReaderConfig';
+import {
+  getTrayReaderConfig,
+  saveTrayReaderConfig,
+  parsePowerAttDb10,
+  snapPowerAttDb10ToPreset,
+  TRAY_POWER_ATT_MAX,
+  TRAY_POWER_PRESET_OPTIONS
+} from '../services/trayReaderConfig';
 
 const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
   || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
@@ -89,6 +96,7 @@ const RFIDTrayConnect = () => {
   const [comPrimary, setComPrimary] = useState(initialReaderConfig.comPrimary);
   const [comSecondary, setComSecondary] = useState(initialReaderConfig.comSecondary);
   const [baudRate, setBaudRate] = useState(initialReaderConfig.baudRate);
+  const [powerAttDb10, setPowerAttDb10] = useState(initialReaderConfig.powerAttDb10);
   const [isScanning, setIsScanning] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [logs, setLogs] = useState([]);
@@ -100,14 +108,132 @@ const RFIDTrayConnect = () => {
   const [activeAction, setActiveAction] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 12;
+  const lastErrorToastRef = useRef('');
+  const bridgeLineHistoryRef = useRef([]);
+  const deviceRowsRef = useRef([]);
+  const sdkConnectedCountRef = useRef(0);
 
   const hasBridge = typeof window !== 'undefined' && window.electronAPI?.rfidBridgeCommand;
+
+  const notifyError = (message) => {
+    const text = String(message || '').trim();
+    if (!text) return;
+    if (lastErrorToastRef.current === text) return;
+    lastErrorToastRef.current = text;
+    toast.error(text);
+    setTimeout(() => {
+      if (lastErrorToastRef.current === text) lastErrorToastRef.current = '';
+    }, 1200);
+  };
+
+  const appendLog = (line) => {
+    const text = String(line || '').trim();
+    if (!text) return;
+    setLogs((prev) => [text, ...prev].slice(0, 200));
+  };
+
+  const normalizeComNumber = (value) => String(value || '').trim().replace(/^COM/i, '');
+  const parseComNumber = (value) => {
+    const normalized = normalizeComNumber(value);
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  };
+  const parseBaudRate = (value) => {
+    const parsed = Number.parseInt(String(value || '').trim(), 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const getBridgeErrorMessage = (rawMessage) => {
+    const message = String(rawMessage || '').trim();
+    const lower = message.toLowerCase();
+    if (!message) return 'RFID bridge failed.';
+    if (lower.includes('unable to load dll') && lower.includes('uhfapi.dll')) {
+      return 'RFID SDK DLL missing on this laptop (UHFAPI.dll). Install/copy reader SDK files.';
+    }
+    if (lower.includes('rfid bridge executable not found')) {
+      return 'RFID bridge service is missing in this app build. Reinstall the desktop app.';
+    }
+    if (lower.includes('invalid com number')) {
+      return 'Invalid COM port. Use only number (example: 7), not COM7.';
+    }
+    if (lower.includes('serial connect failed')) {
+      return 'Reader serial connection failed. Verify COM port, baud rate, and driver.';
+    }
+    if (lower.includes('uhfapi_set_powercontrol') || lower.includes('uhfapi_get_powercontrol')) {
+      return 'This UHFAPI.dll build does not export TX power control (UHFAPI_SET_PowerControl / GET).';
+    }
+    if (lower.includes('start inventory failed')) {
+      return 'Scan could not start on connected readers. Check reader power/antenna and retry.';
+    }
+    if (lower.includes('not connected')) {
+      return 'Reader is not connected. Click Connect first, then start scan.';
+    }
+    return message;
+  };
+
+  const waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const getLinesSince = (startIndex) => bridgeLineHistoryRef.current.slice(startIndex);
+
+  const waitForBridgeResponse = async (startIndex, timeoutMs = 1400) => {
+    const startedAt = Date.now();
+    let lastCount = startIndex;
+    while (Date.now() - startedAt < timeoutMs) {
+      const currentCount = bridgeLineHistoryRef.current.length;
+      if (currentCount > lastCount) {
+        await waitMs(60);
+        return getLinesSince(startIndex);
+      }
+      lastCount = currentCount;
+      await waitMs(80);
+    }
+    return getLinesSince(startIndex);
+  };
+
+  const evaluateSerialConnectAttempt = (lines, comNumber) => {
+    const text = lines.join('\n').toLowerCase();
+    const successNeedle = `connected via serial com${comNumber}`.toLowerCase();
+    if (text.includes(successNeedle)) {
+      return { ok: true, message: `COM${comNumber} connected.` };
+    }
+    if (text.includes('invalid com number')) {
+      return { ok: false, message: `COM${comNumber} invalid. Use number only (example: ${comNumber}).` };
+    }
+    if (text.includes('serial connect failed')) {
+      return { ok: false, message: `COM${comNumber} connection failed. Check cable, driver, and port ownership.` };
+    }
+    if (text.includes('unable to load dll') && text.includes('uhfapi.dll')) {
+      return { ok: false, message: 'RFID SDK DLL missing (UHFAPI.dll).' };
+    }
+    return {
+      ok: null,
+      message: `No explicit response for COM${comNumber} yet.`
+    };
+  };
+
+  useEffect(() => {
+    deviceRowsRef.current = deviceRows;
+  }, [deviceRows]);
 
   useEffect(() => {
     if (!hasBridge) return undefined;
 
     const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
       setLogs((prev) => [line, ...prev].slice(0, 200));
+      bridgeLineHistoryRef.current.push(String(line || ''));
+      if (bridgeLineHistoryRef.current.length > 600) {
+        bridgeLineHistoryRef.current = bridgeLineHistoryRef.current.slice(-600);
+      }
+      const lowerLine = String(line || '').toLowerCase();
+      if (lowerLine.includes('invalid com number')) {
+        notifyError('Invalid COM port. Use only number (example: 7), not COM7.');
+      } else if (lowerLine.includes('serial connect failed')) {
+        notifyError('Reader serial connection failed. Verify COM port, baud rate, and driver.');
+      } else if (lowerLine.includes('start inventory failed')) {
+        notifyError('Scan could not start on connected readers. Check reader power/antenna and retry.');
+      } else if (lowerLine.includes('not connected')) {
+        notifyError('Reader is not connected. Click Connect first, then start scan.');
+      }
       if (line.toLowerCase().includes('inventory started')) {
         setIsScanning(true);
         toast.success('Scan started successfully.');
@@ -133,17 +259,49 @@ const RFIDTrayConnect = () => {
           });
         }
       }
+
+      const connectedSummary = normalizedLine.match(/^connected devices detected by sdk:\s*(\d+)/i);
+      if (connectedSummary) {
+        sdkConnectedCountRef.current = Number.parseInt(connectedSummary[1], 10) || 0;
+        if (sdkConnectedCountRef.current === 0) {
+          notifyError('SDK reports 0 connected devices. Verify COM ports, power, and reader driver.');
+        }
+      }
+
+      const powerMatch = String(line || '').match(/\bPOWER\s+attDb10\s*=\s*(\d+)/i);
+      if (powerMatch) {
+        setPowerAttDb10(String(snapPowerAttDb10ToPreset(powerMatch[1])));
+      }
     });
 
     const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
-      const key = `${tag.deviceId}|${tag.tid || tag.epc}`;
+      const normalizedTid = String(tag?.tid || '').trim().toUpperCase();
+      const normalizedEpc = String(tag?.epc || '').trim().toUpperCase();
+      const identity = normalizedTid || normalizedEpc;
+      if (!identity) return;
+      const key = identity;
       setTagMap((prev) => {
-        const current = prev[key] || { ...tag, count: 0, firstSeen: new Date().toISOString() };
+        const current = prev[key] || {
+          ...tag,
+          epc: normalizedEpc || tag?.epc || '',
+          tid: normalizedTid || tag?.tid || '',
+          count: 0,
+          firstSeen: new Date().toISOString(),
+          deviceIds: []
+        };
+        const nextDeviceId = String(tag?.deviceId || '').trim();
+        const mergedDeviceIds = Array.from(
+          new Set([...(Array.isArray(current.deviceIds) ? current.deviceIds : []), nextDeviceId].filter(Boolean))
+        );
         return {
           ...prev,
           [key]: {
             ...current,
             ...tag,
+            epc: normalizedEpc || current.epc || '',
+            tid: normalizedTid || current.tid || '',
+            deviceIds: mergedDeviceIds,
+            deviceId: mergedDeviceIds[0] || nextDeviceId || current.deviceId || '',
             count: current.count + 1,
             lastSeen: new Date().toISOString()
           }
@@ -152,13 +310,19 @@ const RFIDTrayConnect = () => {
     });
 
     const unsubError = window.electronAPI.onRfidBridgeError((line) => {
-      setLogs((prev) => [`ERROR: ${line}`, ...prev].slice(0, 200));
-      toast.error(line || 'Bridge error occurred.');
+      const mapped = getBridgeErrorMessage(line);
+      setLogs((prev) => [`ERROR: ${mapped}`, ...prev].slice(0, 200));
+      bridgeLineHistoryRef.current.push(`ERROR: ${mapped}`);
+      if (bridgeLineHistoryRef.current.length > 600) {
+        bridgeLineHistoryRef.current = bridgeLineHistoryRef.current.slice(-600);
+      }
+      notifyError(mapped);
     });
 
     window.electronAPI.rfidBridgeEnsure().catch(() => {
-      setLogs((prev) => ['ERROR: Failed to start RFID bridge service.', ...prev].slice(0, 200));
-      toast.error('Failed to start RFID service.');
+      const message = 'Failed to start RFID bridge service. Reopen app and verify tray bridge files.';
+      setLogs((prev) => [`ERROR: ${message}`, ...prev].slice(0, 200));
+      notifyError(message);
     });
 
     return () => {
@@ -230,28 +394,113 @@ const RFIDTrayConnect = () => {
   }, [currentPage, totalPages]);
 
   const runCommand = async (command) => {
-    if (!hasBridge) return;
+    if (!hasBridge) {
+      const message = 'RFID tray bridge is unavailable. Open this page from desktop app.';
+      appendLog(`ERROR: ${message}`);
+      notifyError(message);
+      return;
+    }
     try {
-      await window.electronAPI.rfidBridgeCommand(command);
+      appendLog(`CMD> ${command}`);
+      const response = await window.electronAPI.rfidBridgeCommand(command);
+      if (response?.ok === false) {
+        const message = getBridgeErrorMessage(response?.error || 'Bridge command failed.');
+        appendLog(`ERROR: ${message}`);
+        notifyError(message);
+        throw new Error(message);
+      }
+      appendLog(`ACK> ${command}`);
+      if (typeof response?.bridgePid === 'number') {
+        appendLog(`BRIDGE PID> ${response.bridgePid} running=${response?.bridgeRunning ? 'yes' : 'no'}`);
+      }
     } catch (error) {
-      const message = error?.message || 'Failed to run command.';
-      setLogs((prev) => [`ERROR: ${message}`, ...prev].slice(0, 200));
-      toast.error(message);
+      const message = getBridgeErrorMessage(error?.message || 'Failed to run command.');
+      appendLog(`ERROR: ${message}`);
+      notifyError(message);
       throw error;
     }
   };
 
   const connectReaders = async () => {
+    const primaryCom = parseComNumber(comPrimary);
+    const secondaryCom = parseComNumber(comSecondary);
+    const parsedBaudRate = parseBaudRate(baudRate);
+    if (!primaryCom || !secondaryCom) {
+      notifyError('Invalid COM port. Enter port numbers only (example: 7 and 8).');
+      return;
+    }
+    if (!parsedBaudRate) {
+      notifyError('Invalid baud rate. Enter a numeric value (example: 115200).');
+      return;
+    }
+
     setActiveAction('connect');
     setIsBusy(true);
     setDeviceRows([]);
+    sdkConnectedCountRef.current = 0;
+    appendLog(`INFO: Connect requested for COM${primaryCom}, COM${secondaryCom} @ ${parsedBaudRate}`);
     try {
       await runCommand('disconnect');
-      await runCommand(`connect-serial ${comPrimary} ${baudRate}`);
-      await runCommand(`connect-serial ${comSecondary} ${baudRate}`);
+
+      const primaryStart = bridgeLineHistoryRef.current.length;
+      await runCommand(`connect-serial ${primaryCom} ${parsedBaudRate}`);
+      const primaryAttempt = evaluateSerialConnectAttempt(
+        await waitForBridgeResponse(primaryStart),
+        primaryCom
+      );
+
+      const secondaryStart = bridgeLineHistoryRef.current.length;
+      await runCommand(`connect-serial ${secondaryCom} ${parsedBaudRate}`);
+      const secondaryAttempt = evaluateSerialConnectAttempt(
+        await waitForBridgeResponse(secondaryStart),
+        secondaryCom
+      );
+
       await runCommand('devices');
       await runCommand('status');
-      toast.success('Readers connected and device list refreshed.');
+      await waitMs(260);
+
+      const okCount = Number(primaryAttempt.ok === true) + Number(secondaryAttempt.ok === true);
+      const failedAttempts = [primaryAttempt, secondaryAttempt].filter((item) => item.ok === false);
+      const unknownAttempts = [primaryAttempt, secondaryAttempt].filter((item) => item.ok === null);
+      const parsedDeviceCount = deviceRowsRef.current.length;
+      const sdkDeviceCount = sdkConnectedCountRef.current;
+      const effectiveDeviceCount = Math.max(parsedDeviceCount, sdkDeviceCount);
+
+      const parsedPower = parsePowerAttDb10(powerAttDb10);
+      if (parsedPower !== null && (okCount > 0 || effectiveDeviceCount > 0)) {
+        try {
+          await runCommand(`set-power ${parsedPower}`);
+        } catch (_) {
+          /* runCommand already surfaced */
+        }
+      }
+
+      if (effectiveDeviceCount > 0) {
+        if (okCount === 2) {
+          toast.success(`Both readers connected (COM${primaryCom}, COM${secondaryCom}).`);
+        } else if (okCount === 1) {
+          const okPort = primaryAttempt.ok ? primaryCom : secondaryCom;
+          const failedMessage = primaryAttempt.ok ? secondaryAttempt.message : primaryAttempt.message;
+          toast.success(`At least one reader connected. COM${okPort} is active.`);
+          if (failedMessage) notifyError(failedMessage);
+        } else {
+          toast.success(`Reader link active. Detected ${effectiveDeviceCount} connected device(s) from bridge.`);
+          if (unknownAttempts.length) {
+            notifyError('Connect command response was delayed; using device-list confirmation instead.');
+          }
+        }
+      } else if (okCount === 2) {
+        toast.success(`Both readers connected (COM${primaryCom}, COM${secondaryCom}).`);
+        notifyError('COM ports opened, but SDK returned no active device rows. Check cable/reader power/driver and click Devices again.');
+        appendLog('WARN: COM opened but no active devices from SDK.');
+      } else if (failedAttempts.length > 0) {
+        notifyError(`Reader connection failed. ${failedAttempts.map((item) => item.message).join(' ')}`);
+        appendLog(`WARN: ${failedAttempts.map((item) => item.message).join(' ')}`);
+      } else {
+        notifyError('No bridge response and no connected device found. Check driver, reader power, and bridge logs.');
+        appendLog('WARN: No bridge output received after connect commands.');
+      }
     } finally {
       setIsBusy(false);
       setActiveAction('');
@@ -259,11 +508,23 @@ const RFIDTrayConnect = () => {
   };
 
   const startScan = async () => {
+    const effectiveDeviceCount = Math.max(deviceRowsRef.current.length, sdkConnectedCountRef.current);
+    if (effectiveDeviceCount === 0) {
+      toast.warning('No device row reported yet. Trying scan anyway; check logs for TAG lines.');
+    }
     setActiveAction('scan');
     setIsBusy(true);
     try {
       setTagMap({});
       setCurrentPage(1);
+      const pScan = parsePowerAttDb10(powerAttDb10);
+      if (pScan !== null) {
+        try {
+          await runCommand(`set-power ${pScan}`);
+        } catch (_) {
+          /* optional; reader may not support API */
+        }
+      }
       await runCommand('start');
     } finally {
       setIsBusy(false);
@@ -323,12 +584,58 @@ const RFIDTrayConnect = () => {
     setLogs([]);
   };
 
+  const applyTrayPowerNow = async () => {
+    const n = parsePowerAttDb10(powerAttDb10);
+    if (n === null) {
+      notifyError('Choose a transmit power level from the list.');
+      return;
+    }
+    setIsBusy(true);
+    try {
+      await runCommand(`set-power ${n}`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const readTrayPowerFromReader = async () => {
+    setIsBusy(true);
+    try {
+      await runCommand('get-power');
+      await waitMs(400);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   const saveReaderPorts = () => {
-    const saved = saveTrayReaderConfig({ comPrimary, comSecondary, baudRate });
+    const primaryCom = parseComNumber(comPrimary);
+    const secondaryCom = parseComNumber(comSecondary);
+    const parsedBaudRate = parseBaudRate(baudRate);
+    const parsedPower = parsePowerAttDb10(powerAttDb10);
+    if (!primaryCom || !secondaryCom) {
+      notifyError('Invalid COM port. Enter numbers only before saving (example: 7 and 8).');
+      return;
+    }
+    if (!parsedBaudRate) {
+      notifyError('Invalid baud rate. Enter numeric value before saving (example: 115200).');
+      return;
+    }
+    if (parsedPower === null) {
+      notifyError('Choose a transmit power level from the list.');
+      return;
+    }
+    const saved = saveTrayReaderConfig({
+      comPrimary: String(primaryCom),
+      comSecondary: String(secondaryCom),
+      baudRate: String(parsedBaudRate),
+      powerAttDb10: String(parsedPower)
+    });
     setComPrimary(saved.comPrimary);
     setComSecondary(saved.comSecondary);
     setBaudRate(saved.baudRate);
-    toast.success('Reader ports saved. Tray scan popup will use these settings.');
+    setPowerAttDb10(saved.powerAttDb10);
+    toast.success('Reader settings saved. Tray scan popup will use these values.');
   };
 
   return (
@@ -353,20 +660,82 @@ const RFIDTrayConnect = () => {
               Electron bridge API not available. Open this page from the packaged/desktop app.
             </div>
           )}
-          <div className="tray-compact-row">
-            <div className="tray-field tray-field-com">
-              <label className="tray-field-label">Reader 1 Port</label>
-              <input className="form-control tray-input" value={comPrimary} onChange={(e) => setComPrimary(e.target.value)} />
+          <div className="tray-settings-split">
+            <div className="tray-settings-col tray-settings-col-ports">
+              <div className="tray-panel-section">
+                <div className="tray-panel-section-title">Serial ports</div>
+                <div className="tray-form-grid-ports">
+                  <div className="tray-field">
+                    <label className="tray-field-label tray-field-label-compact" htmlFor="tray-com-primary">Reader 1</label>
+                    <input id="tray-com-primary" className="form-control tray-input tray-input-port" value={comPrimary} onChange={(e) => setComPrimary(e.target.value)} placeholder="7" autoComplete="off" />
+                  </div>
+                  <div className="tray-field">
+                    <label className="tray-field-label tray-field-label-compact" htmlFor="tray-com-secondary">Reader 2</label>
+                    <input id="tray-com-secondary" className="form-control tray-input tray-input-port" value={comSecondary} onChange={(e) => setComSecondary(e.target.value)} placeholder="8" autoComplete="off" />
+                  </div>
+                  <div className="tray-field">
+                    <label className="tray-field-label tray-field-label-compact" htmlFor="tray-baud">Baud</label>
+                    <input id="tray-baud" className="form-control tray-input tray-input-baud" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} placeholder="115200" autoComplete="off" />
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="tray-field tray-field-com">
-              <label className="tray-field-label">Reader 2 Port</label>
-              <input className="form-control tray-input" value={comSecondary} onChange={(e) => setComSecondary(e.target.value)} />
+
+            <div className="tray-settings-col tray-settings-col-power">
+              <div className="tray-panel-section tray-panel-section-power">
+                <div className="tray-power-block">
+                  <div className="tray-power-head">
+                    <span className="tray-panel-title-text tray-panel-title-text--block">Transmit power</span>
+                    <p className="tray-power-desc">
+                      Presets 0–{TRAY_POWER_ATT_MAX} (0 = strongest · {TRAY_POWER_ATT_MAX} = weakest). Saved for all tray scans.
+                    </p>
+                  </div>
+                  <div className="tray-power-inline-row">
+                    <select
+                      id="tray-power-select"
+                      className="form-select tray-input tray-power-select tray-power-select-compact"
+                      value={powerAttDb10}
+                      onChange={(e) => setPowerAttDb10(e.target.value)}
+                      disabled={!hasBridge || isBusy}
+                      aria-label="Transmit power preset"
+                    >
+                      {TRAY_POWER_PRESET_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={String(opt.value)}>
+                          {opt.label} ({opt.value})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="tray-power-commands tray-power-commands-inline">
+                      <button
+                        type="button"
+                        className="tray-btn tray-btn-power-apply"
+                        onClick={applyTrayPowerNow}
+                        disabled={!hasBridge || isBusy}
+                        title="Apply selected power to the reader"
+                      >
+                        <FaBolt aria-hidden className="tray-power-btn-icon" />
+                        Apply
+                      </button>
+                      <button
+                        type="button"
+                        className="tray-btn tray-btn-power-read"
+                        onClick={readTrayPowerFromReader}
+                        disabled={!hasBridge || isBusy}
+                        title="Read current power level from the reader"
+                      >
+                        <FaDownload aria-hidden className="tray-power-btn-icon" />
+                        Read
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="tray-field tray-field-baud">
-              <label className="tray-field-label">Port Speed (Baud)</label>
-              <input className="form-control tray-input" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} />
-            </div>
-            <div className="tray-action-row">
+          </div>
+
+          <div className="tray-panel-divider" aria-hidden />
+
+          <div className="tray-actions-toolbar">
             <button
               type="button"
               className="tray-btn tray-btn-ghost"
@@ -374,7 +743,7 @@ const RFIDTrayConnect = () => {
               disabled={isBusy}
             >
               <FaPlug />
-              Save Ports
+              Save settings
             </button>
             <button
               type="button"
@@ -396,7 +765,7 @@ const RFIDTrayConnect = () => {
             </button>
             <button
               type="button"
-              className={`tray-btn tray-btn-warning ${activeAction === 'stop' ? 'tray-btn-active' : ''}`}
+              className={`tray-btn tray-btn-slate ${activeAction === 'stop' ? 'tray-btn-active' : ''}`}
               onClick={stopScan}
               disabled={!hasBridge || isBusy || !isScanning}
             >
@@ -427,9 +796,9 @@ const RFIDTrayConnect = () => {
               onClick={clearScannedData}
               disabled={isBusy || tagRows.length === 0}
             >
-              Clear Tags
+              <FaEraser />
+              Clear tags
             </button>
-            </div>
           </div>
         </div>
 
@@ -497,7 +866,7 @@ const RFIDTrayConnect = () => {
                 </thead>
                 <tbody>
                   {paginatedTagRows.map((tag) => (
-                    <tr key={`${tag.deviceId}|${tag.tid || tag.epc}`}>
+                    <tr key={`${String(tag.tid || '').trim().toUpperCase() || String(tag.epc || '').trim().toUpperCase()}`}>
                       <td>{tag.deviceId}</td>
                       <td className="tray-mono tray-epc">{tag.epc}</td>
                       <td className="tray-mono">{rfidCodeMap[String(tag.epc || '').trim().toUpperCase()] || '-'}</td>

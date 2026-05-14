@@ -152,7 +152,13 @@ const FaceSettingsPage = () => {
     try {
       await ensureFaceModelsLoaded();
       setProcessState({ step: 'Detecting and processing face', progress: 42 });
-      assertFaceFrameQuality(videoRef.current);
+      try {
+        assertFaceFrameQuality(videoRef.current);
+      } catch (qualityError) {
+        if (trackingState.quality !== 'good') {
+          throw qualityError;
+        }
+      }
       const descriptor = await extractStableDescriptorFromVideo(videoRef.current);
       setProcessState({ step: 'Capturing secure face frame', progress: 68 });
       const imageBase64 = await captureVideoFrame(videoRef.current);
@@ -181,6 +187,7 @@ const FaceSettingsPage = () => {
       setStatusMessage('Face registered successfully. You can now sign in from login page.');
       setProcessState({ step: 'Face registration completed', progress: 100 });
       toast.success('Face registered successfully.');
+      stopStream();
     } catch (err) {
       const message = err?.response?.data?.Message || err?.response?.data?.message || err?.message || 'Face registration failed.';
       toast.error(message);

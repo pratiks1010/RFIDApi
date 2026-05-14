@@ -4,7 +4,7 @@ import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
-import { getAuthLoginUrl } from '../services/authApiConfig';
+import { getAuthForgotPasswordUrl, getAuthLoginUrl } from '../services/authApiConfig';
 import {
   createFingerprintChallenge,
   verifyLogin,
@@ -226,6 +226,16 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [fingerprintLoading, setFingerprintLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showForgotPasswordPrompt, setShowForgotPasswordPrompt] = useState(false);
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
+  const [forgotPasswordData, setForgotPasswordData] = useState({
+    LoginName: '',
+    ClientCode: '',
+    CurrentPassword: '',
+    NewPassword: '',
+    ConfirmPassword: '',
+  });
   const [showFingerprintPrompt, setShowFingerprintPrompt] = useState(false);
   const [fingerprintLoginName, setFingerprintLoginName] = useState(fingerprintHint.loginName);
   const [fingerprintClientCode, setFingerprintClientCode] = useState(fingerprintHint.clientCode);
@@ -244,6 +254,7 @@ const Login = () => {
   const [faceLoading, setFaceLoading] = useState(false);
   const [faceCameraReady, setFaceCameraReady] = useState(false);
   const [facePreviewError, setFacePreviewError] = useState('');
+  const [facePopupError, setFacePopupError] = useState('');
   const [faceTracking, setFaceTracking] = useState({ faceCount: 0, quality: 'no_face', message: 'Align your face in the frame' });
   const [slide, setSlide] = useState(0);
   const [animating, setAnimating] = useState(false);
@@ -335,6 +346,40 @@ const Login = () => {
     });
   };
 
+  const getFaceLoginPopupMessage = (rawMessage) => {
+    const text = String(rawMessage || '').trim();
+    const normalized = text.toLowerCase();
+
+    if (!text) return 'Face verification failed. Please try again.';
+    if (normalized.includes('face mismatch')) {
+      return 'Face does not match the registered profile. Please use the same person enrolled for this account.';
+    }
+    if (normalized.includes('multiple faces')) {
+      return 'Multiple faces detected. Keep only one face in frame and try again.';
+    }
+    if (normalized.includes('no face detected')) {
+      return 'Face not detected. Keep your face centered and improve lighting.';
+    }
+    if (normalized.includes('camera frame is blurry') || normalized.includes('blurry')) {
+      return 'Image is blurry. Hold steady and look directly at the camera.';
+    }
+    if (normalized.includes('lighting is too low')) {
+      return 'Lighting is too low. Improve front light and try again.';
+    }
+    if (normalized.includes('unstable')) {
+      return 'Face capture is unstable. Stay still and keep your face centered.';
+    }
+    return text;
+  };
+
+  const handleForgotPasswordChange = (e) => {
+    const { name, value } = e.target;
+    setForgotPasswordData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
   const finalizeLogin = (token, resolvedUsername) => {
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -417,6 +462,87 @@ const Login = () => {
     await doPasswordLogin();
   };
 
+  const resetForgotPasswordPrompt = () => {
+    setShowForgotPasswordPrompt(false);
+    setForgotPasswordLoading(false);
+    setForgotPasswordSuccess(false);
+    setForgotPasswordData({
+      LoginName: '',
+      ClientCode: '',
+      CurrentPassword: '',
+      NewPassword: '',
+      ConfirmPassword: '',
+    });
+  };
+
+  const submitForgotPassword = async () => {
+    if (forgotPasswordLoading) return;
+    const payload = {
+      LoginName: forgotPasswordData.LoginName.trim(),
+      ClientCode: forgotPasswordData.ClientCode.trim().toUpperCase(),
+      CurrentPassword: forgotPasswordData.CurrentPassword,
+      NewPassword: forgotPasswordData.NewPassword,
+      ConfirmPassword: forgotPasswordData.ConfirmPassword,
+    };
+
+    if (!payload.LoginName || !payload.ClientCode || !payload.CurrentPassword || !payload.NewPassword || !payload.ConfirmPassword) {
+      toast.error('LoginName, ClientCode, CurrentPassword, NewPassword and ConfirmPassword are required.', {
+        position: 'top-right',
+        autoClose: 3000,
+        theme: 'colored',
+      });
+      return;
+    }
+
+    if (payload.NewPassword !== payload.ConfirmPassword) {
+      toast.error('NewPassword and ConfirmPassword must match.', {
+        position: 'top-right',
+        autoClose: 3000,
+        theme: 'colored',
+      });
+      return;
+    }
+
+    setForgotPasswordLoading(true);
+    try {
+      const response = await axios.post(getAuthForgotPasswordUrl(), payload);
+      const successMessage = response?.data?.Message || 'Password changed successfully.';
+      toast.success(successMessage, {
+        position: 'top-right',
+        autoClose: 2800,
+        theme: 'colored',
+      });
+      setFormData((prev) => ({
+        ...prev,
+        LoginName: payload.LoginName,
+        Password: '',
+      }));
+      setForgotPasswordSuccess(true);
+      setTimeout(() => {
+        resetForgotPasswordPrompt();
+      }, 1200);
+    } catch (err) {
+      const errorPayload = err?.response?.data;
+      let errorMessage = err?.message || 'Unable to change password.';
+
+      if (Array.isArray(errorPayload) && errorPayload.length) {
+        errorMessage = errorPayload.map((item) => item?.description || item?.code).filter(Boolean).join(' ');
+      } else if (typeof errorPayload === 'string') {
+        errorMessage = errorPayload;
+      } else if (errorPayload?.Message || errorPayload?.message) {
+        errorMessage = errorPayload?.Message || errorPayload?.message;
+      }
+
+      toast.error(errorMessage, {
+        position: 'top-right',
+        autoClose: 4200,
+        theme: 'colored',
+      });
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
   const runPasskeyLogin = async (loginName, clientCode) => {
     if (!window.PublicKeyCredential) {
       toast.error('Passkeys require a browser with WebAuthn support.', { position: 'top-right', theme: 'colored' });
@@ -495,6 +621,7 @@ const Login = () => {
   const runFaceLogin = async (loginName, clientCode) => {
     setFaceLoading(true);
     setError('');
+    setFacePopupError('');
     try {
       if (!faceVideoRef.current || !faceCameraReady) {
         throw new Error('Camera is not ready. Please allow camera and try again.');
@@ -504,11 +631,17 @@ const Login = () => {
         throw new Error('Face profile is not enrolled on this device for this user. Please open Face Login Settings and register once on this device.');
       }
 
-      assertFaceFrameQuality(faceVideoRef.current);
+      try {
+        assertFaceFrameQuality(faceVideoRef.current);
+      } catch (qualityError) {
+        if (faceTracking.quality !== 'good') {
+          throw qualityError;
+        }
+      }
       const descriptor = await extractStableDescriptorFromVideo(faceVideoRef.current);
       const firstMatch = matchFaceWithReference(descriptor, localGuard.descriptor);
       if (!firstMatch.matched) {
-        throw new Error(`Face mismatch with registered profile. Distance ${firstMatch.distance.toFixed(3)} > ${firstMatch.threshold.toFixed(3)}.`);
+        throw new Error('Face mismatch with registered profile.');
       }
 
       // Require a second stable sample to reduce false accepts.
@@ -519,7 +652,7 @@ const Login = () => {
       });
       const secondMatch = matchFaceWithReference(secondDescriptor, localGuard.descriptor);
       if (!secondMatch.matched) {
-        throw new Error(`Face mismatch on verification pass. Distance ${secondMatch.distance.toFixed(3)} > ${secondMatch.threshold.toFixed(3)}.`);
+        throw new Error('Face mismatch on verification pass.');
       }
       if (faceDistance(descriptor, secondDescriptor) > 0.27) {
         throw new Error('Face verification is unstable. Keep same face centered and retry.');
@@ -543,12 +676,12 @@ const Login = () => {
         })
       );
       setShowFacePrompt(false);
+      stopFaceStream();
       finalizeLogin(token, loginName);
     } catch (err) {
       const backendMessage = err?.response?.data?.message || err?.response?.data?.Message;
-      const message = backendMessage || err?.message || 'Face login failed.';
-      setError(message);
-      toast.error(message, { position: 'top-right', autoClose: 3800, theme: 'colored' });
+      const message = getFaceLoginPopupMessage(backendMessage || err?.message || 'Face login failed.');
+      setFacePopupError(message);
     } finally {
       setFaceLoading(false);
     }
@@ -559,6 +692,7 @@ const Login = () => {
     setFaceLoginName('');
     setFaceClientCode('');
     setFacePreviewError('');
+    setFacePopupError('');
     setFaceTracking({ faceCount: 0, quality: 'no_face', message: 'Align your face in the frame' });
     setShowFacePrompt(true);
     toast.info('Enter username and client code for Face ID login.', {
@@ -825,6 +959,8 @@ const Login = () => {
         body, html { overflow: hidden !important; height: 100% !important; margin: 0; }
         .login-page-wrapper { animation: fadeIn 0.35s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fpTickPop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes fpTickDraw { to { stroke-dashoffset: 0; } }
         .fas, .far, .fal, .fab { font-family: "Font Awesome 5 Free" !important; font-weight: 900 !important; display: inline-block !important; font-style: normal !important; line-height: 1 !important; }
         .login-form-input:focus { outline: none; border-color: rgba(99, 102, 241, 0.6) !important; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important; }
         @media (max-width: 900px) {
@@ -1058,6 +1194,127 @@ const Login = () => {
           </div>
         )}
 
+        {showForgotPasswordPrompt && (
+          <div style={modalOverlayStyle}>
+            <div
+              style={{
+                ...modalCardStyle,
+                maxWidth: 430,
+                borderRadius: 14,
+                padding: 18,
+                border: '1px solid #dbe4f0',
+                boxShadow: '0 16px 34px rgba(15, 23, 42, 0.14)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span
+                  style={{
+                    width: 26,
+                    height: 26,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 8,
+                    background: 'rgba(99, 102, 241, 0.12)',
+                    color: '#4f46e5',
+                  }}
+                >
+                  <i className="fas fa-unlock-alt" style={{ fontSize: 12 }} />
+                </span>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '0.92rem', fontWeight: 700 }}>Change password</h3>
+              </div>
+              <p style={{ margin: '0 0 10px', color: '#64748b', fontSize: '0.73rem', lineHeight: 1.4 }}>
+                Enter your username, client code, current password, and new password.
+              </p>
+              {forgotPasswordSuccess ? (
+                <div style={{ padding: '8px 0 4px', textAlign: 'center' }}>
+                  <div
+                    style={{
+                      width: 64,
+                      height: 64,
+                      margin: '0 auto 10px',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      animation: 'fpTickPop 300ms ease-out forwards',
+                    }}
+                  >
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M5 12.5l4.2 4.2L19 7.8"
+                        stroke="#fff"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ strokeDasharray: 24, strokeDashoffset: 24, animation: 'fpTickDraw 360ms 120ms ease forwards' }}
+                      />
+                    </svg>
+                  </div>
+                  <div style={{ color: '#166534', fontSize: '0.82rem', fontWeight: 700 }}>Password changed successfully</div>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    name="LoginName"
+                    value={forgotPasswordData.LoginName}
+                    onChange={handleForgotPasswordChange}
+                    placeholder="Username"
+                    style={{ ...modalInputStyle, fontSize: '0.78rem', padding: '9px 11px', borderRadius: 9, marginBottom: 9, background: '#fbfdff' }}
+                  />
+                  <input
+                    type="text"
+                    name="ClientCode"
+                    value={forgotPasswordData.ClientCode}
+                    onChange={handleForgotPasswordChange}
+                    placeholder="Client code (e.g. LS000410)"
+                    style={{ ...modalInputStyle, fontSize: '0.78rem', padding: '9px 11px', borderRadius: 9, marginBottom: 9, background: '#fbfdff' }}
+                  />
+                  <input
+                    type="password"
+                    name="CurrentPassword"
+                    value={forgotPasswordData.CurrentPassword}
+                    onChange={handleForgotPasswordChange}
+                    placeholder="Current password"
+                    style={{ ...modalInputStyle, fontSize: '0.78rem', padding: '9px 11px', borderRadius: 9, marginBottom: 9, background: '#fbfdff' }}
+                  />
+                  <input
+                    type="password"
+                    name="NewPassword"
+                    value={forgotPasswordData.NewPassword}
+                    onChange={handleForgotPasswordChange}
+                    placeholder="New password"
+                    style={{ ...modalInputStyle, fontSize: '0.78rem', padding: '9px 11px', borderRadius: 9, marginBottom: 9, background: '#fbfdff' }}
+                  />
+                  <input
+                    type="password"
+                    name="ConfirmPassword"
+                    value={forgotPasswordData.ConfirmPassword}
+                    onChange={handleForgotPasswordChange}
+                    placeholder="Confirm new password"
+                    style={{ ...modalInputStyle, fontSize: '0.78rem', padding: '9px 11px', borderRadius: 9, marginBottom: 8, background: '#fbfdff' }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 2 }}>
+                    <button type="button" onClick={resetForgotPasswordPrompt} style={{ ...modalBtnGhost, fontSize: '0.76rem', padding: '8px 12px', borderRadius: 9 }}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitForgotPassword}
+                      disabled={forgotPasswordLoading}
+                      style={{ ...modalBtnPrimary, fontSize: '0.76rem', padding: '8px 12px', borderRadius: 9, opacity: forgotPasswordLoading ? 0.75 : 1 }}
+                    >
+                      {forgotPasswordLoading ? 'Updating...' : 'Update password'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {showFacePrompt && (
           <div style={modalOverlayStyle}>
             <div style={{ ...modalCardStyle, maxWidth: 460 }}>
@@ -1093,6 +1350,9 @@ const Login = () => {
                   {faceTracking.message}
                 </div>
               </div>
+              {!!facePopupError && (
+                <div style={{ marginBottom: 10, color: '#b91c1c', fontSize: '0.8rem' }}>{facePopupError}</div>
+              )}
               {!!facePreviewError && (
                 <div style={{ marginBottom: 10, color: '#b91c1c', fontSize: '0.8rem' }}>{facePreviewError}</div>
               )}
@@ -1371,7 +1631,20 @@ const Login = () => {
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.7rem', marginTop: 2 }}>
                     <span style={{ color: '#64748b' }}>Forgot password?</span>
-                    <button type="button" onClick={() => navigate('/forgot-password')} style={{ background: 'none', border: 'none', color: '#6366f1', fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotPasswordData({
+                          LoginName: formData.LoginName || '',
+                          ClientCode: '',
+                          CurrentPassword: '',
+                          NewPassword: '',
+                          ConfirmPassword: '',
+                        });
+                        setShowForgotPasswordPrompt(true);
+                      }}
+                      style={{ background: 'none', border: 'none', color: '#6366f1', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                    >
                       Reset
                     </button>
                   </div>

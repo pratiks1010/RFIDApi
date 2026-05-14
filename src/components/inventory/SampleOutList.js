@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { 
   FaSearch, 
@@ -17,6 +17,8 @@ import {
   FaBuilding,
   FaChevronRight,
   FaChevronDown,
+  FaThLarge,
+  FaTable,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -30,8 +32,12 @@ import {
   getSampleLotItemsUrl,
 } from '../../services/sampleInOutApi';
 import { getSampleApiBaseUrl } from '../../services/apiBaseConfig';
+import { resolveLocalItemImageBlobUrls } from '../../services/localItemImageService';
+import GridItemImage from '../common/GridItemImage';
 
 const LOT_LIST_PAGE_SIZE = 15;
+const LOT_GRID_PAGE_SIZE = 12;
+const LINE_GRID_IMAGE_RESOLVE_LIMIT = 48;
 
 const lotListStatusSx = (status) => {
   const s = String(status ?? '—').toLowerCase();
@@ -132,7 +138,11 @@ const branchFromUser = (userInfo) =>
 
 const SAMPLE_LIST_TIMEOUT_MS = 120000;
 
-const SampleOutList = () => {
+const SampleOutList = ({
+  pageTitle = 'Sample out lots',
+  exportTitle = 'Export sample out list',
+  emptyStateText = 'No sample out lots found for current filters.',
+}) => {
   const { addNotification } = useNotifications();
   const navigate = useNavigate();
 
@@ -156,6 +166,11 @@ const SampleOutList = () => {
   const [itemDetailModal, setItemDetailModal] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportErrors, setExportErrors] = useState({ excel: '', pdf: '' });
+  const [lotsViewMode, setLotsViewMode] = useState('grid');
+  const [lineItemsViewMode, setLineItemsViewMode] = useState('grid');
+  const [lineItemLocalImageUrls, setLineItemLocalImageUrls] = useState({});
+  const detailCacheRef = useRef(new Map());
+  const lineItemLocalImageUrlsRef = useRef({});
 
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('userInfo');
@@ -237,6 +252,14 @@ const SampleOutList = () => {
     setCurrentPage(1);
   }, [partyTypeFilter, branchScope, statusFilter, fromDate, toDate, searchQuery]);
 
+  useEffect(() => {
+    detailCacheRef.current.clear();
+  }, [sampleOutData]);
+
+  useEffect(() => {
+    lineItemLocalImageUrlsRef.current = lineItemLocalImageUrls;
+  }, [lineItemLocalImageUrls]);
+
   const handleSearchChange = (value) => {
     setSearchQuery(value);
     setCurrentPage(1);
@@ -296,20 +319,67 @@ const SampleOutList = () => {
   const lotRowKey = (item, index) =>
     String(item.Id ?? item.SampleLotNo ?? item.SampleOutNo ?? index);
 
-  const totalPages = Math.max(1, Math.ceil(filteredData.length / LOT_LIST_PAGE_SIZE));
-  const startIndex = (currentPage - 1) * LOT_LIST_PAGE_SIZE;
-  const endIndex = startIndex + LOT_LIST_PAGE_SIZE;
+  const activeLotPageSize = lotsViewMode === 'grid' ? LOT_GRID_PAGE_SIZE : LOT_LIST_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / activeLotPageSize));
+  const startIndex = (currentPage - 1) * activeLotPageSize;
+  const endIndex = startIndex + activeLotPageSize;
   const currentItems = filteredData.slice(startIndex, endIndex);
 
   const paddedLotSlots = useMemo(() => {
+    if (lotsViewMode !== 'table') return [];
     const slots = [];
     currentItems.forEach((item) => slots.push({ kind: 'row', item }));
-    const pad = Math.max(0, LOT_LIST_PAGE_SIZE - slots.length);
+    const pad = Math.max(0, activeLotPageSize - slots.length);
     for (let i = 0; i < pad; i += 1) {
       slots.push({ kind: 'pad', key: `sol-pad-${currentPage}-${i}` });
     }
     return slots;
-  }, [currentItems, currentPage]);
+  }, [activeLotPageSize, currentItems, currentPage, lotsViewMode]);
+
+  const lineItemCode = (line) => String(line?.ItemCode || line?.Itemcode || '').trim() || '—';
+  const lineCategory = (line) => String(line?.CategoryName || line?.Category || '').trim() || '—';
+  const lineProduct = (line) => String(line?.ProductName || line?.Product || '').trim() || '—';
+  const lineDesign = (line) => String(line?.DesignName || line?.Design || '').trim() || '—';
+  const lineGrossWt = (line) => String(line?.GrossWt ?? line?.grosswt ?? '0.000');
+  const lineNetWt = (line) => String(line?.NetWt ?? line?.netwt ?? '0.000');
+  const lineItemKey = (line) => String(line?.ItemCode || line?.Itemcode || '').trim().toUpperCase();
+  const lineImageUrl = (line) => {
+    const raw = String(
+      line?.ImageUrl || line?.ImageURL || line?.ImagePath || line?.PhotoUrl || line?.Photo || line?.ProductImage || ''
+    ).trim();
+    return /^https?:\/\//i.test(raw) ? raw : '';
+  };
+
+  const visibleLineImageKeys = useMemo(() => {
+    if (lineItemsViewMode !== 'grid') return [];
+    const expandedLines = currentItems.flatMap((lot, idx) => {
+      const lotKey = lotRowKey(lot, idx);
+      if (!expandedLotIds.has(lotKey)) return [];
+      return Array.isArray(lot?.LineItems) ? lot.LineItems : [];
+    });
+    const modalItems = Array.isArray(detailModal?.items) ? detailModal.items : [];
+    const allVisibleLines = [...expandedLines, ...modalItems];
+    return Array.from(new Set(allVisibleLines.map((line) => lineItemKey(line)).filter(Boolean))).slice(0, LINE_GRID_IMAGE_RESOLVE_LIMIT);
+  }, [currentItems, detailModal?.items, expandedLotIds, lineItemsViewMode]);
+
+  useEffect(() => {
+    if (lineItemsViewMode !== 'grid' || !visibleLineImageKeys.length) return;
+    let disposed = false;
+
+    const resolveMissing = async () => {
+      const currentCache = lineItemLocalImageUrlsRef.current;
+      const missing = visibleLineImageKeys.filter((key) => !currentCache[key]);
+      if (!missing.length) return;
+      const resolved = await resolveLocalItemImageBlobUrls(missing, { concurrency: 4 });
+      if (disposed || !Object.keys(resolved).length) return;
+      setLineItemLocalImageUrls((prev) => ({ ...prev, ...resolved }));
+    };
+
+    resolveMissing();
+    return () => {
+      disposed = true;
+    };
+  }, [lineItemsViewMode, visibleLineImageKeys]);
 
   const formatDate = (dateString) => {
     if (!dateString) return '—';
@@ -331,10 +401,19 @@ const SampleOutList = () => {
     const clientCode = resolveClientCode(userInfo);
     if (!lotNo || !clientCode) return;
 
+    const cached = detailCacheRef.current.get(String(lotNo));
+    if (cached) {
+      setDetailLoading(false);
+      setDetailModal(cached);
+      return;
+    }
+
     const embedded = Array.isArray(row.LineItems) ? row.LineItems : [];
     if (embedded.length > 0) {
+      const payload = { header: row, items: embedded };
+      detailCacheRef.current.set(String(lotNo), payload);
       setDetailLoading(false);
-      setDetailModal({ header: row, items: embedded });
+      setDetailModal(payload);
       return;
     }
 
@@ -352,7 +431,9 @@ const SampleOutList = () => {
         { ClientCode: clientCode, SampleLotNo: lotNo, ItemStatus: 'Out' },
         { headers: authHeaders() }
       );
-      setDetailModal({ header: h, items: normalizeArray(itemsData) });
+      const payload = { header: h, items: normalizeArray(itemsData) };
+      detailCacheRef.current.set(String(lotNo), payload);
+      setDetailModal(payload);
     } catch (e) {
       addNotification({
         type: 'error',
@@ -693,11 +774,60 @@ const SampleOutList = () => {
                   textOverflow: 'ellipsis',
                 }}
               >
-                Sample out lots
+                {pageTitle}
               </h1>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setLotsViewMode('grid');
+                  setCurrentPage(1);
+                }}
+                style={{
+                  border: 'none',
+                  borderRight: '1px solid #dbe4f0',
+                  background: lotsViewMode === 'grid' ? '#eef2ff' : '#fff',
+                  color: lotsViewMode === 'grid' ? '#3730a3' : '#475569',
+                  height: 30,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                }}
+              >
+                <FaThLarge style={{ fontSize: 11 }} />
+                Grid
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLotsViewMode('table');
+                  setCurrentPage(1);
+                }}
+                style={{
+                  border: 'none',
+                  background: lotsViewMode === 'table' ? '#eef2ff' : '#fff',
+                  color: lotsViewMode === 'table' ? '#3730a3' : '#475569',
+                  height: 30,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                }}
+              >
+                <FaTable style={{ fontSize: 11 }} />
+                Table
+              </button>
+            </div>
             <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
               {filteredData.length} lot{filteredData.length !== 1 ? 's' : ''}
             </span>
@@ -924,6 +1054,61 @@ const SampleOutList = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
         }}
       >
+        {lotsViewMode === 'grid' ? (
+          <div style={{ padding: 12, background: '#fafafa', minHeight: 420 }}>
+            {currentItems.length === 0 ? (
+              <div style={{ padding: 28, textAlign: 'center', color: '#737373', fontSize: 13 }}>
+                {listLoading ? `Loading ${pageTitle.toLowerCase()}...` : emptyStateText}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: isSmallScreen ? 'repeat(1, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {currentItems.map((item, idx) => {
+                  const lotNo = item.SampleLotNo || item.SampleOutNo || '—';
+                  const lines = Array.isArray(item.LineItems) ? item.LineItems : [];
+                  return (
+                    <div
+                      key={`lot-grid-${lotNo}-${idx}`}
+                      style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 10,
+                        background: '#fff',
+                        padding: 10,
+                        boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lotNo}</div>
+                        <LotStatusPill status={item.Status} />
+                      </div>
+                      <div style={{ fontSize: 10, color: '#475569', marginBottom: 2 }}>{item.PartyName || '—'}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>Type: {item.PartyType || '—'}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>Issue: {formatDate(item.IssueDate)}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8 }}>
+                        Items: {item.TotalItems ?? '—'} · Pending: {item.PendingItems ?? '—'}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => openDetail(item)}
+                          style={{ border: '1px solid #dbe4f0', background: '#fff', color: '#334155', borderRadius: 8, fontSize: 10, fontWeight: 700, padding: '6px 10px', cursor: 'pointer' }}
+                        >
+                          View
+                        </button>
+                        <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>Line items ({lines.length})</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
         <div style={{ overflowX: 'auto', width: '100%', background: '#fafafa' }}>
           <table
             style={{
@@ -1089,10 +1274,90 @@ const SampleOutList = () => {
                       {expanded && lines.length > 0 ? (
                         <tr style={{ background: '#fafafa' }}>
                           <td colSpan={tableColCount} style={{ padding: '8px 12px 12px 36px', borderBottom: '1px solid #e5e7eb' }}>
-                            <div style={{ fontSize: '10px', fontWeight: 700, color: '#64748b', marginBottom: '8px' }}>
-                              Line items ({lines.length})
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: '8px' }}>
+                              <div style={{ fontSize: '10px', fontWeight: 700, color: '#64748b' }}>
+                                Line items ({lines.length})
+                              </div>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 7, overflow: 'hidden', background: '#fff' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setLineItemsViewMode('grid')}
+                                  style={{
+                                    border: 'none',
+                                    borderRight: '1px solid #dbe4f0',
+                                    background: lineItemsViewMode === 'grid' ? '#eef2ff' : '#fff',
+                                    color: lineItemsViewMode === 'grid' ? '#3730a3' : '#475569',
+                                    height: 26,
+                                    padding: '0 8px',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Grid
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setLineItemsViewMode('table')}
+                                  style={{
+                                    border: 'none',
+                                    background: lineItemsViewMode === 'table' ? '#eef2ff' : '#fff',
+                                    color: lineItemsViewMode === 'table' ? '#3730a3' : '#475569',
+                                    height: 26,
+                                    padding: '0 8px',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Table
+                                </button>
+                              </div>
                             </div>
                             <div style={{ overflowX: 'auto' }}>
+                              {lineItemsViewMode === 'grid' ? (
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: isSmallScreen ? 'repeat(1, minmax(0, 1fr))' : 'repeat(6, minmax(0, 1fr))',
+                                    gap: 8,
+                                    background: '#fff',
+                                    borderRadius: '8px',
+                                    border: '1px solid #e2e8f0',
+                                    padding: 8,
+                                  }}
+                                >
+                                  {lines.map((line, li) => {
+                                    const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+                                    return (
+                                      <div key={line.Id ?? `${lineItemCode(line)}-${li}`} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                                        <GridItemImage
+                                          src={img}
+                                          alt={lineItemCode(line)}
+                                          wrapperStyle={{ height: 110, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                          imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                        <div style={{ padding: 8 }}>
+                                          <div style={{ fontSize: 10, fontWeight: 800, color: '#0f172a', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineItemCode(line)}</div>
+                                          <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineCategory(line)}</div>
+                                          <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineProduct(line)}</div>
+                                          <div style={{ fontSize: 9, color: '#475569', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineDesign(line)}</div>
+                                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                                            <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                              <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                                              <div style={{ fontSize: 9, color: '#0f172a', fontWeight: 700 }}>{lineGrossWt(line)}</div>
+                                            </div>
+                                            <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                              <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                                              <div style={{ fontSize: 9, color: '#0f172a', fontWeight: 700 }}>{lineNetWt(line)}</div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
                               <table
                                 style={{
                                   width: '100%',
@@ -1167,6 +1432,7 @@ const SampleOutList = () => {
                                   ))}
                                 </tbody>
                               </table>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1179,6 +1445,7 @@ const SampleOutList = () => {
             </tbody>
           </table>
         </div>
+        )}
 
         <div
           style={{
@@ -1194,7 +1461,7 @@ const SampleOutList = () => {
           className="no-print"
         >
           <div style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
-            {filteredData.length} record{filteredData.length === 1 ? '' : 's'} · {LOT_LIST_PAGE_SIZE} rows/page
+            {filteredData.length} record{filteredData.length === 1 ? '' : 's'} · {activeLotPageSize} {lotsViewMode === 'grid' ? 'cards' : 'rows'}/page
             {filteredData.length > 0
               ? ` · ${startIndex + 1}–${Math.min(endIndex, filteredData.length)} shown`
               : ''}
@@ -1260,7 +1527,7 @@ const SampleOutList = () => {
               }}
             >
               <h2 id="sample-out-export-title" style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
-                Export sample out list
+                {exportTitle}
               </h2>
               <button
                 type="button"
@@ -1419,6 +1686,77 @@ const SampleOutList = () => {
                   ) : null}
                 </div>
                 {detailModal.items?.length > 0 ? (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 7, overflow: 'hidden', background: '#fff' }}>
+                        <button
+                          type="button"
+                          onClick={() => setLineItemsViewMode('grid')}
+                          style={{
+                            border: 'none',
+                            borderRight: '1px solid #dbe4f0',
+                            background: lineItemsViewMode === 'grid' ? '#eef2ff' : '#fff',
+                            color: lineItemsViewMode === 'grid' ? '#3730a3' : '#475569',
+                            height: 28,
+                            padding: '0 10px',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Grid
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLineItemsViewMode('table')}
+                          style={{
+                            border: 'none',
+                            background: lineItemsViewMode === 'table' ? '#eef2ff' : '#fff',
+                            color: lineItemsViewMode === 'table' ? '#3730a3' : '#475569',
+                            height: 28,
+                            padding: '0 10px',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Table
+                        </button>
+                      </div>
+                    </div>
+                    {lineItemsViewMode === 'grid' ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: isSmallScreen ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+                        {detailModal.items.map((line, idx) => {
+                          const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+                          return (
+                            <div key={line.Id ?? `${lineItemCode(line)}-${idx}`} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                              <GridItemImage
+                                src={img}
+                                alt={lineItemCode(line)}
+                                wrapperStyle={{ height: 118, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                              <div style={{ padding: 8 }}>
+                                <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 800, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineItemCode(line)}</div>
+                                <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineCategory(line)}</div>
+                                <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineProduct(line)}</div>
+                                <div style={{ fontSize: 9, color: '#475569', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lineDesign(line)}</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                    <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                                    <div style={{ fontSize: 9, color: '#0f172a', fontWeight: 700 }}>{lineGrossWt(line)}</div>
+                                  </div>
+                                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc', padding: '4px 5px' }}>
+                                    <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                                    <div style={{ fontSize: 9, color: '#0f172a', fontWeight: 700 }}>{lineNetWt(line)}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
@@ -1461,6 +1799,8 @@ const SampleOutList = () => {
                       ))}
                     </tbody>
                   </table>
+                    )}
+                  </>
                 ) : (
                   <p style={{ fontSize: '13px', color: '#94a3b8' }}>No line items in response.</p>
                 )}

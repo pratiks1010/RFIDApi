@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaArrowRight, FaClipboardList, FaCogs, FaInfoCircle, FaMicrochip, FaProjectDiagram, FaSyncAlt, FaWaveSquare } from 'react-icons/fa';
+import { FaArrowRight, FaClipboardList, FaCogs, FaImages, FaInfoCircle, FaMicrochip, FaProjectDiagram, FaSyncAlt, FaWaveSquare } from 'react-icons/fa';
 import '../styles/RFIDUtility.css';
 import { isInventoryTrayEnabled, setInventoryTrayEnabled } from '../services/trayModeService';
 
@@ -57,6 +57,15 @@ const utilityMenus = [
     icon: FaClipboardList,
     theme: 'rfid-card-rose',
     route: '/rfid-utility/template',
+  },
+  {
+    id: 'item-image-folder',
+    title: 'Item Image Folder',
+    subtitle: 'Image Mapping',
+    description: 'Select local folder and map item-code image files for grid card previews.',
+    icon: FaImages,
+    theme: 'rfid-card-blue',
+    route: '/rfid-utility/item-images',
   },
   {
     id: 'firmware-tools',

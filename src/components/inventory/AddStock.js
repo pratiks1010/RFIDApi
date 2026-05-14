@@ -23,6 +23,7 @@ import {
 import { useLoading } from '../../App';
 import { rfidService } from '../../services/rfidService';
 import { useNotifications } from '../../context/NotificationContext';
+import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
 
 // Searchable Dropdown Component
 const SearchableDropdown = ({ 
@@ -1119,8 +1120,6 @@ const AddStock = () => {
   const [localBoxes, setLocalBoxes] = useState([]);
   const [localPackets, setLocalPackets] = useState([]);
 
-  const MASTER_API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstring.co.in';
-
   const normalizeArray = (data) => {
     if (Array.isArray(data)) return data;
     if (data && typeof data === 'object') {
@@ -1142,8 +1141,8 @@ const AddStock = () => {
       const requestBody = { ClientCode: userInfo.ClientCode };
 
       const [branchesResponse, countersResponse] = await Promise.all([
-        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllBranchMaster', requestBody, { headers }),
-        axios.post('https://rrgold.loyalstring.co.in/api/ClientOnboarding/GetAllCounters', requestBody, { headers })
+        axios.post(toRrgoldApiUrl('/api/ClientOnboarding/GetAllBranchMaster'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ClientOnboarding/GetAllCounters'), requestBody, { headers })
       ]);
 
       setBranches(normalizeArray(branchesResponse.data));
@@ -1179,12 +1178,12 @@ const AddStock = () => {
         boxesResponse,
         packetsResponse
       ] = await Promise.all([
-        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllCategory`, requestBody, { headers }),
-        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllProductMaster`, requestBody, { headers }),
-        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllDesign`, requestBody, { headers }),
-        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllPurity`, requestBody, { headers }),
-        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllBoxMaster`, requestBody, { headers }),
-        axios.post(`${MASTER_API_BASE}/api/ProductMaster/GetAllPacketMaster`, requestBody, { headers })
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllCategory'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllProductMaster'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllDesign'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllPurity'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllBoxMaster'), requestBody, { headers }),
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllPacketMaster'), requestBody, { headers })
       ]);
 
       setCategories(normalizeArray(categoriesResponse.data));
@@ -1433,7 +1432,7 @@ const AddStock = () => {
       const requestBody = { ClientCode: userInfo.ClientCode };
 
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/Invoice/alltemplate',
+        toRrgoldApiUrl('/api/Invoice/alltemplate'),
         requestBody,
         { headers }
       );
@@ -1489,7 +1488,7 @@ const AddStock = () => {
       };
 
       await axios.post(
-        'https://rrgold.loyalstring.co.in/api/Invoice/CreateTemplate',
+        toRrgoldApiUrl('/api/Invoice/CreateTemplate'),
         payload,
         { headers }
       );
@@ -1566,6 +1565,7 @@ const AddStock = () => {
   const processExcelDataWithMappings = (jsonData, mappings) => {
     const preview = [];
     const errors = [];
+    const baseColumnRegexCache = new Map();
 
     const stoneBaseKeys = ['StoneName', 'StoneWeight', 'StonePieces', 'StoneRate', 'StoneDescription'];
     const diamondBaseKeys = ['DiamondName', 'DiamondWeight', 'DiamondSellRate', 'DiamondPieces', 'DiamondClarity', 'DiamondColour', 'DiamondCut', 'DiamondShape', 'DiamondSize', 'DiamondCertificate', 'DiamondSettingType', 'DiamondPurchaseAmount', 'DiamondDescription', 'DiamondMargin', 'TotalDiamondWeight'];
@@ -1585,6 +1585,7 @@ const AddStock = () => {
     const isDiamondField = (key) => getDiamondBaseKey(key) !== null;
 
     jsonData.forEach((row, index) => {
+      const rowKeys = Object.keys(row || {});
       const product = {
         client_code: userInfo?.ClientCode || '',
         branch_id: '',
@@ -1698,17 +1699,21 @@ const AddStock = () => {
           const key = baseCol + suf;
           if (rowObj[key] !== undefined && rowObj[key] !== null && rowObj[key] !== '') return rowObj[key];
         }
-        const rowKeys = Object.keys(rowObj);
         const baseColTrim = baseCol.trim();
+        if (!baseColTrim) return undefined;
+        let matcher = baseColumnRegexCache.get(baseColTrim);
+        if (!matcher) {
+          matcher = new RegExp(`^${baseColTrim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[_\\s]*(\\d+)$`, 'i');
+          baseColumnRegexCache.set(baseColTrim, matcher);
+        }
         for (const k of rowKeys) {
-          const match = k.trim().match(new RegExp('^' + baseColTrim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[_\\s]*(\\d+)$', 'i'));
+          const match = k.trim().match(matcher);
           if (match && parseInt(match[1], 10) === index) return rowObj[k];
         }
         return undefined;
       };
 
-      const findMaxIndexFromRow = (rowObj, baseCol) => {
-        const rowKeys = Object.keys(rowObj);
+      const findMaxIndexFromRow = (baseCol) => {
         let maxIdx = 1;
         const baseColTrim = (baseCol || '').trim();
         if (!baseColTrim) return 1;
@@ -1726,7 +1731,7 @@ const AddStock = () => {
 
       if (stoneBaseMapped && !stoneExplicitMulti && mappings.StoneName) {
         const baseCol = mappings.StoneName;
-        const maxStoneIdx = findMaxIndexFromRow(row, baseCol);
+        const maxStoneIdx = findMaxIndexFromRow(baseCol);
         for (let i = 2; i <= maxStoneIdx; i++) {
           if (!stoneEntries[i]) stoneEntries[i] = {};
           stoneBaseKeys.forEach(baseKey => {
@@ -1740,7 +1745,7 @@ const AddStock = () => {
 
       if (diamondBaseMapped && !diamondExplicitMulti && mappings.DiamondName) {
         const baseCol = mappings.DiamondName;
-        const maxDiaIdx = findMaxIndexFromRow(row, baseCol);
+        const maxDiaIdx = findMaxIndexFromRow(baseCol);
         for (let i = 2; i <= maxDiaIdx; i++) {
           if (!diamondEntries[i]) diamondEntries[i] = {};
           diamondBaseKeys.forEach(baseKey => {
@@ -2440,7 +2445,7 @@ const AddStock = () => {
       
       setLoadingMasterData(true);
       try {
-        const response = await axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers });
+        const response = await axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllProductMaster'), requestBody, { headers });
         setProducts(normalizeArray(response.data));
       } catch (error) {
         console.error('Error fetching all products:', error);
@@ -2474,7 +2479,7 @@ const AddStock = () => {
           CategoryId: categoryId
         };
 
-        const response = await axios.post('https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllProductMaster', requestBody, { headers });
+        const response = await axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllProductMaster'), requestBody, { headers });
         setProducts(normalizeArray(response.data));
       } catch (error) {
         console.error('Error fetching products by category:', error);
@@ -3094,7 +3099,7 @@ const AddStock = () => {
     try {
       // Call SaveRFIDTransactionDetails API to add multiple stock items
       const response = await axios.post(
-        'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails',
+        toSoniApiUrl('/api/ProductMaster/SaveRFIDTransactionDetails'),
         validProducts,
         {
           headers: {
@@ -3457,7 +3462,7 @@ const AddStock = () => {
         try {
           console.log(`Uploading batch ${batchNumber}/${totalBatches} (${chunk.length} products)...`);
           const response = await axios.post(
-            'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails',
+            toSoniApiUrl('/api/ProductMaster/SaveRFIDTransactionDetails'),
             chunk,
             {
               headers: {
@@ -3825,7 +3830,7 @@ const AddStock = () => {
         try {
           console.log(`Uploading batch ${batchNumber}/${totalBatches} (${batch.length} products)...`);
           const response = await axios.post(
-            'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails',
+            toSoniApiUrl('/api/ProductMaster/SaveRFIDTransactionDetails'),
             batchPayload,
             {
               headers: {

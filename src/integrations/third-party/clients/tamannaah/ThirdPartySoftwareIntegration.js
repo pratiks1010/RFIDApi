@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { FaPlug, FaLock, FaInfoCircle, FaSync, FaSpinner, FaCheckCircle, FaExclamationCircle, FaCloudUploadAlt, FaEdit } from 'react-icons/fa';
 import { HiChip, HiDocumentText, HiLightningBolt } from 'react-icons/hi';
-import { getTestService, getStockOnHand, hasGatiAuthToken } from '../services/tamannaahBSGatiService';
+import { getTestService, getStockOnHand, hasGatiAuthToken } from './tamannaahBSGatiService';
 
 const LOYALSTRING_SAVE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails';
 const LOYALSTRING_DELETE_ALL_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient';
@@ -178,11 +178,10 @@ const ThirdPartySoftwareIntegration = () => {
     try {
       setPushProgress(1);
       const deleteRes = await axios.delete(LOYALSTRING_DELETE_ALL_URL, {
+        params: { ClientCode: clientCode },
         headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
         },
-        data: { ClientCode: clientCode },
       });
 
       // If API uses `success` flag, respect it; otherwise treat 2xx as success.

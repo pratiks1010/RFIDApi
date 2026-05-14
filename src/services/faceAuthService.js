@@ -11,7 +11,7 @@ const FACE_MODELS_FALLBACK_PATH = (
 // faceRecognitionNet: same person often ~0.25–0.45 L2; values ≥0.55 often different people. Security skew: lower = stricter.
 const FACE_LOCAL_MATCH_THRESHOLD = Number(process.env.REACT_APP_FACE_LOCAL_MATCH_THRESHOLD || 0.33);
 const FACE_MIN_BRIGHTNESS = Number(process.env.REACT_APP_FACE_MIN_BRIGHTNESS || 55);
-const FACE_MIN_SHARPNESS = Number(process.env.REACT_APP_FACE_MIN_SHARPNESS || 20);
+const FACE_MIN_SHARPNESS = Number(process.env.REACT_APP_FACE_MIN_SHARPNESS || 8);
 const isLocalDevHost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '');
 
 let modelsLoadedPromise = null;
@@ -185,7 +185,7 @@ export const extractStableDescriptorFromVideo = async (
 
 export const analyzeFaceFrame = async (
   videoElement,
-  { inputSize = 320, scoreThreshold = 0.25, minFaceAreaRatio = 0.06 } = {}
+  { inputSize = 320, scoreThreshold = 0.25, minFaceAreaRatio = 0.03 } = {}
 ) => {
   await ensureFaceModelsLoaded();
   const detections = await faceapi.detectAllFaces(
@@ -343,12 +343,31 @@ export const assertFaceFrameQuality = (
   videoElement,
   { minBrightness = FACE_MIN_BRIGHTNESS, minSharpness = FACE_MIN_SHARPNESS } = {}
 ) => {
-  const { brightness, sharpness } = getFrameQualityMetrics(videoElement);
+  const sampleCount = 5;
+  const brightnessSamples = [];
+  const sharpnessSamples = [];
+  for (let i = 0; i < sampleCount; i += 1) {
+    const { brightness, sharpness } = getFrameQualityMetrics(videoElement);
+    brightnessSamples.push(brightness);
+    sharpnessSamples.push(sharpness);
+  }
+
+  const sourceWidth = Number(videoElement?.videoWidth || 0);
+  const sourceHeight = Number(videoElement?.videoHeight || 0);
+  const sourcePixels = Math.max(1, sourceWidth * sourceHeight);
+  // Normalize sharpness floor for lower-resolution cameras to avoid false "blurry" rejects.
+  const baseScale = Math.max(0.58, Math.min(1, Math.sqrt(sourcePixels / (640 * 480))));
+  const lowResPenalty = (sourceWidth < 400 || sourceHeight < 300) ? 0.82 : 1;
+  const resolutionScale = baseScale * lowResPenalty;
+  const adaptiveMinSharpness = Number(minSharpness || FACE_MIN_SHARPNESS) * resolutionScale;
+  const brightness = brightnessSamples.reduce((sum, value) => sum + value, 0) / Math.max(1, brightnessSamples.length);
+  const sharpness = Math.max(...sharpnessSamples);
+
   if (brightness < minBrightness) {
     throw new Error('Lighting is too low for secure face login. Increase front light and retry.');
   }
-  if (sharpness < minSharpness) {
-    throw new Error('Camera frame is blurry. Keep device steady and face camera directly.');
+  if (sharpness < adaptiveMinSharpness) {
+    throw new Error(`Camera frame is blurry. Keep device steady and face camera directly. (sharpness ${sharpness.toFixed(1)} / min ${adaptiveMinSharpness.toFixed(1)})`);
   }
   return { brightness, sharpness };
 };

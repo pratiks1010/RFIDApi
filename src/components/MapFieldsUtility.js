@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/MapFieldsUtility.css";
-
-const TEMPLATE_API_BASE_URL = "https://rrgold.loyalstring.co.in/api";
+import { toRrgoldApiUrl } from "../services/apiBaseConfig";
 
 const decodeToken = (token) => {
   try {
@@ -62,7 +61,7 @@ function MapFieldsUtility() {
       const headers = { "Content-Type": "application/json", Accept: "application/json" };
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-      const response = await fetch(`${TEMPLATE_API_BASE_URL}/Invoice/alltemplate`, {
+      const response = await fetch(toRrgoldApiUrl("/api/Invoice/alltemplate"), {
         method: "POST",
         headers,
         body: JSON.stringify({ ClientCode: clientCode }),

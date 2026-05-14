@@ -15,7 +15,9 @@ import {
   FaFilePdf,
   FaChevronDown,
   FaInbox,
-  FaCheckCircle
+  FaCheckCircle,
+  FaThLarge,
+  FaTable
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -44,13 +46,18 @@ import {
   buildAddEmployeePayload,
 } from '../../services/memberOnboardingApi';
 import TrayScanModal from '../common/TrayScanModal';
+import GridItemImage from '../common/GridItemImage';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
 import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl } from '../../services/apiBaseConfig';
 import { getCreateSampleOutUrl, getSampleOutNextNumberUrl } from '../../services/sampleInOutApi';
+import { resolveLocalItemImageBlobUrls } from '../../services/localItemImageService';
 
 /** Fixed page height for sample-out items grid (same as Sample Out list). */
 const ITEMS_TABLE_PAGE_SIZE = 15;
+const ITEMS_GRID_PAGE_SIZE = 18;
+const SAMPLE_OUT_GRID_COLUMNS = 6;
 const SO_ITEMS_TABLE_HEAD_BG = '#2d3e50';
+const SAMPLE_OUT_ITEMS_VIEW_PREF_KEY = 'sampleOutItemsViewPreference';
 
 const pageBtnStyleItems = (disabled) => ({
   padding: '5px 11px',
@@ -204,10 +211,12 @@ const SampleOut = () => {
   
   // Sample Out Items State
   const [sampleOutItems, setSampleOutItems] = useState([]);
+  const [itemsViewMode, setItemsViewMode] = useState('grid');
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [tableSearch, setTableSearch] = useState('');
+  const [gridLocalImageUrls, setGridLocalImageUrls] = useState({});
   
   // Success Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -264,6 +273,27 @@ const SampleOut = () => {
     String(row?.product_id ?? row?.ProductName ?? row?.Product ?? '').trim() || '—';
   const rowDesignOrDash = (row) =>
     String(row?.design_id ?? row?.DesignName ?? row?.Design ?? '').trim() || '—';
+  const rowGrossWtOrZero = (row) => String(row?.grosswt ?? row?.GrossWt ?? row?.GrossWeight ?? row?.TWt ?? '0.000');
+  const rowNetWtOrZero = (row) => String(row?.netwt ?? row?.NetWt ?? row?.NetWeight ?? row?.NtWt ?? '0.000');
+  const rowImageUrl = (row) => {
+    const src = row?.fullItemData ?? row ?? {};
+    const raw = String(
+      src?.ImageUrl ??
+      src?.ImageURL ??
+      src?.ImagePath ??
+      src?.Image ??
+      src?.PhotoUrl ??
+      src?.PhotoURL ??
+      src?.Photo ??
+      src?.ProductImage ??
+      src?.ImageName ??
+      ''
+    ).trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return `${getRrgoldApiBaseUrl().replace(/\/$/, '')}/${raw.replace(/^\/+/, '')}`;
+  };
+  const gridItemKey = (row) => String(rowItemCode(row) || row?.id || '').trim().toUpperCase();
 
   // Fetch user info on mount
   useEffect(() => {
@@ -287,6 +317,81 @@ const SampleOut = () => {
       window.removeEventListener('storage', syncTrayMode);
     };
   }, []);
+
+  useEffect(() => {
+    const scope = String(
+      userInfo?.Username ??
+      userInfo?.username ??
+      userInfo?.LoginName ??
+      userInfo?.loginName ??
+      userInfo?.ClientCode ??
+      userInfo?.clientCode ??
+      'default'
+    ).trim().toLowerCase();
+    try {
+      const raw = localStorage.getItem(SAMPLE_OUT_ITEMS_VIEW_PREF_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const saved = parsed?.[scope];
+      if (saved === 'grid' || saved === 'table') {
+        setItemsViewMode(saved);
+      } else {
+        setItemsViewMode('grid');
+      }
+    } catch {
+      setItemsViewMode('grid');
+    }
+  }, [userInfo]);
+
+  useEffect(() => {
+    const scope = String(
+      userInfo?.Username ??
+      userInfo?.username ??
+      userInfo?.LoginName ??
+      userInfo?.loginName ??
+      userInfo?.ClientCode ??
+      userInfo?.clientCode ??
+      'default'
+    ).trim().toLowerCase();
+    if (!scope) return;
+    try {
+      const raw = localStorage.getItem(SAMPLE_OUT_ITEMS_VIEW_PREF_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const next = { ...(parsed && typeof parsed === 'object' ? parsed : {}), [scope]: itemsViewMode };
+      localStorage.setItem(SAMPLE_OUT_ITEMS_VIEW_PREF_KEY, JSON.stringify(next));
+    } catch {
+      // ignore storage errors
+    }
+  }, [itemsViewMode, userInfo]);
+
+  useEffect(() => {
+    const syncItemsViewMode = () => {
+      const scope = String(
+        userInfo?.Username ??
+        userInfo?.username ??
+        userInfo?.LoginName ??
+        userInfo?.loginName ??
+        userInfo?.ClientCode ??
+        userInfo?.clientCode ??
+        'default'
+      ).trim().toLowerCase();
+      try {
+        const raw = localStorage.getItem(SAMPLE_OUT_ITEMS_VIEW_PREF_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        const saved = parsed?.[scope];
+        if ((saved === 'grid' || saved === 'table') && saved !== itemsViewMode) {
+          setItemsViewMode(saved);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('focus', syncItemsViewMode);
+    window.addEventListener('storage', syncItemsViewMode);
+    return () => {
+      window.removeEventListener('focus', syncItemsViewMode);
+      window.removeEventListener('storage', syncItemsViewMode);
+    };
+  }, [itemsViewMode, userInfo]);
 
   const getVendorDisplayName = (v) =>
     (v && (v.VendorName || v.Name || v.vendorName || '')) || 'Unknown';
@@ -1252,24 +1357,48 @@ const SampleOut = () => {
       item.Design,
     ].some((v) => String(v || '').toLowerCase().includes(q));
   });
-  const totalPages = Math.max(1, Math.ceil(filteredTableItems.length / ITEMS_TABLE_PAGE_SIZE));
-  const startIndex = (currentPage - 1) * ITEMS_TABLE_PAGE_SIZE;
-  const endIndex = startIndex + ITEMS_TABLE_PAGE_SIZE;
+  const activePageSize = itemsViewMode === 'grid' ? ITEMS_GRID_PAGE_SIZE : ITEMS_TABLE_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(filteredTableItems.length / activePageSize));
+  const startIndex = (currentPage - 1) * activePageSize;
+  const endIndex = startIndex + activePageSize;
   const currentItems = filteredTableItems.slice(startIndex, endIndex);
 
   const paddedItemSlots = useMemo(() => {
+    if (itemsViewMode !== 'table') return [];
     const slots = [];
     currentItems.forEach((item) => slots.push({ kind: 'row', item }));
-    const pad = Math.max(0, ITEMS_TABLE_PAGE_SIZE - slots.length);
+    const pad = Math.max(0, activePageSize - slots.length);
     for (let i = 0; i < pad; i += 1) {
       slots.push({ kind: 'pad', key: `sample-out-items-pad-${currentPage}-${i}` });
     }
     return slots;
-  }, [currentItems, currentPage]);
+  }, [activePageSize, currentItems, currentPage, itemsViewMode]);
 
   useEffect(() => {
     setCurrentPage((p) => Math.min(p, totalPages));
   }, [totalPages]);
+
+  useEffect(() => {
+    if (itemsViewMode !== 'grid') return undefined;
+    let disposed = false;
+    const resolveImages = async () => {
+      const missingItems = currentItems.filter((item) => {
+        const key = gridItemKey(item);
+        return key && !gridLocalImageUrls[key];
+      });
+      if (!missingItems.length) return;
+      const resolved = await resolveLocalItemImageBlobUrls(
+        missingItems.map((item) => gridItemKey(item)).filter(Boolean),
+        { concurrency: 4 }
+      );
+      if (disposed || !Object.keys(resolved).length) return;
+      setGridLocalImageUrls((prev) => ({ ...prev, ...resolved }));
+    };
+    resolveImages();
+    return () => {
+      disposed = true;
+    };
+  }, [currentItems, gridLocalImageUrls, itemsViewMode]);
 
   // Handle click outside to close item code dropdown
   useEffect(() => {
@@ -2681,6 +2810,57 @@ const SampleOut = () => {
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setItemsViewMode('grid');
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    border: 'none',
+                    borderRight: '1px solid #dbe4f0',
+                    background: itemsViewMode === 'grid' ? '#eef2ff' : '#fff',
+                    color: itemsViewMode === 'grid' ? '#3730a3' : '#475569',
+                    height: 30,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: 'pointer',
+                  }}
+                  aria-pressed={itemsViewMode === 'grid'}
+                >
+                  <FaThLarge style={{ fontSize: 11 }} />
+                  Grid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setItemsViewMode('table');
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    border: 'none',
+                    background: itemsViewMode === 'table' ? '#eef2ff' : '#fff',
+                    color: itemsViewMode === 'table' ? '#3730a3' : '#475569',
+                    height: 30,
+                    padding: '0 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: 'pointer',
+                  }}
+                  aria-pressed={itemsViewMode === 'table'}
+                >
+                  <FaTable style={{ fontSize: 11 }} />
+                  Table
+                </button>
+              </div>
               <label htmlFor="sample-out-table-filter" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '11px', color: '#525252', fontWeight: 700 }}>
                 <FaSearch style={{ fontSize: 12, color: '#94a3b8' }} />
                 Filter rows
@@ -2720,126 +2900,192 @@ const SampleOut = () => {
               boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
             }}
           >
-            <div style={{ overflowX: 'auto', width: '100%', background: '#fafafa', WebkitOverflowScrolling: 'touch' }}>
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'separate',
-                  borderSpacing: 0,
-                  fontSize: isSmallScreen ? 10 : 11,
-                  minWidth: 1020,
-                  tableLayout: 'fixed',
-                }}
-              >
-                <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
-                  <tr>
-                    {[
-                      ['Sr.', 'center', '68px'],
-                      ['Item code', 'left', '100px'],
-                      ['RFID', 'left', '100px'],
-                      ['Category', 'left', '96px'],
-                      ['Product', 'left', '120px'],
-                      ['Design', 'left', '120px'],
-                      ['Total Wt', 'right', '78px'],
-                      ['Gross Wt', 'right', '78px'],
-                      ['Net Wt', 'right', '78px'],
-                      ['Stone Wt', 'right', '78px'],
-                      ['Diamond Wt', 'right', '82px'],
-                      ['Fine%', 'right', '64px'],
-                      ['Wastage%', 'right', '72px'],
-                      ['Qty', 'right', '52px'],
-                    ].map(([label, align, w], hi, hArr) => (
-                      <th
-                        key={label}
-                        style={{
-                          padding: isSmallScreen ? '8px 6px' : '9px 8px',
-                          textAlign: align,
-                          fontWeight: 800,
-                          fontSize: isSmallScreen ? 10 : 11,
-                          color: '#ffffff',
-                          background: SO_ITEMS_TABLE_HEAD_BG,
-                          borderRight: hi === hArr.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.12)',
-                          borderBottom: '2px solid #1e293b',
-                          whiteSpace: 'nowrap',
-                          letterSpacing: '0.02em',
-                          width: w,
-                          maxWidth: w,
-                        }}
-                      >
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTableItems.length === 0 ? (
+            {itemsViewMode === 'grid' ? (
+              <div style={{ padding: 12, background: '#fafafa', minHeight: 334 }}>
+                {filteredTableItems.length === 0 ? (
+                  <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13, lineHeight: 1.55 }}>
+                    {tableSearch.trim()
+                      ? 'No rows match your filter. Try another item code, RFID, or product keyword.'
+                      : 'No items yet. Use the item code search above to find labeled stock, then choose a row to add it here.'}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: isSmallScreen ? 'repeat(2, minmax(0, 1fr))' : `repeat(${SAMPLE_OUT_GRID_COLUMNS}, minmax(0, 1fr))`,
+                      gap: 10,
+                    }}
+                  >
+                    {currentItems.map((item, idx) => {
+                      const serial = startIndex + idx + 1;
+                      const imageUrl = gridLocalImageUrls[gridItemKey(item)] || rowImageUrl(item);
+                      return (
+                        <div
+                          key={item.id ?? `${serial}-${rowItemCode(item)}`}
+                          style={{
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 10,
+                            background: '#fff',
+                            overflow: 'hidden',
+                            boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                          }}
+                        >
+                          <GridItemImage
+                            src={imageUrl}
+                            alt={rowItemCodeOrDash(item)}
+                            wrapperStyle={{ height: 136, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                          <div style={{ padding: '8px 9px' }}>
+                            <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700, marginBottom: 3 }}>#{serial}</div>
+                            <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 800, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {rowItemCodeOrDash(item)}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {rowCategoryOrDash(item)}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#475569', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {rowProductOrDash(item)}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 6px' }}>
+                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
+                                <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{rowGrossWtOrZero(item)}</div>
+                              </div>
+                              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 6px' }}>
+                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
+                                <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{rowNetWtOrZero(item)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', width: '100%', background: '#fafafa', WebkitOverflowScrolling: 'touch' }}>
+                <table
+                  style={{
+                    width: '100%',
+                    borderCollapse: 'separate',
+                    borderSpacing: 0,
+                    fontSize: isSmallScreen ? 10 : 11,
+                    minWidth: 1020,
+                    tableLayout: 'fixed',
+                  }}
+                >
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
                     <tr>
-                      <td
-                        colSpan={14}
-                        style={{
-                          padding: '28px 16px',
-                          textAlign: 'center',
-                          color: '#737373',
-                          fontSize: 13,
-                          lineHeight: 1.55,
-                          background: '#fafafa',
-                          borderBottom: '1px solid #ececec',
-                        }}
-                      >
-                        {tableSearch.trim()
-                          ? 'No rows match your filter. Try another item code, RFID, or product keyword.'
-                          : 'No items yet. Use the item code search above to find labeled stock, then choose a row to add it here.'}
-                      </td>
+                      {[
+                        ['Sr.', 'center', '68px'],
+                        ['Item code', 'left', '100px'],
+                        ['RFID', 'left', '100px'],
+                        ['Category', 'left', '96px'],
+                        ['Product', 'left', '120px'],
+                        ['Design', 'left', '120px'],
+                        ['Total Wt', 'right', '78px'],
+                        ['Gross Wt', 'right', '78px'],
+                        ['Net Wt', 'right', '78px'],
+                        ['Stone Wt', 'right', '78px'],
+                        ['Diamond Wt', 'right', '82px'],
+                        ['Fine%', 'right', '64px'],
+                        ['Wastage%', 'right', '72px'],
+                        ['Qty', 'right', '52px'],
+                      ].map(([label, align, w], hi, hArr) => (
+                        <th
+                          key={label}
+                          style={{
+                            padding: isSmallScreen ? '8px 6px' : '9px 8px',
+                            textAlign: align,
+                            fontWeight: 800,
+                            fontSize: isSmallScreen ? 10 : 11,
+                            color: '#ffffff',
+                            background: SO_ITEMS_TABLE_HEAD_BG,
+                            borderRight: hi === hArr.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.12)',
+                            borderBottom: '2px solid #1e293b',
+                            whiteSpace: 'nowrap',
+                            letterSpacing: '0.02em',
+                            width: w,
+                            maxWidth: w,
+                          }}
+                        >
+                          {label}
+                        </th>
+                      ))}
                     </tr>
-                  ) : (
-                    paddedItemSlots.map((slot, slotIdx) => {
-                      if (slot.kind === 'pad') {
+                  </thead>
+                  <tbody>
+                    {filteredTableItems.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={14}
+                          style={{
+                            padding: '28px 16px',
+                            textAlign: 'center',
+                            color: '#737373',
+                            fontSize: 13,
+                            lineHeight: 1.55,
+                            background: '#fafafa',
+                            borderBottom: '1px solid #ececec',
+                          }}
+                        >
+                          {tableSearch.trim()
+                            ? 'No rows match your filter. Try another item code, RFID, or product keyword.'
+                            : 'No items yet. Use the item code search above to find labeled stock, then choose a row to add it here.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      paddedItemSlots.map((slot, slotIdx) => {
+                        if (slot.kind === 'pad') {
+                          return (
+                            <tr key={slot.key} style={{ height: 32, background: '#fafafa' }}>
+                              <td colSpan={14} style={{ padding: 0, borderBottom: '1px solid #ececec' }} aria-hidden />
+                            </tr>
+                          );
+                        }
+                        const item = slot.item;
+                        const indexInPage = paddedItemSlots.slice(0, slotIdx).filter((s) => s.kind === 'row').length;
+                        const serial = startIndex + indexInPage + 1;
+                        const rowStripe = serial % 2 === 0;
+                        const tdBase = {
+                          padding: isSmallScreen ? '6px 8px' : '7px 8px',
+                          fontSize: isSmallScreen ? 10 : 11,
+                          lineHeight: 1.35,
+                          color: '#404040',
+                          borderRight: '1px solid #ececec',
+                          borderBottom: '1px solid #e5e5e5',
+                          background: rowStripe ? '#fafafa' : '#ffffff',
+                        };
                         return (
-                          <tr key={slot.key} style={{ height: 32, background: '#fafafa' }}>
-                            <td colSpan={14} style={{ padding: 0, borderBottom: '1px solid #ececec' }} aria-hidden />
+                          <tr key={item.id ?? `${serial}-${rowItemCode(item)}`}>
+                            <td style={{ ...tdBase, textAlign: 'center', color: '#737373', fontVariantNumeric: 'tabular-nums' }}>{serial}</td>
+                            <td style={{ ...tdBase, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={rowItemCode(item) || undefined}>
+                              <span style={{ fontWeight: 700, color: '#171717', fontVariantNumeric: 'tabular-nums' }}>{rowItemCodeOrDash(item)}</span>
+                            </td>
+                            <td style={{ ...tdBase, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'ui-monospace, monospace', fontSize: isSmallScreen ? 9 : 10 }} title={rowRfidOrDash(item) !== '—' ? rowRfidOrDash(item) : undefined}>
+                              {rowRfidOrDash(item)}
+                            </td>
+                            <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowCategoryOrDash(item)}</td>
+                            <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowProductOrDash(item)}</td>
+                            <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowDesignOrDash(item)}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.TotalWt || '0.000'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.grosswt || '0.000'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.netwt || '0.000'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.stonewt || '0.000'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.diamondweight || '0.000'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.FinePercent || '0.00'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.WastagePercent || '0.00'}</td>
+                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderRight: 'none' }}>{item.Qty || 1}</td>
                           </tr>
                         );
-                      }
-                      const item = slot.item;
-                      const indexInPage = paddedItemSlots.slice(0, slotIdx).filter((s) => s.kind === 'row').length;
-                      const serial = startIndex + indexInPage + 1;
-                      const rowStripe = serial % 2 === 0;
-                      const tdBase = {
-                        padding: isSmallScreen ? '6px 8px' : '7px 8px',
-                        fontSize: isSmallScreen ? 10 : 11,
-                        lineHeight: 1.35,
-                        color: '#404040',
-                        borderRight: '1px solid #ececec',
-                        borderBottom: '1px solid #e5e5e5',
-                        background: rowStripe ? '#fafafa' : '#ffffff',
-                      };
-                      return (
-                        <tr key={item.id ?? `${serial}-${rowItemCode(item)}`}>
-                          <td style={{ ...tdBase, textAlign: 'center', color: '#737373', fontVariantNumeric: 'tabular-nums' }}>{serial}</td>
-                          <td style={{ ...tdBase, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={rowItemCode(item) || undefined}>
-                            <span style={{ fontWeight: 700, color: '#171717', fontVariantNumeric: 'tabular-nums' }}>{rowItemCodeOrDash(item)}</span>
-                          </td>
-                          <td style={{ ...tdBase, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'ui-monospace, monospace', fontSize: isSmallScreen ? 9 : 10 }} title={rowRfidOrDash(item) !== '—' ? rowRfidOrDash(item) : undefined}>
-                            {rowRfidOrDash(item)}
-                          </td>
-                          <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowCategoryOrDash(item)}</td>
-                          <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowProductOrDash(item)}</td>
-                          <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowDesignOrDash(item)}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.TotalWt || '0.000'}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.grosswt || '0.000'}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.netwt || '0.000'}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.stonewt || '0.000'}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.diamondweight || '0.000'}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.FinePercent || '0.00'}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.WastagePercent || '0.00'}</td>
-                          <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderRight: 'none' }}>{item.Qty || 1}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div
               style={{
@@ -2854,7 +3100,7 @@ const SampleOut = () => {
               }}
             >
               <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
-                {filteredTableItems.length} record{filteredTableItems.length === 1 ? '' : 's'} · {ITEMS_TABLE_PAGE_SIZE} rows/page
+                {filteredTableItems.length} record{filteredTableItems.length === 1 ? '' : 's'} · {activePageSize} {itemsViewMode === 'grid' ? 'cards' : 'rows'}/page
                 {filteredTableItems.length > 0
                   ? ` · ${startIndex + 1}–${Math.min(endIndex, filteredTableItems.length)} shown`
                   : ''}

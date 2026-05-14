@@ -2,7 +2,7 @@
   "name": "sparkle-rfid-dashboard",
   "homepage": ".",
   "main": "electron/main.js",
-  "version": "0.1.16",
+  "version": "0.1.39",
   "private": true,
   "proxy": "http://3.109.131.101:816",
   "dependencies": {
@@ -50,11 +50,13 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "dev": "npm run start:electron",
-    "dev:online": "set \"REACT_APP_API_MODE=online\" && npm run start:electron",
-    "dev:offline": "set \"REACT_APP_API_MODE=offline\" && npm run start:electron",
+    "dev": "npm run start:electron:fast",
+    "dev:online": "set \"REACT_APP_API_MODE=online\" && npm run start:electron:fast",
+    "dev:offline": "set \"REACT_APP_API_MODE=offline\" && npm run start:electron:fast",
     "start": "craco start",
+    "start:fast": "set \"FAST_REFRESH=false\" && set \"GENERATE_SOURCEMAP=false\" && set \"DISABLE_ESLINT_PLUGIN=true\" && craco start",
     "start:electron": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "start:electron:fast": "concurrently \"npm run start:fast\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "craco build",
     "build:web": "craco build",
     "build:web:online": "npx --yes env-cmd@10 -f .env.online -- craco build",

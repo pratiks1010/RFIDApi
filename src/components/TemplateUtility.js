@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/TemplateUtility.css";
-
-const TEMPLATE_API_BASE_URL = "https://rrgold.loyalstring.co.in/api";
+import { toRrgoldApiUrl } from "../services/apiBaseConfig";
 
 const SYSTEM_FIELDS = [
   "RFIDNumber",
@@ -245,7 +244,7 @@ function TemplateUtility() {
       };
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-      const response = await fetch(`${TEMPLATE_API_BASE_URL}/Invoice/CreateTemplate`, {
+      const response = await fetch(toRrgoldApiUrl("/api/Invoice/CreateTemplate"), {
         method: "POST",
         headers,
         body: JSON.stringify({

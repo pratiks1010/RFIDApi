@@ -52,10 +52,16 @@ export const rfidService = {
     }
   },
 
-  // Registration: create new auth user with selected plan
+  // Registration: create new auth user with selected plan (Register.js fields)
   registerAuthUser: async (data) => {
     try {
-      const response = await axios.post(`${soniProductMasterBase()}/AuthRegister`, data);
+      const payload = {
+        Username: String(data?.Username ?? data?.LoginName ?? '').trim(),
+        Password: data?.Password ?? '',
+        ClientCode: String(data?.ClientCode ?? '').trim().toUpperCase(),
+        SelectedPlan: String(data?.SelectedPlan ?? '').trim(),
+      };
+      const response = await axios.post(`${soniProductMasterBase()}/AuthRegister`, payload);
       return response.data;
     } catch (error) {
       throw error;

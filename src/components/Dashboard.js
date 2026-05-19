@@ -36,6 +36,18 @@ import {
   FaTimes
 } from 'react-icons/fa';
 import BackToProfileMenu from './common/BackToProfileMenu';
+import {
+  PLAYGROUND_AUTH_FORGOT_PASSWORD_BODY,
+  PLAYGROUND_AUTH_LOGIN_BODY,
+  PLAYGROUND_AUTH_REGISTER_BODY,
+  PLAYGROUND_CLIENT_CODE_ONLY,
+  PLAYGROUND_DELETE_LABELLED_STOCK_BODY,
+  PLAYGROUND_GET_RFID_TRANSACTION_BODY,
+  PLAYGROUND_GET_SAVED_RFID_PRODUCT_BODY,
+  PLAYGROUND_SAVE_RFID_TRANSACTION_BODY,
+  PLAYGROUND_UPDATE_EXISTING_PRODUCTS_BODY,
+  PLAYGROUND_UPDATE_RFID_TRANSACTION_BODY,
+} from '../data/apiPlaygroundPayloads';
 
 const METHOD_COLORS = { POST: '#22c55e', GET: '#3b82f6', PUT: '#f59e0b', DELETE: '#ef4444', PATCH: '#8b5cf6' };
 
@@ -66,52 +78,100 @@ const API_GROUPS = [
     baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
     icon: FaServer,
     apis: [
-      { id: 'save-transaction', name: 'Save RFID Transaction (Add Stock)', endpoint: 'SaveRFIDTransactionDetails', method: 'POST', description: 'Save new RFID transaction with product details, weights, Stones & Diamonds.', sampleBody: { client_code: 'LS000123', branch_id: 'PUNE', counter_id: 'Counter1', RFIDNumber: 'CZ3506', Itemcode: 'SAU124', description: 'itemsize:2.12, HUIDCode:45857KIKL', category_id: 'Gold', product_id: 'Bracelet', design_id: 'Simple', purity_id: '22CT', grosswt: '20.800', stonewt: '0.500', diamondweight: '0.250', netwt: '19.250', box_details: 'Box A', size: 0, stoneamount: '20', diamondAmount: '20', HallmarkAmount: '35', MakingPerGram: '10', MakingPercentage: '5', MakingFixedAmt: '37', MRP: '5000', imageurl: '', status: 'ApiActive', Stones: [], Diamonds: [] } },
-      { id: 'get-saved-rfid-product-details', name: 'Get Saved RFID Product Details', endpoint: 'GetSavedRFIDProductDetails', method: 'POST', description: 'Fetch one saved product by item code or RFID number. Client code is enforced from JWT token and must match if sent in body.', sampleBody: { clientCode: 'LS000123', itemCode: 'ITM12345', rfidNo: 'RFID998877', status: 'ApiActive' }, responseFormat: { success: { status: 'success', message: 'Product details retrieved successfully.', data: { client_code: 'LS000123', itemcode: 'ITM12345', RFIDNumber: 'RFID998877', status: 'ApiActive', description: 'Gold ring', category_id: 'Rings', product_id: 'Ladies Ring', design_id: 'Floral', purity_id: '22K', branch_id: 'Main Branch', branch_name: 'Main Branch', counter_id: 'Counter 1', counter_name: 'Counter 1', vendor_id: 'Vendor A', box_details: 'BOX-12', box_name: 'BOX-12', packet: 'PACK-1', grosswt: '10.250', stonewt: '0.500', stoneamount: '2500', diamondWeight: '0.100', diamondAmount: '3000', netwt: '9.650', imageurl: 'org/ProductImage/file.jpg', tid_value: 'TID12345', HallmarkAmount: '200', MakingPerGram: '500', MakingPercentage: '12', MakingFixedAmt: '1000', MRP: '75000', created_datetime: '2026-04-17T08:35:12.123Z', updated_datetime: '2026-04-17T09:10:45.567Z' } }, failed: { status: 'failed', message: 'No product found for provided filters.' } } },
-      { id: 'update-transaction', name: 'Update RFID Transaction', endpoint: 'UpdateRFIDTransactionDetails', method: 'POST', description: 'Update RFID transactions in bulk. itemcode is required; RFIDNumber is optional.', sampleBody: [{ client_code: 'LS000123', itemcode: 'LS002' }, { client_code: 'LS000123', itemcode: 'LS003' }, { client_code: 'LS000123', itemcode: 'LS004', RFIDNumber: 'RGP0425' }] },
+      {
+        id: 'save-transaction',
+        name: 'Save RFID Transaction (Add Stock)',
+        endpoint: 'SaveRFIDTransactionDetails',
+        method: 'POST',
+        description: 'Save RFID stock (Add Stock, Auto Push). Send a JSON array — same shape as rfidService.buildPayloadFromData.',
+        sampleBody: PLAYGROUND_SAVE_RFID_TRANSACTION_BODY.map((item) => ({ ...item })),
+      },
+      {
+        id: 'get-saved-rfid-product-details',
+        name: 'Get Saved RFID Product Details',
+        endpoint: 'GetSavedRFIDProductDetails',
+        method: 'POST',
+        description: 'Fetch one saved product by item code or RFID number. Client code is enforced from JWT token and must match if sent in body.',
+        sampleBody: { ...PLAYGROUND_GET_SAVED_RFID_PRODUCT_BODY },
+        responseFormat: {
+          success: {
+            status: 'success',
+            message: 'Product details retrieved successfully.',
+            data: {
+              client_code: 'LS000123',
+              itemcode: 'ITEM001',
+              RFIDNumber: 'RFID123456',
+              status: 'ApiActive',
+            },
+          },
+          failed: { status: 'failed', message: 'No product found for provided filters.' },
+        },
+      },
+      {
+        id: 'update-transaction',
+        name: 'Update RFID Transaction',
+        endpoint: 'UpdateRFIDTransactionDetails',
+        method: 'POST',
+        description: 'Update RFID transactions in bulk. itemcode is required; RFIDNumber is optional.',
+        sampleBody: PLAYGROUND_UPDATE_RFID_TRANSACTION_BODY.map((item) => ({ ...item })),
+      },
       {
         id: 'update-existing-products',
         name: 'Update Existing Products',
         endpoint: 'UpdateExistingProducts',
         method: 'POST',
         description: 'Update existing product details in bulk by itemcode/RFIDNumber.',
-        sampleBody: [
-          {
-            client_code: 'LS000123',
-            itemcode: '22K OR',
-            RFIDNumber: '123456',
-            description: 'itemsize:2.12, HUIDCode:45857KIKL',
-            category_id: 'GOLD',
-            product_id: '22K G JE12.12P',
-            design_id: 'KS',
-            purity_id: '22k',
-            branch_id: 'CPC',
-            counter_id: 'TA',
-            vendor_id: 'Vendor Name',
-            box_details: 'Box A',
-            box: 'Box A',
-            packet: 'Packet 1',
-            grosswt: '0',
-            stonewt: '0',
-            stoneamount: '0.00',
-            diamondWeight: '0',
-            diamondAmount: '0.00',
-            netwt: '0',
-            status: 'ApiActive',
-            imageurl: '',
-            HallmarkAmount: '0.00',
-            MakingPerGram: '125.00',
-            MakingPercentage: '0.00',
-            MakingFixedAmt: '0.00',
-            MRP: '0.000'
-          }
-        ]
+        sampleBody: PLAYGROUND_UPDATE_EXISTING_PRODUCTS_BODY.map((item) => ({ ...item })),
       },
-      { id: 'get-transaction', name: 'Get RFID Transaction Details', endpoint: 'GetRFIDTransactionDetails', method: 'POST', description: 'Retrieve all RFID transactions for a client.', sampleBody: { client_code: 'LS000123', status: 'ApiActive' } },
-      { id: 'delete-labelled-stock', name: 'Delete Labelled Stock Items', endpoint: 'DeleteLabelledStockItems', method: 'POST', description: 'Remove specific items from labelled stock by item codes.', sampleBody: { ClientCode: 'LS000123', ItemCodes: ['SAU124', 'SAU125'] } },
+      {
+        id: 'get-transaction',
+        name: 'Get RFID Transaction Details',
+        endpoint: 'GetRFIDTransactionDetails',
+        method: 'POST',
+        description: 'Retrieve all RFID transactions for a client (rfidService.getRFIDTransactions).',
+        sampleBody: { ...PLAYGROUND_GET_RFID_TRANSACTION_BODY },
+      },
+      {
+        id: 'delete-labelled-stock',
+        name: 'Delete Labelled Stock Items',
+        endpoint: 'DeleteLabelledStockItems',
+        method: 'POST',
+        description: 'Remove specific items from labelled stock by item codes.',
+        sampleBody: { ...PLAYGROUND_DELETE_LABELLED_STOCK_BODY, ItemCodes: [...PLAYGROUND_DELETE_LABELLED_STOCK_BODY.ItemCodes] },
+      },
       { id: 'delete-all-stock', name: 'Delete All Stock for Client', endpoint: 'DeleteAllStockForClient', method: 'DELETE', description: 'Delete all stock items for a client. Irreversible.', sampleBody: null, urlParams: '?ClientCode=LS000123' },
-      { id: 'auth-login', name: 'Auth Login', endpoint: 'AuthLogin', method: 'POST', description: 'User login with email and password.', sampleBody: { EmailId: 'user@example.com', Password: '***' } },
-      { id: 'auth-register', name: 'Auth Register', endpoint: 'AuthRegister', method: 'POST', description: 'Register a new user.', sampleBody: { ClientName: 'Test', EmailId: 'user@example.com', Password: '***', MobileNo: '9999999999' } },
+      {
+        id: 'get-available-auth-plans',
+        name: 'Get Available Auth Plans',
+        endpoint: 'GetAvailableAuthPlans',
+        method: 'GET',
+        description: 'List plans for registration (Register page). No request body.',
+        sampleBody: null,
+      },
+      {
+        id: 'auth-login',
+        name: 'Auth Login',
+        endpoint: 'AuthLogin',
+        method: 'POST',
+        description: 'Login page — username field is sent as LoginName (not EmailId).',
+        sampleBody: { ...PLAYGROUND_AUTH_LOGIN_BODY },
+      },
+      {
+        id: 'auth-register',
+        name: 'Auth Register',
+        endpoint: 'AuthRegister',
+        method: 'POST',
+        description: 'Register page — Username, Password, ClientCode, SelectedPlan (Basic / Pro).',
+        sampleBody: { ...PLAYGROUND_AUTH_REGISTER_BODY },
+      },
+      {
+        id: 'auth-forgot-password',
+        name: 'Auth Forgot Password',
+        endpoint: 'AuthForgotPassword',
+        method: 'POST',
+        description: 'Login → Forgot password modal — change password for existing user.',
+        sampleBody: { ...PLAYGROUND_AUTH_FORGOT_PASSWORD_BODY },
+      },
     ],
   },
   {
@@ -119,17 +179,17 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/ProductMaster',
     icon: FaBolt,
     apis: [
-      { id: 'get-tid-by-barcode', name: 'Get TID by Barcode', endpoint: 'GetTidByBarcode', method: 'POST', description: 'Get TID value for an RFID/barcode.', sampleBody: { ClientCode: 'LS000123', BarcodeNumber: 'CZ5898' } },
-      { id: 'stock-verification', name: 'Stock Verification by Session', endpoint: 'GetAllStockVerificationBySession', method: 'POST', description: 'Get stock verification sessions.', sampleBody: { ClientCode: 'LS000123', ScanBatchId: 'optional_batch_id' } },
-      { id: 'consolidation-report', name: 'Consolidation Stock Verification Report', endpoint: 'GetConsolidationStockVerificationReport', method: 'POST', description: 'Get consolidation report for stock verification.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'tag-usage', name: 'Get Used/Unused RFID Tags', endpoint: 'GetAllUsedAndUnusedTag', method: 'POST', description: 'Retrieve used and unused RFID tags.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'get-all-labeled-stock', name: 'Get All Labeled Stock', endpoint: 'GetAllLabeledStock', method: 'POST', description: 'Get labeled stock with pagination.', sampleBody: { ClientCode: 'LS000123', PageNumber: 1, PageSize: 25 } },
-      { id: 'get-all-product-master', name: 'Get All Product Master', endpoint: 'GetAllProductMaster', method: 'POST', description: 'Get product master data for dropdowns.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'get-all-design', name: 'Get All Design', endpoint: 'GetAllDesign', method: 'POST', description: 'Get design master data.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'get-all-category', name: 'Get All Category', endpoint: 'GetAllCategory', method: 'POST', description: 'Get category master data.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'get-all-purity', name: 'Get All Purity', endpoint: 'GetAllPurity', method: 'POST', description: 'Get purity master data.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'get-all-stock-android', name: 'Get All Stock (Android)', endpoint: 'GetAllStockAndroid', method: 'POST', description: 'Get stock data for Android app.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'export-labelled-stock', name: 'Export Labelled Stock to Excel', endpoint: 'ExportLabelledStockToExcel', method: 'POST', description: 'Export labelled stock to Excel file.', sampleBody: { ClientCode: 'LS000123', BranchId: '', CounterId: '', CategoryId: '', ProductId: '', PurityId: '' } },
+      { id: 'get-tid-by-barcode', name: 'Get TID by Barcode', endpoint: 'GetTidByBarcode', method: 'POST', description: 'Get TID value for an RFID/barcode (rfidService.getTidByBarcode).', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, BarcodeNumber: 'RFID123456' } },
+      { id: 'stock-verification', name: 'Stock Verification by Session', endpoint: 'GetAllStockVerificationBySession', method: 'POST', description: 'Get stock verification sessions.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, ScanBatchId: '' } },
+      { id: 'consolidation-report', name: 'Consolidation Stock Verification Report', endpoint: 'GetConsolidationStockVerificationReport', method: 'POST', description: 'Get consolidation report for stock verification.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'tag-usage', name: 'Get Used/Unused RFID Tags', endpoint: 'GetAllUsedAndUnusedTag', method: 'POST', description: 'Retrieve used and unused RFID tags.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-labeled-stock', name: 'Get All Labeled Stock', endpoint: 'GetAllLabeledStock', method: 'POST', description: 'Get labeled stock with pagination (Label Stock List).', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, PageNumber: 1, PageSize: 25 } },
+      { id: 'get-all-product-master', name: 'Get All Product Master', endpoint: 'GetAllProductMaster', method: 'POST', description: 'Get product master data for dropdowns.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-design', name: 'Get All Design', endpoint: 'GetAllDesign', method: 'POST', description: 'Get design master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-category', name: 'Get All Category', endpoint: 'GetAllCategory', method: 'POST', description: 'Get category master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-purity', name: 'Get All Purity', endpoint: 'GetAllPurity', method: 'POST', description: 'Get purity master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-stock-android', name: 'Get All Stock (Android)', endpoint: 'GetAllStockAndroid', method: 'POST', description: 'Get stock data for Android app.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'export-labelled-stock', name: 'Export Labelled Stock to Excel', endpoint: 'ExportLabelledStockToExcel', method: 'POST', description: 'Export labelled stock to Excel (Label Stock List).', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, BranchId: '', CounterId: '', CategoryId: '', ProductId: '', PurityId: '' } },
     ],
   },
   {
@@ -137,8 +197,8 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/RFIDDevice',
     icon: FaMobileAlt,
     apis: [
-      { id: 'get-all-rfid-details', name: 'Get All RFID Device Details', endpoint: 'GetAllRFIDDetails', method: 'POST', description: 'Retrieve RFID device details.', sampleBody: { ClientCode: 'LS000123', DeviceId: 'Sai' } },
-      { id: 'delete-rfid-by-device', name: 'Delete RFID by Client and Device', endpoint: 'DeleteRFIDByClientAndDevice', method: 'POST', description: 'Delete RFID data for client and device.', sampleBody: { ClientCode: 'LS000123', DeviceId: 'Sai' } },
+      { id: 'get-all-rfid-details', name: 'Get All RFID Device Details', endpoint: 'GetAllRFIDDetails', method: 'POST', description: 'Retrieve RFID device details (rfidService.getRFIDDeviceDetails).', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, DeviceId: 'Device1' } },
+      { id: 'delete-rfid-by-device', name: 'Delete RFID by Client and Device', endpoint: 'DeleteRFIDByClientAndDevice', method: 'POST', description: 'Delete RFID data for client and device.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, DeviceId: 'Device1' } },
     ],
   },
   {
@@ -146,8 +206,8 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/ClientOnboarding',
     icon: FaUser,
     apis: [
-      { id: 'get-all-counters', name: 'Get All Counters', endpoint: 'GetAllCounters', method: 'POST', description: 'Get all counters for a client.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'get-all-branch-master', name: 'Get All Branch Master', endpoint: 'GetAllBranchMaster', method: 'POST', description: 'Get branch master data.', sampleBody: { ClientCode: 'LS000123' } },
+      { id: 'get-all-counters', name: 'Get All Counters', endpoint: 'GetAllCounters', method: 'POST', description: 'Get all counters for a client.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-branch-master', name: 'Get All Branch Master', endpoint: 'GetAllBranchMaster', method: 'POST', description: 'Get branch master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
     ],
   },
   {
@@ -155,7 +215,7 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/Export',
     icon: FaFileExport,
     apis: [
-      { id: 'send-label-stock-email', name: 'Send Label Stock Email', endpoint: 'SendLabelStockEmail', method: 'POST', description: 'Send labelled stock data via email.', sampleBody: { ClientCode: 'LS000123', EmailAddress: 'user@example.com', Format: 'Excel', Filters: {} } },
+      { id: 'send-label-stock-email', name: 'Send Label Stock Email', endpoint: 'SendLabelStockEmail', method: 'POST', description: 'Send labelled stock data via email.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, EmailAddress: 'user@example.com', Format: 'Excel', Filters: {} } },
     ],
   },
   {
@@ -163,8 +223,8 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/LabelTemplates',
     icon: FaTags,
     apis: [
-      { id: 'get-all-label-templates', name: 'Get All Label Templates', endpoint: 'GetAllLabelTemplates', method: 'POST', description: 'Get all label templates.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'generate-label', name: 'Generate Label', endpoint: 'GenerateLabel', method: 'POST', description: 'Generate RFID labels from template.', sampleBody: { ClientCode: 'LS000123', TemplateId: 'TMP001', Items: [] } },
+      { id: 'get-all-label-templates', name: 'Get All Label Templates', endpoint: 'GetAllLabelTemplates', method: 'POST', description: 'Get all label templates.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'generate-label', name: 'Generate Label', endpoint: 'GenerateLabel', method: 'POST', description: 'Generate RFID labels from template.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, TemplateId: 'TMP001', Items: [] } },
     ],
   },
   {
@@ -172,8 +232,8 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/Order',
     icon: FaShoppingCart,
     apis: [
-      { id: 'get-all-quotation', name: 'Get All Quotation', endpoint: 'GetAllQuotation', method: 'POST', description: 'Get all quotations.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'get-all-orders', name: 'Get All Orders', endpoint: 'GetAllOrders', method: 'POST', description: 'Get all orders.', sampleBody: { ClientCode: 'LS000123' } },
+      { id: 'get-all-quotation', name: 'Get All Quotation', endpoint: 'GetAllQuotation', method: 'POST', description: 'Get all quotations.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-orders', name: 'Get All Orders', endpoint: 'GetAllOrders', method: 'POST', description: 'Get all orders.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
     ],
   },
   {
@@ -181,8 +241,8 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/Invoice',
     icon: FaList,
     apis: [
-      { id: 'invoice-all-template', name: 'Get All Invoice Templates', endpoint: 'alltemplate', method: 'POST', description: 'Get all invoice templates.', sampleBody: { ClientCode: 'LS000123' } },
-      { id: 'invoice-create-template', name: 'Create Invoice Template', endpoint: 'CreateTemplate', method: 'POST', description: 'Create a new invoice template.', sampleBody: { ClientCode: 'LS000123', TemplateName: 'Default', TemplateData: {} } },
+      { id: 'invoice-all-template', name: 'Get All Invoice Templates', endpoint: 'alltemplate', method: 'POST', description: 'Get all invoice templates.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'invoice-create-template', name: 'Create Invoice Template', endpoint: 'CreateTemplate', method: 'POST', description: 'Create a new invoice template.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, TemplateName: 'Default', TemplateData: {} } },
     ],
   },
 ];
@@ -369,7 +429,9 @@ const Dashboard = () => {
       let apiResponse;
       const url = `${selectedApi.baseUrl}/${selectedApi.endpoint}${withClientCodeUrlParams(selectedApi.urlParams, clientCode) || ''}`;
 
-      if (selectedApi.method === 'DELETE') {
+      if (selectedApi.method === 'GET') {
+        apiResponse = await axios.get(url, { headers: requestConfig.headers });
+      } else if (selectedApi.method === 'DELETE') {
         const deleteUrl = `${selectedApi.baseUrl}/${selectedApi.endpoint}`;
         apiResponse = await axios.delete(deleteUrl, {
           headers: requestConfig.headers,

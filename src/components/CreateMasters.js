@@ -203,24 +203,14 @@ const CreateMasters = () => {
     setVendorListLoading(true);
     try {
       const res = await axios.post(
-        `${API_BASE}/api/ClientOnboarding/GetAllVendor`,
+        `${API_BASE}/api/ProductMaster/GetAllPartyDetails`,
         { ClientCode: clientCode },
         { headers: getAuthHeaders() }
       );
       setVendorRows(normalizeListResponse(res?.data));
     } catch (e) {
-      console.warn('GetAllVendor:', e?.response?.data || e.message);
-      try {
-        const res2 = await axios.post(
-          `${API_BASE}/api/ClientOnboarding/GetAllVendors`,
-          { ClientCode: clientCode },
-          { headers: getAuthHeaders() }
-        );
-        setVendorRows(normalizeListResponse(res2?.data));
-      } catch (e2) {
-        console.warn('GetAllVendors:', e2?.response?.data || e2.message);
-        setVendorRows([]);
-      }
+      console.warn('GetAllPartyDetails error in CreateMasters:', e?.response?.data || e.message);
+      setVendorRows([]);
     } finally {
       setVendorListLoading(false);
     }
@@ -312,7 +302,7 @@ const CreateMasters = () => {
     const q = vendorListSearch.trim().toLowerCase();
     return vendorRows.filter((row) => {
       const blob = [
-        vendorDisplay(row, 'VendorName', 'vendorName'),
+        vendorDisplay(row, 'PartyName', 'VendorName', 'vendorName'),
         vendorDisplay(row, 'CompanyName', 'companyName'),
         vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone'),
         vendorDisplay(row, 'City', 'city'),
@@ -2450,7 +2440,7 @@ const CreateMasters = () => {
                         return (
                           <tr key={String(rowId)} className="create-masters-list-row">
                             <td style={baseStyles.listTd}>{sr}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'VendorName', 'vendorName', 'Name')}</td>
+                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'PartyName', 'VendorName', 'vendorName', 'Name')}</td>
                             <td style={baseStyles.listTd}>{vendorDisplay(row, 'CompanyName', 'companyName')}</td>
                             <td style={baseStyles.listTd}>{vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone')}</td>
                             <td style={baseStyles.listTd}>{vendorDisplay(row, 'City', 'city')}</td>

@@ -24,6 +24,8 @@ import { useLoading } from '../../App';
 import { rfidService } from '../../services/rfidService';
 import { useNotifications } from '../../context/NotificationContext';
 import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
+import { getGetAllVendorUrl, getGetAllVendorsAltUrl } from '../../services/memberOnboardingApi';
+
 
 // Searchable Dropdown Component
 const SearchableDropdown = ({ 
@@ -977,6 +979,7 @@ const AddStock = () => {
     product_id: '',
     design_id: '',
     purity_id: '',
+    vendor_id: '',
     box_id: '',
     packet_id: '',
     grosswt: '',
@@ -1011,6 +1014,7 @@ const AddStock = () => {
     product_id: '',
     design_id: '',
     purity_id: '',
+    vendor_id: '',
     box_id: '',
     packet_id: '',
     grosswt: '',
@@ -1107,6 +1111,7 @@ const AddStock = () => {
   const [purities, setPurities] = useState([]);
   const [boxes, setBoxes] = useState([]);
   const [packets, setPackets] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [loadingBranchesCounters, setLoadingBranchesCounters] = useState(false);
   const [loadingMasterData, setLoadingMasterData] = useState(false);
 
@@ -1119,6 +1124,7 @@ const AddStock = () => {
   const [localPurities, setLocalPurities] = useState([]);
   const [localBoxes, setLocalBoxes] = useState([]);
   const [localPackets, setLocalPackets] = useState([]);
+  const [localVendors, setLocalVendors] = useState([]);
 
   const normalizeArray = (data) => {
     if (Array.isArray(data)) return data;
@@ -1159,7 +1165,7 @@ const AddStock = () => {
     }
   };
 
-  // Fetch master data (Category, Product, Design, Purity, Box, Packet) – all POST with ClientCode
+  // Fetch master data (Category, Product, Design, Purity, Box, Packet, Vendor) – all POST with ClientCode
   const fetchMasterData = async () => {
     if (!userInfo?.ClientCode) return;
     setLoadingMasterData(true);
@@ -1170,20 +1176,33 @@ const AddStock = () => {
       };
       const requestBody = { ClientCode: userInfo.ClientCode };
 
+      // Fetch vendors safely without blocking other masters
+      const vendorsPromise = (async () => {
+        try {
+          const res = await axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllPartyDetails'), requestBody, { headers });
+          return normalizeArray(res?.data);
+        } catch (e) {
+          console.error('Error fetching vendors:', e);
+          return [];
+        }
+      })();
+
       const [
         categoriesResponse,
         productsResponse,
         designsResponse,
         puritiesResponse,
         boxesResponse,
-        packetsResponse
+        packetsResponse,
+        vendorsData
       ] = await Promise.all([
         axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllCategory'), requestBody, { headers }),
         axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllProductMaster'), requestBody, { headers }),
         axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllDesign'), requestBody, { headers }),
         axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllPurity'), requestBody, { headers }),
         axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllBoxMaster'), requestBody, { headers }),
-        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllPacketMaster'), requestBody, { headers })
+        axios.post(toRrgoldApiUrl('/api/ProductMaster/GetAllPacketMaster'), requestBody, { headers }),
+        vendorsPromise
       ]);
 
       setCategories(normalizeArray(categoriesResponse.data));
@@ -1192,6 +1211,7 @@ const AddStock = () => {
       setPurities(normalizeArray(puritiesResponse.data));
       setBoxes(normalizeArray(boxesResponse.data));
       setPackets(normalizeArray(packetsResponse.data));
+      setVendors(vendorsData);
     } catch (error) {
       console.error('Error fetching master data:', error);
       addNotification({
@@ -1213,6 +1233,11 @@ const AddStock = () => {
   const getCounterOptions = () => {
     const apiCounters = counters.map(c => c.CounterName || c.Name || c.counterName || c.name || '').filter(Boolean);
     return [...new Set([...apiCounters, ...localCounters])];
+  };
+
+  const getVendorOptions = () => {
+    const apiVendors = vendors.map(v => v.PartyName || v.VendorName || v.Name || v.vendorName || v.name || '').filter(Boolean);
+    return [...new Set([...apiVendors, ...localVendors])].sort();
   };
 
   const getCategoryOptions = () => {
@@ -1296,6 +1321,11 @@ const AddStock = () => {
         case 'purity':
           if (!localPurities.includes(entryName)) {
             setLocalPurities([...localPurities, entryName]);
+          }
+          break;
+        case 'vendor':
+          if (!localVendors.includes(entryName)) {
+            setLocalVendors([...localVendors, entryName]);
           }
           break;
       }
@@ -1597,6 +1627,7 @@ const AddStock = () => {
         product_id: '',
         design_id: '',
         purity_id: '',
+        vendor_id: '',
         grosswt: '0',
         stonewt: '0',
         diamondheight: '0',
@@ -1922,6 +1953,7 @@ const AddStock = () => {
       product_id: '',
       design_id: '',
       purity_id: '',
+      vendor_id: '',
       box_id: '',
       packet_id: '',
       grosswt: '',
@@ -2041,6 +2073,7 @@ const AddStock = () => {
       product_id: '',
       design_id: '',
       purity_id: '',
+      vendor_id: '',
       box_id: '',
       packet_id: '',
       grosswt: '',
@@ -2090,6 +2123,7 @@ const AddStock = () => {
     product_id: String(singleProduct.product_id || ''),
     design_id: String(singleProduct.design_id || ''),
     purity_id: String(singleProduct.purity_id || ''),
+    vendor_id: String(singleProduct.vendor_id || ''),
     box_id: String(sharedData.box_name || ''),
     packet_id: String(sharedData.packet_name || ''),
     grosswt: String(singleProduct.grosswt || '0'),
@@ -2769,6 +2803,7 @@ const AddStock = () => {
         productId: singleProduct.product_id || '',
         designId: singleProduct.design_id || '',
         purityId: singleProduct.purity_id || '',
+        vendorId: singleProduct.vendor_id || '',
         box: sharedData.box_name || '',
         packet: sharedData.packet_name || '',
         grossWeight: singleProduct.grosswt || '0',
@@ -3058,6 +3093,7 @@ const AddStock = () => {
           product_id: String(product.product_id || ''),
           design_id: String(product.design_id || ''),
           purity_id: String(product.purity_id || ''),
+          vendor_id: String(product.vendor_id || ''),
           grosswt: String(product.grosswt || '0'),
           stonewt: String(product.stonewt || '0'),
           diamondweight: String(product.diamondweight || '0'),
@@ -3206,6 +3242,7 @@ const AddStock = () => {
       'product_id': 'Tops',
       'design_id': 'Fancy Top',
       'purity_id': '22CT',
+      'vendor_id': 'Vendor A',
       'grosswt': '20.800',
       'stonewt': '0.500',
       'diamondweight': '0.250',
@@ -3309,6 +3346,22 @@ const AddStock = () => {
         const columns = Object.keys(jsonData[0] || {});
         setExcelColumns(columns);
         setRawExcelData(jsonData);
+
+        // Auto-match columns to fields
+        const initialMappings = {};
+        formFields.forEach(field => {
+          if (field.key === 'status') return;
+          const colName = columns.find(col => {
+            const cLower = col.toLowerCase().replace(/[\s_\-()]/g, '');
+            const keyLower = field.key.toLowerCase().replace(/[\s_\-()]/g, '');
+            const labelLower = field.label.toLowerCase().replace(/[\s_\-()]/g, '');
+            return cLower === keyLower || cLower === labelLower || cLower === keyLower + 'id' || cLower + 'id' === keyLower;
+          });
+          if (colName) {
+            initialMappings[field.key] = colName;
+          }
+        });
+        setFieldMappings(initialMappings);
 
         // Show mapping sidebar
         setShowMappingSidebar(true);
@@ -3808,6 +3861,7 @@ const AddStock = () => {
           product_id: String(product.product_id || ''),
           design_id: String(product.design_id || ''), // Send design name as string, not ID
           purity_id: String(product.purity_id || ''),
+          vendor_id: String(product.vendor_id || ''),
           grosswt: String(product.grosswt || '0'),
           stonewt: String(product.stonewt || '0'),
           diamondweight: String(product.diamondweight || '0'),
@@ -3990,6 +4044,7 @@ const AddStock = () => {
     { key: 'counter_id', label: 'Counter ID', type: 'text', required: false, placeholder: 'Enter counter name' },
     { key: 'design_id', label: 'Design', type: 'select', required: false, options: 'designs' },
     { key: 'purity_id', label: 'Purity', type: 'select', required: false, options: 'purities' },
+    { key: 'vendor_id', label: 'Vendor', type: 'select', required: false, options: 'vendors' },
     { key: 'box_id', label: 'Box', type: 'select', required: false, options: 'boxes' },
     { key: 'packet_id', label: 'Packet', type: 'select', required: false, options: 'packets' },
     { key: 'grosswt', label: 'Gross Weight', type: 'number', required: false, placeholder: 'Enter gross wt', step: '0.001' },
@@ -5211,17 +5266,21 @@ const AddStock = () => {
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '3px' }}>Purity</label>
                 <SearchableDropdownWithAdd options={getPurityOptions(singleProduct.category_id, singleProduct.product_id)} value={singleProduct.purity_id} onChange={(v) => updateSingleField('purity_id', v)} placeholder="Purity" disabled={loadingMasterData} allowAdd fieldType="purity" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={20} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
               </div>
+              <div style={{ minWidth: 0 }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '3px' }}>Vendor</label>
+                <SearchableDropdownWithAdd options={getVendorOptions()} value={singleProduct.vendor_id} onChange={(v) => updateSingleField('vendor_id', v)} placeholder="Vendor" disabled={loadingMasterData} allowAdd fieldType="vendor" userInfo={userInfo} onAddNew={handleAddNewEntry} onOptionsUpdate={handleOptionsUpdate} tabIndex={21} inputStyle={{ height: '30px', minHeight: '30px', padding: '6px 28px 6px 10px', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', color: '#1e293b', fontFamily: 'Inter, Poppins, sans-serif', width: '100%', boxSizing: 'border-box' }} />
+              </div>
               {((singleProduct.category_id || '').toLowerCase().includes('diamond')
                 ? ['grosswt', 'stonewt', 'diamondweight', 'netwt', 'box_details', 'size']
                 : ['grosswt', 'stonewt', 'netwt', 'box_details', 'size']
               ).map((key, i) => {
                 const field = formFields.find(f => f.key === key);
-                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 21 + i)}</div> : null;
+                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 22 + i)}</div> : null;
               })}
               {/* Row 2: Stone Amount, Hallmark, Making Per Gram, Making %, Making Fixed Amt, MRP */}
               {['stoneamount', 'HallmarkAmount', 'MakingPerGram', 'MakingPercentage', 'MakingFixedAmt', 'MRP'].map((key, i) => {
                 const field = formFields.find(f => f.key === key);
-                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 27 + i)}</div> : null;
+                return field ? <div key={key} style={{ minWidth: 0 }}>{renderField(field, singleProduct[field.key], updateSingleField, false, null, 28 + i)}</div> : null;
               })}
             </div>
           </div>
@@ -6052,7 +6111,7 @@ const AddStock = () => {
                 <h5 style={{ marginBottom: '12px', fontSize: '13px', fontWeight: 700, color: '#1e293b', letterSpacing: '0.02em' }}>
                   Product Details
                 </h5>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px', marginBottom: '14px' }}>
                   {/* Category Field */}
                   <div>
                     <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
@@ -6134,10 +6193,30 @@ const AddStock = () => {
                       inputStyle={{ height: '28px', minHeight: '28px', padding: '4px 24px 4px 8px', fontSize: '12px' }}
                     />
                   </div>
+
+                  {/* Vendor Field */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '2px' }}>
+                      Vendor
+                    </label>
+                    <SearchableDropdownWithAdd
+                      options={getVendorOptions()}
+                      value={productTemplate.vendor_id}
+                      onChange={(value) => updateTemplateField('vendor_id', value)}
+                      placeholder="Select or add Vendor"
+                      disabled={loadingMasterData}
+                      allowAdd={true}
+                      fieldType="vendor"
+                      userInfo={userInfo}
+                      onAddNew={handleAddNewEntry}
+                      onOptionsUpdate={handleOptionsUpdate}
+                      inputStyle={{ height: '28px', minHeight: '28px', padding: '4px 24px 4px 8px', fontSize: '12px' }}
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Other Product Fields Template (excluding RFID, Item Code, Category, Product, Design, Purity, Stone/Diamond) */}
+              {/* Other Product Fields Template (excluding RFID, Item Code, Category, Product, Design, Purity, Vendor, Stone/Diamond) */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px', marginBottom: '12px' }}>
                 {formFields.filter(field => 
                   field.key !== 'RFIDNumber' && 
@@ -6146,6 +6225,7 @@ const AddStock = () => {
                   field.key !== 'product_id' && 
                   field.key !== 'design_id' && 
                   field.key !== 'purity_id' &&
+                  field.key !== 'vendor_id' &&
                   field.key !== 'branch_id' &&
                   field.key !== 'counter_id' &&
                   field.group !== 'stone' &&
@@ -6523,6 +6603,7 @@ const AddStock = () => {
                                         field.key !== 'product_id' && 
                                         field.key !== 'design_id' && 
                                         field.key !== 'purity_id' &&
+                                        field.key !== 'vendor_id' &&
                                         field.key !== 'branch_id' &&
                                         field.key !== 'counter_id' &&
                                         field.group !== 'stone' &&

@@ -10,6 +10,7 @@ const SYSTEM_FIELDS = [
   "product_id",
   "design_id",
   "purity_id",
+  "vendor_id",
   "grosswt",
   "stonewt",
   "diamondheight",

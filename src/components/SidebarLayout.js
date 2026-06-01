@@ -101,6 +101,7 @@ const SidebarLayout = ({ children }) => {
   // Section 3: RFID Tags Management
   const navigationSection3 = [
     { path: '/rfid-devices', icon: FaBarcode, label: 'Scan to Desktop', color: '#a21caf' },
+    { path: '/stock-tracking', icon: FaBoxes, label: 'Stock Tracking', color: '#059669' },
     { path: '/upload-rfid', icon: FaFileUpload, label: 'RFID Tags Sheet Upload', color: '#4f46e5' },
     { path: '/rfid-tags', icon: FaTags, label: 'RFID Tag List', color: '#b91c1c' },
     { path: '/tag-usage', icon: FaChartPie, label: 'RFID Tags Usage', color: '#0e7490' },

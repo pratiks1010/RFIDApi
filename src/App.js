@@ -10,6 +10,7 @@ import {
   LabelStockList,
   Labeling,
   RFIDDeviceDetails,
+  StockTracking,
   RFIDTags,
   TagUsage,
   StockVerification,
@@ -182,6 +183,7 @@ const useAuthProtection = () => {
         '/rfid-integration',
         '/label-stock',
         '/rfid-devices',
+        '/stock-tracking',
         '/rfid-tags',
         '/tag-usage',
         '/rfid-utility',
@@ -226,7 +228,7 @@ const useAuthProtection = () => {
     }
 
     // If admin is authenticated but tries to access user routes
-    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/offline-api-settings', '/download-folder-settings'].includes(currentPath)) {
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/offline-api-settings', '/download-folder-settings'].includes(currentPath)) {
       navigate('/admin-dashboard', { replace: true });
     }
   }, [location.pathname, navigate]);
@@ -256,6 +258,7 @@ const useAuthProtection = () => {
         '/invoice-stock',
         '/rfid-label',
         '/rfid-devices',
+        '/stock-tracking',
         '/rfid-tags',
         '/tag-usage',
         '/rfid-utility',
@@ -473,7 +476,7 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
+      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -807,6 +810,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <RFIDDeviceDetails />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/stock-tracking"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <StockTracking />
                 </PageWrapper>
               </AuthGuard>
             }

@@ -108,6 +108,7 @@ const TrayScanModal = ({
   open,
   onClose,
   onFetchData,
+  onScanStart,
   title = 'Tray scan',
   subtitle = 'Use the RFID tray reader in the desktop app: connect COM ports, start scanning, then load tags into this screen.',
   loadButtonLabel = 'Load data',
@@ -252,7 +253,11 @@ const TrayScanModal = ({
     setFetchMessage('');
     setAutoLoading(true);
     try {
-      const result = await onFetchData(tags);
+      const scanRows = tags.map((epc) => ({
+        epc: String(epc || '').trim().toUpperCase(),
+        rfidCode: String(rfidCodeMap[epc] || '').trim(),
+      }));
+      const result = await onFetchData(scanRows);
       const normalizedResult = typeof result === 'object' && result !== null
         ? result
         : { success: result !== false };
@@ -286,6 +291,13 @@ const TrayScanModal = ({
       }
       await run('start');
       setIsScanning(true);
+      if (onScanStart) {
+        try {
+          await onScanStart();
+        } catch (scanStartErr) {
+          setFetchMessage(scanStartErr?.message || 'Could not reset previous scan list.');
+        }
+      }
     } finally {
       setBusy(false);
     }

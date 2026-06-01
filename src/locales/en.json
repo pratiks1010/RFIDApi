@@ -50,6 +50,7 @@
     "invoiceStock": "Invoice Stock",
     "rfidLabel": "RFID Label",
     "rfidDevices": "RFID Devices",
+    "stockTracking": "Stock Tracking",
     "rfidTags": "RFID Tags",
     "tagUsage": "Tag Usage",
     "stockVerification": "Stock Verification",

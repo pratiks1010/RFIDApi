@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { handleAxios401 } from '../utils/authRedirect';
 
 const BASE_URL = 'https://rrgold.loyalstring.co.in/api/LocalDatabaseMigration';
 
@@ -19,17 +20,8 @@ axios.interceptors.request.use(
 
 // Response interceptor for API calls
 axios.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('userInfo');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
+  (response) => response,
+  (error) => handleAxios401(error)
 );
 
 export const localDatabaseMigrationService = {

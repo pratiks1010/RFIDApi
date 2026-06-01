@@ -1,78 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/AutoPushStockUtility.css";
-import { toRrgoldApiUrl, toSoniApiUrl } from "../services/apiBaseConfig";
-
-const SYSTEM_FIELDS = [
-  "RFIDNumber",
-  "Itemcode",
-  "category_id",
-  "product_id",
-  "design_id",
-  "purity_id",
-  "vendor_id",
-  "grosswt",
-  "stonewt",
-  "diamondheight",
-  "diamondweight",
-  "netwt",
-  "box_details",
-  "size",
-  "stoneamount",
-  "diamondAmount",
-  "HallmarkAmount",
-  "MakingPerGram",
-  "MakingPercentage",
-  "MakingFixedAmt",
-  "MRP",
-  "imageurl",
-  "status",
-];
-
-const decodeToken = (token) => {
-  try {
-    if (!token) return null;
-    const base64Url = token.split(".")[1];
-    if (!base64Url) return null;
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split("")
-        .map((c) => `%${`00${c.charCodeAt(0).toString(16)}`.slice(-2)}`)
-        .join("")
-    );
-    return JSON.parse(jsonPayload);
-  } catch {
-    return null;
-  }
-};
-
-const extractClientCode = (token) => {
-  const decoded = decodeToken(token);
-  if (!decoded) return "";
-  return (
-    decoded.clientCode ||
-    decoded.ClientCode ||
-    decoded.client_code ||
-    decoded.clientId ||
-    decoded.ClientId ||
-    ""
-  );
-};
-
-const extractUserName = (token) => {
-  const decoded = decodeToken(token);
-  if (!decoded) return "";
-  return (
-    decoded.username ||
-    decoded.Username ||
-    decoded.userName ||
-    decoded.loginName ||
-    decoded.LoginName ||
-    decoded.sub ||
-    ""
-  );
-};
+import { toRrgoldApiUrl } from "../services/apiBaseConfig";
+import ExeApiModeBanner from "./common/ExeApiModeBanner";
+import {
+  extractAutoPushUsername as extractUserName,
+  extractClientCodeFromToken as extractClientCode,
+  getTemplateRowId,
+  defaultTemplateStorageKey,
+  mapExcelDataToSystemFields,
+  sendAutoPushMappedData,
+  parseTemplatesFromApiResponse,
+} from "../services/autoPushStockSyncService";
 
 function AutoPushStockUtility() {
   const navigate = useNavigate();
@@ -93,6 +32,7 @@ function AutoPushStockUtility() {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [defaultTemplateHint, setDefaultTemplateHint] = useState("");
   const [lastScanTime, setLastScanTime] = useState(null);
   const [lastScanAgo, setLastScanAgo] = useState(null);
 
@@ -132,12 +72,77 @@ function AutoPushStockUtility() {
   }, [clientCode, username]);
 
   useEffect(() => {
-    if (templates.length > 0 && !selectedTemplate) {
-      setSelectedTemplate(templates[0]);
-      setStatus(`Template "${templates[0].TemplateName}" automatically selected`);
-      setTimeout(() => setStatus(""), 3000);
+    if (!clientCode) {
+      setDefaultTemplateHint("");
+      return;
     }
-  }, [templates, selectedTemplate]);
+    try {
+      if (!raw) {
+        setDefaultTemplateHint("");
+        return;
+      }
+      const o = JSON.parse(raw);
+      const name = String(o.templateName || "").trim();
+      const id = String(o.templateId || "").trim();
+      if (name) setDefaultTemplateHint(`Saved default: ${name}`);
+      else if (id) setDefaultTemplateHint(`Saved default (id): ${id}`);
+      else setDefaultTemplateHint("");
+    } catch {
+      setDefaultTemplateHint("");
+    }
+  }, [clientCode, username]);
+
+  useEffect(() => {
+    if (templates.length === 0) {
+      setSelectedTemplate(null);
+      return;
+    }
+    setSelectedTemplate((prev) => {
+      const matchPrevInList = (p) => {
+        if (!p) return null;
+        const pid = String(p.TemplateID || p.TemplateId || p.id || "").trim();
+        const pname = String(p.TemplateName || "").trim();
+        return (
+          templates.find((template) => {
+            const tid = String(template.TemplateID || template.TemplateId || template.id || "").trim();
+            if (pid && tid && pid === tid) return true;
+            const tname = String(template.TemplateName || "").trim();
+            return pname && tname && tname === pname;
+          }) || null
+        );
+      };
+
+      if (prev) {
+        const still = matchPrevInList(prev);
+        if (still) return still;
+      }
+
+      let pref = null;
+      try {
+        const raw = localStorage.getItem(defaultTemplateStorageKey(clientCode, username));
+        pref = raw ? JSON.parse(raw) : null;
+      } catch {
+        pref = null;
+      }
+      const prefId = String(pref?.templateId || "").trim();
+      const prefName = String(pref?.templateName || "").trim();
+
+      if (prefId) {
+        const byId = templates.find(
+          (template, idx) => getTemplateRowId(template, idx) === prefId
+        );
+        if (byId) return byId;
+      }
+      if (prefName) {
+        const byName = templates.find(
+          (template) =>
+            String(template.TemplateName || "").trim().toLowerCase() === prefName.toLowerCase()
+        );
+        if (byName) return byName;
+      }
+      return templates[0];
+    });
+  }, [templates, clientCode, username]);
 
   useEffect(() => {
     if (!selectedTemplate?.parsedData) return;
@@ -200,22 +205,7 @@ function AutoPushStockUtility() {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       const data = await response.json();
-      const parsedTemplates = (Array.isArray(data) ? data : []).map((template) => {
-        let parsedData = {};
-        try {
-          let templateDataStr = template.TemplateData || template.Template || "";
-          if (typeof templateDataStr === "string") {
-            let cleaned = templateDataStr;
-            if (cleaned.startsWith('"') && cleaned.endsWith('"')) cleaned = cleaned.slice(1, -1);
-            cleaned = cleaned.replace(/\\u0022/g, '"').replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-            if (cleaned.trim()) parsedData = JSON.parse(cleaned);
-          }
-        } catch {
-          parsedData = {};
-        }
-        return { ...template, parsedData };
-      });
-      setTemplates(parsedTemplates);
+      setTemplates(parseTemplatesFromApiResponse(data));
     } catch (err) {
       setError(`Failed to fetch templates: ${err.message}`);
     } finally {
@@ -321,60 +311,6 @@ function AutoPushStockUtility() {
     }
   };
 
-  const validateExcelFields = (excelHeaders, templateMapping) => {
-    const missingFields = [];
-    const mappedFields = Object.values(templateMapping).filter((value) => value && String(value).trim());
-    mappedFields.forEach((excelField) => {
-      if (!excelHeaders.includes(excelField)) missingFields.push(excelField);
-    });
-    return { isValid: missingFields.length === 0, missingFields };
-  };
-
-  const mapExcelDataToSystemFields = (excelRows, templateMapping, excelHeaders) => {
-    if (!templateMapping || Object.keys(templateMapping).length === 0) return [];
-    const validation = validateExcelFields(excelHeaders, templateMapping);
-    if (!validation.isValid) {
-      throw new Error(`Missing Excel fields in template: ${validation.missingFields.join(", ")}`);
-    }
-    return excelRows.map((excelRow) => {
-      const mappedData = {
-        client_code: clientCode || "",
-        branch_id: "",
-        counter_id: "",
-      };
-      SYSTEM_FIELDS.forEach((systemField) => {
-        const excelField = templateMapping[systemField];
-        if (excelField && excelRow[excelField] !== undefined && excelRow[excelField] !== null && excelRow[excelField] !== "") {
-          mappedData[systemField] = String(excelRow[excelField]);
-        } else {
-          mappedData[systemField] = systemField === "size" ? 0 : "";
-        }
-      });
-      return mappedData;
-    });
-  };
-
-  const sendDataToAPI = async (mappedData) => {
-    if (!clientCode) throw new Error("Client code not found");
-    const authToken = localStorage.getItem("authToken") || localStorage.getItem("token");
-    const headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const response = await fetch(toSoniApiUrl("/api/ProductMaster/SaveRFIDTransactionDetails"), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(mappedData),
-      mode: "cors",
-    });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-    }
-    return response.json();
-  };
-
   const readAndDisplayExcel = async (filePath, fileName) => {
     if (loadingFileNamesRef.current.has(fileName)) return;
     if (excelData.some((entry) => entry.fileName === fileName && !entry.processed)) return;
@@ -440,17 +376,12 @@ function AutoPushStockUtility() {
         setError("Please select a template first");
         return;
       }
-      const validation = validateExcelFields(headers, selectedTemplate.parsedData);
-      if (!validation.isValid) {
-        setError(`Template fields not found: ${validation.missingFields.join(", ")}`);
-        return;
-      }
-      const mappedData = mapExcelDataToSystemFields(excelRows, selectedTemplate.parsedData, headers);
+      const mappedData = mapExcelDataToSystemFields(clientCode, excelRows, selectedTemplate.parsedData);
       if (!mappedData.length) {
         setError(`No data mapped from ${fileName}`);
         return;
       }
-      await sendDataToAPI(mappedData);
+      await sendAutoPushMappedData(mappedData);
       let fileMoved = false;
       let moveError = null;
       if (destinationFolder && filePath) {
@@ -569,6 +500,36 @@ function AutoPushStockUtility() {
     }
   };
 
+  const saveCurrentTemplateAsDefault = () => {
+    if (!selectedTemplate || !clientCode) return;
+    const rowIndex = templates.findIndex((t) => t === selectedTemplate);
+    let templateId = "";
+    const templateName = String(selectedTemplate.TemplateName || "").trim();
+    if (rowIndex >= 0) {
+      templateId = getTemplateRowId(templates[rowIndex], rowIndex);
+    } else {
+      const byKeys = templates.findIndex(
+        (t) =>
+          String(t.TemplateID || t.TemplateId || t.id || "") ===
+          String(selectedTemplate.TemplateID || selectedTemplate.TemplateId || selectedTemplate.id || "")
+      );
+      if (byKeys >= 0) templateId = getTemplateRowId(templates[byKeys], byKeys);
+    }
+    if (!templateId && !templateName) return;
+    try {
+      localStorage.setItem(
+        defaultTemplateStorageKey(clientCode, username),
+        JSON.stringify({ templateId, templateName, savedAt: new Date().toISOString() })
+      );
+    } catch {
+      return;
+    }
+    if (templateName) setDefaultTemplateHint(`Saved default: ${templateName}`);
+    else setDefaultTemplateHint(`Saved default (id): ${templateId}`);
+    setStatus("Default template saved for Auto Push.");
+    setTimeout(() => setStatus(""), 2500);
+  };
+
   const selectedTemplateId = selectedTemplate
     ? (() => {
         for (let idx = 0; idx < templates.length; idx += 1) {
@@ -617,6 +578,7 @@ function AutoPushStockUtility() {
         <div className="autopush-header">
           <h2>Auto Push Stock Utility</h2>
           <p>Monitor source folder, auto-map template fields, push records to API, and archive processed files.</p>
+          <ExeApiModeBanner />
         </div>
         <div className="autopush-kpi">
           <div className="autopush-kpi-item autopush-kpi-purple">
@@ -662,6 +624,22 @@ function AutoPushStockUtility() {
           <button type="button" onClick={fetchTemplates} disabled={loadingTemplates || !clientCode}>
             {loadingTemplates ? "Loading..." : "Refresh"}
           </button>
+          <button
+            type="button"
+            onClick={saveCurrentTemplateAsDefault}
+            disabled={!selectedTemplate || !clientCode}
+            title="Remember this template for next visit (saved on this device)"
+          >
+            Set as default
+          </button>
+          {defaultTemplateHint ? (
+            <p
+              className="autopush-default-hint"
+              style={{ gridColumn: "1 / -1", margin: "2px 0 0", fontSize: 12, color: "#475569" }}
+            >
+              {defaultTemplateHint}
+            </p>
+          ) : null}
         </div>
 
         <div className="autopush-row">

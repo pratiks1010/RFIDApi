@@ -8,6 +8,7 @@ import {
   ensureFaceModelsLoaded,
   extractStableDescriptorFromVideo,
   getFaceStatus,
+  hasLocalFaceGuard,
   registerFace,
   saveLocalFaceGuard,
   startFaceTracking,
@@ -47,6 +48,7 @@ const FaceSettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [deviceSynced, setDeviceSynced] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [trackingState, setTrackingState] = useState({ faceCount: 0, quality: 'no_face', message: 'Align your face in the frame' });
   const [processState, setProcessState] = useState({ step: '', progress: 0 });
@@ -117,12 +119,20 @@ const FaceSettingsPage = () => {
         clientCode: clientCode.trim(),
       });
       const payload = statusRes?.data ?? statusRes;
+      const resolvedLogin = loginName.trim();
+      const resolvedClient = clientCode.trim().toUpperCase();
       const registered = !!(payload?.isRegistered ?? payload?.IsRegistered ?? payload?.registered);
+      const synced = hasLocalFaceGuard({ loginName: resolvedLogin, clientCode: resolvedClient });
       setIsRegistered(registered);
-      setStatusMessage(registered ? 'Face is already registered.' : 'Face not registered yet.');
-      if (registered) {
-        toast.success('Face registration found.');
+      setDeviceSynced(synced);
+      if (registered && synced) {
+        setStatusMessage('Face is registered on server and synced on this device.');
+        toast.success('Face registration found on this device.');
+      } else if (registered) {
+        setStatusMessage('Face is registered on server. Tap "Sync This Device" once so Face ID login works on this PC.');
+        toast.info('Registered on server. Sync this device with one capture.');
       } else {
+        setStatusMessage('Face not registered yet.');
         toast.info('Face is not registered. Capture and register now.');
       }
     } catch (err) {
@@ -184,6 +194,7 @@ const FaceSettingsPage = () => {
         })
       );
       setIsRegistered(true);
+      setDeviceSynced(true);
       setStatusMessage('Face registered successfully. You can now sign in from login page.');
       setProcessState({ step: 'Face registration completed', progress: 100 });
       toast.success('Face registered successfully.');
@@ -333,7 +344,9 @@ const FaceSettingsPage = () => {
                   {statusLoading ? 'Checking...' : 'Check Status'}
                 </button>
                 <button type="button" className="face-btn face-primary" onClick={handleRegister} disabled={loading || statusLoading || !cameraReady || trackingState.quality !== 'good'}>
-                  {loading ? 'Registering...' : 'Capture & Register Face'}
+                  {loading
+                    ? (isRegistered ? 'Syncing...' : 'Registering...')
+                    : (isRegistered && !deviceSynced ? 'Sync This Device' : 'Capture & Register Face')}
                 </button>
               </div>
               {!!loading && (

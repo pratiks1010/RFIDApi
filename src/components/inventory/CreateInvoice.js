@@ -47,7 +47,11 @@ import { useLoading } from '../../App';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
 import { getTrayReaderConfig, parsePowerAttDb10 } from '../../services/trayReaderConfig';
 import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
-import { resolveLocalItemImageBlobUrl } from '../../services/localItemImageService';
+import {
+  getItemImageLookupKeys,
+  resolveLocalItemImageBlobUrl,
+  warmupLocalItemImageIndex,
+} from '../../services/localItemImageService';
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
 const DEFAULT_PAGE_SIZE = 15;
@@ -1392,21 +1396,32 @@ const CreateInvoice = () => {
   const currentItems = filteredStock; // filteredStock now contains only the current page data
   const displayItems = showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems;
 
-  const gridItemCode = (item) =>
-    String(item?.ItemCode || item?.Itemcode || item?.SKU || '')
-      .trim()
-      .toUpperCase();
+  const getInvoiceItemImageLookupKeys = (item) =>
+    getItemImageLookupKeys({
+      ...item,
+      ItemCode: item?.ItemCode || item?.Itemcode || item?.SKU,
+      Itemcode: item?.Itemcode || item?.ItemCode || item?.SKU,
+      RFIDCode: item?.RFIDCode || item?.RFIDNumber || item?.RfidCode,
+      design_id: item?.design_id || item?.DesignId || item?.DesignID || item?.DesignNo || item?.DesignCode,
+      DesignId: item?.DesignId || item?.DesignID || item?.design_id || item?.DesignNo || item?.DesignCode,
+      DesignName: item?.DesignName || item?.Design || item?.designName || item?.design,
+      Design: item?.Design || item?.DesignName || item?.designName || item?.design,
+    });
 
   const visibleGridImageKeys = useMemo(() => {
     if (viewMode !== 'card') return [];
     const keys = [];
     for (let i = 0; i < displayItems.length; i += 1) {
-      const key = gridItemCode(displayItems[i]);
+      const key = getInvoiceItemImageLookupKeys(displayItems[i])[0];
       if (key) keys.push(key);
       if (keys.length >= INVOICE_GRID_IMAGE_RESOLVE_LIMIT) break;
     }
     return keys;
   }, [displayItems, viewMode]);
+
+  useEffect(() => {
+    warmupLocalItemImageIndex().catch(() => {});
+  }, []);
 
   useEffect(() => {
     gridLocalImageUrlsRef.current = gridLocalImageUrls;
@@ -3881,7 +3896,8 @@ const CreateInvoice = () => {
                   }}
                 >
                   {displayItems.map((item, index) => {
-                    const itemCodeKey = gridItemCode(item);
+                    const lookupKeys = getInvoiceItemImageLookupKeys(item);
+                    const itemCodeKey = String(lookupKeys[0] || '').trim().toUpperCase();
                     const imgUrl = gridLocalImageUrls[itemCodeKey] || getItemImageUrl(item);
                     const statusSx = invoiceStatusPillSx(item.Status);
                     return (
@@ -3899,6 +3915,8 @@ const CreateInvoice = () => {
                       >
                         <GridItemImage
                           src={imgUrl}
+                          itemCode={String(item?.ItemCode || item?.Itemcode || '').trim()}
+                          lookupKeys={lookupKeys}
                           alt={item.ItemCode || 'Item'}
                           wrapperStyle={{ width: '100%', height: 126, borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}

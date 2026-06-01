@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { handleAxios401 } from '../utils/authRedirect';
 
 const BASE_URL = 'https://rrgold.loyalstring.co.in/api/RFIDLabelTemplate';
 
@@ -20,20 +21,7 @@ axios.interceptors.request.use(
 // Response interceptor for API calls
 axios.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      // Clear auth data
-      localStorage.removeItem('token');
-      localStorage.removeItem('userInfo');
-      // Redirect to login with session expired flag
-      window.location.href = '/login?session_expired=true';
-      return Promise.reject(error);
-    }
-    return Promise.reject(error);
-  }
+  (error) => handleAxios401(error)
 );
 
 export const rfidLabelService = {

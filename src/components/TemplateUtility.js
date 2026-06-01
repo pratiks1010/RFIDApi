@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/TemplateUtility.css";
 import { toRrgoldApiUrl } from "../services/apiBaseConfig";
+import ExeApiModeBanner from "./common/ExeApiModeBanner";
 
 const SYSTEM_FIELDS = [
   "RFIDNumber",
@@ -180,6 +181,7 @@ function TemplateUtility() {
   };
 
   const handleFileSelect = async (file) => {
+    setSelectedFile(file);
     setExcelHeaders([]);
     setFieldMapping({});
     setError("");
@@ -291,7 +293,8 @@ function TemplateUtility() {
         </button>
         <div className="templateutil-title">
           <h2>Template Builder</h2>
-          <p>Create mapping: Excel columns -> System fields, then save template.</p>
+          <p>Create mapping: Excel columns → System fields, then save template.</p>
+          <ExeApiModeBanner />
         </div>
       </div>
 

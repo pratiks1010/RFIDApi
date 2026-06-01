@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { handleAxios401 } from '../utils/authRedirect';
 
 // API Base URLs
 const PRODUCT_MASTER_BASE_URL = 'https://rrgold.loyalstring.co.in/api/ProductMaster';
@@ -23,18 +24,7 @@ axios.interceptors.request.use(
 // Response interceptor for API calls
 axios.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      localStorage.removeItem('token');
-      localStorage.removeItem('userInfo');
-      window.location.href = '/login?session_expired=true';
-      return Promise.reject(error);
-    }
-    return Promise.reject(error);
-  }
+  (error) => handleAxios401(error)
 );
 
 // Helper function to normalize array responses

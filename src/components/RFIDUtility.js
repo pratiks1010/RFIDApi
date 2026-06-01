@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FaArrowRight, FaClipboardList, FaCogs, FaImages, FaInfoCircle, FaMicrochip, FaProjectDiagram, FaSyncAlt, FaWaveSquare } from 'react-icons/fa';
 import '../styles/RFIDUtility.css';
 import { isInventoryTrayEnabled, setInventoryTrayEnabled } from '../services/trayModeService';
+import ExeApiModeBanner from './common/ExeApiModeBanner';
 
 const utilityMenus = [
   {
@@ -107,6 +108,7 @@ const RFIDUtility = () => {
        
         <h1>RFID Utility Center</h1>
         <p>Quick access menus for RFID operations and settings.</p>
+        <ExeApiModeBanner />
       </div>
       <div style={{ marginBottom: 18, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div>

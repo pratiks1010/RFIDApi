@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { handleAxios401 } from '../utils/authRedirect';
 
 const ADMIN_BASE_URL = 'https://rrgold.loyalstring.co.in/api/Admin';
 
@@ -20,16 +21,13 @@ axios.interceptors.request.use(
 // Response interceptor for API calls
 axios.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    
-    if (error.response?.status === 401 && !originalRequest._retry && originalRequest.url?.includes('/api/Admin/')) {
-      originalRequest._retry = true;
-      // Clear admin auth data
-      localStorage.removeItem('adminToken');
-      // Redirect to admin login
-      window.location.href = '/admin-login';
-      return Promise.reject(error);
+  (error) => {
+    const originalRequest = error?.config;
+    if (
+      error?.response?.status === 401 &&
+      originalRequest?.url?.includes('/api/Admin/')
+    ) {
+      return handleAxios401(error);
     }
     return Promise.reject(error);
   }

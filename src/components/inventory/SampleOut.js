@@ -50,12 +50,12 @@ import GridItemImage from '../common/GridItemImage';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
 import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl } from '../../services/apiBaseConfig';
 import { getCreateSampleOutUrl, getSampleOutNextNumberUrl } from '../../services/sampleInOutApi';
-import { resolveLocalItemImageBlobUrls } from '../../services/localItemImageService';
+import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
 
 /** Fixed page height for sample-out items grid (same as Sample Out list). */
 const ITEMS_TABLE_PAGE_SIZE = 15;
-const ITEMS_GRID_PAGE_SIZE = 18;
-const SAMPLE_OUT_GRID_COLUMNS = 6;
+const ITEMS_GRID_PAGE_SIZE = 6;
+const SAMPLE_OUT_GRID_COLUMNS = 3;
 const SO_ITEMS_TABLE_HEAD_BG = '#2d3e50';
 const SAMPLE_OUT_ITEMS_VIEW_PREF_KEY = 'sampleOutItemsViewPreference';
 
@@ -216,7 +216,6 @@ const SampleOut = () => {
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [tableSearch, setTableSearch] = useState('');
-  const [gridLocalImageUrls, setGridLocalImageUrls] = useState({});
   
   // Success Modal State
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -293,7 +292,18 @@ const SampleOut = () => {
     if (/^https?:\/\//i.test(raw)) return raw;
     return `${getRrgoldApiBaseUrl().replace(/\/$/, '')}/${raw.replace(/^\/+/, '')}`;
   };
-  const gridItemKey = (row) => String(rowItemCode(row) || row?.id || '').trim().toUpperCase();
+  const sampleOutItemImageLookupKeys = (row) =>
+    getItemImageLookupKeys({
+      ...(row?.fullItemData || {}),
+      ItemCode: rowItemCode(row),
+      Itemcode: row?.Itemcode,
+      RFIDCode: row?.RFIDNumber,
+      RFID: row?.RFIDNumber,
+      DesignId: row?.design_id,
+      design_id: row?.design_id,
+      DesignName: row?.design_id || row?.DesignName || row?.Design,
+      Design: row?.DesignName || row?.Design,
+    });
 
   // Fetch user info on mount
   useEffect(() => {
@@ -316,6 +326,10 @@ const SampleOut = () => {
       window.removeEventListener('focus', syncTrayMode);
       window.removeEventListener('storage', syncTrayMode);
     };
+  }, []);
+
+  useEffect(() => {
+    warmupLocalItemImageIndex().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1337,26 +1351,27 @@ const SampleOut = () => {
     }
   };
 
-  // Pagination calculations
-  const filteredTableItems = sampleOutItems.filter((item) => {
+  const filteredTableItems = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
-    if (!q) return true;
-    return [
-      rowItemCode(item),
-      item.Itemcode,
-      item.ItemCode,
-      item.RFIDNumber,
-      item.category_id,
-      item.CategoryName,
-      item.Category,
-      item.product_id,
-      item.ProductName,
-      item.Product,
-      item.design_id,
-      item.DesignName,
-      item.Design,
-    ].some((v) => String(v || '').toLowerCase().includes(q));
-  });
+    if (!q) return sampleOutItems;
+    return sampleOutItems.filter((item) =>
+      [
+        rowItemCode(item),
+        item.Itemcode,
+        item.ItemCode,
+        item.RFIDNumber,
+        item.category_id,
+        item.CategoryName,
+        item.Category,
+        item.product_id,
+        item.ProductName,
+        item.Product,
+        item.design_id,
+        item.DesignName,
+        item.Design,
+      ].some((v) => String(v || '').toLowerCase().includes(q))
+    );
+  }, [sampleOutItems, tableSearch]);
   const activePageSize = itemsViewMode === 'grid' ? ITEMS_GRID_PAGE_SIZE : ITEMS_TABLE_PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(filteredTableItems.length / activePageSize));
   const startIndex = (currentPage - 1) * activePageSize;
@@ -1377,28 +1392,6 @@ const SampleOut = () => {
   useEffect(() => {
     setCurrentPage((p) => Math.min(p, totalPages));
   }, [totalPages]);
-
-  useEffect(() => {
-    if (itemsViewMode !== 'grid') return undefined;
-    let disposed = false;
-    const resolveImages = async () => {
-      const missingItems = currentItems.filter((item) => {
-        const key = gridItemKey(item);
-        return key && !gridLocalImageUrls[key];
-      });
-      if (!missingItems.length) return;
-      const resolved = await resolveLocalItemImageBlobUrls(
-        missingItems.map((item) => gridItemKey(item)).filter(Boolean),
-        { concurrency: 4 }
-      );
-      if (disposed || !Object.keys(resolved).length) return;
-      setGridLocalImageUrls((prev) => ({ ...prev, ...resolved }));
-    };
-    resolveImages();
-    return () => {
-      disposed = true;
-    };
-  }, [currentItems, gridLocalImageUrls, itemsViewMode]);
 
   // Handle click outside to close item code dropdown
   useEffect(() => {
@@ -2918,7 +2911,7 @@ const SampleOut = () => {
                   >
                     {currentItems.map((item, idx) => {
                       const serial = startIndex + idx + 1;
-                      const imageUrl = gridLocalImageUrls[gridItemKey(item)] || rowImageUrl(item);
+                      const itemCode = rowItemCode(item);
                       return (
                         <div
                           key={item.id ?? `${serial}-${rowItemCode(item)}`}
@@ -2931,7 +2924,9 @@ const SampleOut = () => {
                           }}
                         >
                           <GridItemImage
-                            src={imageUrl}
+                            src={rowImageUrl(item)}
+                            itemCode={itemCode}
+                            lookupKeys={sampleOutItemImageLookupKeys(item)}
                             alt={rowItemCodeOrDash(item)}
                             wrapperStyle={{ height: 136, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}

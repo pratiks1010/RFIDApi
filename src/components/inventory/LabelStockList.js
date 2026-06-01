@@ -40,6 +40,7 @@ import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
+import { runAutoPushFolderSyncOnce, extractAutoPushUsername } from '../../services/autoPushStockSyncService';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -48,7 +49,12 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import IconButton from '@mui/material/IconButton';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
-import { resolveLocalItemImageBlobUrl } from '../../services/localItemImageService';
+import {
+  getItemImageLookupKeys,
+  subscribeItemImageIndexUpdates,
+  syncItemImageFolderNow,
+  warmupLocalItemImageIndex,
+} from '../../services/localItemImageService';
 
 // Separate axios instance for FormData uploads so global interceptor does not set Content-Type: application/json
 const formDataAxios = axios.create();
@@ -62,10 +68,8 @@ formDataAxios.interceptors.request.use(
   (err) => Promise.reject(err)
 );
 
-const PAGE_SIZE_OPTIONS = [15, 25, 50, 100, 200];
-const DEFAULT_PAGE_SIZE = 15;
-const LABEL_GRID_IMAGE_RESOLVE_LIMIT = 60;
-
+const PAGE_SIZE_OPTIONS = [15, 20, 25, 50, 100, 200];
+const DEFAULT_PAGE_SIZE = 20;
 const labelListPageBtnStyle = (disabled) => ({
   padding: '5px 11px',
   fontSize: 12,
@@ -210,8 +214,16 @@ const LabelStockList = () => {
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [showTrayScanModal, setShowTrayScanModal] = useState(false);
   const [trayFetchLoading, setTrayFetchLoading] = useState(false);
-  const [labelGridLocalImageUrls, setLabelGridLocalImageUrls] = useState({});
-  const labelGridLocalImageUrlsRef = useRef({});
+  const [folderAutoPushSyncing, setFolderAutoPushSyncing] = useState(false);
+  const [folderAutoPushProgress, setFolderAutoPushProgress] = useState({
+    totalFiles: 0,
+    processedFiles: 0,
+    okCount: 0,
+    failCount: 0,
+    fileName: '',
+    message: '',
+  });
+  const [folderAutoPushOutcome, setFolderAutoPushOutcome] = useState(null);
 
   // Add these state variables for filter options
   const [filterOptions, setFilterOptions] = useState({
@@ -861,6 +873,11 @@ const LabelStockList = () => {
         const stockWithSerialNumbers = stockData.map((item, index) => ({
           ...item,
           srNo: ((page - 1) * pageSize) + index + 1,
+          Qty: (() => {
+            const mrpValue = item.MRP ?? item.mrp ?? item.MRPAmount ?? item.Mrp;
+            if (mrpValue !== undefined && mrpValue !== null && mrpValue !== '') return mrpValue;
+            return item.Qty ?? item.Quantity ?? item.Pieces ?? '';
+          })(),
           // Map stone fields
           StoneWt: item.TotalStoneWeight !== undefined && item.TotalStoneWeight !== null ? item.TotalStoneWeight : (item.StoneWt || ''),
           StonePcs: item.TotalStonePieces !== undefined && item.TotalStonePieces !== null ? item.TotalStonePieces : (item.StonePcs || ''),
@@ -986,62 +1003,16 @@ const LabelStockList = () => {
     [showAllData, allFilteredData, currentItems]
   );
 
-  const labelGridImageKeys = useMemo(() => {
-    if (!isGridView) return [];
-    return Array.from(
-      new Set(
-        gridVisibleItems
-          .map((item) => String(item?.ItemCode || item?.Itemcode || '').trim().toUpperCase())
-          .filter(Boolean)
-      )
-    ).slice(0, LABEL_GRID_IMAGE_RESOLVE_LIMIT);
-  }, [gridVisibleItems, isGridView]);
+  const imageIndexWarmedRef = useRef(false);
+  useEffect(() => subscribeItemImageIndexUpdates(() => {}), []);
 
   useEffect(() => {
-    labelGridLocalImageUrlsRef.current = labelGridLocalImageUrls;
-  }, [labelGridLocalImageUrls]);
-
-  useEffect(() => {
-    if (!isGridView || !labelGridImageKeys.length) return;
-    let disposed = false;
-    const resolveMissing = async () => {
-      const missingKeys = labelGridImageKeys.filter((key) => !labelGridLocalImageUrlsRef.current[key]);
-      if (!missingKeys.length) return;
-      const batchSize = 6;
-      let cursor = 0;
-
-      const processBatch = async () => {
-        if (disposed) return;
-        const batch = missingKeys.slice(cursor, cursor + batchSize);
-        if (!batch.length) return;
-        const pairs = await Promise.all(
-          batch.map(async (key) => {
-            const url = await resolveLocalItemImageBlobUrl(key);
-            return [key, url || ''];
-          })
-        );
-        if (disposed) return;
-        setLabelGridLocalImageUrls((prev) => {
-          const next = { ...prev };
-          pairs.forEach(([key, url]) => {
-            if (key && url && !next[key]) next[key] = url;
-          });
-          return next;
-        });
-        cursor += batchSize;
-        if (cursor < missingKeys.length) {
-          setTimeout(processBatch, 16);
-        }
-      };
-
-      processBatch();
-    };
-
-    resolveMissing();
-    return () => {
-      disposed = true;
-    };
-  }, [isGridView, labelGridImageKeys]);
+    if (!isGridView || imageIndexWarmedRef.current) return;
+    imageIndexWarmedRef.current = true;
+    syncItemImageFolderNow()
+      .then(() => warmupLocalItemImageIndex())
+      .catch(() => {});
+  }, [isGridView]);
 
   const handleRowSelection = (id) => {
     setSelectedRows(prev => {
@@ -3193,6 +3164,89 @@ const LabelStockList = () => {
   const [showReportView, setShowReportView] = useState(false);
   const [reportData, setReportData] = useState([]);
 
+  const handleFolderAutoPushSync = async () => {
+    if (folderAutoPushSyncing) return;
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken') || '';
+    const clientCode = resolveClientCodeForTray(userInfo);
+    const username = extractAutoPushUsername(token) || 'default';
+    if (!clientCode) {
+      addNotification({ type: 'error', title: 'Folder sync', message: 'Client code missing. Please log in again.' });
+      return;
+    }
+    if (typeof window !== 'undefined' && !window.electronAPI?.getConfig) {
+      addNotification({
+        type: 'warning',
+        title: 'Folder sync',
+        message: 'Runs in the desktop app only. Use the EXE, set Source folder in Auto Push Stock Utility, then Sync here.',
+      });
+      return;
+    }
+    setFolderAutoPushSyncing(true);
+    setFolderAutoPushOutcome(null);
+    setFolderAutoPushProgress({
+      totalFiles: 0,
+      processedFiles: 0,
+      okCount: 0,
+      failCount: 0,
+      fileName: '',
+      message: 'Starting folder sync…',
+    });
+    try {
+      const res = await runAutoPushFolderSyncOnce({
+        clientCode,
+        username,
+        onProgress: (p) => {
+          setFolderAutoPushProgress((prev) => ({
+            totalFiles: Number(p?.totalFiles ?? prev.totalFiles ?? 0),
+            processedFiles: Number(p?.processedFiles ?? prev.processedFiles ?? 0),
+            okCount: Number(p?.okCount ?? prev.okCount ?? 0),
+            failCount: Number(p?.failCount ?? prev.failCount ?? 0),
+            fileName: String(p?.fileName ?? prev.fileName ?? ''),
+            message: String(p?.message ?? prev.message ?? ''),
+          }));
+        },
+      });
+      if (!res.ok) {
+        setFolderAutoPushOutcome({ type: 'error', message: res.error || 'Sync failed.' });
+        addNotification({ type: 'error', title: 'Folder sync', message: res.error || 'Sync failed.' });
+        return;
+      }
+      if (res.empty) {
+        setFolderAutoPushOutcome({ type: 'info', message: res.message || 'No Excel files in source folder.' });
+        addNotification({
+          type: 'info',
+          title: 'Folder sync',
+          message: res.message || 'No Excel files in the Auto Push source folder.',
+        });
+        await fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues, sortConfig);
+        return;
+      }
+      const failed = (res.results || []).filter((r) => !r.ok);
+      const okList = (res.results || []).filter((r) => r.ok);
+      let msg = `Template: ${res.templateName || '—'}. `;
+      if (okList.length) msg += `OK: ${okList.length} file(s). `;
+      if (failed.length) {
+        msg += `Failed (${failed.length}): ${failed.map((f) => `${f.fileName} (${f.message || 'error'})`).join('; ')}`;
+      }
+      setFolderAutoPushOutcome({ type: failed.length ? 'warning' : 'success', message: msg });
+      addNotification({
+        type: failed.length ? 'warning' : 'success',
+        title: 'Folder sync',
+        message: msg,
+      });
+      await fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues, sortConfig);
+    } catch (e) {
+      setFolderAutoPushOutcome({ type: 'error', message: e?.message || 'Unexpected error during sync.' });
+      addNotification({
+        type: 'error',
+        title: 'Folder sync',
+        message: e?.message || 'Unexpected error during sync.',
+      });
+    } finally {
+      setFolderAutoPushSyncing(false);
+    }
+  };
+
   const handleDelete = () => {
     setShowDeleteConfirm(true);
   };
@@ -3444,6 +3498,7 @@ const LabelStockList = () => {
     { key: 'StoneWt', label: 'Stone Wt', width: '85px' },
     { key: 'DiamondWt', label: 'Diamond Wt', width: '90px' },
     { key: 'NetWt', label: 'Net Wt', width: '85px' },
+    { key: 'Qty', label: 'Qty', width: '70px' },
     { key: 'Description', label: 'Description', width: '180px' },
     { key: 'Vendor', label: 'Vendor', width: '100px' },
     { key: 'Branch', label: 'Branch', width: '100px' },
@@ -4330,6 +4385,139 @@ const LabelStockList = () => {
                 <span>{isGridView ? "List" : "Grid"}</span>
               </button>
 
+              <button
+                type="button"
+                onClick={handleFolderAutoPushSync}
+                disabled={
+                  folderAutoPushSyncing ||
+                  !resolveClientCodeForTray(userInfo) ||
+                  (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
+                }
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #86efac',
+                  background:
+                    folderAutoPushSyncing ||
+                    !resolveClientCodeForTray(userInfo) ||
+                    (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
+                      ? '#f1f5f9'
+                      : 'linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%)',
+                  color:
+                    folderAutoPushSyncing ||
+                    !resolveClientCodeForTray(userInfo) ||
+                    (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
+                      ? '#94a3b8'
+                      : '#065f46',
+                  cursor:
+                    folderAutoPushSyncing ||
+                    !resolveClientCodeForTray(userInfo) ||
+                    (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
+                      ? 'not-allowed'
+                      : 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                }}
+                title="Process Excel files from Auto Push source folder using your saved default template (Auto Push Stock Utility), then refresh this list."
+              >
+                {folderAutoPushSyncing ? (
+                  <FaSpinner style={{ fontSize: 12 }} />
+                ) : (
+                  <FaSync style={{ fontSize: 12 }} />
+                )}
+                <span>Sync</span>
+              </button>
+              {(folderAutoPushSyncing || folderAutoPushOutcome || folderAutoPushProgress.message) ? (
+                <div
+                  style={{
+                    minWidth: 240,
+                    maxWidth: 420,
+                    marginLeft: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    border: '1px solid #e2e8f0',
+                    background: '#f8fafc',
+                    borderRadius: 10,
+                    padding: '8px 10px',
+                  }}
+                >
+                  {(() => {
+                    const total = Number(folderAutoPushProgress.totalFiles || 0);
+                    const processed = Number(folderAutoPushProgress.processedFiles || 0);
+                    const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((processed / total) * 100))) : 0;
+                    return (
+                      <>
+                        {(folderAutoPushSyncing || total > 0) ? (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                              <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>
+                                {folderAutoPushProgress.phase || 'Syncing'}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#065f46', fontWeight: 800, background: '#dcfce7', borderRadius: 999, padding: '2px 8px' }}>
+                                {percent}%
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                width: '100%',
+                                height: 8,
+                                borderRadius: 999,
+                                background: '#e2e8f0',
+                                overflow: 'hidden',
+                                boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.08)',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${percent}%`,
+                                  height: '100%',
+                                  background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)',
+                                  transition: 'width 220ms ease',
+                                }}
+                              />
+                            </div>
+                            <div style={{ fontSize: 11, color: '#334155', fontWeight: 600 }}>
+                              {folderAutoPushProgress.message || 'Sync in progress…'}
+                              {total > 0 ? ` (${processed}/${total})` : ''}
+                            </div>
+                            {(folderAutoPushProgress.okCount > 0 || folderAutoPushProgress.failCount > 0) ? (
+                              <div style={{ fontSize: 10, color: '#64748b' }}>
+                                Success: {folderAutoPushProgress.okCount} | Failed: {folderAutoPushProgress.failCount}
+                              </div>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {folderAutoPushOutcome ? (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color:
+                                folderAutoPushOutcome.type === 'success'
+                                  ? '#065f46'
+                                  : folderAutoPushOutcome.type === 'warning'
+                                    ? '#92400e'
+                                    : folderAutoPushOutcome.type === 'error'
+                                      ? '#b91c1c'
+                                      : '#334155',
+                            }}
+                            title={folderAutoPushOutcome.message}
+                          >
+                            {folderAutoPushOutcome.message}
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : null}
+
               {/* Delete Button */}
               <button
                 onClick={handleDelete}
@@ -4837,8 +5025,21 @@ const LabelStockList = () => {
             >
               <div className="product-grid">
               {gridVisibleItems.map((item) => {
-                const itemCodeKey = String(item?.ItemCode || item?.Itemcode || '').trim().toUpperCase();
-                const imgUrl = labelGridLocalImageUrls[itemCodeKey] || getItemImageUrl(item);
+                const lookupKeys = getItemImageLookupKeys({
+                  ...item,
+                  ItemCode: item?.ItemCode || item?.Itemcode || item?.itemcode,
+                  Itemcode: item?.Itemcode || item?.ItemCode || item?.itemcode,
+                  RFIDCode: item?.RFIDCode || item?.RFIDNumber || item?.RfidCode,
+                  design_id: item?.design_id || item?.DesignId || item?.DesignID || item?.DesignNo || item?.DesignCode,
+                  DesignId: item?.DesignId || item?.DesignID || item?.design_id || item?.DesignNo || item?.DesignCode,
+                  DesignName: item?.DesignName || item?.Design || item?.designName || item?.design,
+                  Design: item?.Design || item?.DesignName || item?.designName || item?.design,
+                });
+                const displayItemCode =
+                  String(item?.ItemCode || item?.Itemcode || item?.itemcode || '').trim() ||
+                  lookupKeys[0] ||
+                  '–';
+                const apiImgUrl = getItemImageUrl(item);
                 const isSelected = selectedRows.includes(item.Id);
                 return (
                   <article
@@ -4859,7 +5060,8 @@ const LabelStockList = () => {
                     </span>
                     <div className="product-card__image-wrap">
                       <GridItemImage
-                        src={imgUrl}
+                        src={apiImgUrl}
+                        lookupKeys={lookupKeys}
                         alt={item.ProductName || 'Product'}
                         className="product-card__image"
                         wrapperStyle={{ width: '100%', height: '100%' }}
@@ -4893,7 +5095,8 @@ const LabelStockList = () => {
                       </div>
                     </div>
                     <div className="product-card__body">
-                      <h3 className="product-card__title">{item.ProductName || 'Unknown'}</h3>
+                      <h3 className="product-card__title" title={displayItemCode}>{displayItemCode}</h3>
+                      <p className="product-card__subtitle">{item.ProductName || 'Unknown'}</p>
                       <dl className="product-card__meta">
                         <div className="product-card__meta-row">
                           <dt>RFID</dt>
@@ -5124,6 +5327,10 @@ const LabelStockList = () => {
                             if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt'].includes(column.key)) {
                               const numValue = parseFloat(value);
                               return isNaN(numValue) ? value : numValue.toFixed(3);
+                            }
+                            if (column.key === 'Qty') {
+                              const numValue = parseFloat(value);
+                              return isNaN(numValue) ? value : String(numValue);
                             }
                             return value;
                           })()}
@@ -5573,10 +5780,21 @@ const LabelStockList = () => {
           }
           .product-card__title {
             margin: 0;
-            font-size: 12px;
-            font-weight: 700;
-            color: #1e293b;
+            font-size: 13px;
+            font-weight: 800;
+            color: #0f172a;
             line-height: 1.3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            letter-spacing: 0.02em;
+          }
+          .product-card__subtitle {
+            margin: 2px 0 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #64748b;
+            line-height: 1.25;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;

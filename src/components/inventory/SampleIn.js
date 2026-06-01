@@ -69,7 +69,10 @@ import {
   getAllSampleOutListUrl,
 } from '../../services/sampleInOutApi';
 import GridItemImage from '../common/GridItemImage';
-import { resolveLocalItemImageBlobUrls } from '../../services/localItemImageService';
+import {
+  getItemImageLookupKeys,
+  warmupLocalItemImageIndex,
+} from '../../services/localItemImageService';
 
 const normalizeDataArray = (data) => {
   if (Array.isArray(data)) return data;
@@ -303,7 +306,8 @@ const historyLineStatusChipSx = (status) => {
     return { bg: '#ecfeff', fg: '#0e7490', bd: '#22d3ee' };
   return { bg: '#fafafa', fg: '#737373', bd: '#d4d4d4' };
 };
-const SAMPLE_IN_LOT_GRID_IMAGE_LIMIT = 36;
+/** Lot line items shown per page in detail modal (grid + table). Keeps DOM/image work bounded. */
+const LOT_DETAIL_PAGE_SIZE = 6;
 
 const StatusChip = ({ label, sx }) => (
   <span
@@ -444,8 +448,7 @@ const SampleIn = () => {
   /** Sample lot: all line rows for one lot (detail popup). */
   const [lotDetailModal, setLotDetailModal] = useState(null);
   const [lotDetailViewMode, setLotDetailViewMode] = useState('grid');
-  const [lotDetailLocalImageUrls, setLotDetailLocalImageUrls] = useState({});
-  const lotDetailLocalImageUrlsRef = useRef({});
+  const [lotDetailPage, setLotDetailPage] = useState(1);
   /** Single line from lot modal: full field detail (nested popup). */
   const [lotLineItemDetail, setLotLineItemDetail] = useState(null);
   /** Lot-lines table row selection (`row._key`). */
@@ -497,7 +500,6 @@ const SampleIn = () => {
   };
 
   const lotLineItemCode = (line) => String(line?.ItemCode || line?.Itemcode || '').trim();
-  const lotLineImageKey = (line) => lotLineItemCode(line).toUpperCase();
   const lotLineImageUrl = (line) => {
     const raw = String(
       line?.ImageUrl || line?.ImageURL || line?.ImagePath || line?.PhotoUrl || line?.Photo || line?.ProductImage || ''
@@ -505,32 +507,31 @@ const SampleIn = () => {
     return /^https?:\/\//i.test(raw) ? raw : '';
   };
 
-  useEffect(() => {
-    lotDetailLocalImageUrlsRef.current = lotDetailLocalImageUrls;
-  }, [lotDetailLocalImageUrls]);
+  const lotDetailLineCount = Array.isArray(lotDetailModal?.lines) ? lotDetailModal.lines.length : 0;
+  const lotDetailTotalPages = Math.max(1, Math.ceil(lotDetailLineCount / LOT_DETAIL_PAGE_SIZE));
 
-  const lotDetailVisibleImageKeys = useMemo(() => {
-    if (lotDetailViewMode !== 'grid') return [];
+  const lotDetailPageLines = useMemo(() => {
     const lines = Array.isArray(lotDetailModal?.lines) ? lotDetailModal.lines : [];
-    return Array.from(new Set(lines.map((line) => lotLineImageKey(line)).filter(Boolean))).slice(0, SAMPLE_IN_LOT_GRID_IMAGE_LIMIT);
-  }, [lotDetailModal?.lines, lotDetailViewMode]);
+    const start = (lotDetailPage - 1) * LOT_DETAIL_PAGE_SIZE;
+    return lines.slice(start, start + LOT_DETAIL_PAGE_SIZE);
+  }, [lotDetailModal?.lines, lotDetailPage]);
 
   useEffect(() => {
-    if (lotDetailViewMode !== 'grid' || !lotDetailVisibleImageKeys.length) return;
-    let disposed = false;
-    const resolveMissing = async () => {
-      const missing = lotDetailVisibleImageKeys.filter((key) => !lotDetailLocalImageUrlsRef.current[key]);
-      if (!missing.length) return;
-      const resolved = await resolveLocalItemImageBlobUrls(missing, { concurrency: 4 });
-      if (disposed || !Object.keys(resolved).length) return;
-      setLotDetailLocalImageUrls((prev) => ({ ...prev, ...resolved }));
-    };
+    setLotDetailPage(1);
+  }, [lotDetailModal?.lotNo, lotDetailViewMode]);
 
-    resolveMissing();
-    return () => {
-      disposed = true;
-    };
-  }, [lotDetailViewMode, lotDetailVisibleImageKeys]);
+  useEffect(() => {
+    setLotDetailPage((p) => Math.min(p, lotDetailTotalPages));
+  }, [lotDetailTotalPages]);
+
+  useEffect(() => {
+    warmupLocalItemImageIndex().catch(() => {});
+  }, []);
+
+  const closeLotDetailModal = useCallback(() => {
+    setLotDetailModal(null);
+    setLotDetailPage(1);
+  }, []);
 
   const normalizePartyQuery = (s) =>
     String(s || '')
@@ -3586,7 +3587,7 @@ const SampleIn = () => {
             }}
             onClick={() => {
               setLotLineItemDetail(null);
-              setLotDetailModal(null);
+              closeLotDetailModal();
             }}
           >
             <div
@@ -3621,7 +3622,11 @@ const SampleIn = () => {
                     {lotDetailModal.lotNo}
                   </div>
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
-                    {lotDetailModal.lines.length} product line{lotDetailModal.lines.length === 1 ? '' : 's'} in this lot.
+                    {lotDetailLineCount} product line{lotDetailLineCount === 1 ? '' : 's'} in this lot
+                    {lotDetailTotalPages > 1
+                      ? ` · page ${lotDetailPage} of ${lotDetailTotalPages} (${LOT_DETAIL_PAGE_SIZE} per page)`
+                      : ''}
+                    .
                   </div>
                 </div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff', marginLeft: 'auto' }}>
@@ -3671,7 +3676,7 @@ const SampleIn = () => {
                             type="button"
                   onClick={() => {
                     setLotLineItemDetail(null);
-                    setLotDetailModal(null);
+                    closeLotDetailModal();
                   }}
                   style={{
                     border: '1px solid #e2e8f0',
@@ -3695,23 +3700,25 @@ const SampleIn = () => {
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: isSmallScreen ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(0, 1fr))',
+                      gridTemplateColumns: isSmallScreen ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
                       gap: 10,
                     }}
                   >
-                    {lotDetailModal.lines.map((r, mi) => {
-                      const key = lotLineImageKey(r);
-                      const img = lotDetailLocalImageUrls[key] || lotLineImageUrl(r);
+                    {lotDetailPageLines.map((r, mi) => {
+                      const itemCode = lotLineItemCode(r);
+                      const lookupKeys = getItemImageLookupKeys(r);
                       return (
-                        <div key={r._key ?? `${lotDetailModal.lotNo}-${mi}`} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fff', boxShadow: '0 2px 8px rgba(15,23,42,0.06)' }}>
+                        <div key={r._key ?? `${lotDetailModal.lotNo}-${lotDetailPage}-${mi}`} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fff', boxShadow: '0 2px 8px rgba(15,23,42,0.06)' }}>
                           <GridItemImage
-                            src={img}
-                            alt={lotLineItemCode(r) || 'Item'}
+                            src={lotLineImageUrl(r)}
+                            itemCode={itemCode}
+                            lookupKeys={lookupKeys}
+                            alt={itemCode || 'Item'}
                             wrapperStyle={{ height: 118, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
                           />
                           <div style={{ padding: 8 }}>
-                            <div style={{ fontSize: 10, fontWeight: 800, color: '#0f172a', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lotLineItemCode(r) || '—'}</div>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: '#0f172a', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{itemCode || '—'}</div>
                             <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.CategoryName ?? '—'}</div>
                             <div style={{ fontSize: 9, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.ProductName ?? '—'}</div>
                             <div style={{ fontSize: 9, color: '#475569', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.DesignName ?? '—'}</div>
@@ -3768,12 +3775,13 @@ const SampleIn = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {lotDetailModal.lines.map((r, mi) => {
+                    {lotDetailPageLines.map((r, mi) => {
                       const lineSx = historyLineStatusChipSx(r.ItemStatus ?? r.Status);
                       const ic = r.ItemCode || r.Itemcode || '—';
+                      const rowSr = (lotDetailPage - 1) * LOT_DETAIL_PAGE_SIZE + mi + 1;
                       return (
-                        <tr key={r._key ?? `${lotDetailModal.lotNo}-${mi}`} style={{ borderTop: mi === 0 ? 'none' : '1px solid #ececec', background: mi % 2 ? '#fafafa' : '#fff' }}>
-                          <td style={{ padding: '8px 10px', textAlign: 'left', color: '#737373', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid #ececec' }}>{mi + 1}</td>
+                        <tr key={r._key ?? `${lotDetailModal.lotNo}-${lotDetailPage}-${mi}`} style={{ borderTop: mi === 0 ? 'none' : '1px solid #ececec', background: mi % 2 ? '#fafafa' : '#fff' }}>
+                          <td style={{ padding: '8px 10px', textAlign: 'left', color: '#737373', fontVariantNumeric: 'tabular-nums', borderRight: '1px solid #ececec' }}>{rowSr}</td>
                           <td style={{ padding: '6px 10px', borderRight: '1px solid #ececec' }}>
                           <button
                             type="button"
@@ -3819,6 +3827,64 @@ const SampleIn = () => {
               </tbody>
             </table>
                 )}
+                {lotDetailTotalPages > 1 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      marginTop: 14,
+                      paddingTop: 12,
+                      borderTop: '1px solid #e2e8f0',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+                      Showing {(lotDetailPage - 1) * LOT_DETAIL_PAGE_SIZE + 1}–
+                      {Math.min(lotDetailPage * LOT_DETAIL_PAGE_SIZE, lotDetailLineCount)} of {lotDetailLineCount}
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        type="button"
+                        disabled={lotDetailPage <= 1}
+                        onClick={() => setLotDetailPage((p) => Math.max(1, p - 1))}
+                        style={{
+                          border: '1px solid #dbe4f0',
+                          background: '#fff',
+                          borderRadius: 8,
+                          padding: '6px 12px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: lotDetailPage <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: lotDetailPage <= 1 ? 0.5 : 1,
+                        }}
+                      >
+                        Previous
+                      </button>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#334155', minWidth: 72, textAlign: 'center' }}>
+                        {lotDetailPage} / {lotDetailTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={lotDetailPage >= lotDetailTotalPages}
+                        onClick={() => setLotDetailPage((p) => Math.min(lotDetailTotalPages, p + 1))}
+                        style={{
+                          border: '1px solid #dbe4f0',
+                          background: '#fff',
+                          borderRadius: 8,
+                          padding: '6px 12px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: lotDetailPage >= lotDetailTotalPages ? 'not-allowed' : 'pointer',
+                          opacity: lotDetailPage >= lotDetailTotalPages ? 0.5 : 1,
+                        }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
           </div>
             </div>
           </div>

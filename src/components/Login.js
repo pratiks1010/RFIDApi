@@ -24,8 +24,10 @@ import {
   extractStableDescriptorFromVideo,
   captureVideoFrame,
   getLocalFaceGuard,
+  hasLocalFaceGuard,
   loginWithFace,
   matchFaceWithReference,
+  saveLocalFaceGuard,
   faceDistance,
   assertFaceFrameQuality,
   ensureFaceModelsLoaded,
@@ -205,6 +207,8 @@ const infoSlides = [
   },
 ];
 
+const SAVED_LOGIN_CREDENTIALS_KEY = 'savedLoginCredentials';
+
 const Login = () => {
   const getFingerprintHint = () => {
     try {
@@ -224,6 +228,7 @@ const Login = () => {
     LoginName: '',
     Password: ''
   });
+  const [rememberCredentials, setRememberCredentials] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [fingerprintLoading, setFingerprintLoading] = useState(false);
@@ -268,15 +273,57 @@ const Login = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('session_expired')) {
-      toast.error('Your session has expired. Please login again.', {
-        position: "top-right",
-        autoClose: 5000,
-        theme: "colored"
-      });
+    try {
+      const raw = localStorage.getItem(SAVED_LOGIN_CREDENTIALS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const loginName = String(parsed?.LoginName || '').trim();
+      const password = String(parsed?.Password || '');
+      if (!loginName && !password) return;
+      setFormData((prev) => ({
+        ...prev,
+        LoginName: loginName,
+        Password: password,
+      }));
+      setRememberCredentials(true);
+      if (loginName) {
+        setFingerprintLoginName(loginName);
+        setPkLoginName(loginName);
+        setFaceLoginName(loginName);
+      }
+    } catch {
+      // ignore invalid saved credentials format
+    }
+  }, []);
+
+  useEffect(() => {
+    const readSessionExpired = () => {
+      const search = window.location.search || '';
+      const hashQuery = String(window.location.hash || '').split('?')[1] || '';
+      const params = new URLSearchParams(search || hashQuery);
+      return params.get('session_expired');
+    };
+
+    if (!readSessionExpired()) return;
+
+    toast.error('Your session has expired. Please login again.', {
+      position: 'top-right',
+      autoClose: 5000,
+      theme: 'colored',
+    });
+
+    if (window.location.protocol === 'file:') {
+      window.location.hash = '#/login';
+    } else {
       window.history.replaceState({}, '', '/login');
     }
+  }, []);
+
+  useEffect(() => () => {
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+    document.body.style.height = '';
+    document.documentElement.style.height = '';
   }, []);
 
   useEffect(() => {
@@ -358,6 +405,49 @@ const Login = () => {
     });
   };
 
+  const clearAuthSession = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userInfo');
+    localStorage.removeItem('lastLoginTime');
+    localStorage.removeItem('showWelcomeToast');
+  };
+
+  const reportLoginError = (message, { autoClose = 4000 } = {}) => {
+    const errorMessage = String(message || 'Login failed. Please try again.').trim()
+      || 'Login failed. Please try again.';
+    clearAuthSession();
+    setError(errorMessage);
+    toast.error(errorMessage, {
+      position: 'top-right',
+      autoClose,
+      theme: 'colored',
+    });
+  };
+
+  const parseLoginToken = (token, resolvedUsername) => {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) {
+      throw new Error('Invalid token format received from server');
+    }
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const tokenPayload = JSON.parse(window.atob(base64));
+    const userInfo = {
+      Username: resolvedUsername || formData.LoginName,
+      ClientCode: tokenPayload.ClientCode || tokenPayload.clientcode || tokenPayload.sub,
+    };
+    if (!userInfo.ClientCode) {
+      throw new Error('Client code not found in token');
+    }
+    if (tokenPayload.exp) {
+      const currentTime = Math.floor(Date.now() / 1000);
+      if (tokenPayload.exp <= currentTime) {
+        throw new Error('Session token has expired. Please login again.');
+      }
+    }
+    return { userInfo, tokenPayload };
+  };
+
   const getFaceLoginPopupMessage = (rawMessage) => {
     const text = String(rawMessage || '').trim();
     const normalized = text.toLowerCase();
@@ -393,39 +483,54 @@ const Login = () => {
   };
 
   const finalizeLogin = (token, resolvedUsername) => {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const tokenPayload = JSON.parse(window.atob(base64));
-
-    const userInfo = {
-      Username: resolvedUsername || formData.LoginName,
-      ClientCode: tokenPayload.ClientCode || tokenPayload.clientcode || tokenPayload.sub
-    };
-
-    if (!userInfo.ClientCode) {
-      throw new Error('Client code not found in token');
+    let userInfo;
+    try {
+      ({ userInfo } = parseLoginToken(token, resolvedUsername));
+    } catch (tokenError) {
+      console.error('Token parsing error:', tokenError);
+      reportLoginError(tokenError?.message || 'Invalid token format received from server');
+      return false;
     }
 
-    localStorage.setItem('token', token);
-    localStorage.setItem('userInfo', JSON.stringify(userInfo));
-    const loginTime = new Date().toLocaleString();
-    localStorage.setItem('lastLoginTime', loginTime);
-    localStorage.setItem('showWelcomeToast', 'true');
-    window.dispatchEvent(new Event('rfid-welcome'));
+    try {
+      const finalLoginName = String(resolvedUsername || formData.LoginName || '').trim();
+      if (rememberCredentials) {
+        localStorage.setItem(
+          SAVED_LOGIN_CREDENTIALS_KEY,
+          JSON.stringify({
+            LoginName: finalLoginName,
+            Password: String(formData.Password || ''),
+            savedAt: new Date().toISOString(),
+          })
+        );
+      } else {
+        localStorage.removeItem(SAVED_LOGIN_CREDENTIALS_KEY);
+      }
+      localStorage.setItem('token', token);
+      localStorage.setItem('userInfo', JSON.stringify(userInfo));
+      localStorage.setItem('lastLoginTime', new Date().toLocaleString());
+      localStorage.setItem('showWelcomeToast', 'true');
+      window.dispatchEvent(new Event('rfid-welcome'));
 
-    toast.success(`Welcome ${userInfo.Username}!`, {
-      position: "top-right",
-      autoClose: 2500,
-      closeButton: false,
-      icon: false,
-      style: { background: 'transparent', boxShadow: 'none', padding: 0 },
-      bodyStyle: { padding: 0 },
-      render: ({ closeToast, toastProps }) => (
-        <ZohoToast closeToast={closeToast} toastProps={toastProps} message={`Welcome ${userInfo.Username}!`} />
-      )
-    });
+      toast.success(`Welcome ${userInfo.Username}!`, {
+        position: 'top-right',
+        autoClose: 2500,
+        closeButton: false,
+        icon: false,
+        style: { background: 'transparent', boxShadow: 'none', padding: 0 },
+        bodyStyle: { padding: 0 },
+        render: ({ closeToast, toastProps }) => (
+          <ZohoToast closeToast={closeToast} toastProps={toastProps} message={`Welcome ${userInfo.Username}!`} />
+        ),
+      });
 
-    navigate('/analytics');
+      navigate('/analytics', { replace: true });
+      return true;
+    } catch (err) {
+      console.error('Finalize login error:', err);
+      reportLoginError(err?.message || 'Unable to complete login. Please try again.');
+      return false;
+    }
   };
 
   const doPasswordLogin = async () => {
@@ -433,37 +538,20 @@ const Login = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post(getAuthLoginUrl(), formData);
+      const response = await axios.post(getAuthLoginUrl(), formData, { skipAuthRedirect: true });
 
       if (!response.data?.Token) {
         throw new Error('No token received from server');
       }
 
-      try {
-        finalizeLogin(response.data.Token);
-      } catch (tokenError) {
-        console.error('Token parsing error:', tokenError);
-        throw new Error('Invalid token format received from server');
-      }
+      finalizeLogin(response.data.Token);
     } catch (err) {
       console.error('Login error:', err);
-      let errorMessage;
-      if (err.response?.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('userInfo');
-        localStorage.removeItem('lastLoginTime');
-        localStorage.removeItem('showWelcomeToast');
-        errorMessage = 'Please enter valid username and password';
-        navigate('/login', { replace: true });
-      } else {
-        errorMessage = err.response?.data?.Message || err.message || 'Login failed. Please try again.';
-      }
-      setError(errorMessage);
-      toast.error(errorMessage, {
-        position: "top-right",
-        autoClose: err.response?.status === 401 ? 6000 : 3000,
-        theme: "colored"
-      });
+      const isUnauthorized = err.response?.status === 401;
+      const errorMessage = isUnauthorized
+        ? 'Please enter valid username and password'
+        : (err.response?.data?.Message || err.message || 'Login failed. Please try again.');
+      reportLoginError(errorMessage, { autoClose: isUnauthorized ? 6000 : 4000 });
     } finally {
       setLoading(false);
     }
@@ -517,7 +605,7 @@ const Login = () => {
 
     setForgotPasswordLoading(true);
     try {
-      const response = await axios.post(getAuthForgotPasswordUrl(), payload);
+      const response = await axios.post(getAuthForgotPasswordUrl(), payload, { skipAuthRedirect: true });
       const successMessage = response?.data?.Message || 'Password changed successfully.';
       toast.success(successMessage, {
         position: 'top-right',
@@ -630,17 +718,50 @@ const Login = () => {
     await runPasskeyLogin(pkLoginName.trim(), pkClientCode.trim());
   };
 
-  const runFaceLogin = async (loginName, clientCode) => {
+  const runFaceLogin = async (loginName, clientCode, { serverRegistered = false } = {}) => {
     setFaceLoading(true);
     setError('');
     setFacePopupError('');
+    const normalizedLogin = String(loginName || '').trim();
+    const normalizedClient = String(clientCode || '').trim().toUpperCase();
+
+    const completeFaceLogin = async (descriptor) => {
+      const imageBase64 = await captureVideoFrame(faceVideoRef.current);
+      const response = await loginWithFace({
+        loginName: normalizedLogin,
+        clientCode: normalizedClient,
+        descriptor,
+        imageBase64,
+        livenessPassed: faceTracking.quality === 'good',
+      });
+      saveLocalFaceGuard({
+        loginName: normalizedLogin,
+        clientCode: normalizedClient,
+        descriptor,
+      });
+      const token = extractJwtFromLoginPayload(response);
+      if (!token) throw new Error('Face login succeeded but no token was returned.');
+      localStorage.setItem(
+        'fingerprintLoginHint',
+        JSON.stringify({
+          loginName: normalizedLogin,
+          clientCode: normalizedClient,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+      setShowFacePrompt(false);
+      stopFaceStream();
+      finalizeLogin(token, normalizedLogin);
+    };
+
     try {
       if (!faceVideoRef.current || !faceCameraReady) {
         throw new Error('Camera is not ready. Please allow camera and try again.');
       }
-      const localGuard = getLocalFaceGuard({ loginName, clientCode });
-      if (!localGuard?.descriptor || localGuard.descriptor.length !== 128) {
-        throw new Error('Face profile is not enrolled on this device for this user. Please open Face Login Settings and register once on this device.');
+
+      const hasLocal = hasLocalFaceGuard({ loginName: normalizedLogin, clientCode: normalizedClient });
+      if (!hasLocal && !serverRegistered) {
+        throw new Error('Face is not registered for this account. Open Face Login Settings and register first.');
       }
 
       try {
@@ -650,46 +771,35 @@ const Login = () => {
           throw qualityError;
         }
       }
+
       const descriptor = await extractStableDescriptorFromVideo(faceVideoRef.current);
-      const firstMatch = matchFaceWithReference(descriptor, localGuard.descriptor);
-      if (!firstMatch.matched) {
-        throw new Error('Face mismatch with registered profile.');
+      const localGuard = getLocalFaceGuard({ loginName: normalizedLogin, clientCode: normalizedClient });
+      const referenceDescriptor = localGuard?.descriptor;
+
+      if (referenceDescriptor?.length === 128) {
+        const firstMatch = matchFaceWithReference(descriptor, referenceDescriptor);
+        if (firstMatch.matched) {
+          const secondDescriptor = await extractStableDescriptorFromVideo(faceVideoRef.current, {
+            sampleCount: 3,
+            sampleGapMs: 200,
+            maxSpread: 0.55,
+          });
+          const secondMatch = matchFaceWithReference(secondDescriptor, referenceDescriptor);
+          if (secondMatch.matched && faceDistance(descriptor, secondDescriptor) <= 0.36) {
+            await completeFaceLogin(descriptor);
+            return;
+          }
+        }
+        if (!serverRegistered) {
+          throw new Error('Face mismatch with registered profile.');
+        }
       }
 
-      // Require a second stable sample to reduce false accepts.
-      const secondDescriptor = await extractStableDescriptorFromVideo(faceVideoRef.current, {
-        sampleCount: 3,
-        sampleGapMs: 200,
-        maxSpread: 0.45,
-      });
-      const secondMatch = matchFaceWithReference(secondDescriptor, localGuard.descriptor);
-      if (!secondMatch.matched) {
-        throw new Error('Face mismatch on verification pass.');
+      if (!serverRegistered) {
+        throw new Error('Face profile is not enrolled on this device. Open Face Login Settings and sync once on this PC.');
       }
-      if (faceDistance(descriptor, secondDescriptor) > 0.27) {
-        throw new Error('Face verification is unstable. Keep same face centered and retry.');
-      }
-      const imageBase64 = await captureVideoFrame(faceVideoRef.current);
-      const response = await loginWithFace({
-        loginName,
-        clientCode,
-        descriptor,
-        imageBase64,
-        livenessPassed: faceTracking.quality === 'good',
-      });
-      const token = extractJwtFromLoginPayload(response);
-      if (!token) throw new Error('Face login succeeded but no token was returned.');
-      localStorage.setItem(
-        'fingerprintLoginHint',
-        JSON.stringify({
-          loginName,
-          clientCode,
-          updatedAt: new Date().toISOString(),
-        })
-      );
-      setShowFacePrompt(false);
-      stopFaceStream();
-      finalizeLogin(token, loginName);
+
+      await completeFaceLogin(descriptor);
     } catch (err) {
       const backendMessage = err?.response?.data?.message || err?.response?.data?.Message;
       const message = getFaceLoginPopupMessage(backendMessage || err?.message || 'Face login failed.');
@@ -753,7 +863,7 @@ const Login = () => {
       return;
     }
     setFormData((prev) => ({ ...prev, LoginName: loginName }));
-    await runFaceLogin(loginName, clientCode);
+    await runFaceLogin(loginName, clientCode, { serverRegistered: true });
   };
 
   const handleFingerprintLogin = async () => {
@@ -851,8 +961,7 @@ const Login = () => {
     } catch (err) {
       const backendMessage = err?.response?.data?.Message || err?.response?.data?.message;
       const message = backendMessage || err.message || 'Fingerprint login failed.';
-      setError(message);
-      toast.error(message, { position: 'top-right', autoClose: 3500, theme: 'colored' });
+      reportLoginError(message, { autoClose: 3500 });
 
       if (formData.Password?.trim()) {
         toast.info('Fingerprint failed. Trying password login fallback.', {
@@ -896,15 +1005,13 @@ const Login = () => {
       });
       const token = completeRes?.Token || completeRes?.token || completeRes?.jwtToken;
       if (!token) throw new Error('Second-factor verification succeeded but token was not returned.');
-      setShowSecondFactorPrompt(false);
-      finalizeLogin(token, loginName);
+      const loginOk = finalizeLogin(token, loginName);
+      if (loginOk) {
+        setShowSecondFactorPrompt(false);
+      }
     } catch (err) {
       const backendMessage = err?.response?.data?.Message || err?.response?.data?.message;
-      toast.error(backendMessage || err?.message || 'Second-factor verification failed.', {
-        position: 'top-right',
-        autoClose: 3500,
-        theme: 'colored',
-      });
+      reportLoginError(backendMessage || err?.message || 'Second-factor verification failed.', { autoClose: 3500 });
     } finally {
       setSecondFactorLoading(false);
     }
@@ -970,7 +1077,7 @@ const Login = () => {
       <style>{`
         body, html { overflow: hidden !important; height: 100% !important; margin: 0; }
         .login-page-wrapper { animation: fadeIn 0.35s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 1; transform: translateY(0); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fpTickPop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
         @keyframes fpTickDraw { to { stroke-dashoffset: 0; } }
         .fas, .far, .fal, .fab { font-family: "Font Awesome 5 Free" !important; font-weight: 900 !important; display: inline-block !important; font-style: normal !important; line-height: 1 !important; }
@@ -1542,6 +1649,15 @@ const Login = () => {
                       <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
                     </button>
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: -2, color: '#475569', fontSize: '0.72rem', fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={rememberCredentials}
+                      onChange={(e) => setRememberCredentials(e.target.checked)}
+                      style={{ width: 14, height: 14, cursor: 'pointer' }}
+                    />
+                    Remember username and password
+                  </label>
 
                   <button
                     type="submit"

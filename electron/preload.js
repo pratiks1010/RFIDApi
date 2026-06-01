@@ -14,6 +14,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   writeBinaryFile: (filePath, base64) => ipcRenderer.invoke("write-binary-file", filePath, base64),
   getFileStats: (filePath) => ipcRenderer.invoke("get-file-stats", filePath),
   selectFolder: () => ipcRenderer.invoke("select-folder"),
+  itemImagesSetFolder: (folderPath, options) => ipcRenderer.invoke("item-images-set-folder", folderPath, options),
+  itemImagesEnsureIndex: (folderPath) => ipcRenderer.invoke("item-images-ensure-index", folderPath),
+  itemImagesResolveUrl: (itemCode) => ipcRenderer.invoke("item-images-resolve-url", itemCode),
+  itemImagesReadDataUrl: (itemCode) => ipcRenderer.invoke("item-images-read-data-url", itemCode),
+  itemImagesGetMeta: () => ipcRenderer.invoke("item-images-get-meta"),
+  itemImagesResync: () => ipcRenderer.invoke("item-images-resync"),
+  itemImagesSyncNow: () => ipcRenderer.invoke("item-images-sync-now"),
+  onItemImagesIndexUpdated: (callback) => {
+    const listener = (_, payload) => callback(payload);
+    ipcRenderer.on("item-images-index-updated", listener);
+    return () => ipcRenderer.removeListener("item-images-index-updated", listener);
+  },
   selectFile: (options) => ipcRenderer.invoke("select-file", options),
   saveConfig: (username, config) => ipcRenderer.invoke("save-config", username, config),
   getConfig: (username) => ipcRenderer.invoke("get-config", username),

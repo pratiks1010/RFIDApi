@@ -3,8 +3,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { FaCloudUploadAlt, FaFileExcel, FaTimes, FaCheckCircle, FaDownload, FaSpinner, FaTrash } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
+import { toRrgoldApiUrl } from '../services/apiBaseConfig';
 
-const API_URL = 'https://rrgold.loyalstring.co.in/api/Device/BulkUploadRFIDData';
+const API_URL = toRrgoldApiUrl('/api/Device/BulkUploadRFIDData');
 
 const UploadRFID = () => {
   const [selectedFile, setSelectedFile] = useState(null);

@@ -39,8 +39,8 @@ import { useLoading } from '../../App';
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100];
 const DEFAULT_PAGE_SIZE = 15;
-const PRN_ENABLED_CLIENT_CODES = ['LS000224', 'LS000428', 'LS000431', 'LS000443'];
-const LS000431_PRN_FILE_PATH = `${process.env.PUBLIC_URL || ''}/DELHILOGOOPRemarkNew.prn`;
+const PRN_ENABLED_CLIENT_CODES = ['LS000224', 'LS000428', 'LS000431', 'LS000443', 'LS000533'];
+const LS000431_PRN_FILE_PATH = `${process.env.PUBLIC_URL || ''}/DelhiOPNewFont.prn`;
 
 const getUniqueOptions = (data, field) => {
   if (!data || !Array.isArray(data)) return ['All'];
@@ -98,6 +98,7 @@ const applyLS000431DynamicTemplate = (template, item) => {
   const itemCode = String(item?.ItemCode || '').trim();
   const productName = String(item?.ProductName || '').replace(/"/g, ' ').trim();
   const description = String(item?.Description || item?.description || productName || '').replace(/"/g, ' ').trim();
+  const vendorName = String(item?.VendorName || item?.Vendor || item?.vendor_id || '').replace(/"/g, ' ').trim();
   const price = String(item?.MRP || item?.FixedAmt || '0').trim();
   const purity = String(item?.Purity || item?.PurityName || '').trim();
   const barcodePrefix = String.fromCharCode(14);
@@ -105,16 +106,19 @@ const applyLS000431DynamicTemplate = (template, item) => {
 
   let prn = replaceEpcInTemplate(template, epcHex);
   prn = prn.replace(/"SFI397"/g, `"${itemCode}"`);
+  // Description placeholder in DelhiOPNewFont.prn (INV;POINT;91;147;8;9;"OP16P0426")
+  prn = prn.replace(/"OP16P0426"/g, `"${description}"`);
   prn = prn.replace(/"OP10B0426"/g, `"${description}"`);
   prn = prn.replace(/"SILVER FANCY ITEM"/g, `"${productName}"`);
   prn = prn.replace(/"SILVER RING"/g, `"${description}"`);
   prn = prn.replace(/"20100\/-"/g, `"${price}/-"`);
   prn = prn.replace(/"999"/g, `"${purity}"`);
+  prn = prn.replace(/"DIV"/g, `"${vendorName || 'DIV'}"`);
   prn = prn.replace(/(C128B;[^\r\n]*[\r\n]+)"[^"]*"/g, `$1"${itemCode}"`);
   // Fallback for templates that use BYxxxx static item placeholders.
-  // Keep OP10B0426 reserved for description mapping above.
   prn = prn.replace(/"BY[A-Z0-9]{3,}"/g, `"${itemCode}"`);
   prn = prn.split(`${barcodePrefix}&SFI397`).join(`${barcodePrefix}&${itemCode}`);
+  prn = prn.split(`${barcodePrefix}&OP16P0426`).join(`${barcodePrefix}&${description}`);
   prn = prn.split(`${barcodePrefix}&OP10B0426`).join(`${barcodePrefix}&${description}`);
   prn = prn.replace(/&BY[A-Z0-9]{3,}/g, `&${itemCode}`);
   return prn;
@@ -174,7 +178,8 @@ const RFIDLabel = () => {
     'DesignName',
     'BranchName',
     'CollectionName',
-    'VendorName'
+    'VendorName',
+    'Description'
   ];
 
   // Label Generation

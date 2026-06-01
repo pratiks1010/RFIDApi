@@ -238,7 +238,13 @@ const useAuthProtection = () => {
       const adminToken = localStorage.getItem('adminToken');
       const isAuth = !!token;
       const isAdminAuth = !!adminToken;
-      const currentPath = window.location.pathname;
+      const currentPath = (() => {
+        if (window.location.protocol === 'file:' || window.location.hash) {
+          const hashPath = window.location.hash.replace(/^#/, '') || '/';
+          return hashPath.startsWith('/') ? hashPath.split('?')[0] : `/${hashPath.split('?')[0]}`;
+        }
+        return window.location.pathname;
+      })();
 
       // If not authenticated, always redirect to login/admin-login on protected routes
       const protectedRoutes = [

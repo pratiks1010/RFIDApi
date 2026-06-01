@@ -25,6 +25,7 @@ import { rfidService } from '../../services/rfidService';
 import { useNotifications } from '../../context/NotificationContext';
 import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
 import { getGetAllVendorUrl, getGetAllVendorsAltUrl } from '../../services/memberOnboardingApi';
+import { WEIGHT_FIELDS_3DP, formatWeight3, calculateNetWeight } from '../../utils/weightFormat';
 
 
 // Searchable Dropdown Component
@@ -1628,11 +1629,12 @@ const AddStock = () => {
         design_id: '',
         purity_id: '',
         vendor_id: '',
-        grosswt: '0',
-        stonewt: '0',
+        VendorId: '',
+        grosswt: '0.000',
+        stonewt: '0.000',
         diamondheight: '0',
-        diamondweight: '0',
-        netwt: '0',
+        diamondweight: '0.000',
+        netwt: '0.000',
         box_details: '',
         size: 0,
         stoneamount: '0',
@@ -1653,7 +1655,9 @@ const AddStock = () => {
 
       const setStoneValue = (entry, baseKey, value) => {
         if (stoneNumericFields.includes(baseKey)) {
-          entry[baseKey] = value !== '' && value !== null && value !== undefined ? String(value) : '0';
+          entry[baseKey] = baseKey === 'StoneWeight'
+            ? formatWeight3(value)
+            : (value !== '' && value !== null && value !== undefined ? String(value) : '0');
             } else {
           entry[baseKey] = value !== null && value !== undefined && value !== '' ? String(value).trim() : '';
         }
@@ -1664,7 +1668,9 @@ const AddStock = () => {
       };
       const setDiamondValue = (entry, baseKey, value) => {
         if (diamondNumericFields.includes(baseKey)) {
-          entry[baseKey] = value !== '' && value !== null && value !== undefined ? String(value) : '0';
+          entry[baseKey] = (baseKey === 'DiamondWeight' || baseKey === 'TotalDiamondWeight')
+            ? formatWeight3(value)
+            : (value !== '' && value !== null && value !== undefined ? String(value) : '0');
             } else {
           entry[baseKey] = value !== null && value !== undefined && value !== '' ? String(value).trim() : '';
         }
@@ -1705,7 +1711,9 @@ const AddStock = () => {
 
           // Handle main product numeric fields
           if (numericFields.includes(fieldKey)) {
-            product[fieldKey] = value !== '' && value !== null && value !== undefined ? String(value) : '0';
+            product[fieldKey] = WEIGHT_FIELDS_3DP.has(fieldKey)
+              ? formatWeight3(value)
+              : (value !== '' && value !== null && value !== undefined ? String(value) : '0');
           } else if (fieldKey === 'size') {
             product[fieldKey] = value !== '' && value !== null && value !== undefined ? Number(value) : 0;
           } else {
@@ -1805,9 +1813,16 @@ const AddStock = () => {
       const mappedDiaWt = parseFloat(product.diamondweight) || 0;
       const finalStoneWt = totalStoneWtExcel > 0 ? totalStoneWtExcel : mappedStoneWt;
       const finalDiaWt = totalDiaWtExcel > 0 ? totalDiaWtExcel : mappedDiaWt;
-      product.stonewt = String(finalStoneWt);
-      product.diamondweight = String(finalDiaWt);
-      product.netwt = calculateNetWeight(product.grosswt, product.stonewt, product.diamondweight);
+      product.stonewt = formatWeight3(finalStoneWt);
+      product.diamondweight = formatWeight3(finalDiaWt);
+      product.grosswt = formatWeight3(product.grosswt);
+
+      const netCol = mappings.netwt;
+      const rawNet = netCol != null && netCol !== '' ? row[netCol] : undefined;
+      const hasNetInExcel = rawNet !== undefined && rawNet !== null && String(rawNet).trim() !== '';
+      product.netwt = hasNetInExcel
+        ? formatWeight3(rawNet)
+        : calculateNetWeight(product.grosswt, product.stonewt, product.diamondweight);
 
       product.Stones.forEach((s) => {
         const pieces = parseFloat(s.StonePieces) || 0;
@@ -2126,10 +2141,10 @@ const AddStock = () => {
     vendor_id: String(singleProduct.vendor_id || ''),
     box_id: String(sharedData.box_name || ''),
     packet_id: String(sharedData.packet_name || ''),
-    grosswt: String(singleProduct.grosswt || '0'),
-    stonewt: String(stonewt),
-    diamondweight: String(diamondweight),
-    netwt: String(calculateNetWeight(singleProduct.grosswt, String(stonewt), String(diamondweight))),
+    grosswt: formatWeight3(singleProduct.grosswt),
+    stonewt: formatWeight3(stonewt),
+    diamondweight: formatWeight3(diamondweight),
+    netwt: calculateNetWeight(singleProduct.grosswt, String(stonewt), String(diamondweight)),
     description: String(singleProduct.description || ''),
     box_details: String(singleProduct.box_details || ''),
     size: Number(singleProduct.size || 0),
@@ -2145,7 +2160,7 @@ const AddStock = () => {
     diamondList: Array.isArray(singleProduct.diamondList) ? singleProduct.diamondList : []
   };
     // API accepts RFIDNumber as "" when not given; always send key
-    record.RFIDNumber = String(rfidValue ?? '').trim();
+    record.RFIDNumber = normalizeRfidForApi(rfidValue);
     record.Itemcode = String(itemCodeValue ?? '').trim();
     return record;
   };
@@ -2216,6 +2231,11 @@ const AddStock = () => {
           ? '1 record added. You can edit RFID and Item Code in the table.'
           : `${qty} rows added. Item Codes were auto-generated sequentially from "${baseItemCode}".`,
     });
+  };
+
+  const formatAddedRecordWeightOnBlur = (index, field, rawValue) => {
+    if (!WEIGHT_FIELDS_3DP.has(field)) return;
+    updateAddedRecordField(index, field, formatWeight3(rawValue));
   };
 
   // Update a single field of an added record (e.g. RFIDNumber, Itemcode)
@@ -2354,7 +2374,7 @@ const AddStock = () => {
         client_code: String(userInfo?.ClientCode || ''),
         branch_id: String(sharedData.branch_name || ''),
         counter_id: String(sharedData.counter_name || ''),
-        RFIDNumber: String(record.RFIDNumber || ''),
+        RFIDNumber: normalizeRfidForApi(record.RFIDNumber || ''),
         itemcode: itemcodeVal,
         description: String(record.description || ''),
         category_id: String(record.category_id || ''),
@@ -2363,11 +2383,11 @@ const AddStock = () => {
         purity_id: String(record.purity_id || ''),
         box: String(record.box_id || sharedData.box_name || ''),
         packet: String(record.packet_id || sharedData.packet_name || ''),
-        grosswt: String(record.grosswt || '0'),
-        stonewt: String(totalStoneWt),
+        grosswt: formatWeight3(record.grosswt),
+        stonewt: formatWeight3(totalStoneWt),
         diamondheight: String(record.diamondheight || '0'),
-        diamondweight: String(totalDiaWt),
-        netwt: String(record.netwt || '0'),
+        diamondweight: formatWeight3(totalDiaWt),
+        netwt: formatWeight3(record.netwt || calculateNetWeight(record.grosswt, totalStoneWt, totalDiaWt)),
         box_details: String(record.box_details || ''),
         size: Number(record.size || 0),
         stoneamount: String(record.stoneamount || '0'),
@@ -2452,15 +2472,6 @@ const AddStock = () => {
   // Remove product row
   const removeProductRow = (index) => {
     setMultipleProducts(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Net = gross - stone - dia (gross is combination of stone wt + dia wt + net wt)
-  const calculateNetWeight = (grosswt, stonewt, diamondweight = 0) => {
-    const gross = parseFloat(grosswt) || 0;
-    const stone = parseFloat(stonewt) || 0;
-    const dia = parseFloat(diamondweight) || 0;
-    const net = gross - stone - dia;
-    return net >= 0 ? net.toFixed(3) : '0';
   };
 
   // Update single product field
@@ -2633,7 +2644,7 @@ const AddStock = () => {
       return {
         ...prev,
         stoneList: nextList,
-        stonewt: String(totalStoneWt),
+        stonewt: formatWeight3(totalStoneWt),
         stoneamount: String(totalStoneAmt),
         netwt: calculateNetWeight(prev.grosswt, String(totalStoneWt), prev.diamondweight)
       };
@@ -2650,7 +2661,7 @@ const AddStock = () => {
       return {
         ...prev,
         diamondList: nextList,
-        diamondweight: String(totalDiaWt),
+        diamondweight: formatWeight3(totalDiaWt),
         diamondAmount: String(totalDiaAmt),
         netwt: calculateNetWeight(prev.grosswt, prev.stonewt, String(totalDiaWt))
       };
@@ -2743,6 +2754,15 @@ const AddStock = () => {
     });
   };
 
+  const normalizeRfidForApi = (value) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return raw;
+    const match = raw.match(/^([A-Za-z]{1,2})(.*)$/);
+    if (!match) return raw;
+    const [, lead, rest] = match;
+    return `${lead.toUpperCase()}${rest}`;
+  };
+
   // Validate required fields
   const validateProduct = (product, isBulk = false, allProducts = []) => {
     const errors = [];
@@ -2766,13 +2786,6 @@ const AddStock = () => {
       if (duplicateCount > 1) {
         errors.push('Item Code must be unique');
       }
-    }
-
-    // Validate net weight: netwt should not be greater than grosswt
-    const grosswt = parseFloat(product.grosswt) || 0;
-    const netwt = parseFloat(product.netwt) || 0;
-    if (grosswt > 0 && netwt > grosswt) {
-      errors.push('Net Weight cannot be greater than Gross Weight');
     }
 
     return errors;
@@ -2806,11 +2819,14 @@ const AddStock = () => {
         vendorId: singleProduct.vendor_id || '',
         box: sharedData.box_name || '',
         packet: sharedData.packet_name || '',
-        grossWeight: singleProduct.grosswt || '0',
-        stoneWeight: singleProduct.stonewt || '0',
+        grossWeight: formatWeight3(singleProduct.grosswt),
+        stoneWeight: formatWeight3(singleProduct.stonewt),
         diamondHeight: singleProduct.diamondheight || '0',
-        diamondWeight: singleProduct.diamondweight || '0',
-        netWeight: singleProduct.netwt || '0',
+        diamondWeight: formatWeight3(singleProduct.diamondweight),
+        netWeight: formatWeight3(
+          singleProduct.netwt ||
+            calculateNetWeight(singleProduct.grosswt, singleProduct.stonewt, singleProduct.diamondweight)
+        ),
         boxDetails: singleProduct.box_details || '',
         size: Number(singleProduct.size || 0),
         stoneAmount: singleProduct.stoneamount || '0',
@@ -3085,7 +3101,7 @@ const AddStock = () => {
           client_code: String(userInfo?.ClientCode || ''),
           branch_id: String(sharedData.branch_name || ''), // Shared branch name
           counter_id: String(sharedData.counter_name || ''), // Shared counter name
-          RFIDNumber: String(product.RFIDNumber || ''),
+          RFIDNumber: normalizeRfidForApi(product.RFIDNumber || ''),
           Itemcode: String(product.Itemcode || ''),
           itemcode: String(product.Itemcode || ''),
           description: String(product.description || ''),
@@ -3093,11 +3109,13 @@ const AddStock = () => {
           product_id: String(product.product_id || ''),
           design_id: String(product.design_id || ''),
           purity_id: String(product.purity_id || ''),
-          vendor_id: String(product.vendor_id || ''),
-          grosswt: String(product.grosswt || '0'),
-          stonewt: String(product.stonewt || '0'),
-          diamondweight: String(product.diamondweight || '0'),
-          netwt: String(product.netwt || '0'),
+          vendor_id: String((product.VendorId != null && String(product.VendorId).trim() !== '')
+            ? String(product.VendorId).trim()
+            : (product.vendor_id || '')),
+          grosswt: formatWeight3(product.grosswt),
+          stonewt: formatWeight3(product.stonewt),
+          diamondweight: formatWeight3(product.diamondweight),
+          netwt: formatWeight3(product.netwt),
           box_details: String(product.box_details || ''),
           size: Number(product.size || 0),
           stoneamount: String(product.stoneamount || '0'),
@@ -3242,6 +3260,7 @@ const AddStock = () => {
       'product_id': 'Tops',
       'design_id': 'Fancy Top',
       'purity_id': '22CT',
+      'VendorId': '1001',
       'vendor_id': 'Vendor A',
       'grosswt': '20.800',
       'stonewt': '0.500',
@@ -3298,6 +3317,7 @@ const AddStock = () => {
         ['• Map Stone Name, Stone Weight, … once in Map Excel Columns; columns "Stone Name 2", "Stone Weight 2" in Excel map to 2nd stone automatically (same for 3rd, 4th…).'],
         ['• Same for diamonds: map once; "Diamond Name 2", "Diamond Weight 2" map to 2nd diamond.'],
         ['• Leave extra stone/diamond columns blank in Excel if a product has only one.'],
+        ['• VendorId = numeric party/vendor id from master (optional). vendor_id = vendor name; if VendorId is filled it is sent to the API as vendor_id.'],
         ['Sample rows in the data sheet show 2 stones + 2 diamonds (row 1) and 3 stones + 2 diamonds (row 2).']
       ];
       const wsInstructions = XLSX.utils.aoa_to_sheet(instructionRows);
@@ -3484,7 +3504,7 @@ const AddStock = () => {
             client_code: String(product.client_code || userInfo?.ClientCode || ''),
             branch_id: String(branchValue || ''), // Send branch name as string, not ID
             counter_id: String(counterValue || ''), // Send counter name as string, not ID
-            RFIDNumber: String(product.RFIDNumber || ''),
+            RFIDNumber: normalizeRfidForApi(product.RFIDNumber || ''),
             Itemcode: String(product.Itemcode || ''),
             itemcode: String(product.Itemcode || ''),
             description: String(product.description || ''),
@@ -3492,10 +3512,13 @@ const AddStock = () => {
             product_id: productIdValue, // Send product name as string, not ID
             design_id: String(product.design_id || ''), // Send design name as string, not ID
             purity_id: String(product.purity_id || ''), // Send purity name as string, not ID
-            grosswt: String(product.grosswt || '0'),
-            stonewt: String(product.stonewt || '0'),
-            diamondweight: String(product.diamondweight || '0'),
-            netwt: String(product.netwt || '0'),
+            vendor_id: String((product.VendorId != null && String(product.VendorId).trim() !== '')
+              ? String(product.VendorId).trim()
+              : (product.vendor_id || '')),
+            grosswt: formatWeight3(product.grosswt),
+            stonewt: formatWeight3(product.stonewt),
+            diamondweight: formatWeight3(product.diamondweight),
+            netwt: formatWeight3(product.netwt),
             box_details: String(product.box_details || ''),
             size: Number(product.size) || 0,
             stoneamount: String(product.stoneamount || '0'),
@@ -3853,7 +3876,7 @@ const AddStock = () => {
             normalizeName(product.counter) ||
             ''
           ), // Send counter name as string, not ID
-          RFIDNumber: String(product.RFIDNumber || product.RFIDCode || ''),
+          RFIDNumber: normalizeRfidForApi(product.RFIDNumber || product.RFIDCode || ''),
           Itemcode: String(product.Itemcode || ''),
           itemcode: String(product.Itemcode || ''),
           description: String(product.description || ''),
@@ -3861,11 +3884,13 @@ const AddStock = () => {
           product_id: String(product.product_id || ''),
           design_id: String(product.design_id || ''), // Send design name as string, not ID
           purity_id: String(product.purity_id || ''),
-          vendor_id: String(product.vendor_id || ''),
-          grosswt: String(product.grosswt || '0'),
-          stonewt: String(product.stonewt || '0'),
-          diamondweight: String(product.diamondweight || '0'),
-          netwt: String(product.netwt || '0'),
+          vendor_id: String((product.VendorId != null && String(product.VendorId).trim() !== '')
+            ? String(product.VendorId).trim()
+            : (product.vendor_id || '')),
+          grosswt: formatWeight3(product.grosswt),
+          stonewt: formatWeight3(product.stonewt),
+          diamondweight: formatWeight3(product.diamondweight),
+          netwt: formatWeight3(product.netwt),
           box_details: String(product.box_details || ''),
           size: Number(product.size || 0),
           stoneamount: String(product.stoneamount || '0'),
@@ -4045,6 +4070,7 @@ const AddStock = () => {
     { key: 'design_id', label: 'Design', type: 'select', required: false, options: 'designs' },
     { key: 'purity_id', label: 'Purity', type: 'select', required: false, options: 'purities' },
     { key: 'vendor_id', label: 'Vendor', type: 'select', required: false, options: 'vendors' },
+    { key: 'VendorId', label: 'Vendor ID', type: 'text', required: false, placeholder: 'Party / vendor numeric id (optional; overrides name if set)' },
     { key: 'box_id', label: 'Box', type: 'select', required: false, options: 'boxes' },
     { key: 'packet_id', label: 'Packet', type: 'select', required: false, options: 'packets' },
     { key: 'grosswt', label: 'Gross Weight', type: 'number', required: false, placeholder: 'Enter gross wt', step: '0.001' },
@@ -4247,6 +4273,9 @@ const AddStock = () => {
                 e.target.style.borderColor = '#f1f1f1';
                 e.target.style.background = '#f1f1f1';
                 e.target.style.boxShadow = 'none';
+                if (WEIGHT_FIELDS_3DP.has(field.key)) {
+                  onChange(field.key, formatWeight3(e.target.value));
+                }
               }
             }}
             onKeyDown={(e) => {
@@ -5708,6 +5737,7 @@ const AddStock = () => {
                             step="0.001"
                             value={record.grosswt ?? ''}
                             onChange={(e) => updateAddedRecordField(realIndex, 'grosswt', e.target.value)}
+                            onBlur={(e) => formatAddedRecordWeightOnBlur(realIndex, 'grosswt', e.target.value)}
                             placeholder="Gross"
                             style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
                           />
@@ -5718,6 +5748,7 @@ const AddStock = () => {
                             step="0.001"
                             value={record.stonewt ?? ''}
                             onChange={(e) => updateAddedRecordField(realIndex, 'stonewt', e.target.value)}
+                            onBlur={(e) => formatAddedRecordWeightOnBlur(realIndex, 'stonewt', e.target.value)}
                             placeholder="Stone"
                             style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
                           />
@@ -5728,6 +5759,7 @@ const AddStock = () => {
                             step="0.001"
                             value={record.diamondweight ?? ''}
                             onChange={(e) => updateAddedRecordField(realIndex, 'diamondweight', e.target.value)}
+                            onBlur={(e) => formatAddedRecordWeightOnBlur(realIndex, 'diamondweight', e.target.value)}
                             placeholder="Dia"
                             style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
                           />
@@ -5738,6 +5770,7 @@ const AddStock = () => {
                             step="0.001"
                             value={record.netwt ?? ''}
                             onChange={(e) => updateAddedRecordField(realIndex, 'netwt', e.target.value)}
+                            onBlur={(e) => formatAddedRecordWeightOnBlur(realIndex, 'netwt', e.target.value)}
                             placeholder="Net"
                             style={{ width: '100%', minWidth: '64px', padding: '4px 6px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', boxSizing: 'border-box', background: '#f8fafc', color: '#1e293b' }}
                           />

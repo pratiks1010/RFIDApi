@@ -1,4 +1,8 @@
-import React, { memo, useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  readLocalItemImageDataUrl,
+  resolveLocalItemImageBlobUrl,
+} from '../../services/localItemImageService';
 
 const EMPTY_STYLE = {};
 const EMPTY_IMG_STYLE = {};
@@ -30,23 +34,68 @@ const getSharedObserver = () => {
 
 const GridItemImage = ({
   src,
+  itemCode,
+  lookupKeys,
   alt,
   className,
   wrapperClassName,
   wrapperStyle = EMPTY_STYLE,
   imgStyle = EMPTY_IMG_STYLE,
   placeholder = defaultPlaceholder,
+  /** When true, parent already resolved src — skip duplicate local lookup. */
+  localResolved = false,
 }) => {
   const hostRef = useRef(null);
   const [isVisible, setIsVisible] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [apiFailed, setApiFailed] = useState(false);
+  const [localSrc, setLocalSrc] = useState('');
+
+  const codesToTry = useMemo(() => {
+    if (Array.isArray(lookupKeys) && lookupKeys.length) {
+      return lookupKeys.map((k) => String(k || '').trim()).filter(Boolean);
+    }
+    const single = String(itemCode || '').trim();
+    return single ? [single] : [];
+  }, [lookupKeys, itemCode]);
+
+  const codesKey = codesToTry.join('|');
 
   useEffect(() => {
     setHasError(false);
-  }, [src]);
+    setApiFailed(false);
+    setLocalSrc('');
+  }, [src, codesKey]);
 
   useEffect(() => {
-    if (!src) {
+    if (localResolved || !isVisible || !codesToTry.length) return undefined;
+    if (src && !apiFailed) return undefined;
+    let cancelled = false;
+    const resolveLocal = async () => {
+      for (let i = 0; i < codesToTry.length; i += 1) {
+        if (cancelled) return;
+        const url = await resolveLocalItemImageBlobUrl(codesToTry[i]);
+        if (url) {
+          setLocalSrc(url);
+          return;
+        }
+      }
+    };
+    resolveLocal().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, codesKey, codesToTry, src, apiFailed, localResolved]);
+
+  const apiSrc = src && !apiFailed ? src : '';
+  const displaySrc = localSrc || apiSrc;
+
+  useEffect(() => {
+    setHasError(false);
+  }, [displaySrc]);
+
+  useEffect(() => {
+    if (!displaySrc && !codesToTry.length) {
       setIsVisible(false);
       return undefined;
     }
@@ -75,15 +124,15 @@ const GridItemImage = ({
       observer.unobserve(node);
       observerRegistry.delete(node);
     };
-  }, [src]);
+  }, [displaySrc, codesKey, codesToTry.length]);
 
-  const shouldRenderImage = Boolean(src) && isVisible && !hasError;
+  const shouldRenderImage = Boolean(displaySrc) && isVisible && !hasError;
 
   return (
     <div ref={hostRef} className={wrapperClassName} style={wrapperStyle}>
       {shouldRenderImage ? (
         <img
-          src={src}
+          src={displaySrc}
           alt={alt}
           className={className}
           style={imgStyle}
@@ -91,7 +140,24 @@ const GridItemImage = ({
           decoding="async"
           fetchPriority="low"
           draggable={false}
-          onError={() => setHasError(true)}
+          onError={() => {
+            if (displaySrc === apiSrc && apiSrc) {
+              setApiFailed(true);
+              return;
+            }
+            if (String(displaySrc).startsWith('itemimg:') && codesToTry.length) {
+              readLocalItemImageDataUrl(codesToTry[0]).then((dataUrl) => {
+                if (dataUrl) {
+                  setLocalSrc(dataUrl);
+                  setHasError(false);
+                } else {
+                  setHasError(true);
+                }
+              });
+              return;
+            }
+            setHasError(true);
+          }}
         />
       ) : (
         placeholder
@@ -100,12 +166,24 @@ const GridItemImage = ({
   );
 };
 
+const lookupKeysEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
+
 export default memo(GridItemImage, (prev, next) =>
   prev.src === next.src &&
+  prev.itemCode === next.itemCode &&
+  lookupKeysEqual(prev.lookupKeys, next.lookupKeys) &&
   prev.alt === next.alt &&
   prev.className === next.className &&
   prev.wrapperClassName === next.wrapperClassName &&
   prev.wrapperStyle === next.wrapperStyle &&
   prev.imgStyle === next.imgStyle &&
-  prev.placeholder === next.placeholder
+  prev.placeholder === next.placeholder &&
+  prev.localResolved === next.localResolved
 );

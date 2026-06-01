@@ -1,11 +1,26 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require("electron");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const fsSync = require("fs");
 const fs = require("fs/promises");
 const { spawn } = require("child_process");
 const axios = require("axios");
 const XLSX = require("xlsx");
 const { autoUpdater } = require("electron-updater");
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "itemimg",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+      bypassCSP: true,
+    },
+  },
+]);
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
@@ -104,9 +119,19 @@ function createWindow() {
   const enforceFixedZoom = () => {
     if (win.isDestroyed()) return;
     const wc = win.webContents;
-    wc.setZoomFactor(1);
-    wc.setVisualZoomLevelLimits(1, 1).catch(() => {});
-    wc.setZoomLevelLimits(0, 0).catch(() => {});
+    try {
+      wc.setZoomFactor(1);
+      if (typeof wc.setVisualZoomLevelLimits === "function") {
+        const visual = wc.setVisualZoomLevelLimits(1, 1);
+        if (visual && typeof visual.catch === "function") visual.catch(() => {});
+      }
+      if (typeof wc.setZoomLevelLimits === "function") {
+        const level = wc.setZoomLevelLimits(0, 0);
+        if (level && typeof level.catch === "function") level.catch(() => {});
+      }
+    } catch {
+      // zoom APIs differ across Electron versions
+    }
   };
 
   enforceFixedZoom();
@@ -469,6 +494,466 @@ ipcMain.handle("get-file-stats", async (_, filePath) => {
   };
 });
 
+/** 10k–20k item images: index once, cache on disk, serve file:// URLs (no per-card blob). */
+const ITEM_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]);
+let itemImageFolderPath = null;
+let itemImagePathIndex = null;
+let itemImageIndexLoading = null;
+let itemImageWatcher = null;
+let itemImageWatchDebounce = null;
+let itemImagePollInterval = null;
+
+const isPollingPreferredFolder = (folderPath) => {
+  const p = String(folderPath || "").toLowerCase();
+  return p.includes("onedrive") || p.includes("dropbox") || p.includes("icloud");
+};
+
+/** itemimg://img/C:/path/file.jpg — avoids Windows drive letter parsed as host */
+const toItemImageDisplayUrl = (absPath) => {
+  const posix = String(absPath || "").replace(/\\/g, "/");
+  return `itemimg://img/${encodeURI(posix)}`;
+};
+
+const absPathFromItemImageRequest = (requestUrl) => {
+  const url = new URL(requestUrl);
+  const rawPath = decodeURI(url.pathname || "").replace(/^\/+/, "");
+  if (!rawPath) return "";
+  return path.normalize(rawPath);
+};
+
+const mimeForImagePath = (absPath) => {
+  const ext = path.extname(absPath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".bmp") return "image/bmp";
+  return "image/jpeg";
+};
+
+const findItemImageAbsPathOnDisk = async (folderPath, key) => {
+  if (!folderPath || !key) return "";
+  try {
+    const names = await fs.readdir(folderPath);
+    const lower = key.toLowerCase();
+    for (const name of names) {
+      const ext = path.extname(name).toLowerCase();
+      if (!ITEM_IMAGE_EXTENSIONS.has(ext)) continue;
+      if (getItemImageFileBaseName(name).trim().toLowerCase() === lower) {
+        return path.join(folderPath, name);
+      }
+    }
+  } catch {
+    return "";
+  }
+  return "";
+};
+
+const resolveItemImageAbsPath = async (itemCode) => {
+  const key = String(itemCode || "").trim().toLowerCase();
+  if (!key) return "";
+  const fp = String(itemImageFolderPath || "").trim();
+  if (!itemImagePathIndex?.size && fp) {
+    await loadItemImageFolderIndex(fp, { forceRebuild: false });
+  }
+  let absPath = itemImagePathIndex?.get(key) || "";
+  if (!absPath && fp) {
+    absPath = await findItemImageAbsPathOnDisk(fp, key);
+    if (absPath) {
+      if (!itemImagePathIndex) itemImagePathIndex = new Map();
+      itemImagePathIndex.set(key, absPath);
+      schedulePersistItemImageIndex(fp);
+    }
+  }
+  return absPath;
+};
+
+const notifyItemImageIndexUpdated = (payload) => {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send("item-images-index-updated", payload);
+  });
+};
+
+const stopItemImageFolderWatch = () => {
+  if (itemImageWatcher) {
+    try {
+      itemImageWatcher.close();
+    } catch {
+      // ignore
+    }
+    itemImageWatcher = null;
+  }
+  if (itemImageWatchDebounce) {
+    clearTimeout(itemImageWatchDebounce);
+    itemImageWatchDebounce = null;
+  }
+};
+
+const stopItemImageFolderPolling = () => {
+  if (itemImagePollInterval) {
+    clearInterval(itemImagePollInterval);
+    itemImagePollInterval = null;
+  }
+};
+
+const stopAllItemImageMonitoring = () => {
+  stopItemImageFolderWatch();
+  stopItemImageFolderPolling();
+};
+
+/** Merge new/changed files into index (OneDrive + auto-detect new images). */
+const syncItemImageFolderIndex = async (folderPath, { full = false } = {}) => {
+  const fp = String(folderPath || itemImageFolderPath || "").trim();
+  if (!fp) return { ok: false, count: 0 };
+
+  if (full || !itemImagePathIndex?.size) {
+    return loadItemImageFolderIndex(fp, { forceRebuild: Boolean(full) });
+  }
+
+  const fresh = await buildItemImagePathIndex(fp);
+  if (!itemImagePathIndex) itemImagePathIndex = new Map();
+  let changed = false;
+
+  fresh.forEach((absPath, key) => {
+    if (itemImagePathIndex.get(key) !== absPath) {
+      itemImagePathIndex.set(key, absPath);
+      changed = true;
+    }
+  });
+
+  [...itemImagePathIndex.keys()].forEach((key) => {
+    if (!fresh.has(key)) {
+      itemImagePathIndex.delete(key);
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    await saveItemImageIndexToDiskCache(fp, itemImagePathIndex);
+    notifyItemImageIndexUpdated({
+      count: itemImagePathIndex.size,
+      folderPath: fp,
+      at: new Date().toISOString(),
+    });
+  }
+
+  return { ok: true, count: itemImagePathIndex.size, changed, folderPath: fp };
+};
+
+const startItemImageFolderPolling = (folderPath) => {
+  stopItemImageFolderPolling();
+  if (!folderPath) return;
+  const intervalMs = isPollingPreferredFolder(folderPath) ? 12000 : 25000;
+  itemImagePollInterval = setInterval(() => {
+    syncItemImageFolderIndex(folderPath).catch(() => {});
+  }, intervalMs);
+};
+
+const getItemImageWatchStatus = () => ({
+  watching: Boolean(itemImageWatcher || itemImagePollInterval),
+  watchMode: itemImageWatcher ? "native" : itemImagePollInterval ? "poll" : "off",
+  polling: Boolean(itemImagePollInterval),
+});
+
+const schedulePersistItemImageIndex = (folderPath) => {
+  if (!folderPath || !itemImagePathIndex) return;
+  clearTimeout(itemImageWatchDebounce);
+  itemImageWatchDebounce = setTimeout(async () => {
+    try {
+      await saveItemImageIndexToDiskCache(folderPath, itemImagePathIndex);
+      notifyItemImageIndexUpdated({
+        count: itemImagePathIndex.size,
+        folderPath,
+        at: new Date().toISOString(),
+      });
+    } catch {
+      // ignore
+    }
+  }, 800);
+};
+
+const upsertImageFileInIndex = async (folderPath, fileName) => {
+  if (!fileName) return false;
+  const ext = path.extname(fileName).toLowerCase();
+  if (!ITEM_IMAGE_EXTENSIONS.has(ext)) return false;
+  const key = getItemImageFileBaseName(fileName).trim().toLowerCase();
+  if (!key) return false;
+  const absPath = path.join(folderPath, fileName);
+  try {
+    const stat = await fs.stat(absPath);
+    if (!stat.isFile()) {
+      if (itemImagePathIndex?.has(key)) itemImagePathIndex.delete(key);
+      return true;
+    }
+    if (!itemImagePathIndex) itemImagePathIndex = new Map();
+    itemImagePathIndex.set(key, absPath);
+    return true;
+  } catch {
+    if (itemImagePathIndex?.has(key)) {
+      itemImagePathIndex.delete(key);
+      return true;
+    }
+    return false;
+  }
+};
+
+const startItemImageFolderWatch = (folderPath) => {
+  stopItemImageFolderWatch();
+  if (!folderPath) return;
+
+  startItemImageFolderPolling(folderPath);
+
+  if (isPollingPreferredFolder(folderPath)) {
+    return;
+  }
+
+  try {
+    itemImageWatcher = fsSync.watch(folderPath, { persistent: false }, (eventType, fileName) => {
+      const name = fileName ? String(fileName) : "";
+      if (!name) {
+        syncItemImageFolderIndex(folderPath).catch(() => {});
+        return;
+      }
+      upsertImageFileInIndex(folderPath, name).then((changed) => {
+        if (changed) schedulePersistItemImageIndex(folderPath);
+        else syncItemImageFolderIndex(folderPath).catch(() => {});
+      });
+    });
+  } catch {
+    // fs.watch often fails on cloud folders — polling stays active
+  }
+};
+
+const getItemImageConfigPath = () => path.join(app.getPath("userData"), "item-image-config.json");
+const getItemImageIndexCachePath = () => path.join(app.getPath("userData"), "item-image-index-cache.json");
+
+const getItemImageFileBaseName = (fileName) => {
+  const idx = fileName.lastIndexOf(".");
+  return idx >= 0 ? fileName.slice(0, idx) : fileName;
+};
+
+const mapFromFilesObject = (filesObj) => {
+  const index = new Map();
+  if (!filesObj || typeof filesObj !== "object") return index;
+  Object.entries(filesObj).forEach(([key, absPath]) => {
+    if (key && absPath) index.set(key, absPath);
+  });
+  return index;
+};
+
+const mapToFilesObject = (index) => {
+  const files = {};
+  index.forEach((absPath, key) => {
+    files[key] = absPath;
+  });
+  return files;
+};
+
+const saveItemImageConfig = async (folderPath) => {
+  await fs.writeFile(
+    getItemImageConfigPath(),
+    JSON.stringify({ folderPath, savedAt: new Date().toISOString() }, null, 2),
+    "utf8"
+  );
+};
+
+const clearItemImageConfig = async () => {
+  try {
+    await fs.unlink(getItemImageConfigPath());
+  } catch {
+    // ignore
+  }
+  try {
+    await fs.unlink(getItemImageIndexCachePath());
+  } catch {
+    // ignore
+  }
+};
+
+const loadItemImageIndexFromDiskCache = async (folderPath) => {
+  try {
+    const raw = await fs.readFile(getItemImageIndexCachePath(), "utf8");
+    const data = JSON.parse(raw);
+    if (String(data?.folderPath || "") !== folderPath) return null;
+    const folderStat = await fs.stat(folderPath);
+    if (Number(data?.folderMtimeMs) !== Number(folderStat.mtimeMs)) return null;
+    const index = mapFromFilesObject(data.files);
+    return index.size ? index : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveItemImageIndexToDiskCache = async (folderPath, index) => {
+  const folderStat = await fs.stat(folderPath);
+  await fs.writeFile(
+    getItemImageIndexCachePath(),
+    JSON.stringify(
+      {
+        folderPath,
+        folderMtimeMs: folderStat.mtimeMs,
+        builtAt: new Date().toISOString(),
+        count: index.size,
+        files: mapToFilesObject(index),
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+};
+
+const buildItemImagePathIndex = async (folderPath) => {
+  const index = new Map();
+  const entries = await fs.readdir(folderPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const ext = path.extname(entry.name).toLowerCase();
+    if (!ITEM_IMAGE_EXTENSIONS.has(ext)) continue;
+    const key = getItemImageFileBaseName(entry.name).trim().toLowerCase();
+    if (!key || index.has(key)) continue;
+    index.set(key, path.join(folderPath, entry.name));
+  }
+  return index;
+};
+
+const loadItemImageFolderIndex = async (folderPath, { forceRebuild = false } = {}) => {
+  const fp = String(folderPath || "").trim();
+  if (!fp) {
+    itemImageFolderPath = null;
+    itemImagePathIndex = null;
+    stopAllItemImageMonitoring();
+    return { ok: false, count: 0 };
+  }
+
+  if (
+    !forceRebuild &&
+    itemImageFolderPath === fp &&
+    itemImagePathIndex &&
+    itemImagePathIndex.size > 0
+  ) {
+    return { ok: true, count: itemImagePathIndex.size, folderPath: fp, cached: true, source: "memory" };
+  }
+
+  try {
+    const stat = await fs.stat(fp);
+    if (!stat.isDirectory()) {
+      return { ok: false, count: 0, error: "Path is not a directory." };
+    }
+  } catch (err) {
+    return { ok: false, count: 0, error: err?.message || "Folder not accessible." };
+  }
+
+  let index = null;
+  let source = "scan";
+  if (!forceRebuild) {
+    index = await loadItemImageIndexFromDiskCache(fp);
+    if (index?.size) source = "disk";
+  }
+  if (!index?.size) {
+    index = await buildItemImagePathIndex(fp);
+    await saveItemImageIndexToDiskCache(fp, index);
+    source = "scan";
+  }
+
+  itemImageFolderPath = fp;
+  itemImagePathIndex = index;
+  await saveItemImageConfig(fp);
+  startItemImageFolderWatch(fp);
+  const watchStatus = getItemImageWatchStatus();
+  return {
+    ok: true,
+    count: index.size,
+    folderPath: fp,
+    cached: source !== "scan",
+    source,
+    ...watchStatus,
+  };
+};
+
+const restoreItemImageIndexFromSavedConfig = async () => {
+  try {
+    const raw = await fs.readFile(getItemImageConfigPath(), "utf8");
+    const data = JSON.parse(raw);
+    const fp = String(data?.folderPath || "").trim();
+    if (!fp) return { ok: false, count: 0 };
+    return loadItemImageFolderIndex(fp, { forceRebuild: false });
+  } catch {
+    return { ok: false, count: 0 };
+  }
+};
+
+ipcMain.handle("item-images-set-folder", async (_, folderPath, options = {}) => {
+  const fp = String(folderPath || "").trim();
+  if (!fp) {
+    itemImageFolderPath = null;
+    itemImagePathIndex = null;
+    stopAllItemImageMonitoring();
+    await clearItemImageConfig();
+    return { ok: false, count: 0 };
+  }
+  const forceRebuild = Boolean(options?.forceRebuild);
+  if (itemImageIndexLoading) return itemImageIndexLoading;
+  itemImageIndexLoading = loadItemImageFolderIndex(fp, { forceRebuild }).finally(() => {
+    itemImageIndexLoading = null;
+  });
+  return itemImageIndexLoading;
+});
+
+ipcMain.handle("item-images-ensure-index", async (_, folderPath) => {
+  const fp = String(folderPath || itemImageFolderPath || "").trim();
+  if (!fp) {
+    if (itemImagePathIndex?.size) {
+      return { ok: true, count: itemImagePathIndex.size, folderPath: itemImageFolderPath, cached: true, source: "memory" };
+    }
+    return restoreItemImageIndexFromSavedConfig();
+  }
+  if (itemImageIndexLoading) return itemImageIndexLoading;
+  itemImageIndexLoading = loadItemImageFolderIndex(fp, { forceRebuild: false }).finally(() => {
+    itemImageIndexLoading = null;
+  });
+  return itemImageIndexLoading;
+});
+
+ipcMain.handle("item-images-resolve-url", async (_, itemCode) => {
+  const absPath = await resolveItemImageAbsPath(itemCode);
+  if (!absPath) return "";
+  return toItemImageDisplayUrl(absPath);
+});
+
+ipcMain.handle("item-images-read-data-url", async (_, itemCode) => {
+  let absPath = await resolveItemImageAbsPath(itemCode);
+  if (!absPath && itemImageFolderPath) {
+    await syncItemImageFolderIndex(itemImageFolderPath, { full: false });
+    absPath = await resolveItemImageAbsPath(itemCode);
+  }
+  if (!absPath) return "";
+  try {
+    const buf = await fs.readFile(absPath);
+    const mime = mimeForImagePath(absPath);
+    return `data:${mime};base64,${buf.toString("base64")}`;
+  } catch {
+    return "";
+  }
+});
+
+ipcMain.handle("item-images-get-meta", async () => ({
+  folderPath: itemImageFolderPath || "",
+  count: itemImagePathIndex?.size || 0,
+  ...getItemImageWatchStatus(),
+}));
+
+ipcMain.handle("item-images-resync", async () => {
+  const fp = String(itemImageFolderPath || "").trim();
+  if (!fp) return { ok: false, count: 0 };
+  return loadItemImageFolderIndex(fp, { forceRebuild: true });
+});
+
+ipcMain.handle("item-images-sync-now", async () => {
+  const fp = String(itemImageFolderPath || "").trim();
+  if (!fp) return { ok: false, count: 0 };
+  return syncItemImageFolderIndex(fp, { full: false });
+});
+
 ipcMain.handle("select-folder", async () => {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"]
@@ -636,6 +1121,20 @@ ipcMain.handle("app-install-downloaded-update", async () => {
 });
 
 app.whenReady().then(() => {
+  protocol.handle("itemimg", async (request) => {
+    try {
+      const absPath = absPathFromItemImageRequest(request.url);
+      if (!absPath || !fsSync.existsSync(absPath)) {
+        return new Response(null, { status: 404 });
+      }
+      return net.fetch(pathToFileURL(absPath).href);
+    } catch (err) {
+      console.error("[itemimg] load failed:", err?.message || err);
+      return new Response(null, { status: 404 });
+    }
+  });
+
+  restoreItemImageIndexFromSavedConfig().catch(() => {});
   createWindow();
   setupAutoUpdater();
   checkForAppUpdates().catch(() => {});

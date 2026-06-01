@@ -9,7 +9,7 @@ const FACE_MODELS_FALLBACK_PATH = (
   'https://justadudewhohacks.github.io/face-api.js/models'
 ).replace(/\/$/, '');
 // faceRecognitionNet: same person often ~0.25–0.45 L2; values ≥0.55 often different people. Security skew: lower = stricter.
-const FACE_LOCAL_MATCH_THRESHOLD = Number(process.env.REACT_APP_FACE_LOCAL_MATCH_THRESHOLD || 0.33);
+const FACE_LOCAL_MATCH_THRESHOLD = Number(process.env.REACT_APP_FACE_LOCAL_MATCH_THRESHOLD || 0.4);
 const FACE_MIN_BRIGHTNESS = Number(process.env.REACT_APP_FACE_MIN_BRIGHTNESS || 55);
 const FACE_MIN_SHARPNESS = Number(process.env.REACT_APP_FACE_MIN_SHARPNESS || 8);
 const isLocalDevHost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '');
@@ -279,6 +279,11 @@ export const getLocalFaceGuard = ({ loginName, clientCode }) => {
   } catch {
     return null;
   }
+};
+
+export const hasLocalFaceGuard = ({ loginName, clientCode }) => {
+  const guard = getLocalFaceGuard({ loginName, clientCode });
+  return Array.isArray(guard?.descriptor) && guard.descriptor.length === 128;
 };
 
 const normalizeLoginName = (value) => String(value || '').trim();

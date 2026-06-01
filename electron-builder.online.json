@@ -1,0 +1,36 @@
+{
+  "extends": null,
+  "appId": "com.loyalstring.sparkle-rfid-dashboard.online",
+  "productName": "Sparkle RFID Dashboard Online",
+  "directories": {
+    "output": "release-online"
+  },
+  "artifactName": "${productName}-${version}-Setup.${ext}",
+  "files": [
+    "build/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "rfid-bridge/bin/Release/net8.0/win-x64/publish",
+      "to": "rfid-bridge",
+      "filter": ["**/*"]
+    }
+  ],
+  "extraMetadata": {
+    "main": "electron/main.js"
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "build-resources/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build-resources/icon.ico",
+    "uninstallerIcon": "build-resources/icon.ico",
+    "installerHeaderIcon": "build-resources/icon.ico",
+    "shortcutName": "Sparkle RFID (Online)"
+  }
+}

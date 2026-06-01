@@ -21,6 +21,7 @@ import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import TrayScanModal from '../common/TrayScanModal';
+import GridItemImage from '../common/GridItemImage';
 import CustomerSidebarForm from '../inventory/CustomerSidebarForm';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
 import {
@@ -28,7 +29,11 @@ import {
   buildAddCustomerPayloadFromSidebar,
   validateSidebarCustomerForm,
 } from '../../services/customerOnboardingApi';
-import { resolveLocalItemImageBlobUrl } from '../../services/localItemImageService';
+import {
+  getItemImageLookupKeys,
+  resolveLocalItemImageBlobUrl,
+  warmupLocalItemImageIndex,
+} from '../../services/localItemImageService';
 
 const QuotationNew = ({ editStatus, defaultValues }) => {
   const { loading, setLoading } = useLoading();
@@ -659,6 +664,22 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
       ''
     ).trim();
 
+  const getQuotationImageLookupKeys = (item) =>
+    getItemImageLookupKeys({
+      ...item,
+      ItemCode: item?.Itemcode || item?.ItemCode,
+      Itemcode: item?.Itemcode || item?.ItemCode,
+      RFIDCode: item?.RFIDNumber || item?.RFIDCode,
+      design_id: item?.design_id || item?.DesignId || item?.DesignID || item?.DesignNo || item?.DesignCode,
+      DesignId: item?.DesignId || item?.DesignID || item?.design_id || item?.DesignNo || item?.DesignCode,
+      DesignName: item?.DesignName || item?.Design || item?.design_id,
+      Design: item?.Design || item?.DesignName || item?.design_id,
+    });
+
+  useEffect(() => {
+    warmupLocalItemImageIndex().catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (itemViewMode !== 'grid' || !paginatedQuotationItems.length) return;
     let disposed = false;
@@ -667,7 +688,7 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
       const keys = Array.from(
         new Set(
           paginatedQuotationItems
-            .map((item) => String(item?.Itemcode || item?.ItemCode || '').trim().toUpperCase())
+            .map((item) => String(getQuotationImageLookupKeys(item)[0] || '').trim().toUpperCase())
             .filter(Boolean)
         )
       );
@@ -2318,7 +2339,8 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                       }}
                     >
                       {paginatedQuotationItems.map((item, index) => {
-                        const itemCodeKey = String(item?.Itemcode || item?.ItemCode || '').trim().toUpperCase();
+                        const lookupKeys = getQuotationImageLookupKeys(item);
+                        const itemCodeKey = String(lookupKeys[0] || '').trim().toUpperCase();
                         const imgUrl = gridLocalImageUrls[itemCodeKey] || getItemImageUrl(item);
                         return (
                           <div
@@ -2332,18 +2354,19 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
                             }}
                           >
                             <div style={{ width: '100%', height: 108, borderRadius: 8, overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc', marginBottom: 8 }}>
-                              {imgUrl ? (
-                                <img
-                                  src={imgUrl}
-                                  alt={item.Itemcode || 'Item'}
-                                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                  loading="lazy"
-                                />
-                              ) : (
-                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
-                                  No image
-                                </div>
-                              )}
+                              <GridItemImage
+                                src={imgUrl}
+                                itemCode={String(item?.Itemcode || item?.ItemCode || '').trim()}
+                                lookupKeys={lookupKeys}
+                                alt={item.Itemcode || 'Item'}
+                                wrapperStyle={{ width: '100%', height: '100%' }}
+                                imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                placeholder={(
+                                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
+                                    No image
+                                  </div>
+                                )}
+                              />
                             </div>
                             <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 4 }}>
                               {item.Itemcode || '-'}

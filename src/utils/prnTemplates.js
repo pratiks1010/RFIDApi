@@ -346,17 +346,145 @@ const generateLS000431Prn = (item) => {
   const purity = item.Purity || item.PurityName || '';
   const itemCode = item.ItemCode || '';
   const productName = item.ProductName || '';
+  const description = String(
+    item.Description || item.description || productName || ''
+  )
+    .replace(/"/g, ' ')
+    .trim();
+  const vendorName = String(item.VendorName || item.Vendor || item.vendor_id || '').trim();
   const epcHex = toHex(itemCode).padStart(12, '0').substring(0, 12);
   const barcodePrefix = String.fromCharCode(14);
 
   let prn = decodeBase64Latin1(LS000431_BASE_PRN_B64);
   prn = prn.replace("*534649333937*", `*${epcHex}*`);
   prn = prn.replaceAll('"SFI397"', `"${itemCode}"`);
+  prn = prn.replaceAll('"OP16P0426"', `"${description}"`);
+  prn = prn.replaceAll('"OP10B0426"', `"${description}"`);
   prn = prn.replace('"SILVER FANCY ITEM"', `"${productName}"`);
+  prn = prn.replace('"DIV"', `"${vendorName || 'DIV'}"`);
   prn = prn.replace('"20100/-"', `"${price}/-"`);
   prn = prn.replace('"999"', `"${purity}"`);
   prn = prn.replace(`${barcodePrefix}&SFI397`, `${barcodePrefix}&${itemCode}`);
+  prn = prn.split(`${barcodePrefix}&OP16P0426`).join(`${barcodePrefix}&${description}`);
+  prn = prn.split(`${barcodePrefix}&OP10B0426`).join(`${barcodePrefix}&${description}`);
   return prn;
+};
+
+/** Escape text embedded in PRN quoted strings */
+const prnQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+const formatWeight3 = (value) => {
+  const n = parseFloat(value);
+  if (Number.isNaN(n)) return '0.000';
+  return n.toFixed(3);
+};
+
+const formatDiamondCt = (value) => {
+  const n = parseFloat(value);
+  if (Number.isNaN(n)) return '0.00 Ct';
+  return `${n.toFixed(2)} Ct`;
+};
+
+const formatSizeInch = (item) => {
+  const raw = item.Size ?? item.size ?? item.BoxDetails ?? '';
+  const str = String(raw).trim();
+  if (!str) return '';
+  if (/inch/i.test(str)) return str;
+  return `${str}inch`;
+};
+
+/** Code128C payload: FNC1 (0x0E) + apostrophe + suffix (matches client sample `'1534`) */
+const formatLS000533C128Payload = (barcodeValue) => {
+  const v = String(barcodeValue || '').trim();
+  if (!v) return `${String.fromCharCode(14)}'0`;
+  if (v.length > 3) {
+    return `${String.fromCharCode(14)}'${v.substring(3)}`;
+  }
+  return `${String.fromCharCode(14)}'${v}`;
+};
+
+// LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128C)
+const generateLS000533Prn = (item) => {
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  const barcodeValue = String(item.RFIDCode || item.Barcode || item.BarcodeValue || itemCode).trim();
+  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight);
+  const diamondWt = formatDiamondCt(
+    item.TotalDiamondWeight ?? item.DiamondWt ?? item.DiamondWeight ?? item.diamondweight
+  );
+  const ywp = prnQuote(item.YWP || item.StoneName || item.DesignName || item.CategoryName || 'YWP');
+  const purity = prnQuote(item.PurityName || item.Purity || '');
+  const sizeLabel = prnQuote(formatSizeInch(item));
+  const ptLabel = prnQuote(
+    item.PTLabel || item.ProductType || item.ProductName || item.Description || '1.5PT'
+  );
+  const displayCode = prnQuote(itemCode);
+
+  let rawEpcHex = stringToHex(itemCode || barcodeValue);
+  if (rawEpcHex.length < 24) {
+    rawEpcHex = rawEpcHex.padStart(24, '0');
+  } else if (rawEpcHex.length > 24) {
+    rawEpcHex = rawEpcHex.substring(0, 24);
+  }
+
+  const c128Payload = formatLS000533C128Payload(barcodeValue);
+
+  return `!PTX_SETUP
+ENGINE-WIDTH;3941:LENGTH;710:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
+~CONFIG
+CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
+END
+~CREATE;FORM-0;51
+SCALE;DOT;203;203
+ISET;'UTF8'
+RFWTAG;16;PC
+16;H;*3400*
+STOP
+RFWTAG;96;EPC
+96;H;*${rawEpcHex}*
+STOP
+FONT;FACE 92250;BOLD 1;SLANT 0
+ALPHA
+INV;POINT;116;778;9;10;"${displayCode}"
+STOP
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+INV;POINT;95;778;7;8;"Wt :"
+INV;POINT;95;728;7;7;"${grossWt}"
+INV;POINT;68;780;7;7;"Dw :"
+INV;POINT;70;728;7;7;"${diamondWt}"
+INV;POINT;42;780;7;7;"${ywp}"
+INV;POINT;17;693;7;7;"${purity}"
+INV;POINT;17;780;7;7;"${sizeLabel}"
+STOP
+BARCODE
+QRCODE;INV;XD4;T2;E0;M0;I0;23;558
+"${displayCode}"
+STOP
+ALPHA
+INV;POINT;119;615;7;7;"${ptLabel}"
+STOP
+BARCODE
+C128C;INV;XRD3:3:6:6:9:9:12:12;H4.8;49;338
+"${c128Payload}"
+STOP
+END
+~EXECUTE;FORM-0;1
+
+~NORMAL
+~DELETE FORM;FORM-0
+`;
 };
 
 // Generate PRN for LS000443 - Silver Category (New template)
@@ -442,6 +570,8 @@ export const generateClientPrn = (item, clientCode) => {
       return generateLS000428Prn(item);
     case 'LS000431':
       return generateLS000431Prn(item);
+    case 'LS000533':
+      return generateLS000533Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection

@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { FaMicrochip, FaSearch, FaFilter, FaFileExport, FaTrash, FaSync, FaFilePdf, FaFileExcel, FaTimes } from 'react-icons/fa';
+import { FaMicrochip, FaSearch, FaFilter, FaFileExport, FaTrash, FaSync, FaFilePdf, FaFileExcel, FaTimes, FaThLarge, FaThList } from 'react-icons/fa';
 import { MdEmail, MdClear } from 'react-icons/md';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
+import { getApiMode, getRrgoldApiBaseUrl, toRrgoldApiUrl } from '../../services/apiBaseConfig';
+import GridItemImage from '../common/GridItemImage';
+import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
 
 const ITEMS_PER_PAGE = 15;
+const GRID_ITEMS_PER_PAGE = 6;
+const RFID_DEVICE_VIEW_MODE_KEY = 'rfid_device_details_view_mode';
 
 const RFIDDeviceDetails = () => {
   // Global loader
@@ -31,10 +36,21 @@ const RFIDDeviceDetails = () => {
     Location: ''
   });
   const [searchRfid, setSearchRfid] = useState('');
+  const [gridPage, setGridPage] = useState(1);
   const [showExportModal, setShowExportModal] = useState(false);
   const [emailAddress, setEmailAddress] = useState('');
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const isOfflineMode = getApiMode() === 'offline';
+  const [viewMode, setViewMode] = useState(() => {
+    if (!isOfflineMode) return 'table';
+    const saved = localStorage.getItem(RFID_DEVICE_VIEW_MODE_KEY);
+    return saved === 'table' || saved === 'grid' ? saved : 'grid';
+  });
+  const [gridStockData, setGridStockData] = useState([]);
+  const [gridLoading, setGridLoading] = useState(false);
+  const [gridError, setGridError] = useState('');
+  const [previewImage, setPreviewImage] = useState(null);
 
   const { addNotification } = useNotifications();
 
@@ -99,7 +115,7 @@ const RFIDDeviceDetails = () => {
       }
 
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/RFIDDevice/GetAllRFIDDetails',
+        toRrgoldApiUrl('/api/RFIDDevice/GetAllRFIDDetails'),
         { ClientCode: clientCode },
         {
           headers: {
@@ -128,6 +144,65 @@ const RFIDDeviceDetails = () => {
       fetchDeviceDetails();
     }
   }, [clientCode]);
+
+  useEffect(() => {
+    warmupLocalItemImageIndex().catch(() => {});
+  }, []);
+
+  const normalizeLabeledStockRows = (raw) => {
+    if (Array.isArray(raw)) return raw;
+    if (Array.isArray(raw?.Data)) return raw.Data;
+    if (Array.isArray(raw?.data)) return raw.data;
+    if (Array.isArray(raw?.Items)) return raw.Items;
+    if (Array.isArray(raw?.items)) return raw.items;
+    return [];
+  };
+
+  const fetchGridStockData = async () => {
+    if (!clientCode) return;
+    try {
+      setGridLoading(true);
+      setGridError('');
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock'),
+        {
+          ClientCode: clientCode,
+          PageNumber: 1,
+          PageSize: 10000,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      setGridStockData(normalizeLabeledStockRows(response.data));
+    } catch (err) {
+      setGridError(err?.response?.data?.Message || err?.message || 'Failed to load label stock for grid view.');
+      setGridStockData([]);
+    } finally {
+      setGridLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode !== 'grid' || !clientCode) return;
+    fetchGridStockData();
+  }, [viewMode, clientCode]);
+
+  useEffect(() => {
+    if (!isOfflineMode && viewMode !== 'table') {
+      setViewMode('table');
+    }
+  }, [isOfflineMode, viewMode]);
+
+  useEffect(() => {
+    if (isOfflineMode) {
+      localStorage.setItem(RFID_DEVICE_VIEW_MODE_KEY, viewMode);
+    }
+  }, [isOfflineMode, viewMode]);
 
   const handleGetDetails = () => {
     fetchDeviceDetails();
@@ -236,6 +311,10 @@ const RFIDDeviceDetails = () => {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    if (viewMode === 'grid') {
+      await Promise.all([fetchDeviceDetails(), fetchGridStockData()]);
+      return;
+    }
     await fetchDeviceDetails();
   };
 
@@ -278,6 +357,95 @@ const RFIDDeviceDetails = () => {
     return matchesDevice && matchesRfid;
   });
 
+  const matchingGridItems = useMemo(() => {
+    const deviceRows = filteredData;
+    if (!Array.isArray(deviceRows) || deviceRows.length === 0) return [];
+
+    const stockByRfid = new Map();
+    (Array.isArray(gridStockData) ? gridStockData : []).forEach((item) => {
+      const rfid = String(item?.RFIDCode || item?.RFIDNumber || item?.RfidCode || '').trim().toUpperCase();
+      if (!rfid) return;
+      if (!stockByRfid.has(rfid)) {
+        stockByRfid.set(rfid, item);
+      }
+    });
+
+    return deviceRows.map((entry, idx) => {
+      const deviceRfid = String(entry?.RFIDCode || '').trim().toUpperCase();
+      const stockMatch = deviceRfid ? stockByRfid.get(deviceRfid) : null;
+      if (stockMatch) {
+        return {
+          ...stockMatch,
+          __deviceKey: `device-row-${idx}`,
+          RFIDCode: entry?.RFIDCode || stockMatch?.RFIDCode || stockMatch?.RFIDNumber || '',
+        };
+      }
+      return {
+        Id: `device-fallback-${idx}`,
+        ItemCode: entry?.ItemCode || '',
+        RFIDCode: entry?.RFIDCode || '',
+        DesignName: entry?.DesignName || entry?.Design || '',
+        CategoryName: entry?.CategoryName || '',
+        ProductName: entry?.ProductName || '',
+        GrossWt: entry?.GrossWt || 0,
+        NetWt: entry?.NetWt || 0,
+        Qty: entry?.Qty || 1,
+        MRP: entry?.MRP ?? entry?.mrp ?? entry?.MRPAmount ?? entry?.Mrp ?? 0,
+        __deviceKey: `device-fallback-${idx}`,
+      };
+    });
+  }, [gridStockData, filteredData]);
+
+  const filteredMatchingGridItems = useMemo(() => {
+    const q = String(searchRfid || '').trim().toLowerCase();
+    if (!q) return matchingGridItems;
+    return matchingGridItems.filter((item) => {
+      const blob = [
+        item?.RFIDCode,
+        item?.RFIDNumber,
+        item?.ItemCode,
+        item?.Itemcode,
+        item?.itemcode,
+        item?.DesignId,
+        item?.design_id,
+        item?.DesignNo,
+        item?.DesignCode,
+        item?.DesignName,
+        item?.Design,
+      ]
+        .filter((v) => v != null)
+        .map((v) => String(v).toLowerCase())
+        .join(' ');
+      return blob.includes(q);
+    });
+  }, [matchingGridItems, searchRfid]);
+
+  const gridTotalRecords = filteredMatchingGridItems.length;
+  const gridTotalPages = Math.max(1, Math.ceil(gridTotalRecords / GRID_ITEMS_PER_PAGE));
+  const paginatedGridItems = useMemo(() => {
+    const start = (gridPage - 1) * GRID_ITEMS_PER_PAGE;
+    return filteredMatchingGridItems.slice(start, start + GRID_ITEMS_PER_PAGE);
+  }, [filteredMatchingGridItems, gridPage]);
+
+  useEffect(() => {
+    if (gridPage > gridTotalPages) {
+      setGridPage(gridTotalPages);
+    }
+  }, [gridPage, gridTotalPages]);
+
+  const gridSummary = useMemo(() => {
+    const totalProducts = filteredMatchingGridItems.length;
+    const totalGrossWt = filteredMatchingGridItems.reduce(
+      (sum, item) => sum + (parseFloat(item?.GrossWt ?? item?.grosswt ?? item?.TWt ?? 0) || 0),
+      0
+    );
+    const totalQtyScanned = filteredMatchingGridItems.reduce(
+      (sum, item) => sum + (parseFloat(item?.mrp ?? item?.MRP ?? item?.MRPAmount ?? item?.Mrp ?? 0) || 0),
+      0
+    );
+    return { totalProducts, totalGrossWt, totalQtyScanned };
+  }, [filteredMatchingGridItems]);
+
   // Pagination (fixed page size with padded rows)
   const totalRecords = filteredData.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / ITEMS_PER_PAGE));
@@ -297,6 +465,9 @@ const RFIDDeviceDetails = () => {
   // Handle page change
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages) setCurrentPage(newPage);
+  };
+  const handleGridPageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= gridTotalPages) setGridPage(newPage);
   };
 
   // Handle search change
@@ -351,10 +522,111 @@ const RFIDDeviceDetails = () => {
     }
   };
 
-  const handleExportToPDF = () => {
+  const handleExportToPDF = async () => {
+    const toDataUrl = async (url) => {
+      if (!url) return null;
+      try {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        return await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        return null;
+      }
+    };
+
+    const buildGridImageSrc = (item) => {
+      const apiImg = String(
+        item?.ImageUrl || item?.imageurl || item?.ImagePath || item?.PhotoUrl || item?.ProductImage || ''
+      ).trim();
+      if (!apiImg) return '';
+      if (/^https?:\/\//i.test(apiImg) || /^data:/i.test(apiImg)) return apiImg;
+      return `${getRrgoldApiBaseUrl().replace(/\/$/, '')}/${apiImg.replace(/^\/+/, '')}`;
+    };
+
+    const exportGridProductsPdf = async () => {
+      const rows = filteredMatchingGridItems;
+      if (!rows || rows.length === 0) {
+        toast.error('No product data available to export');
+        return;
+      }
+
+      const doc = new jsPDF();
+      let y = 14;
+      doc.setFontSize(15);
+      doc.text('RFID Product Details (with Images)', 14, y);
+      y += 7;
+      doc.setFontSize(10);
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, y);
+      y += 8;
+
+      for (let i = 0; i < rows.length; i += 1) {
+        const item = rows[i];
+        if (i > 0) doc.addPage();
+
+        let top = 12;
+        doc.setFontSize(12);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`Product ${i + 1} / ${rows.length}`, 14, top);
+        top += 6;
+
+        const imageSrc = buildGridImageSrc(item);
+        const imgData = await toDataUrl(imageSrc);
+        if (imgData) {
+          try {
+            const imageFormat = String(imgData).startsWith('data:image/png') ? 'PNG' : 'JPEG';
+            doc.addImage(imgData, imageFormat, 14, top, 58, 58);
+          } catch {
+            // Ignore unsupported image formats and continue with text details.
+          }
+        }
+
+        doc.setFontSize(10);
+        doc.setTextColor(51, 65, 85);
+        const infoX = 78;
+        const info = [
+          ['Item Code', item?.ItemCode || item?.Itemcode || '-'],
+          ['RFID', item?.RFIDCode || item?.RFIDNumber || '-'],
+          ['Category', item?.CategoryName || item?.Category || '-'],
+          ['Product', item?.ProductName || item?.Product || '-'],
+          ['Design', item?.DesignName || item?.Design || item?.design_id || '-'],
+          ['Gross Wt', String(item?.GrossWt ?? item?.grosswt ?? item?.TWt ?? '0.000')],
+          ['Net Wt', String(item?.NetWt ?? item?.netwt ?? '0.000')],
+          ['Qty', String(item?.Qty ?? item?.size ?? item?.Pieces ?? 1)],
+          ['MRP', String(item?.mrp ?? item?.MRP ?? item?.MRPAmount ?? item?.Mrp ?? '0')],
+        ];
+        info.forEach(([label, value], idx) => {
+          doc.setFont(undefined, 'bold');
+          doc.text(`${label}:`, infoX, top + 6 + (idx * 6));
+          doc.setFont(undefined, 'normal');
+          doc.text(String(value), infoX + 25, top + 6 + (idx * 6));
+        });
+      }
+
+      doc.save('RFID_Product_Details_With_Images.pdf');
+    };
+
     try {
       if (!filteredData || filteredData.length === 0) {
         toast.error('No data available to export');
+        return;
+      }
+
+      if (viewMode === 'grid') {
+        setLoading(true);
+        await exportGridProductsPdf();
+        setShowExportModal(false);
+        toast.success('PDF file downloaded successfully!');
+        addNotification({
+          title: 'Export successful',
+          description: `RFID product details PDF exported by ${localStorage.getItem('userInfo') ? JSON.parse(localStorage.getItem('userInfo')).Username : 'User'}`,
+          type: 'info'
+        });
         return;
       }
 
@@ -405,6 +677,8 @@ const RFIDDeviceDetails = () => {
     } catch (err) {
       console.error('Export to PDF failed:', err);
       toast.error('Failed to export PDF file');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -447,6 +721,10 @@ const RFIDDeviceDetails = () => {
         @keyframes slideInRight {
           from { transform: translateX(100%); }
           to { transform: translateX(0); }
+        }
+        @keyframes rfidLoadBar {
+          0% { transform: translateX(-120%); }
+          100% { transform: translateX(320%); }
         }
         * {
           scrollbar-width: none;
@@ -527,16 +805,28 @@ const RFIDDeviceDetails = () => {
               Total: <span style={{ color: '#0f172a' }}>{totalRecords}</span>
             </div>
           </div>
+          {(isOfflineMode && viewMode === 'grid') ? (
+            <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>Total Products: <span style={{ color: '#0f172a', fontWeight: 800 }}>{gridSummary.totalProducts}</span></span>
+              <span style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>Total Gross Wt: <span style={{ color: '#0f172a', fontWeight: 800 }}>{gridSummary.totalGrossWt.toFixed(3)}</span></span>
+              <span style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>Total Qty Scanned: <span style={{ color: '#0f172a', fontWeight: 800 }}>{gridSummary.totalQtyScanned}</span></span>
+            </div>
+          ) : null}
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 220 }}>
               <FaSearch style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: 12 }} />
               <input
                 type="text"
-                placeholder="Search RFID code..."
+                placeholder={
+                  viewMode === 'grid'
+                    ? 'Search Item Code / RFID / Design...'
+                    : 'Search RFID code...'
+                }
                 value={searchRfid}
                 onChange={(e) => {
                   setSearchRfid(e.target.value);
                   setCurrentPage(1);
+                  setGridPage(1);
                 }}
                 style={{ width: '100%', height: 32, padding: '0 10px 0 30px', fontSize: 11, border: '1px solid #e2e8f0', borderRadius: 8, outline: 'none' }}
               />
@@ -553,6 +843,28 @@ const RFIDDeviceDetails = () => {
             <button onClick={handleRefresh} style={{ height: 32, padding: '0 12px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #d4d4d8', background: '#fafafa', color: '#262626', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <FaSync className={isRefreshing ? 'fa-spin' : ''} /> Refresh
             </button>
+            {isOfflineMode ? (
+              <button
+                onClick={() => setViewMode(viewMode === 'table' ? 'grid' : 'table')}
+                style={{
+                  height: 32,
+                  padding: '0 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: '#fff',
+                  color: '#334155',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                {viewMode === 'table' ? <FaThLarge /> : <FaThList />}
+                {viewMode === 'table' ? 'Grid' : 'Table'}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -563,7 +875,7 @@ const RFIDDeviceDetails = () => {
         </div>
       )}
 
-      {/* Table Container */}
+      {viewMode === 'table' ? (
       <div style={{
         background: '#ffffff',
         borderRadius: '12px',
@@ -843,8 +1155,171 @@ const RFIDDeviceDetails = () => {
           </table>
         </div>
       </div>
+      ) : (
+        <div
+          style={{
+            background: '#ffffff',
+            borderRadius: 12,
+            marginTop: 16,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            border: '1px solid #e5e7eb',
+            padding: 12,
+          }}
+        >
+          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+              Showing {gridTotalRecords === 0 ? 0 : ((gridPage - 1) * GRID_ITEMS_PER_PAGE) + 1} to {Math.min(gridPage * GRID_ITEMS_PER_PAGE, gridTotalRecords)} of {gridTotalRecords}
+            </span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <button
+                onClick={() => handleGridPageChange(gridPage - 1)}
+                disabled={gridPage === 1}
+                style={{ padding: '6px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #e2e8f0', background: gridPage === 1 ? '#f1f5f9' : '#fff', color: gridPage === 1 ? '#94a3b8' : '#475569', cursor: gridPage === 1 ? 'not-allowed' : 'pointer' }}
+              >
+                Prev
+              </button>
+              {(() => {
+                const pages = [];
+                if (gridTotalPages <= 2) {
+                  for (let p = 1; p <= gridTotalPages; p += 1) pages.push(p);
+                } else if (gridPage >= gridTotalPages) {
+                  pages.push(gridTotalPages - 1, gridTotalPages);
+                } else {
+                  pages.push(gridPage, gridPage + 1);
+                }
+                return pages.map((page) => (
+                  <button
+                    key={`grid-page-top-${page}`}
+                    onClick={() => handleGridPageChange(page)}
+                    style={{ padding: '6px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #e2e8f0', background: gridPage === page ? '#7c3aed' : '#fff', color: gridPage === page ? '#fff' : '#475569', cursor: 'pointer' }}
+                  >
+                    {page}
+                  </button>
+                ));
+              })()}
+              <button
+                onClick={() => handleGridPageChange(gridPage + 1)}
+                disabled={gridPage === gridTotalPages}
+                style={{ padding: '6px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid #e2e8f0', background: gridPage === gridTotalPages ? '#f1f5f9' : '#fff', color: gridPage === gridTotalPages ? '#94a3b8' : '#475569', cursor: gridPage === gridTotalPages ? 'not-allowed' : 'pointer' }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+          {gridLoading ? (
+            <div style={{ padding: 22 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ color: '#334155', fontSize: 12, fontWeight: 700 }}>
+                  <FaSync className="fa-spin" style={{ marginRight: 8, color: '#7c3aed' }} />
+                  Loading matching products...
+                </div>
+                <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 700 }}>Processing</div>
+              </div>
+              <div style={{ width: '100%', height: 9, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.12)' }}>
+                <div style={{ width: '35%', height: '100%', borderRadius: 999, background: 'linear-gradient(90deg, #7c3aed 0%, #22c55e 50%, #38bdf8 100%)', animation: 'rfidLoadBar 1.2s ease-in-out infinite' }} />
+              </div>
+            </div>
+          ) : gridError ? (
+            <div style={{ padding: 16, color: '#dc2626', fontSize: 12 }}>{gridError}</div>
+          ) : filteredMatchingGridItems.length === 0 ? (
+            <div style={{ padding: 28, textAlign: 'center', color: '#64748b', fontSize: 12 }}>
+              No matching products found for RFID codes in current table filters.
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: windowWidth <= 768 ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                gap: 12,
+              }}
+            >
+              {paginatedGridItems.map((item, index) => {
+                const lookupKeys = getItemImageLookupKeys({
+                  ...item,
+                  ItemCode: item?.ItemCode || item?.Itemcode || item?.itemcode,
+                  RFIDCode: item?.RFIDCode || item?.RFIDNumber,
+                  DesignId: item?.DesignId || item?.design_id || item?.DesignNo || item?.DesignCode,
+                  DesignName: item?.DesignName || item?.Design,
+                  Design: item?.Design || item?.DesignName,
+                });
+                const apiImg = String(
+                  item?.ImageUrl || item?.imageurl || item?.ImagePath || item?.PhotoUrl || item?.ProductImage || ''
+                ).trim();
+                const imageSrc = apiImg
+                  ? (/^https?:\/\//i.test(apiImg)
+                    ? apiImg
+                    : `${getRrgoldApiBaseUrl().replace(/\/$/, '')}/${apiImg.replace(/^\/+/, '')}`)
+                  : '';
+                return (
+                  <article
+                    key={item.__deviceKey || item.Id || `${item?.RFIDCode || 'rfid'}-${index}`}
+                    style={{ border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', overflow: 'hidden', boxShadow: '0 2px 10px rgba(15,23,42,0.05)' }}
+                  >
+                    <div
+                      onClick={
+                        imageSrc
+                          ? () =>
+                              setPreviewImage({
+                                src: imageSrc,
+                                title: `${item?.ItemCode || item?.Itemcode || '-'} | ${item?.RFIDCode || item?.RFIDNumber || '-'}`,
+                                itemCode: item?.ItemCode || item?.Itemcode || '-',
+                                rfidCode: item?.RFIDCode || item?.RFIDNumber || '-',
+                                designNo: item?.DesignNo || item?.DesignId || item?.design_id || item?.DesignName || item?.Design || '-',
+                                grossWt: Number(item?.GrossWt ?? item?.grosswt ?? item?.TWt ?? 0).toFixed(3),
+                                netWt: Number(item?.NetWt ?? item?.netwt ?? 0).toFixed(3),
+                                qty: (parseFloat(item?.mrp ?? item?.MRP ?? item?.MRPAmount ?? item?.Mrp ?? 0) || 0).toFixed(2),
+                              })
+                          : undefined
+                      }
+                      style={{ cursor: imageSrc ? 'zoom-in' : 'default' }}
+                    >
+                      <GridItemImage
+                        src={imageSrc}
+                        itemCode={String(item?.ItemCode || item?.Itemcode || '').trim()}
+                        lookupKeys={lookupKeys}
+                        alt={item?.ItemCode || 'Item'}
+                        wrapperStyle={{ width: '100%', height: 240, background: '#ffffff', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 22px', boxSizing: 'border-box' }}
+                        imgStyle={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff', borderRadius: 6 }}
+                        placeholder={<div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 10 }}>No image</div>}
+                      />
+                    </div>
+                    <div style={{ padding: 8 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 5 }}>
+                        <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item?.ItemCode || item?.Itemcode || '-'}>
+                          <span style={{ color: '#64748b', fontWeight: 700 }}>ItemCode:</span> <strong>{item?.ItemCode || item?.Itemcode || '-'}</strong>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#334155', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item?.RFIDCode || item?.RFIDNumber || '-'}>
+                          <span style={{ color: '#64748b', fontWeight: 700 }}>RFIDCode:</span> <strong>{item?.RFIDCode || item?.RFIDNumber || '-'}</strong>
+                        </div>
+                        <div
+                          style={{ fontSize: 11, color: '#475569', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          title={item?.DesignNo || item?.DesignId || item?.design_id || item?.DesignName || item?.Design || '-'}
+                        >
+                          <span style={{ color: '#64748b', fontWeight: 700 }}>DesignNo:</span> <strong>{item?.DesignNo || item?.DesignId || item?.design_id || item?.DesignName || item?.Design || '-'}</strong>
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 11, color: '#334155' }}>
+                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 700 }}>
+                          <span style={{ color: '#64748b' }}>GrossWt:</span> <strong>{Number(item?.GrossWt ?? item?.grosswt ?? item?.TWt ?? 0).toFixed(3)}</strong>
+                        </div>
+                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 700 }}>
+                          <span style={{ color: '#64748b' }}>NetWt:</span> <strong>{Number(item?.NetWt ?? item?.netwt ?? 0).toFixed(3)}</strong>
+                        </div>
+                        <div style={{ textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 700 }}>
+                          <span style={{ color: '#64748b' }}>Qty:</span> <strong>{(parseFloat(item?.mrp ?? item?.MRP ?? item?.MRPAmount ?? item?.Mrp ?? 0) || 0).toFixed(2)}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pagination */}
+      {viewMode === 'table' ? (
       <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -865,7 +1340,9 @@ const RFIDDeviceDetails = () => {
             color: '#64748b'
           }}>
             <span>
-              Showing {totalRecords === 0 ? 0 : ((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalRecords)} of {totalRecords} entries · {ITEMS_PER_PAGE}/page
+              {viewMode === 'table'
+                ? `Showing ${totalRecords === 0 ? 0 : ((currentPage - 1) * ITEMS_PER_PAGE) + 1} to ${Math.min(currentPage * ITEMS_PER_PAGE, totalRecords)} of ${totalRecords} entries · ${ITEMS_PER_PAGE}/page`
+                : `Showing ${gridTotalRecords === 0 ? 0 : ((gridPage - 1) * GRID_ITEMS_PER_PAGE) + 1} to ${Math.min(gridPage * GRID_ITEMS_PER_PAGE, gridTotalRecords)} of ${gridTotalRecords} entries · ${GRID_ITEMS_PER_PAGE}/page`}
             </span>
           </div>
           <div style={{
@@ -875,27 +1352,27 @@ const RFIDDeviceDetails = () => {
             flexWrap: 'wrap'
           }}>
             <button
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
+              onClick={() => (viewMode === 'table' ? handlePageChange(currentPage - 1) : handleGridPageChange(gridPage - 1))}
+              disabled={viewMode === 'table' ? currentPage === 1 : gridPage === 1}
               style={{
                 padding: '6px 12px',
                 fontSize: '12px',
                 fontWeight: 600,
                 borderRadius: '6px',
                 border: '1px solid #e2e8f0',
-                background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
-                color: currentPage === 1 ? '#94a3b8' : '#475569',
-                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                background: (viewMode === 'table' ? currentPage === 1 : gridPage === 1) ? '#f1f5f9' : '#ffffff',
+                color: (viewMode === 'table' ? currentPage === 1 : gridPage === 1) ? '#94a3b8' : '#475569',
+                cursor: (viewMode === 'table' ? currentPage === 1 : gridPage === 1) ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s'
               }}
               onMouseEnter={(e) => {
-                if (currentPage !== 1) {
+                if ((viewMode === 'table' ? currentPage !== 1 : gridPage !== 1)) {
                   e.target.style.background = '#f8fafc';
                   e.target.style.borderColor = '#cbd5e1';
                 }
               }}
               onMouseLeave={(e) => {
-                if (currentPage !== 1) {
+                if ((viewMode === 'table' ? currentPage !== 1 : gridPage !== 1)) {
                   e.target.style.background = '#ffffff';
                   e.target.style.borderColor = '#e2e8f0';
                 }
@@ -903,40 +1380,42 @@ const RFIDDeviceDetails = () => {
             >
               Previous
             </button>
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+            {Array.from({ length: Math.min(5, viewMode === 'table' ? totalPages : gridTotalPages) }, (_, i) => {
               let page;
-              if (totalPages <= 5) {
+              const activeTotalPages = viewMode === 'table' ? totalPages : gridTotalPages;
+              const activePage = viewMode === 'table' ? currentPage : gridPage;
+              if (activeTotalPages <= 5) {
                 page = i + 1;
-              } else if (currentPage <= 3) {
+              } else if (activePage <= 3) {
                 page = i + 1;
-              } else if (currentPage >= totalPages - 2) {
-                page = totalPages - 4 + i;
+              } else if (activePage >= activeTotalPages - 2) {
+                page = activeTotalPages - 4 + i;
               } else {
-                page = currentPage - 2 + i;
+                page = activePage - 2 + i;
               }
               return (
                 <button
                   key={page}
-                  onClick={() => handlePageChange(page)}
+                  onClick={() => (viewMode === 'table' ? handlePageChange(page) : handleGridPageChange(page))}
                   style={{
                     padding: '6px 12px',
                     fontSize: '12px',
                     fontWeight: 600,
                     borderRadius: '6px',
                     border: '1px solid #e2e8f0',
-                    background: currentPage === page ? '#7c3aed' : '#ffffff',
-                    color: currentPage === page ? '#ffffff' : '#475569',
+                    background: (viewMode === 'table' ? currentPage === page : gridPage === page) ? '#7c3aed' : '#ffffff',
+                    color: (viewMode === 'table' ? currentPage === page : gridPage === page) ? '#ffffff' : '#475569',
                     cursor: 'pointer',
                     transition: 'all 0.2s'
                   }}
                   onMouseEnter={(e) => {
-                    if (currentPage !== page) {
+                    if ((viewMode === 'table' ? currentPage !== page : gridPage !== page)) {
                       e.target.style.background = '#f8fafc';
                       e.target.style.borderColor = '#cbd5e1';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (currentPage !== page) {
+                    if ((viewMode === 'table' ? currentPage !== page : gridPage !== page)) {
                       e.target.style.background = '#ffffff';
                       e.target.style.borderColor = '#e2e8f0';
                     }
@@ -947,27 +1426,27 @@ const RFIDDeviceDetails = () => {
               );
             })}
             <button
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage === totalPages}
+              onClick={() => (viewMode === 'table' ? handlePageChange(currentPage + 1) : handleGridPageChange(gridPage + 1))}
+              disabled={viewMode === 'table' ? currentPage === totalPages : gridPage === gridTotalPages}
               style={{
                 padding: '6px 12px',
                 fontSize: '12px',
                 fontWeight: 600,
                 borderRadius: '6px',
                 border: '1px solid #e2e8f0',
-                background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
-                color: currentPage === totalPages ? '#94a3b8' : '#475569',
-                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                background: (viewMode === 'table' ? currentPage === totalPages : gridPage === gridTotalPages) ? '#f1f5f9' : '#ffffff',
+                color: (viewMode === 'table' ? currentPage === totalPages : gridPage === gridTotalPages) ? '#94a3b8' : '#475569',
+                cursor: (viewMode === 'table' ? currentPage === totalPages : gridPage === gridTotalPages) ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s'
               }}
               onMouseEnter={(e) => {
-                if (currentPage !== totalPages) {
+                if ((viewMode === 'table' ? currentPage !== totalPages : gridPage !== gridTotalPages)) {
                   e.target.style.background = '#f8fafc';
                   e.target.style.borderColor = '#cbd5e1';
                 }
               }}
               onMouseLeave={(e) => {
-                if (currentPage !== totalPages) {
+                if ((viewMode === 'table' ? currentPage !== totalPages : gridPage !== gridTotalPages)) {
                   e.target.style.background = '#ffffff';
                   e.target.style.borderColor = '#e2e8f0';
                 }
@@ -977,6 +1456,58 @@ const RFIDDeviceDetails = () => {
             </button>
           </div>
         </div>
+      ) : null}
+
+      {previewImage ? (
+        <div
+          onClick={() => setPreviewImage(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10050,
+            background: 'rgba(15,23,42,0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(980px, calc(100vw - 32px))',
+              maxHeight: 'calc(100vh - 32px)',
+              background: '#fff',
+              borderRadius: 12,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 20px 45px rgba(0,0,0,0.35)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 12px', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 12, color: '#0f172a', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewImage.title}</div>
+              <button onClick={() => setPreviewImage(null)} style={{ border: '1px solid #d1d5db', background: '#fff', borderRadius: 8, width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                <FaTimes />
+              </button>
+            </div>
+            <div style={{ background: '#fff', padding: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img src={previewImage.src} alt={previewImage.title || 'Preview'} style={{ width: '100%', maxHeight: 'calc(100vh - 260px)', objectFit: 'contain' }} />
+            </div>
+            <div style={{ borderTop: '1px solid #e2e8f0', padding: '10px 12px', background: '#f8fafc' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#64748b' }}>ItemCode:</span> {previewImage.itemCode || '-'}</div>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#64748b' }}>RFIDCode:</span> {previewImage.rfidCode || '-'}</div>
+                <div style={{ textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#64748b' }}>DesignNo:</span> {previewImage.designNo || '-'}</div>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#64748b' }}>GrossWt:</span> {previewImage.grossWt || '0.000'}</div>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#64748b' }}>NetWt:</span> {previewImage.netWt || '0.000'}</div>
+                <div style={{ textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#64748b' }}>Qty:</span> {previewImage.qty || '0.00'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Filter Slider - Right Side */}
       {showFilterPanel && (

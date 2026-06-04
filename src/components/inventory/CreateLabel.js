@@ -361,6 +361,9 @@ const CreateLabel = () => {
             if (typeof element.width !== 'number') element.width = element.width || 100;
             if (typeof element.height !== 'number') element.height = element.height || 30;
             if (!element.zIndex) element.zIndex = 10;
+            if (element.type === 'text' && (element.rotation == null || Number.isNaN(Number(element.rotation)))) {
+              element.rotation = 0;
+            }
             
             return element;
           });
@@ -919,6 +922,7 @@ const CreateLabel = () => {
                   fontSize: element.fontSize,
                   fontWeight: element.fontWeight,
                   color: element.color,
+                  rotation: element.rotation ?? 0,
                 };
               }
 
@@ -1388,7 +1392,8 @@ const CreateLabel = () => {
           padding: '16px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
           border: '1px solid #e5e7eb',
-          overflowY: 'auto'
+          overflowY: 'auto',
+          maxHeight: 'calc(100vh - 200px)',
         }}>
           <LabelPropertiesPanel
             selectedElement={selectedElement}

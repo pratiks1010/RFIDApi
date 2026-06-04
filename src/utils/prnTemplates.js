@@ -117,6 +117,46 @@ END
 `;
 };
 
+// Generate PRN for LS000371 — bold item code + QR (dynamic ItemCode)
+const generateLS000371Prn = (item) => {
+  const code = String(item.ItemCode || item.RFIDCode || item.Barcode || '').trim();
+
+  return `!PTX_SETUP
+ENGINE-WIDTH;1183:LENGTH;1695:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
+~CONFIG
+CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
+END
+~CREATE;FORM-0;122
+SCALE;DOT;203;203
+ISET;'UTF8'
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+CCW;POINT;226;186;12;12;"${code}"
+STOP
+BARCODE
+QRCODE;CCW;XD3;T2;E0;M0;I0;143;56
+"${code}"
+STOP
+END
+~EXECUTE;FORM-0;1
+
+~NORMAL
+~DELETE FORM;FORM-0
+`;
+};
+
 // Generate PRN for LS000428 (Original template)
 const generateLS000428Prn = (item) => {
   // Use MRP if available, otherwise fallback to FixedAmt, then '0'
@@ -566,6 +606,8 @@ export const generateClientPrn = (item, clientCode) => {
   switch (code) {
     case 'LS000224':
       return generateLS000224Prn(item);
+    case 'LS000371':
+      return generateLS000371Prn(item);
     case 'LS000428':
       return generateLS000428Prn(item);
     case 'LS000431':

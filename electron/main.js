@@ -371,6 +371,49 @@ const handleBridgeOutputLine = (line) => {
   }
 };
 
+const RFID_BRIDGE_REQUIRED_DLLS = ["UHFAPI.dll", "UHFControl.dll", "libusb-1.0.dll"];
+
+const getRfidBridgeDirectory = () => {
+  if (!app.isPackaged) {
+    return path.join(app.getAppPath(), "rfid-bridge");
+  }
+  return path.join(process.resourcesPath, "rfid-bridge");
+};
+
+const verifyRfidBridgeBundle = () => {
+  const bridgeDir = getRfidBridgeDirectory();
+  const exePath = path.join(bridgeDir, "rfid-bridge.exe");
+  const missingDlls = RFID_BRIDGE_REQUIRED_DLLS.filter(
+    (name) => !fsSync.existsSync(path.join(bridgeDir, name))
+  );
+
+  if (!app.isPackaged) {
+    return { ok: true, bridgeDir, exePath, missingDlls: [] };
+  }
+
+  if (!fsSync.existsSync(exePath)) {
+    return {
+      ok: false,
+      bridgeDir,
+      exePath,
+      missingDlls,
+      message: `RFID bridge is missing in this install (${exePath}). Reinstall the desktop app.`,
+    };
+  }
+
+  if (missingDlls.length) {
+    return {
+      ok: false,
+      bridgeDir,
+      exePath,
+      missingDlls,
+      message: `RFID reader SDK files are missing (${missingDlls.join(", ")}). Reinstall the desktop app.`,
+    };
+  }
+
+  return { ok: true, bridgeDir, exePath, missingDlls: [] };
+};
+
 const getBridgeStartConfig = () => {
   if (!app.isPackaged) {
     const projectPath = path.join(app.getAppPath(), "rfid-bridge", "rfid-bridge.csproj");
@@ -394,6 +437,13 @@ const getBridgeStartConfig = () => {
 const ensureBridgeProcess = async () => {
   if (bridgeProcess && !bridgeProcess.killed) {
     return true;
+  }
+
+  const bundleCheck = verifyRfidBridgeBundle();
+  if (!bundleCheck.ok) {
+    const msg = bundleCheck.message || "RFID bridge bundle is incomplete.";
+    sendBridgeEvent("rfid-bridge-error", msg);
+    throw new Error(msg);
   }
 
   const cfg = getBridgeStartConfig();
@@ -1061,9 +1111,15 @@ ipcMain.handle("feronia-get-stock", async (_, authToken) => {
 });
 
 ipcMain.handle("rfid-bridge-ensure", async () => {
+  const bundleCheck = verifyRfidBridgeBundle();
+  if (!bundleCheck.ok) {
+    return { ok: false, error: bundleCheck.message, ...bundleCheck };
+  }
   await ensureBridgeProcess();
-  return { ok: true };
+  return { ok: true, bridgeDir: bundleCheck.bridgeDir };
 });
+
+ipcMain.handle("rfid-bridge-verify-bundle", async () => verifyRfidBridgeBundle());
 
 ipcMain.handle("rfid-bridge-command", async (_, command) => {
   if (!command || typeof command !== "string") {

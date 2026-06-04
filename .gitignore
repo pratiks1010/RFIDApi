@@ -15,6 +15,9 @@ node_modules/
 /dist
 /release
 
+# Downloaded at build time for installer (npm run build:bridge)
+build-resources/prerequisites/vc_redist.x64.exe
+
 # Electron build artifacts (electron-builder output)
 /release
 /release-builds

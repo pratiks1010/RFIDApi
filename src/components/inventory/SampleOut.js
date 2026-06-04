@@ -16,8 +16,6 @@ import {
   FaChevronDown,
   FaInbox,
   FaCheckCircle,
-  FaThLarge,
-  FaTable
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -48,27 +46,42 @@ import {
 import TrayScanModal from '../common/TrayScanModal';
 import GridItemImage from '../common/GridItemImage';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
-import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl } from '../../services/apiBaseConfig';
+import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl, toRrgoldApiUrl } from '../../services/apiBaseConfig';
 import { getCreateSampleOutUrl, getSampleOutNextNumberUrl } from '../../services/sampleInOutApi';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
 
 /** Fixed page height for sample-out items grid (same as Sample Out list). */
-const ITEMS_TABLE_PAGE_SIZE = 15;
 const ITEMS_GRID_PAGE_SIZE = 6;
 const SAMPLE_OUT_GRID_COLUMNS = 3;
-const SO_ITEMS_TABLE_HEAD_BG = '#2d3e50';
 const SAMPLE_OUT_ITEMS_VIEW_PREF_KEY = 'sampleOutItemsViewPreference';
+const SAMPLE_OUT_TRAY_DEVICE_ID = 'Adb';
+
+const normalizeScanRows = (scanned) => {
+  if (!Array.isArray(scanned)) return [];
+  return scanned
+    .map((item) => {
+      if (typeof item === 'string') {
+        const epc = String(item || '').trim().toUpperCase();
+        return epc ? { epc, rfidCode: epc } : null;
+      }
+      const epc = String(item?.epc || item?.EPC || '').trim().toUpperCase();
+      if (!epc) return null;
+      const rfidCode = String(item?.rfidCode || item?.RFIDCode || '').trim();
+      return { epc, rfidCode: rfidCode || epc };
+    })
+    .filter(Boolean);
+};
 
 const pageBtnStyleItems = (disabled) => ({
-  padding: '5px 11px',
-  fontSize: 12,
-  fontWeight: 600,
+  padding: '6px 12px',
+  fontSize: 11,
+  fontWeight: 700,
   borderRadius: 8,
-  border: '1px solid #e5e5e5',
-  background: '#ffffff',
-  color: disabled ? '#a3a3a3' : '#525252',
+  border: '1px solid #e2e8f0',
+  background: disabled ? '#f1f5f9' : '#ffffff',
+  color: disabled ? '#94a3b8' : '#475569',
   cursor: disabled ? 'not-allowed' : 'pointer',
-  opacity: disabled ? 0.5 : 1,
+  opacity: disabled ? 0.95 : 1,
 });
 
 const formatSampleApiDateTime = (value) => {
@@ -238,7 +251,9 @@ const SampleOut = () => {
   const normalizeArray = (data) => {
     if (!data) return [];
     if (Array.isArray(data)) return data;
+    if (data.Data && Array.isArray(data.Data)) return data.Data;
     if (data.data && Array.isArray(data.data)) return data.data;
+    if (data.Items && Array.isArray(data.Items)) return data.Items;
     if (data.result && Array.isArray(data.result)) return data.result;
     return [];
   };
@@ -274,6 +289,42 @@ const SampleOut = () => {
     String(row?.design_id ?? row?.DesignName ?? row?.Design ?? '').trim() || '—';
   const rowGrossWtOrZero = (row) => String(row?.grosswt ?? row?.GrossWt ?? row?.GrossWeight ?? row?.TWt ?? '0.000');
   const rowNetWtOrZero = (row) => String(row?.netwt ?? row?.NetWt ?? row?.NetWeight ?? row?.NtWt ?? '0.000');
+const rowPieces = (row) => {
+  const n = parseFloat(row?.Qty ?? row?.qty ?? row?.Pieces ?? row?.pieces ?? 1);
+  return Number.isNaN(n) ? 1 : n;
+};
+const rowScannedDateTime = (row) => {
+  const src = row?.fullItemData ?? row ?? {};
+  const values = [
+    row?.__scannedAt,
+    src?.ScanDateTime,
+    src?.ScannedDateTime,
+    src?.CreatedDate,
+    src?.CreatedOn,
+    src?.DateTime,
+    row?.ScanDateTime,
+    row?.ScannedDateTime,
+    row?.CreatedDate,
+    row?.CreatedOn,
+    row?.DateTime,
+  ];
+  for (const v of values) {
+    if (!v) continue;
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime()) && d.getFullYear() >= 2010) return d;
+  }
+  return null;
+};
+const formatScannedDateTime = (date) => {
+  if (!date) return '—';
+  return date.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
   const rowImageUrl = (row) => {
     const src = row?.fullItemData ?? row ?? {};
     const raw = String(
@@ -920,7 +971,7 @@ const SampleOut = () => {
 
       // Call GetAllLabeledStock API with ItemCode
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
+        toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock'),
         { 
           ClientCode: userInfo.ClientCode,
           ItemCode: searchTerm.trim()
@@ -959,6 +1010,7 @@ const SampleOut = () => {
 
     const productData = {
       id: Date.now(),
+      __scannedAt: new Date().toISOString(),
       RFIDNumber: item.RFIDNumber || item.RFID || item.RFIDCode || '',
       Itemcode: rowItemCode(item) || item.Itemcode || item.ItemCode || '',
       LabelledStockId: item.LabelledStockId || item.LabelledStockID || item.Id || item.id || '',
@@ -1007,20 +1059,143 @@ const SampleOut = () => {
     });
   };
 
-  const handleTrayFetchData = async (scanned) => {
-    const epcs = (Array.isArray(scanned) ? scanned : [])
-      .map((item) => (typeof item === 'string' ? item : String(item?.epc || item?.EPC || '')).trim().toUpperCase())
-      .filter(Boolean);
-    if (!userInfo?.ClientCode || !epcs.length) return false;
+  const getTrayAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('token')}`,
+    'Content-Type': 'application/json',
+  });
+
+  const mapDeviceRowsToSampleOutItems = (rows) => {
+    const out = [];
+    const seen = new Set();
+    rows.forEach((entry, idx) => {
+      const pd = entry?.ProductDetails ?? entry?.productDetails;
+      if (!pd || typeof pd !== 'object') return;
+      const itemCode = String(pd.ItemCode || pd.Itemcode || '').trim();
+      const rfid = String(pd.RFIDCode || pd.RFIDNumber || entry?.RFIDCode || '').trim();
+      const dedup = `${itemCode.toUpperCase()}|${rfid.toUpperCase()}`;
+      if (seen.has(dedup)) return;
+      seen.add(dedup);
+      out.push({
+        id: Date.now() + idx,
+        __scannedAt:
+          entry?.ScanDateTime ||
+          entry?.CreatedDate ||
+          entry?.CreatedOn ||
+          pd?.ScanDateTime ||
+          pd?.CreatedDate ||
+          new Date().toISOString(),
+        scanSource: String(entry?.DeviceId || '').trim().toLowerCase() === SAMPLE_OUT_TRAY_DEVICE_ID.toLowerCase()
+          ? 'tray'
+          : 'desktop',
+        RFIDNumber: rfid,
+        Itemcode: itemCode,
+        LabelledStockId: pd.LabelledStockId || pd.Id || entry?.Id || '',
+        category_id: pd.CategoryName || pd.Category || pd.category_id || '',
+        product_id: pd.ProductName || pd.Product || pd.product_id || '',
+        design_id: pd.DesignName || pd.Design || pd.design_id || '',
+        purity_id: pd.PurityName || pd.Purity || pd.purity_id || '',
+        grosswt: pd.GrossWt || pd.GrossWeight || pd.grosswt || pd.TWt || '0.000',
+        stonewt: pd.StoneWt || pd.StoneWeight || pd.stonewt || pd.StWt || '0.000',
+        diamondweight: pd.DiamondWeight || pd.diamondweight || pd.DiaWt || '0.000',
+        netwt: pd.NetWt || pd.NetWeight || pd.netwt || pd.NtWt || '0.000',
+        FinePercent: pd.FinePercent || pd.FinePercentage || pd['Fine %'] || '0.00',
+        WastagePercent: pd.WastagePercent || pd.WastagePercentage || pd['Wastage %'] || '0.00',
+        Qty: pd.Qty || pd.Quantity || 1,
+        Pieces: pd.Pieces || pd.Qty || 1,
+        TotalWt: pd.GrossWt || pd.GrossWeight || pd.grosswt || pd.TWt || '0.000',
+        fullItemData: pd,
+      });
+    });
+    return out;
+  };
+
+  const fetchScannedRfidItemsFromDevice = async (notifyOnEmpty = false) => {
+    const clientCode = resolveClientCodeForSampleApi(userInfo);
+    if (!clientCode) return [];
     try {
-      const headers = {
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
-      };
       const { data } = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetLabelledStockByTIDNumbers',
-        { ClientCode: userInfo.ClientCode, TIDNumbers: epcs },
-        { headers }
+        toRrgoldApiUrl('/api/RFIDDevice/GetAllRFIDDetails'),
+        { ClientCode: clientCode },
+        { headers: getTrayAuthHeaders() }
+      );
+      const rows = normalizeArray(data);
+      const mapped = mapDeviceRowsToSampleOutItems(rows);
+      setSampleOutItems(mapped);
+      if (notifyOnEmpty && mapped.length === 0) {
+        addNotification({
+          type: 'info',
+          title: 'No scanned stock',
+          message: 'No scanned stock found in RFID device details.',
+        });
+      }
+      return mapped;
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Load failed',
+        message: error?.response?.data?.message || error?.message || 'Failed to load RFID scanned stock details.',
+      });
+      return [];
+    }
+  };
+
+  useEffect(() => {
+    if (!userInfo?.ClientCode) return;
+    fetchScannedRfidItemsFromDevice(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userInfo?.ClientCode]);
+
+  const clearTrayScanSession = async () => {
+    const clientCode = resolveClientCodeForSampleApi(userInfo);
+    if (!clientCode) return;
+    try {
+      await axios.post(
+        toRrgoldApiUrl('/api/RFIDDevice/DeleteRFIDByClientAndDevice'),
+        { ClientCode: clientCode, DeviceId: SAMPLE_OUT_TRAY_DEVICE_ID },
+        { headers: getTrayAuthHeaders() }
+      );
+    } catch {
+      /* keep going even if server clear fails */
+    }
+    setSampleOutItems((prev) => prev.filter((item) => item.scanSource !== 'tray'));
+  };
+
+  const handleTrayScanStart = async () => {
+    await clearTrayScanSession();
+    addNotification({
+      type: 'info',
+      title: 'Scan started',
+      message: 'Previous tray scan list cleared. Place tags on the reader.',
+    });
+  };
+
+  const handleTrayFetchData = async (scanned) => {
+    const scanRows = normalizeScanRows(scanned);
+    const epcs = scanRows.map((r) => r.epc);
+    const clientCode = resolveClientCodeForSampleApi(userInfo);
+    if (!clientCode || !epcs.length) return false;
+    try {
+      const payload = scanRows.map((row) => ({
+        ClientCode: clientCode,
+        DeviceId: SAMPLE_OUT_TRAY_DEVICE_ID,
+        TIDValue: row.epc,
+        RFIDCode: row.rfidCode || row.epc,
+        StatusType: true,
+      }));
+      const addRes = await axios.post(
+        toRrgoldApiUrl('/api/RFIDDevice/AddRFID'),
+        payload,
+        { headers: getTrayAuthHeaders() }
+      );
+      const savedRows = normalizeArray(addRes?.data);
+      if (!savedRows.length) {
+        addNotification({ type: 'warning', title: 'No save data', message: 'RFID scan save returned no rows.' });
+      }
+
+      const { data } = await axios.post(
+        toRrgoldApiUrl('/api/ProductMaster/GetLabelledStockByTIDNumbers'),
+        { ClientCode: clientCode, TIDNumbers: epcs },
+        { headers: getTrayAuthHeaders() }
       );
       const rows = normalizeArray(data);
       if (!rows.length) {
@@ -1042,6 +1217,7 @@ const SampleOut = () => {
           added += 1;
           next.push({
             id: Date.now() + added,
+            __scannedAt: new Date().toISOString(),
             scanSource: 'tray',
             RFIDNumber: item.RFIDNumber || item.RFID || item.RFIDCode || '',
             Itemcode: item.Itemcode || item.ItemCode || '',
@@ -1066,12 +1242,13 @@ const SampleOut = () => {
       });
       addNotification({
         type: 'success',
-        title: 'Tray Data Fetched',
-        message: `Added ${added} item(s) from tray scan.${skipped > 0 ? ` Skipped ${skipped} duplicate/invalid item(s).` : ''}`
+        title: 'Tray scan saved',
+        message: `Saved ${savedRows.length || scanRows.length} scan(s). Added ${added} item(s).${skipped > 0 ? ` Skipped ${skipped}.` : ''}`
       });
+      await fetchScannedRfidItemsFromDevice(false);
       return true;
     } catch (error) {
-      addNotification({ type: 'error', title: 'Fetch Failed', message: error?.response?.data?.message || 'Failed to fetch data from scanned EPC tags.' });
+      addNotification({ type: 'error', title: 'Save failed', message: error?.response?.data?.message || error?.response?.data?.Message || error?.message || 'Failed to save/fetch tray scan data.' });
       return false;
     }
   };
@@ -1375,22 +1552,39 @@ const SampleOut = () => {
       ].some((v) => String(v || '').toLowerCase().includes(q))
     );
   }, [sampleOutItems, tableSearch]);
-  const activePageSize = itemsViewMode === 'grid' ? ITEMS_GRID_PAGE_SIZE : ITEMS_TABLE_PAGE_SIZE;
+  const activePageSize = ITEMS_GRID_PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(filteredTableItems.length / activePageSize));
   const startIndex = (currentPage - 1) * activePageSize;
   const endIndex = startIndex + activePageSize;
   const currentItems = filteredTableItems.slice(startIndex, endIndex);
-
-  const paddedItemSlots = useMemo(() => {
-    if (itemsViewMode !== 'table') return [];
-    const slots = [];
-    currentItems.forEach((item) => slots.push({ kind: 'row', item }));
-    const pad = Math.max(0, activePageSize - slots.length);
-    for (let i = 0; i < pad; i += 1) {
-      slots.push({ kind: 'pad', key: `sample-out-items-pad-${currentPage}-${i}` });
+  const itemsSummary = useMemo(() => {
+    const totalProducts = filteredTableItems.length;
+    const totalGrossWt = filteredTableItems.reduce(
+      (sum, item) => sum + (parseFloat(rowGrossWtOrZero(item)) || 0),
+      0
+    );
+    const totalPiecesScanned = filteredTableItems.reduce((sum, item) => sum + rowPieces(item), 0);
+    let latestScanDateTime = null;
+    filteredTableItems.forEach((item) => {
+      const dt = rowScannedDateTime(item);
+      if (!dt) return;
+      if (!latestScanDateTime || dt.getTime() > latestScanDateTime.getTime()) latestScanDateTime = dt;
+    });
+    return { totalProducts, totalGrossWt, totalPiecesScanned, latestScanDateTime };
+  }, [filteredTableItems]);
+  const pageNumbers = useMemo(() => {
+    const pages = [];
+    const maxButtons = 7;
+    if (totalPages <= maxButtons) {
+      for (let p = 1; p <= totalPages; p += 1) pages.push(p);
+      return pages;
     }
-    return slots;
-  }, [activePageSize, currentItems, currentPage, itemsViewMode]);
+    let start = Math.max(1, currentPage - 3);
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    start = Math.max(1, end - maxButtons + 1);
+    for (let p = start; p <= end; p += 1) pages.push(p);
+    return pages;
+  }, [currentPage, totalPages]);
 
   useEffect(() => {
     setCurrentPage((p) => Math.min(p, totalPages));
@@ -1428,9 +1622,9 @@ const SampleOut = () => {
     borderRadius: '10px',
     boxShadow: '0 16px 32px rgba(15, 23, 42, 0.14)',
     marginTop: '6px',
-    maxHeight: '280px',
+    maxHeight: 'min(280px, 50vh)',
     overflowY: 'auto',
-    zIndex: 1100
+    zIndex: 12050,
   };
 
   const partyAccentColor =
@@ -1662,15 +1856,41 @@ const SampleOut = () => {
     }
   };
 
+  const compactLbl = {
+    display: 'block',
+    fontSize: 10,
+    fontWeight: 700,
+    color: '#64748b',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  };
+  const compactInp = {
+    width: '100%',
+    height: 28,
+    padding: '0 8px',
+    fontSize: 11,
+    border: '1px solid #e2e8f0',
+    borderRadius: 6,
+    outline: 'none',
+    boxSizing: 'border-box',
+    background: '#fff',
+  };
+
   return (
-    <div style={{ 
-      padding: isSmallScreen ? '8px' : '12px',
-      fontFamily: 'Inter, system-ui, sans-serif', 
+    <div style={{
+      padding: isSmallScreen ? '8px' : '10px',
+      fontFamily: 'Inter, Poppins, sans-serif',
       background: '#ffffff',
       minHeight: '100vh',
+      height: '100vh',
       width: '100%',
       maxWidth: '100%',
-      boxSizing: 'border-box'
+      boxSizing: 'border-box',
+      display: 'flex',
+      flexDirection: 'column',
+      overflowX: 'hidden',
+      overflowY: 'auto',
     }}>
       <style>{`
         @keyframes spin {
@@ -1687,21 +1907,39 @@ const SampleOut = () => {
           }
         }
       `}</style>
-      {/* Top Header - Compact */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '10px',
-        padding: isSmallScreen ? '8px 10px' : '10px 12px',
-        marginBottom: '10px',
-        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
-        border: '1px solid #e2e8f0',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: isSmallScreen ? 'flex-start' : 'center',
-        flexWrap: 'wrap',
-        gap: isSmallScreen ? '8px' : '10px',
-        flexDirection: isSmallScreen ? 'column' : 'row'
-      }}>
+      {/* Compact entry — party, item search, dates (minimal height) */}
+      <div
+        style={{
+          flexShrink: 0,
+          background: '#ffffff',
+          borderRadius: 10,
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 2px 8px rgba(15, 23, 42, 0.05)',
+          marginBottom: 8,
+          overflow: 'visible',
+          position: 'relative',
+          zIndex: 30,
+        }}
+      >
+        <div
+          style={{
+            height: 3,
+            background: 'linear-gradient(90deg, #2563eb 0%, #3b82f6 50%, #60a5fa 100%)',
+          }}
+        />
+        <div style={{ padding: isSmallScreen ? '8px' : '8px 10px' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginBottom: 8,
+              paddingBottom: 8,
+              borderBottom: '1px solid #f1f5f9',
+            }}
+          >
         <div
           style={{
             display: 'flex',
@@ -1737,9 +1975,9 @@ const SampleOut = () => {
             <h2
               style={{
                 margin: 0,
-                fontSize: isSmallScreen ? '15px' : '18px',
+                fontSize: isSmallScreen ? '14px' : '16px',
                 fontWeight: 800,
-                color: '#1e293b',
+                color: '#0f172a',
                 lineHeight: '1.2',
                 letterSpacing: '-0.02em',
               }}
@@ -1777,23 +2015,16 @@ const SampleOut = () => {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '10px',
-              padding: isSmallScreen ? '8px 12px' : '8px 14px',
-              borderRadius: '12px',
-              background: 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)',
+              gap: 8,
+              padding: '4px 10px',
+              borderRadius: 8,
+              background: '#f8fafc',
               border: '1px solid #e2e8f0',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(15, 23, 42, 0.06)',
-              flex: isSmallScreen ? 1 : 'none'
+              flex: isSmallScreen ? 1 : 'none',
             }}
           >
-            <span style={{
-              fontSize: isSmallScreen ? '10px' : '11px',
-              color: '#64748b',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}>
-              Sample lot no.
+            <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Lot
             </span>
             <span
               title={
@@ -1951,29 +2182,30 @@ const SampleOut = () => {
             </div>
           )}
         </div>
-      </div>
+          </div>
 
-      {/* Main Content Layout — 50% / 50% split */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isSmallScreen ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)',
-        gap: isSmallScreen ? '10px' : '12px',
-        marginBottom: '12px',
-        alignItems: 'start'
-      }}>
-        {/* Party sidebar — only the active party fields; accent matches Create Masters members */}
-        <div style={{
-          ...cardBaseStyle,
-          marginBottom: 0,
-          alignSelf: 'start',
-          borderTop: `3px solid ${partyAccentColor}`,
-          padding: isSmallScreen ? '8px 10px' : '10px 12px',
-        }}>
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-              Party type
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '8px 10px',
+              alignItems: 'flex-end',
+            }}
+          >
+        {/* Party */}
+        <div
+          style={{
+            flex: isSmallScreen ? '1 1 100%' : '1 1 300px',
+            minWidth: isSmallScreen ? '100%' : 280,
+            borderLeft: isSmallScreen ? 'none' : `2px solid ${partyAccentColor}`,
+            paddingLeft: isSmallScreen ? 0 : 8,
+            position: 'relative',
+            zIndex: 40,
+            overflow: 'visible',
+          }}
+        >
+          <div style={{ marginBottom: 4 }}>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {partySegments.map(({ id, label, Icon, color }) => {
                 const active = partyType === id;
                 return (
@@ -1988,8 +2220,8 @@ const SampleOut = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 8,
-                      padding: '6px 10px',
-                      borderRadius: 10,
+                      padding: '4px 8px',
+                      borderRadius: 6,
                       border: active ? `2px solid ${color}` : '1px solid #e2e8f0',
                       background: active ? `${color}14` : '#f8fafc',
                       color: active ? color : '#64748b',
@@ -2008,20 +2240,9 @@ const SampleOut = () => {
             </div>
           </div>
 
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: isSmallScreen ? '1fr' : '2fr 1fr', 
-            gap: isSmallScreen ? '8px' : '10px' 
-          }}>
-             {/* Party name (customer / vendor / employee) */}
-             <div ref={customerDropdownRef} style={{ position: 'relative' }}>
-               <label style={{ 
-                 display: 'block', 
-                fontSize: '11px', 
-                 fontWeight: 600, 
-                 color: '#475569', 
-                 marginBottom: '4px' 
-               }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isSmallScreen ? '1fr' : '1fr 92px', gap: 6 }}>
+             <div ref={customerDropdownRef} style={{ position: 'relative', zIndex: 50, overflow: 'visible' }}>
+               <label style={compactLbl}>
                  {partyNameFieldLabel}<span style={{ color: '#ef4444' }}>*</span>
                </label>
                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
@@ -2065,16 +2286,8 @@ const SampleOut = () => {
                      placeholder={partySearchPlaceholder}
                      disabled={loadingPartyList}
                      style={{
-                       width: '100%',
-                      padding: '8px 10px',
-                      fontSize: '11px',
-                       border: '1px solid #d1d5db',
-                       borderRadius: '8px',
-                       outline: 'none',
+                       ...compactInp,
                        background: loadingPartyList ? '#f9fafb' : '#ffffff',
-                       boxSizing: 'border-box',
-                       transition: 'all 0.2s ease',
-                       boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                      }}
                    />
                   {partyDropdownOpen && (
@@ -2326,18 +2539,13 @@ const SampleOut = () => {
                      display: 'flex',
                      alignItems: 'center',
                      justifyContent: 'center',
-                     padding: '10px 12px',
-                     fontSize: '14px',
-                     fontWeight: 600,
-                     borderRadius: '8px',
+                     borderRadius: 6,
                      border: `1px solid ${partyAccentColor}`,
-                     background: `linear-gradient(135deg, ${partyAccentColor} 0%, ${partyAccentColor}dd 100%)`,
+                     background: partyAccentColor,
                      color: '#ffffff',
                      cursor: 'pointer',
-                     transition: 'all 0.2s ease',
-                     boxShadow: `0 2px 8px ${partyAccentColor}40`,
-                     minWidth: '44px',
-                     height: '34px',
+                     minWidth: 28,
+                     height: 28,
                      flexShrink: 0,
                    }}
                    title={
@@ -2353,63 +2561,25 @@ const SampleOut = () => {
                </div>
              </div>
 
-            {/* Mobile */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                fontSize: '11px', 
-                fontWeight: 600, 
-                color: '#475569', 
-                marginBottom: '4px' 
-              }}>
-                {partyType === 'customer'
-                  ? 'Customer Mobile'
-                  : partyType === 'vendor'
-                    ? 'Vendor Mobile'
-                    : 'Employee Mobile'}
-              </label>
+              <label style={compactLbl}>Mobile</label>
               <input
                 type="text"
                 value={customerMobile}
-                placeholder="Mobile"
+                placeholder="—"
                 readOnly
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  fontSize: '11px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  outline: 'none',
-                  background: '#f8fafc',
-                  color: '#475569'
-                }}
+                style={{ ...compactInp, background: '#f8fafc', color: '#475569' }}
               />
             </div>
           </div>
         </div>
 
-        {/* Item code row + description / dates row (40% column width) */}
-        <div style={{
-          ...cardBaseStyle,
-          marginBottom: 0,
-          alignSelf: 'start',
-          padding: isSmallScreen ? '8px 10px' : '10px 12px',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {/* Row 1: item search + tray + clear (single line) */}
+        {/* Item search + dates */}
+        <div style={{ flex: isSmallScreen ? '1 1 100%' : '1 1 380px', minWidth: isSmallScreen ? '100%' : 300 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div ref={itemCodeSearchRef} style={{ position: 'relative', width: '100%' }}>
-              <label
-                htmlFor="sample-out-item-code-search"
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  color: '#475569',
-                  marginBottom: '2px',
-                }}
-              >
+              <label htmlFor="sample-out-item-code-search" style={compactLbl}>
                 Item code <span style={{ color: '#ef4444' }}>*</span>
-                <span style={{ fontWeight: 500, color: '#94a3b8' }}> (labeled stock)</span>
               </label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
                 <div style={{ position: 'relative', flex: '1 1 auto', minWidth: 0 }}>
@@ -2437,16 +2607,9 @@ const SampleOut = () => {
                       setShowSearchResults(true);
                     }}
                     style={{
-                      width: '100%',
-                      height: 36,
-                      padding: '0 12px 0 34px',
-                      fontSize: '11px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '8px',
-                      outline: 'none',
-                      transition: 'all 0.2s ease',
-                      boxSizing: 'border-box',
-                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                      ...compactInp,
+                      height: 28,
+                      padding: '0 10px 0 30px',
                     }}
                     onFocus={(e) => {
                       e.target.style.borderColor = '#3b82f6';
@@ -2481,8 +2644,8 @@ const SampleOut = () => {
                       title="Scan tag with RFID tray"
                       style={{
                         flex: '0 0 auto',
-                        width: 36,
-                        height: 36,
+                        width: 28,
+                        height: 28,
                         borderRadius: '8px',
                         border: '1px solid #cbd5e1',
                         background: '#ffffff',
@@ -2502,7 +2665,7 @@ const SampleOut = () => {
                       title="Clear scanned tray items"
                       style={{
                         flex: '0 0 auto',
-                        height: 36,
+                        height: 28,
                         borderRadius: '8px',
                         border: '1px solid #fecaca',
                         background: '#fff1f2',
@@ -2513,7 +2676,7 @@ const SampleOut = () => {
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
                         padding: '0 10px',
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: 600,
                         whiteSpace: 'nowrap',
                       }}
@@ -2522,6 +2685,52 @@ const SampleOut = () => {
                     </button>
                   </>
                 )}
+                <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+                  <button
+                    type="button"
+                    onClick={openSampleOutConfirmModal}
+                    disabled={loading}
+                    style={{
+                      height: 28,
+                      padding: '0 12px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      borderRadius: 6,
+                      border: '1px solid #0d6f63',
+                      background: 'linear-gradient(135deg, #149481 0%, #0f766e 100%)',
+                      color: '#ffffff',
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      opacity: loading ? 0.7 : 1,
+                    }}
+                  >
+                    {loading ? <FaSpinner className="fa-spin" /> : <FaFileInvoice />}
+                    <span>Add Sample Out</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/sample-out-list')}
+                    style={{
+                      height: 28,
+                      padding: '0 12px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      color: '#334155',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <FaList />
+                    <span>List</span>
+                  </button>
+                </div>
               </div>
 
               {showSearchResults && itemCodeSearch.trim() && (
@@ -2636,231 +2845,126 @@ const SampleOut = () => {
               )}
             </div>
 
-            {/* Row 2: description (50%) + dates (50%) */}
             <div
               style={{
-                display: 'flex',
-                flexDirection: isSmallScreen ? 'column' : 'row',
-                alignItems: isSmallScreen ? 'stretch' : 'flex-end',
-                gap: 12,
-                width: '100%',
+                display: 'grid',
+                gridTemplateColumns: isSmallScreen ? '1fr' : '1fr 108px 108px',
+                gap: 6,
+                alignItems: 'end',
               }}
             >
-              <div
-                style={{
-                  flex: isSmallScreen ? '1 1 auto' : '0 0 50%',
-                  width: isSmallScreen ? '100%' : '50%',
-                  maxWidth: isSmallScreen ? '100%' : '50%',
-                  minWidth: 0,
-                }}
-              >
-                <label style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  color: '#475569',
-                  marginBottom: '4px',
-                }}
-                >
-                  Description
-                </label>
+              <div>
+                <label style={compactLbl}>Description</label>
                 <input
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Enter description..."
-                  style={{
-                    width: '100%',
-                    height: 36,
-                    padding: '0 10px',
-                    fontSize: '11px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                    boxSizing: 'border-box',
-                  }}
+                  placeholder="Optional note…"
+                  style={compactInp}
                 />
               </div>
-
-              <div
-                style={{
-                  flex: isSmallScreen ? '1 1 auto' : '0 0 50%',
-                  width: isSmallScreen ? '100%' : '50%',
-                  minWidth: isSmallScreen ? '100%' : 220,
-                  maxWidth: isSmallScreen ? '100%' : '50%',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: isSmallScreen ? '1fr 1fr' : '1fr 1fr',
-                    gap: 8,
-                  }}
-                >
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        color: '#64748b',
-                        marginBottom: '4px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.03em',
-                      }}
-                    >
-                      Sample out date
-                    </label>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <FaCalendarAlt
-                        style={{
-                          position: 'absolute',
-                          left: '6px',
-                          color: '#64748b',
-                          fontSize: '10px',
-                          pointerEvents: 'none',
-                          zIndex: 1,
-                        }}
-                      />
-                      <input
-                        type="date"
-                        value={sampleOutDate}
-                        onChange={(e) => setSampleOutDate(e.target.value)}
-                        style={{
-                          width: '100%',
-                          height: 36,
-                          padding: '0 8px 0 22px',
-                          fontSize: '11px',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '8px',
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                          background: '#f8fafc',
-                          color: '#334155',
-                        }}
-                        title="Defaults to today; change if needed"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        color: '#64748b',
-                        marginBottom: '4px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.03em',
-                      }}
-                    >
-                      Return date
-                    </label>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <FaCalendarAlt
-                        style={{
-                          position: 'absolute',
-                          left: '6px',
-                          color: '#64748b',
-                          fontSize: '10px',
-                          pointerEvents: 'none',
-                          zIndex: 1,
-                        }}
-                      />
-                      <input
-                        type="date"
-                        value={returnDate}
-                        onChange={(e) => setReturnDate(e.target.value)}
-                        min={sampleOutDate || undefined}
-                        style={{
-                          width: '100%',
-                          height: 36,
-                          padding: '0 8px 0 22px',
-                          fontSize: '11px',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '8px',
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
+              <div>
+                <label style={compactLbl}>Out date</label>
+                <input
+                  type="date"
+                  value={sampleOutDate}
+                  onChange={(e) => setSampleOutDate(e.target.value)}
+                  style={{ ...compactInp, background: '#f8fafc' }}
+                />
+              </div>
+              <div>
+                <label style={compactLbl}>Return</label>
+                <input
+                  type="date"
+                  value={returnDate}
+                  onChange={(e) => setReturnDate(e.target.value)}
+                  min={sampleOutDate || undefined}
+                  style={compactInp}
+                />
               </div>
             </div>
           </div>
         </div>
+          </div>
+        </div>
+      </div>
 
-        {/* Items Table */}
-        <div style={{
-          ...cardBaseStyle,
-          marginBottom: '12px',
-          gridColumn: '1 / -1'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start', marginBottom: 12, flexWrap: 'wrap' }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: isSmallScreen ? '13px' : '14px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}>Sample out items</h3>
-              <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#64748b', lineHeight: 1.45, maxWidth: '40rem' }}>
-                Each row is one piece of labeled stock. Item code is the primary key — same value you searched above.
-              </p>
+      {/* Items grid — main workspace (Stock Tracking style) */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', zIndex: 1 }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            background: '#ffffff',
+            borderRadius: 12,
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              height: 3,
+              background: 'linear-gradient(90deg, #059669 0%, #10b981 50%, #34d399 100%)',
+              flexShrink: 0,
+            }}
+          />
+          <div
+            style={{
+              flexShrink: 0,
+              padding: '8px 10px',
+              display: 'flex',
+              flexWrap: 'nowrap',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              borderBottom: '1px solid #f1f5f9',
+              overflowX: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: isSmallScreen ? 13 : 15, fontWeight: 700, color: '#334155', flexWrap: 'nowrap', minWidth: 'max-content' }}>
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Scanned Product:{' '}
+                  <strong style={{ color: '#059669', fontWeight: 800, fontSize: isSmallScreen ? 16 : 19 }}>
+                    {itemsSummary.totalProducts}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Total Gross Wt:{' '}
+                  <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: isSmallScreen ? 16 : 19 }}>
+                    {itemsSummary.totalGrossWt.toFixed(3)}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Scanned Pieces:{' '}
+                  <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: isSmallScreen ? 16 : 19 }}>
+                    {itemsSummary.totalPiecesScanned}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Scanned Date & Time:{' '}
+                  <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: isSmallScreen ? 13 : 15 }}>
+                    {formatScannedDateTime(itemsSummary.latestScanDateTime)}
+                  </strong>
+                </span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setItemsViewMode('grid');
-                    setCurrentPage(1);
-                  }}
-                  style={{
-                    border: 'none',
-                    borderRight: '1px solid #dbe4f0',
-                    background: itemsViewMode === 'grid' ? '#eef2ff' : '#fff',
-                    color: itemsViewMode === 'grid' ? '#3730a3' : '#475569',
-                    height: 30,
-                    padding: '0 10px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    cursor: 'pointer',
-                  }}
-                  aria-pressed={itemsViewMode === 'grid'}
-                >
-                  <FaThLarge style={{ fontSize: 11 }} />
-                  Grid
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setItemsViewMode('table');
-                    setCurrentPage(1);
-                  }}
-                  style={{
-                    border: 'none',
-                    background: itemsViewMode === 'table' ? '#eef2ff' : '#fff',
-                    color: itemsViewMode === 'table' ? '#3730a3' : '#475569',
-                    height: 30,
-                    padding: '0 10px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    cursor: 'pointer',
-                  }}
-                  aria-pressed={itemsViewMode === 'table'}
-                >
-                  <FaTable style={{ fontSize: 11 }} />
-                  Table
-                </button>
-              </div>
-              <label htmlFor="sample-out-table-filter" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '11px', color: '#525252', fontWeight: 700 }}>
-                <FaSearch style={{ fontSize: 12, color: '#94a3b8' }} />
-                Filter rows
-              </label>
+            <div style={{ position: 'relative', flex: '0 0 280px', width: 280, minWidth: 220 }}>
+              <FaSearch
+                style={{
+                  position: 'absolute',
+                  left: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#94a3b8',
+                  fontSize: 11,
+                  pointerEvents: 'none',
+                }}
+              />
               <input
                 id="sample-out-table-filter"
                 type="search"
@@ -2869,252 +2973,53 @@ const SampleOut = () => {
                   setTableSearch(e.target.value);
                   setCurrentPage(1);
                 }}
-                placeholder="Item code, RFID, product…"
-                aria-label="Filter sample out items table"
-                style={{
-                  width: isSmallScreen ? 168 : 232,
-                  height: 32,
-                  padding: '0 10px',
-                  borderRadius: 8,
-                  border: '1px solid #e5e5e5',
-                  fontSize: 11,
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  color: '#404040',
-                  background: '#fff',
-                }}
+                placeholder="Search RFID / Item / Design…"
+                aria-label="Filter sample out items"
+                style={{ ...compactInp, paddingLeft: 26, width: '100%' }}
               />
             </div>
           </div>
 
-          <div
-            style={{
-              background: '#ffffff',
-              borderRadius: 12,
-              border: '1px solid #d4d4d8',
-              overflow: 'hidden',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-            }}
-          >
-            {itemsViewMode === 'grid' ? (
-              <div style={{ padding: 12, background: '#fafafa', minHeight: 334 }}>
-                {filteredTableItems.length === 0 ? (
-                  <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13, lineHeight: 1.55 }}>
-                    {tableSearch.trim()
-                      ? 'No rows match your filter. Try another item code, RFID, or product keyword.'
-                      : 'No items yet. Use the item code search above to find labeled stock, then choose a row to add it here.'}
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: isSmallScreen ? 'repeat(2, minmax(0, 1fr))' : `repeat(${SAMPLE_OUT_GRID_COLUMNS}, minmax(0, 1fr))`,
-                      gap: 10,
-                    }}
-                  >
-                    {currentItems.map((item, idx) => {
-                      const serial = startIndex + idx + 1;
-                      const itemCode = rowItemCode(item);
-                      return (
-                        <div
-                          key={item.id ?? `${serial}-${rowItemCode(item)}`}
-                          style={{
-                            border: '1px solid #e2e8f0',
-                            borderRadius: 10,
-                            background: '#fff',
-                            overflow: 'hidden',
-                            boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
-                          }}
-                        >
-                          <GridItemImage
-                            src={rowImageUrl(item)}
-                            itemCode={itemCode}
-                            lookupKeys={sampleOutItemImageLookupKeys(item)}
-                            alt={rowItemCodeOrDash(item)}
-                            wrapperStyle={{ height: 136, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                            imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          />
-                          <div style={{ padding: '8px 9px' }}>
-                            <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700, marginBottom: 3 }}>#{serial}</div>
-                            <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 800, marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {rowItemCodeOrDash(item)}
-                            </div>
-                            <div style={{ fontSize: 10, color: '#475569', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {rowCategoryOrDash(item)}
-                            </div>
-                            <div style={{ fontSize: 10, color: '#475569', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {rowProductOrDash(item)}
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 6px' }}>
-                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>GR WT</div>
-                                <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{rowGrossWtOrZero(item)}</div>
-                              </div>
-                              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 6px' }}>
-                                <div style={{ fontSize: 8, color: '#64748b', fontWeight: 700 }}>NT WT</div>
-                                <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>{rowNetWtOrZero(item)}</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto', width: '100%', background: '#fafafa', WebkitOverflowScrolling: 'touch' }}>
-                <table
-                  style={{
-                    width: '100%',
-                    borderCollapse: 'separate',
-                    borderSpacing: 0,
-                    fontSize: isSmallScreen ? 10 : 11,
-                    minWidth: 1020,
-                    tableLayout: 'fixed',
-                  }}
-                >
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
-                    <tr>
-                      {[
-                        ['Sr.', 'center', '68px'],
-                        ['Item code', 'left', '100px'],
-                        ['RFID', 'left', '100px'],
-                        ['Category', 'left', '96px'],
-                        ['Product', 'left', '120px'],
-                        ['Design', 'left', '120px'],
-                        ['Total Wt', 'right', '78px'],
-                        ['Gross Wt', 'right', '78px'],
-                        ['Net Wt', 'right', '78px'],
-                        ['Stone Wt', 'right', '78px'],
-                        ['Diamond Wt', 'right', '82px'],
-                        ['Fine%', 'right', '64px'],
-                        ['Wastage%', 'right', '72px'],
-                        ['Qty', 'right', '52px'],
-                      ].map(([label, align, w], hi, hArr) => (
-                        <th
-                          key={label}
-                          style={{
-                            padding: isSmallScreen ? '8px 6px' : '9px 8px',
-                            textAlign: align,
-                            fontWeight: 800,
-                            fontSize: isSmallScreen ? 10 : 11,
-                            color: '#ffffff',
-                            background: SO_ITEMS_TABLE_HEAD_BG,
-                            borderRight: hi === hArr.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.12)',
-                            borderBottom: '2px solid #1e293b',
-                            whiteSpace: 'nowrap',
-                            letterSpacing: '0.02em',
-                            width: w,
-                            maxWidth: w,
-                          }}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTableItems.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={14}
-                          style={{
-                            padding: '28px 16px',
-                            textAlign: 'center',
-                            color: '#737373',
-                            fontSize: 13,
-                            lineHeight: 1.55,
-                            background: '#fafafa',
-                            borderBottom: '1px solid #ececec',
-                          }}
-                        >
-                          {tableSearch.trim()
-                            ? 'No rows match your filter. Try another item code, RFID, or product keyword.'
-                            : 'No items yet. Use the item code search above to find labeled stock, then choose a row to add it here.'}
-                        </td>
-                      </tr>
-                    ) : (
-                      paddedItemSlots.map((slot, slotIdx) => {
-                        if (slot.kind === 'pad') {
-                          return (
-                            <tr key={slot.key} style={{ height: 32, background: '#fafafa' }}>
-                              <td colSpan={14} style={{ padding: 0, borderBottom: '1px solid #ececec' }} aria-hidden />
-                            </tr>
-                          );
-                        }
-                        const item = slot.item;
-                        const indexInPage = paddedItemSlots.slice(0, slotIdx).filter((s) => s.kind === 'row').length;
-                        const serial = startIndex + indexInPage + 1;
-                        const rowStripe = serial % 2 === 0;
-                        const tdBase = {
-                          padding: isSmallScreen ? '6px 8px' : '7px 8px',
-                          fontSize: isSmallScreen ? 10 : 11,
-                          lineHeight: 1.35,
-                          color: '#404040',
-                          borderRight: '1px solid #ececec',
-                          borderBottom: '1px solid #e5e5e5',
-                          background: rowStripe ? '#fafafa' : '#ffffff',
-                        };
-                        return (
-                          <tr key={item.id ?? `${serial}-${rowItemCode(item)}`}>
-                            <td style={{ ...tdBase, textAlign: 'center', color: '#737373', fontVariantNumeric: 'tabular-nums' }}>{serial}</td>
-                            <td style={{ ...tdBase, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={rowItemCode(item) || undefined}>
-                              <span style={{ fontWeight: 700, color: '#171717', fontVariantNumeric: 'tabular-nums' }}>{rowItemCodeOrDash(item)}</span>
-                            </td>
-                            <td style={{ ...tdBase, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'ui-monospace, monospace', fontSize: isSmallScreen ? 9 : 10 }} title={rowRfidOrDash(item) !== '—' ? rowRfidOrDash(item) : undefined}>
-                              {rowRfidOrDash(item)}
-                            </td>
-                            <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowCategoryOrDash(item)}</td>
-                            <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowProductOrDash(item)}</td>
-                            <td style={{ ...tdBase, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rowDesignOrDash(item)}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.TotalWt || '0.000'}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.grosswt || '0.000'}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.netwt || '0.000'}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.stonewt || '0.000'}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.diamondweight || '0.000'}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.FinePercent || '0.00'}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{item.WastagePercent || '0.00'}</td>
-                            <td style={{ ...tdBase, textAlign: 'right', fontVariantNumeric: 'tabular-nums', borderRight: 'none' }}>{item.Qty || 1}</td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '8px 10px' }}>
             <div
               style={{
+                marginBottom: 10,
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center',
-                padding: '12px 14px',
-                borderTop: '1px solid #f5f5f5',
-                flexWrap: 'wrap',
+                justifyContent: 'flex-end',
                 gap: 10,
-                background: '#fafafa',
+                flexWrap: 'wrap',
               }}
             >
-              <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
-                {filteredTableItems.length} record{filteredTableItems.length === 1 ? '' : 's'} · {activePageSize} {itemsViewMode === 'grid' ? 'cards' : 'rows'}/page
-                {filteredTableItems.length > 0
-                  ? ` · ${startIndex + 1}–${Math.min(endIndex, filteredTableItems.length)} shown`
-                  : ''}
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1 || filteredTableItems.length === 0}
                   style={pageBtnStyleItems(currentPage === 1 || filteredTableItems.length === 0)}
                 >
-                  Prev
+                  Previous
                 </button>
-                <span style={{ fontSize: 11, color: '#404040', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                  Page {currentPage} / {totalPages}
-                </span>
+                {pageNumbers.map((page) => (
+                  <button
+                    key={`sample-out-page-${page}`}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    style={{
+                      padding: '6px 11px',
+                      minWidth: 34,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      borderRadius: 8,
+                      border: '1px solid #e2e8f0',
+                      background: currentPage === page ? '#059669' : '#fff',
+                      color: currentPage === page ? '#fff' : '#475569',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {page}
+                  </button>
+                ))}
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
@@ -3125,98 +3030,91 @@ const SampleOut = () => {
                 </button>
               </div>
             </div>
-          </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', background: '#ffffff', borderRadius: 8, padding: 10 }}>
 
-           {/* Action Buttons */}
-           <div style={{
-             display: 'flex',
-             justifyContent: isSmallScreen ? 'center' : 'flex-end',
-             gap: isSmallScreen ? '8px' : '12px',
-             marginTop: isSmallScreen ? '12px' : '16px',
-             paddingTop: isSmallScreen ? '12px' : '16px',
-             borderTop: '1px solid #e5e7eb',
-             flexWrap: 'wrap'
-           }}>
-             <button
-               type="button"
-               onClick={openSampleOutConfirmModal}
-               disabled={loading}
-               style={{
-                 display: 'flex',
-                 alignItems: 'center',
-                 justifyContent: 'center',
-                gap: '8px',
-                padding: isSmallScreen ? '9px 14px' : '10px 18px',
-                fontSize: isSmallScreen ? '11px' : '12px',
-                fontWeight: 700,
-                borderRadius: '10px',
-                border: '1px solid #0d6f63',
-                background: 'linear-gradient(135deg, #149481 0%, #0f766e 100%)',
-                 color: '#ffffff',
-                 cursor: loading ? 'not-allowed' : 'pointer',
-                 transition: 'all 0.2s',
-                width: isSmallScreen ? '100%' : 'auto',
-                 minWidth: isSmallScreen ? '120px' : 'auto',
-                opacity: loading ? 0.6 : 1,
-                boxShadow: loading ? 'none' : '0 8px 20px rgba(20, 148, 129, 0.35)'
-               }}
-               onMouseEnter={(e) => {
-                 if (!loading) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #118a7a 0%, #0d5c52 100%)';
-                  e.currentTarget.style.borderColor = '#0a5249';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                 }
-               }}
-               onMouseLeave={(e) => {
-                 if (!loading) {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #149481 0%, #0f766e 100%)';
-                  e.currentTarget.style.borderColor = '#0d6f63';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                 }
-               }}
-             >
-               {loading ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> : <FaFileInvoice style={{ fontSize: isSmallScreen ? '14px' : '16px' }} />}
-              <span>{loading ? 'Processing...' : 'Add Sample Out'}</span>
-             </button>
-             <button
-               type="button"
-               onClick={() => {
-                 navigate('/sample-out-list');
-               }}
-               style={{
-                 display: 'flex',
-                 alignItems: 'center',
-                 justifyContent: 'center',
-                gap: '8px',
-                padding: isSmallScreen ? '9px 14px' : '10px 18px',
-                fontSize: isSmallScreen ? '11px' : '12px',
-                fontWeight: 700,
-                borderRadius: '10px',
-                border: '1px solid #cbd5e1',
-                 background: '#ffffff',
-                color: '#334155',
-                 cursor: 'pointer',
-                 transition: 'all 0.2s',
-                width: isSmallScreen ? '100%' : 'auto',
-                minWidth: isSmallScreen ? '120px' : 'auto',
-                boxShadow: '0 4px 10px rgba(15, 23, 42, 0.08)'
-               }}
-               onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#f8fafc';
-                e.currentTarget.style.borderColor = '#94a3b8';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-               }}
-               onMouseLeave={(e) => {
-                 e.currentTarget.style.background = '#ffffff';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-                e.currentTarget.style.color = '#334155';
-                e.currentTarget.style.transform = 'translateY(0)';
-               }}
-             >
-               <FaList style={{ fontSize: isSmallScreen ? '14px' : '16px' }} />
-               <span>Sample Out List</span>
-             </button>
-           </div>
+              {filteredTableItems.length === 0 ? (
+                <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13, lineHeight: 1.55 }}>
+                  {tableSearch.trim()
+                    ? 'No rows match your filter. Try another item code, RFID, or product keyword.'
+                    : 'No items yet. Use the item code search above to find labeled stock, then choose a row to add it here.'}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isSmallScreen ? 'repeat(2, minmax(0, 1fr))' : `repeat(${SAMPLE_OUT_GRID_COLUMNS}, minmax(0, 1fr))`,
+                    gap: 12,
+                  }}
+                >
+                  {currentItems.map((item, idx) => {
+                    const serial = startIndex + idx + 1;
+                    const itemCode = rowItemCode(item);
+                    const rfid = rowRfidOrDash(item);
+                    const design = rowDesignOrDash(item);
+                    return (
+                      <article
+                        key={item.id ?? `${serial}-${rowItemCode(item)}`}
+                        style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 12,
+                          background: '#fff',
+                          overflow: 'hidden',
+                          boxShadow: '0 2px 12px rgba(15, 23, 42, 0.06)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 10px',
+                            borderBottom: '1px solid #f1f5f9',
+                            background: '#fafafa',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 800,
+                              color: '#0284c7',
+                              background: '#e0f2fe',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            SAMPLE
+                          </span>
+                          <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
+                            #{serial}
+                          </span>
+                        </div>
+                        <GridItemImage
+                          src={rowImageUrl(item)}
+                          itemCode={itemCode}
+                          lookupKeys={sampleOutItemImageLookupKeys(item)}
+                          alt={rowItemCodeOrDash(item)}
+                          wrapperStyle={{ height: 230, background: '#f8fafc', borderBottom: '1px solid #edf2f7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          imgStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                        <div style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>
+                          <div style={{ fontSize: 11, color: '#334155', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            RFID Code: {rfid} &nbsp;&nbsp; Item Code: {rowItemCodeOrDash(item)} &nbsp;&nbsp; Design No: {design}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#334155', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 4 }}>
+                            Purity: 0 &nbsp;&nbsp; Gr Wt: {rowGrossWtOrZero(item)} &nbsp;&nbsp; Nt Wt: {rowNetWtOrZero(item)} &nbsp;&nbsp; Pieces: 0
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3796,6 +3694,7 @@ const SampleOut = () => {
       <TrayScanModal
         open={showRfidTrayModal}
         onClose={() => setShowRfidTrayModal(false)}
+        onScanStart={handleTrayScanStart}
         onFetchData={handleTrayFetchData}
         title="Sample Out — Tray scan"
         subtitle="Place the tray on the reader, connect your COM ports, and start. Tags and item codes appear below; then add them to this Sample Out in one step."

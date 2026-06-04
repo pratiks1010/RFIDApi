@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { FaSearch, FaSync, FaTimes, FaBoxes, FaBox } from 'react-icons/fa';
+import { FaSearch, FaSync, FaTimes, FaBoxes, FaBox, FaExclamationTriangle, FaPlus } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { toRrgoldApiUrl, getRrgoldApiBaseUrl } from '../../services/apiBaseConfig';
 import GridItemImage from '../common/GridItemImage';
@@ -46,15 +46,17 @@ const mapDeviceRowToProduct = (entry, idx) => {
 
   const scanSource = isTrayDeviceEntry(entry) ? 'tray' : 'desktop';
   const tid = String(entry?.TIDValue || entry?.tidValue || pd.TIDNumber || pd.TIDValue || '').trim();
-  const rfid = String(pd.RFIDCode || entry?.RFIDCode || entry?.RFIDNumber || '').trim();
+  const rfid = String(
+    pd.RFIDCode || pd.RFIDNumber || pd.RfidCode || entry?.RFIDCode || entry?.RFIDNumber || ''
+  ).trim();
 
   return {
     ...pd,
     __deviceKey: `device-row-${entry?.Id ?? idx}`,
     __deviceId: entry?.Id,
     scanSource,
-    RFIDCode: rfid || tid,
-    RFIDNumber: rfid || tid,
+    RFIDCode: rfid,
+    RFIDNumber: String(pd.RFIDNumber || pd.RFIDCode || entry?.RFIDNumber || rfid).trim(),
     TIDValue: tid,
     TIDNumber: String(pd.TIDNumber || tid).trim(),
     ItemCode: String(pd.ItemCode || pd.Itemcode || '').trim(),
@@ -75,23 +77,52 @@ const normalizeApiRows = (data) => {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.Data)) return data.Data;
   if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.result)) return data.result;
+  if (Array.isArray(data?.Results)) return data.Results;
   if (Array.isArray(data?.Items)) return data.Items;
   if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data?.data)) return data.data.data;
   return [];
+};
+
+const productKeyOf = (item) =>
+  String(
+    item?.LabelledStockId
+    || item?.LabelledStockID
+    || item?.Id
+    || item?.RFIDCode
+    || item?.RFIDNumber
+    || `${item?.ItemCode || ''}|${item?.DesignNo || item?.DesignName || ''}`
+  ).trim().toUpperCase();
+
+const mapLabelledStockRowToProduct = (entry, idx) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const rfid = String(entry?.RFIDCode || entry?.RFIDNumber || '').trim();
+  return {
+    ...entry,
+    __deviceKey: `manual-${entry?.LabelledStockId ?? entry?.Id ?? idx}`,
+    scanSource: 'manual',
+    RFIDCode: rfid,
+    RFIDNumber: String(entry?.RFIDNumber || rfid).trim(),
+    ItemCode: String(entry?.ItemCode || entry?.Itemcode || '').trim(),
+    Itemcode: String(entry?.ItemCode || entry?.Itemcode || '').trim(),
+    DesignName: String(entry?.DesignName || entry?.Design || '').trim(),
+    DesignNo: String(entry?.DesignNo || entry?.DesignName || entry?.Design || '').trim(),
+    PurityName: String(entry?.PurityName || entry?.Purity || '').trim(),
+    GrossWt: entry?.GrossWt ?? entry?.grosswt ?? '0',
+    NetWt: entry?.NetWt ?? entry?.netwt ?? '0',
+    Qty: entry?.Qty ?? entry?.Quantity ?? 1,
+    MRP: entry?.MRP ?? entry?.mrp ?? 0,
+    ImageUrl: entry?.ImageUrl || entry?.imageurl || entry?.ImagePath || entry?.PhotoUrl || '',
+    LabelledStockId: entry?.LabelledStockId ?? entry?.LabelledStockID ?? entry?.Id ?? idx,
+  };
 };
 
 const rfidKeyOf = (item) =>
   String(item?.RFIDCode || item?.RFIDNumber || item?.RfidCode || '').trim().toUpperCase();
 
-const isReadableAscii = (value) => /^[\x20-\x7E]+$/.test(String(value || ''));
-
-const displayRfidCode = (item) => {
-  const tid = field(item, 'TIDValue', 'TIDNumber', 'tidValue', 'TID');
-  const rfid = field(item, 'RFIDCode', 'RFIDNumber', 'RfidCode');
-  if (tid && /^[A-F0-9]+$/i.test(tid)) return tid;
-  if (rfid && isReadableAscii(rfid) && rfid.length <= 48) return rfid;
-  return tid || rfid || '—';
-};
+/** Card label "RFID" — labelled stock RFIDCode, not TID/EPC. */
+const displayRfidCode = (item) => field(item, 'RFIDCode', 'RFIDNumber', 'RfidCode') || '—';
 
 const getItemKey = (item, index) =>
   String(item?.__deviceKey || item?.Id || item?.RFIDCode || item?.RFIDNumber || `row-${index}`);
@@ -110,9 +141,45 @@ const grossWt = (item) =>
 const netWt = (item) =>
   formatWeight3(item?.NetWt ?? item?.netwt ?? item?.NetWeight ?? 0);
 
-const qtyOf = (item) => {
-  const q = parseFloat(item?.Qty ?? item?.qty ?? 1);
-  return Number.isNaN(q) ? 1 : q;
+const piecesOf = (item) => {
+  const pieces = parseFloat(item?.MRP ?? item?.mrp ?? item?.Qty ?? item?.qty ?? 1);
+  return Number.isNaN(pieces) ? 1 : pieces;
+};
+
+const formatScanDateTime = (value) => {
+  if (!value) return '—';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const scanDateTimeOf = (entry) => {
+  const pd = getProductDetailsFromRow(entry);
+  const candidates = [
+    entry?.ScanDateTime,
+    entry?.scanDateTime,
+    entry?.CreatedDate,
+    entry?.createdDate,
+    entry?.CreatedOn,
+    entry?.createdOn,
+    entry?.DateTime,
+    entry?.dateTime,
+    pd?.ScanDateTime,
+    pd?.CreatedDate,
+    pd?.CreatedOn,
+  ];
+  for (const c of candidates) {
+    if (!c) continue;
+    const dt = new Date(c);
+    if (!Number.isNaN(dt.getTime())) return dt;
+  }
+  return null;
 };
 
 const buildImageSrc = (item) => {
@@ -124,6 +191,94 @@ const buildImageSrc = (item) => {
   return `${getRrgoldApiBaseUrl().replace(/\/$/, '')}/${apiImg.replace(/^\/+/, '')}`;
 };
 
+const designNoOf = (item) =>
+  field(item, 'DesignNo', 'DesignNO', 'design_no', 'DesignCode') ||
+  field(item, 'DesignId', 'design_id', 'DesignName', 'Design') ||
+  '';
+
+/** e.g. 245D245-1 → family 245D245, variant 1 (siblings sort together). */
+const parseDesignSortKey = (designNo) => {
+  const full = String(designNo || '').trim();
+  if (!full) return { family: '', variant: 0, full: '' };
+  const variantMatch = full.match(/^(.+)-(\d+)$/);
+  if (variantMatch) {
+    return {
+      family: variantMatch[1],
+      variant: parseInt(variantMatch[2], 10) || 0,
+      full,
+    };
+  }
+  return { family: full, variant: 0, full };
+};
+
+const localeDesign = (a, b) =>
+  String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+
+const compareByDesign = (a, b) => {
+  const ka = parseDesignSortKey(designNoOf(a));
+  const kb = parseDesignSortKey(designNoOf(b));
+  const byFamily = localeDesign(ka.family, kb.family);
+  if (byFamily !== 0) return byFamily;
+  if (ka.variant !== kb.variant) return ka.variant - kb.variant;
+  return localeDesign(ka.full, kb.full);
+};
+
+/** Group by design family, sort families and variants; keeps 245D245-1 next to 245D245-2. */
+const sortProductsByDesign = (items) => {
+  if (!items?.length) return [];
+  const groups = new Map();
+  items.forEach((item) => {
+    const { family } = parseDesignSortKey(designNoOf(item));
+    const key = family || '\uffff';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  const sortedFamilies = [...groups.keys()].sort(localeDesign);
+  const out = [];
+  sortedFamilies.forEach((key) => {
+    const batch = groups.get(key).slice().sort(compareByDesign);
+    out.push(...batch);
+  });
+  return out;
+};
+
+/** Paginate without splitting a design family when it fits on one page. */
+const buildDesignAwarePages = (items, pageSize) => {
+  if (!items?.length) return [];
+  const pages = [];
+  let current = [];
+  const flush = () => {
+    if (current.length) {
+      pages.push(current);
+      current = [];
+    }
+  };
+  let idx = 0;
+  while (idx < items.length) {
+    const startFamily = parseDesignSortKey(designNoOf(items[idx])).family;
+    let end = idx + 1;
+    while (end < items.length) {
+      const fam = parseDesignSortKey(designNoOf(items[end])).family;
+      if (fam !== startFamily) break;
+      end += 1;
+    }
+    const group = items.slice(idx, end);
+    if (current.length > 0 && current.length + group.length > pageSize) flush();
+    if (group.length > pageSize) {
+      flush();
+      for (let g = 0; g < group.length; g += pageSize) {
+        pages.push(group.slice(g, g + pageSize));
+      }
+    } else {
+      current.push(...group);
+      if (current.length >= pageSize) flush();
+    }
+    idx = end;
+  }
+  flush();
+  return pages;
+};
+
 const StockTracking = () => {
   const { setLoading } = useLoading();
   const { addNotification } = useNotifications();
@@ -133,9 +288,14 @@ const StockTracking = () => {
   const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
   const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
   const [search, setSearch] = useState('');
+  const [manualProducts, setManualProducts] = useState([]);
+  const [labelSearchResults, setLabelSearchResults] = useState([]);
+  const [labelSearchLoading, setLabelSearchLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
+  const [showClearScansConfirm, setShowClearScansConfirm] = useState(false);
+  const [clearScansLoading, setClearScansLoading] = useState(false);
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== 'undefined' ? window.innerWidth : 1200
   );
@@ -234,6 +394,19 @@ const StockTracking = () => {
     [deviceData]
   );
 
+  /** Unique device ids from loaded scans (tray device included when tray mode is on). */
+  const scanDeviceIds = useMemo(() => {
+    const ids = new Set();
+    if (Array.isArray(deviceData)) {
+      deviceData.forEach((entry) => {
+        const id = String(entry?.DeviceId || entry?.deviceId || '').trim();
+        if (id) ids.add(id);
+      });
+    }
+    if (trayEnabled) ids.add(STOCK_TRACKING_TRAY_DEVICE_ID);
+    return [...ids];
+  }, [deviceData, trayEnabled]);
+
   /** Cards only for RFID rows where API returned ProductDetails (active labelled stock match). */
   const matchingProducts = useMemo(() => {
     if (!Array.isArray(deviceData) || deviceData.length === 0) return [];
@@ -242,45 +415,129 @@ const StockTracking = () => {
       .filter(Boolean);
   }, [deviceData]);
 
+  useEffect(() => {
+    const query = String(search || '').trim();
+    if (!clientCode || query.length < 2) {
+      setLabelSearchResults([]);
+      setLabelSearchLoading(false);
+      return undefined;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setLabelSearchLoading(true);
+        const q = query.trim();
+        const apiPath = '/api/ProductMaster/GetAllLabeledStock';
+        const request = (payload) =>
+          axios.post(toRrgoldApiUrl(apiPath), payload, { headers: getAuthHeaders() });
+
+        // 1) Same lightweight style as SampleOut item-code search.
+        const primaryRes = await request({
+          ClientCode: clientCode,
+          ItemCode: q,
+          SearchQuery: q,
+          RFIDCode: q,
+          PageNumber: 1,
+          PageSize: 30,
+        });
+        let rows = normalizeApiRows(primaryRes.data);
+
+        // 2) Fallback: full LabelStockList payload (works on stricter API variants).
+        if (!rows.length) {
+          const fallbackRes = await request({
+            ClientCode: clientCode,
+            CategoryId: 0,
+            ProductId: 0,
+            DesignId: 0,
+            PurityId: 0,
+            BranchId: 0,
+            CounterId: 0,
+            RFIDCode: q,
+            ItemCode: q,
+            SearchQuery: q,
+            FromDate: null,
+            ToDate: null,
+            Status: 'ApiActive',
+            ListType: 'ascending',
+            SortColumn: null,
+            PageNumber: 1,
+            PageSize: 30,
+          });
+          rows = normalizeApiRows(fallbackRes.data);
+        }
+
+        const mapped = rows
+          .map((item, idx) => mapLabelledStockRowToProduct(item, idx))
+          .filter(Boolean);
+        setLabelSearchResults(mapped);
+      } catch {
+        setLabelSearchResults([]);
+      } finally {
+        setLabelSearchLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [search, clientCode]);
+
+  const allProductKeys = useMemo(() => {
+    const keys = new Set();
+    matchingProducts.forEach((item) => keys.add(productKeyOf(item)));
+    manualProducts.forEach((item) => keys.add(productKeyOf(item)));
+    return keys;
+  }, [matchingProducts, manualProducts]);
+
+  const addManualProduct = (item) => {
+    const key = productKeyOf(item);
+    if (!key || allProductKeys.has(key)) return;
+    setManualProducts((prev) => [...prev, item]);
+    setCurrentPage(1);
+  };
+
+  const allProducts = useMemo(() => {
+    const seen = new Set();
+    const merged = [];
+    [...matchingProducts, ...manualProducts].forEach((item) => {
+      const key = productKeyOf(item);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      merged.push(item);
+    });
+    return sortProductsByDesign(merged);
+  }, [matchingProducts, manualProducts]);
+
   const filteredProducts = useMemo(() => {
     const q = String(search || '').trim().toLowerCase();
-    if (!q) return matchingProducts;
-    return matchingProducts.filter((item) => {
-      const blob = [
-        item?.RFIDCode,
-        item?.RFIDNumber,
-        item?.ItemCode,
-        item?.Itemcode,
-        item?.itemcode,
-        item?.DesignNo,
-        item?.DesignId,
-        item?.design_id,
-        item?.DesignCode,
-        item?.DesignName,
-        item?.Design,
-        item?.PurityName,
-        item?.Purity,
-        item?.purity_id,
-        item?.CategoryName,
-        item?.ProductName,
-        item?.TIDNumber,
-        item?.TIDValue,
-      ]
-        .filter((v) => v != null)
-        .map((v) => String(v).toLowerCase())
-        .join(' ');
-      return blob.includes(q);
-    });
-  }, [matchingProducts, search]);
-
-  const trayProductCount = useMemo(
-    () => filteredProducts.filter((item) => item.scanSource === 'tray').length,
-    [filteredProducts]
-  );
-  const desktopProductCount = useMemo(
-    () => filteredProducts.filter((item) => item.scanSource !== 'tray').length,
-    [filteredProducts]
-  );
+    const list = !q
+      ? allProducts
+      : allProducts.filter((item) => {
+          const blob = [
+            item?.RFIDCode,
+            item?.RFIDNumber,
+            item?.ItemCode,
+            item?.Itemcode,
+            item?.itemcode,
+            item?.DesignNo,
+            item?.DesignId,
+            item?.design_id,
+            item?.DesignCode,
+            item?.DesignName,
+            item?.Design,
+            item?.PurityName,
+            item?.Purity,
+            item?.purity_id,
+            item?.CategoryName,
+            item?.ProductName,
+            item?.TIDNumber,
+            item?.TIDValue,
+          ]
+            .filter((v) => v != null)
+            .map((v) => String(v).toLowerCase())
+            .join(' ');
+          return blob.includes(q);
+        });
+    return sortProductsByDesign(list);
+  }, [allProducts, search]);
 
   const summary = useMemo(() => {
     const totalProducts = filteredProducts.length;
@@ -288,16 +545,32 @@ const StockTracking = () => {
       (sum, item) => sum + (parseFloat(grossWt(item)) || 0),
       0
     );
-    const totalQtyScanned = filteredProducts.reduce((sum, item) => sum + qtyOf(item), 0);
-    return { totalProducts, totalGrossWt, totalQtyScanned };
+    const totalPiecesScanned = filteredProducts.reduce((sum, item) => sum + piecesOf(item), 0);
+    return { totalProducts, totalGrossWt, totalPiecesScanned };
   }, [filteredProducts]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
+  const productPages = useMemo(
+    () => buildDesignAwarePages(filteredProducts, ITEMS_PER_PAGE),
+    [filteredProducts]
+  );
 
-  const paginatedProducts = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredProducts.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredProducts, currentPage]);
+  const totalPages = Math.max(1, productPages.length);
+
+  const paginatedProducts = useMemo(
+    () => productPages[currentPage - 1] || [],
+    [productPages, currentPage]
+  );
+
+  const latestScanDateTime = useMemo(() => {
+    if (!Array.isArray(deviceData) || deviceData.length === 0) return null;
+    let latest = null;
+    deviceData.forEach((entry) => {
+      const dt = scanDateTimeOf(entry);
+      if (!dt) return;
+      if (!latest || dt.getTime() > latest.getTime()) latest = dt;
+    });
+    return latest;
+  }, [deviceData]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -320,20 +593,46 @@ const StockTracking = () => {
     };
   };
 
-  const clearTrayScanSession = useCallback(async () => {
-    setDeviceData([]);
-    setCurrentPage(1);
-    if (!clientCode) return;
-    try {
-      await axios.post(
+  const deleteRfidByClientAndDevice = useCallback(
+    async (deviceId) => {
+      if (!clientCode) {
+        throw new Error('Client code not found. Please login again.');
+      }
+      const id = String(deviceId || '').trim();
+      if (!id) {
+        throw new Error('Device id is required.');
+      }
+      const response = await axios.post(
         toRrgoldApiUrl('/api/RFIDDevice/DeleteRFIDByClientAndDevice'),
-        { ClientCode: clientCode, DeviceId: STOCK_TRACKING_TRAY_DEVICE_ID },
+        { ClientCode: clientCode, DeviceId: id },
         { headers: getAuthHeaders() }
       );
+      const data = response.data;
+      const failed =
+        data?.success === false
+        || data?.Success === false
+        || data?.status === false
+        || data?.Status === false;
+      if (failed) {
+        throw new Error(
+          data?.message || data?.Message || `Failed to clear scans for device "${id}".`
+        );
+      }
+      return data?.message || data?.Message || `Cleared scans for device "${id}".`;
+    },
+    [clientCode]
+  );
+
+  const clearTrayScanSession = useCallback(async () => {
+    if (!clientCode) return;
+    try {
+      await deleteRfidByClientAndDevice(STOCK_TRACKING_TRAY_DEVICE_ID);
     } catch {
-      /* clear local list even if server delete fails */
+      /* tray rescan: clear local list even if server delete fails */
     }
-  }, [clientCode]);
+    setDeviceData([]);
+    setCurrentPage(1);
+  }, [clientCode, deleteRfidByClientAndDevice]);
 
   const handleTrayScanStart = useCallback(async () => {
     await clearTrayScanSession();
@@ -401,23 +700,79 @@ const StockTracking = () => {
     }
   };
 
-  const handleClearTrayScans = async () => {
-    try {
-      setLoading(true);
-      await clearTrayScanSession();
-      await loadData();
+  const handleClearAllScanDataClick = () => {
+    if (!clientCode) {
       addNotification({
-        type: 'success',
-        title: 'Tray scans cleared',
-        message: `Removed scans for device "${STOCK_TRACKING_TRAY_DEVICE_ID}".`,
+        type: 'error',
+        title: 'Cannot clear',
+        message: 'Client code not found. Please login again.',
+      });
+      return;
+    }
+    if (scanRowCount === 0 && scanDeviceIds.length === 0) {
+      addNotification({
+        type: 'info',
+        title: 'No scan data',
+        message: 'There are no RFID scans to clear.',
+      });
+      return;
+    }
+    setShowClearScansConfirm(true);
+  };
+
+  const confirmClearAllScanData = async () => {
+    const devicesToClear =
+      scanDeviceIds.length > 0 ? scanDeviceIds : [STOCK_TRACKING_TRAY_DEVICE_ID];
+
+    try {
+      setClearScansLoading(true);
+      setLoading(true);
+
+      const results = await Promise.allSettled(
+        devicesToClear.map((deviceId) => deleteRfidByClientAndDevice(deviceId))
+      );
+
+      const failed = results
+        .map((result, index) => ({ result, deviceId: devicesToClear[index] }))
+        .filter(({ result }) => result.status === 'rejected');
+
+      if (failed.length === results.length) {
+        const firstErr = failed[0]?.result;
+        throw new Error(
+          firstErr?.reason?.response?.data?.message
+            || firstErr?.reason?.response?.data?.Message
+            || firstErr?.reason?.message
+            || 'Could not clear scan data.'
+        );
+      }
+
+      setDeviceData([]);
+      setCurrentPage(1);
+      setSearch('');
+      setShowClearScansConfirm(false);
+      await loadData();
+
+      const clearedCount = results.length - failed.length;
+      const failNames = failed.map(({ deviceId }) => deviceId).join(', ');
+      addNotification({
+        type: failed.length ? 'warning' : 'success',
+        title: failed.length ? 'Partially cleared' : 'Scan data cleared',
+        message: failed.length
+          ? `Cleared ${clearedCount} device(s) for client ${clientCode}. Failed: ${failNames}.`
+          : `All RFID scans cleared for client ${clientCode} (${clearedCount} device${clearedCount === 1 ? '' : 's'}).`,
       });
     } catch (err) {
       addNotification({
         type: 'error',
         title: 'Clear failed',
-        message: err?.message || 'Could not clear tray scans.',
+        message:
+          err?.response?.data?.message
+          || err?.response?.data?.Message
+          || err?.message
+          || 'Could not clear scan data. Please try again.',
       });
     } finally {
+      setClearScansLoading(false);
       setLoading(false);
     }
   };
@@ -468,6 +823,7 @@ const StockTracking = () => {
           }}
         />
         <div style={{ padding: '10px 12px' }}>
+          {/* Title + totals + actions — one row */}
           <div
             style={{
               display: 'flex',
@@ -475,6 +831,8 @@ const StockTracking = () => {
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: 8,
+              paddingBottom: 8,
+              borderBottom: '1px solid #f1f5f9',
             }}
           >
             <h1
@@ -486,85 +844,72 @@ const StockTracking = () => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
+                flex: '0 0 auto',
               }}
             >
               <FaBoxes style={{ color: '#059669', fontSize: 16 }} />
               Stock Tracking
             </h1>
-            <button
-              type="button"
-              onClick={handleRefresh}
+            <div
               style={{
-                height: 28,
-                padding: '0 10px',
-                fontSize: 10,
-                fontWeight: 700,
-                borderRadius: 6,
-                border: '1px solid #d1d5db',
-                background: '#fafafa',
-                color: '#262626',
-                cursor: 'pointer',
-                display: 'inline-flex',
+                display: 'flex',
+                flexWrap: 'wrap',
                 alignItems: 'center',
-                gap: 5,
+                justifyContent: 'flex-end',
+                gap: '6px 10px',
+                flex: '1 1 280px',
+                minWidth: 0,
               }}
             >
-              <FaSync className={isRefreshing ? 'fa-spin' : ''} />
-              Refresh
-            </button>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'nowrap',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: windowWidth <= 1024 ? 14 : 16,
+                  fontWeight: 700,
+                  color: '#334155',
+                  lineHeight: 1.5,
+                  textAlign: 'right',
+                  flex: '1 1 auto',
+                  minWidth: 0,
+                  overflowX: 'auto',
+                }}
+              >
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Matched Products:{' '}
+                  <strong style={{ color: '#059669', fontWeight: 800, fontSize: windowWidth <= 1024 ? 16 : 18 }}>
+                    {summary.totalProducts}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Total Gross Wt:{' '}
+                  <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: windowWidth <= 1024 ? 16 : 18 }}>
+                    {summary.totalGrossWt.toFixed(3)}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Total Pieces Scanned:{' '}
+                  <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: windowWidth <= 1024 ? 16 : 18 }}>
+                    {summary.totalPiecesScanned}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '4px 8px', borderRadius: 8, background: '#f8fafc' }}>
+                  Scanned Date & Time:{' '}
+                  <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: windowWidth <= 1024 ? 14 : 15 }}>
+                    {formatScanDateTime(latestScanDateTime)}
+                  </strong>
+                </span>
+              </div>
+            </div>
           </div>
 
-          {/* Compact totals — right-aligned text */}
-          <div
-            style={{
-              marginTop: 6,
-              paddingBottom: 8,
-              borderBottom: '1px solid #f1f5f9',
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'flex-end',
-              alignItems: 'center',
-              gap: '4px 0',
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#64748b',
-              lineHeight: 1.5,
-            }}
-          >
-            <span>
-              Matched Products:{' '}
-              <strong style={{ color: '#059669', fontWeight: 800 }}>{summary.totalProducts}</strong>
-              {scanRowCount > 0 ? (
-                <span style={{ color: '#94a3b8', fontWeight: 600 }}> / {scanRowCount} scans</span>
-              ) : null}
-            </span>
-            <span style={{ margin: '0 8px', color: '#cbd5e1' }}>|</span>
-            <span>
-              Total Gross Wt:{' '}
-              <strong style={{ color: '#0f172a', fontWeight: 800 }}>
-                {summary.totalGrossWt.toFixed(3)}
-              </strong>
-            </span>
-            <span style={{ margin: '0 8px', color: '#cbd5e1' }}>|</span>
-            <span>
-              Total Qty Scanned:{' '}
-              <strong style={{ color: '#0f172a', fontWeight: 800 }}>{summary.totalQtyScanned}</strong>
-            </span>
-            {trayEnabled ? (
-              <>
-                <span style={{ margin: '0 8px', color: '#cbd5e1' }}>|</span>
-                <span>
-                  Desktop: <strong style={{ color: '#0f172a' }}>{desktopProductCount}</strong>
-                </span>
-                <span style={{ margin: '0 8px', color: '#cbd5e1' }}>|</span>
-                <span>
-                  Tray: <strong style={{ color: '#0284c7' }}>{trayProductCount}</strong>
-                </span>
-              </>
-            ) : null}
-          </div>
-
-          {/* Search + select all */}
+          {/* Search + tray scan */}
           <div
             style={{
               marginTop: 8,
@@ -606,50 +951,144 @@ const StockTracking = () => {
               />
             </div>
             {trayEnabled ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowRfidTrayModal(true)}
-                  title="Scan tags with RFID tray"
-                  style={{
-                    height: 30,
-                    padding: '0 10px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    borderRadius: 6,
-                    border: '1px solid #0284c7',
-                    background: '#fff',
-                    color: '#0284c7',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <FaBox />
-                  Tray Scan
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearTrayScans}
-                  title={`Clear saved tray scans (${STOCK_TRACKING_TRAY_DEVICE_ID})`}
-                  style={{
-                    height: 30,
-                    padding: '0 10px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    borderRadius: 6,
-                    border: '1px solid #fecaca',
-                    background: '#fef2f2',
-                    color: '#b91c1c',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Clear Tray Scans
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => setShowRfidTrayModal(true)}
+                title="Scan tags with RFID tray"
+                style={{
+                  height: 30,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 6,
+                  border: '1px solid #0284c7',
+                  background: '#fff',
+                  color: '#0284c7',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <FaBox />
+                Tray Scan
+              </button>
             ) : null}
+            <button
+              type="button"
+              onClick={handleRefresh}
+              style={{
+                height: 30,
+                padding: '0 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 6,
+                border: '1px solid #d1d5db',
+                background: '#fafafa',
+                color: '#262626',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+            >
+              <FaSync className={isRefreshing ? 'fa-spin' : ''} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAllScanDataClick}
+              disabled={clearScansLoading || !clientCode}
+              title="Clear all RFID scan data for this client"
+              style={{
+                height: 30,
+                padding: '0 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 6,
+                border: '1px solid #fecaca',
+                background: '#fef2f2',
+                color: '#b91c1c',
+                cursor: clearScansLoading || !clientCode ? 'not-allowed' : 'pointer',
+                opacity: clearScansLoading || !clientCode ? 0.65 : 1,
+              }}
+            >
+              Clear all scan data
+            </button>
           </div>
+
+          {String(search || '').trim().length >= 2 ? (
+            <div
+              style={{
+                marginTop: 8,
+                border: '1px solid #e2e8f0',
+                borderRadius: 8,
+                background: '#f8fafc',
+                padding: '8px 10px',
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                Add products from labelled stock
+              </div>
+              {labelSearchLoading ? (
+                <div style={{ fontSize: 11, color: '#64748b' }}>Searching...</div>
+              ) : labelSearchResults.length === 0 ? (
+                <div style={{ fontSize: 11, color: '#64748b' }}>
+                  No labelled products found. Try item code / RFID / design text.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {labelSearchResults.slice(0, 6).map((item, idx) => {
+                    const key = productKeyOf(item) || `result-${idx}`;
+                    const alreadyAdded = allProductKeys.has(productKeyOf(item));
+                    const itemCode = field(item, 'ItemCode', 'Itemcode') || '—';
+                    const rfid = displayRfidCode(item);
+                    const designNo = designNoOf(item) || '—';
+                    return (
+                      <div
+                        key={key}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 6,
+                          background: '#fff',
+                          padding: '6px 8px',
+                        }}
+                      >
+                        <div style={{ fontSize: 11, color: '#334155', fontWeight: 600 }}>
+                          RFID: {rfid} · Item: {itemCode} · Design: {designNo}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={alreadyAdded}
+                          onClick={() => addManualProduct(item)}
+                          style={{
+                            height: 24,
+                            minWidth: 24,
+                            borderRadius: 6,
+                            border: '1px solid #86efac',
+                            background: alreadyAdded ? '#f1f5f9' : '#ecfdf5',
+                            color: alreadyAdded ? '#94a3b8' : '#059669',
+                            cursor: alreadyAdded ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 700,
+                          }}
+                          title={alreadyAdded ? 'Already added' : 'Add product'}
+                        >
+                          <FaPlus />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -803,16 +1242,7 @@ const StockTracking = () => {
               const cardKey = getItemKey(item, index);
               const itemCode = field(item, 'ItemCode', 'Itemcode', 'itemcode') || '—';
               const rfidCode = displayRfidCode(item);
-              const designCode =
-                field(
-                  item,
-                  'DesignNo',
-                  'DesignId',
-                  'design_id',
-                  'DesignCode',
-                  'DesignName',
-                  'Design'
-                ) || '—';
+              const designNo = designNoOf(item) || '—';
               const purity =
                 field(item, 'PurityName', 'Purity', 'purity_id', 'PurityId') || '—';
               const imageSrc = buildImageSrc(item);
@@ -820,8 +1250,9 @@ const StockTracking = () => {
                 ...item,
                 ItemCode: itemCode === '—' ? '' : itemCode,
                 RFIDCode: rfidCode === '—' ? '' : rfidCode,
-                DesignId: designCode === '—' ? '' : designCode,
-                DesignName: designCode,
+                DesignId: designNo === '—' ? '' : designNo,
+                DesignName: designNo,
+                DesignNo: designNo,
               });
 
               return (
@@ -894,10 +1325,11 @@ const StockTracking = () => {
                               title: `${itemCode} | ${rfidCode}`,
                               itemCode,
                               rfidCode,
-                              designCode,
+                              designNo,
                               purity,
                               grossWt: grossWt(item),
                               netWt: netWt(item),
+                              pieces: piecesOf(item),
                             })
                         : undefined
                     }
@@ -953,8 +1385,8 @@ const StockTracking = () => {
                     style={{
                       padding: '8px 10px 10px',
                       flex: '0 0 auto',
-                      fontSize: 11,
-                      lineHeight: 1.4,
+                      fontSize: 12,
+                      lineHeight: 1.5,
                       color: '#0f172a',
                     }}
                   >
@@ -966,28 +1398,31 @@ const StockTracking = () => {
                         whiteSpace: 'nowrap',
                         marginBottom: 4,
                       }}
-                      title={`${rfidCode} | ${itemCode} | ${designCode} | ${purity}`}
+                      title={`${rfidCode} | ${itemCode} | ${designNo}`}
                     >
-                      <span style={{ color: '#475569' }}>RFID:</span> {rfidCode}
+                      <span style={{ color: '#475569' }}>RFID Code:</span> {rfidCode}
                       <span style={{ color: '#cbd5e1', margin: '0 5px' }}>·</span>
-                      <span style={{ color: '#475569' }}>Item:</span> {itemCode}
+                      <span style={{ color: '#475569' }}>Item Code:</span> {itemCode}
                       <span style={{ color: '#cbd5e1', margin: '0 5px' }}>·</span>
-                      <span style={{ color: '#475569' }}>Design:</span> {designCode}
-                      <span style={{ color: '#cbd5e1', margin: '0 5px' }}>·</span>
-                      <span style={{ color: '#475569' }}>Purity:</span> {purity}
+                      <span style={{ color: '#475569' }}>Design No:</span> {designNo}
                     </div>
                     <div
                       style={{
                         fontWeight: 800,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
-                      title={`Gross ${grossWt(item)} · Net ${netWt(item)}`}
+                      title={`${purity} · Gr ${grossWt(item)} · Nt ${netWt(item)} · Pieces ${piecesOf(item)}`}
                     >
-                      <span style={{ color: '#475569' }}>Gross Wt:</span> {grossWt(item)}
-                      <span style={{ color: '#cbd5e1', margin: '0 5px' }}>·</span>
-                      <span style={{ color: '#475569' }}>Net Wt:</span> {netWt(item)}
+                      <span style={{ color: '#475569' }}><strong>Purity:</strong> {purity}</span>
+                      <span style={{ color: '#cbd5e1' }}>·</span>
+                      <span style={{ color: '#475569' }}><strong>Gr Wt:</strong> {grossWt(item)}</span>
+                      <span style={{ color: '#cbd5e1' }}>·</span>
+                      <span style={{ color: '#475569' }}><strong>Nt Wt:</strong> {netWt(item)}</span>
+                      <span style={{ color: '#cbd5e1' }}>·</span>
+                      <span style={{ color: '#475569' }}><strong>Pieces:</strong> {piecesOf(item)}</span>
                     </div>
                   </div>
                 </article>
@@ -1074,10 +1509,119 @@ const StockTracking = () => {
             >
               <div><span style={{ color: '#64748b' }}>RFID:</span> {previewImage.rfidCode}</div>
               <div><span style={{ color: '#64748b' }}>Item:</span> {previewImage.itemCode}</div>
-              <div><span style={{ color: '#64748b' }}>Design:</span> {previewImage.designCode}</div>
+              <div><span style={{ color: '#64748b' }}>Design No:</span> {previewImage.designNo}</div>
               <div><span style={{ color: '#64748b' }}>Purity:</span> {previewImage.purity}</div>
               <div><span style={{ color: '#64748b' }}>Gross:</span> {previewImage.grossWt}</div>
               <div><span style={{ color: '#64748b' }}>Net:</span> {previewImage.netWt}</div>
+              <div><span style={{ color: '#64748b' }}>Pieces:</span> {previewImage.pieces}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showClearScansConfirm ? (
+        <div
+          role="presentation"
+          onClick={() => !clearScansLoading && setShowClearScansConfirm(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            zIndex: 10001,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="clear-scans-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+              width: 440,
+              maxWidth: '100%',
+              padding: '0 0 18px',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                padding: '28px 24px 0',
+                textAlign: 'center',
+              }}
+            >
+              <FaExclamationTriangle style={{ color: '#f59e0b', fontSize: 42, marginBottom: 10 }} />
+              <div
+                id="clear-scans-title"
+                style={{ fontWeight: 800, fontSize: 18, color: '#0f172a', marginBottom: 8 }}
+              >
+                Clear all scan data?
+              </div>
+              <div style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5, marginBottom: 6 }}>
+                Do you want to clear all RFID scans? This will remove scan data from the server for
+                client <strong>{clientCode}</strong>
+                {scanRowCount > 0 ? (
+                  <>
+                    {' '}
+                    ({scanRowCount} scan{scanRowCount === 1 ? '' : 's'}
+                    {scanDeviceIds.length ? ` · ${scanDeviceIds.length} device${scanDeviceIds.length === 1 ? '' : 's'}` : ''}
+                    )
+                  </>
+                ) : null}
+                . This action cannot be undone.
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: 12,
+                marginTop: 16,
+                padding: '0 24px',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowClearScansConfirm(false)}
+                disabled={clearScansLoading}
+                style={{
+                  background: '#f1f5f9',
+                  color: '#334155',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '9px 22px',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: clearScansLoading ? 'not-allowed' : 'pointer',
+                  opacity: clearScansLoading ? 0.6 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmClearAllScanData}
+                disabled={clearScansLoading}
+                style={{
+                  background: clearScansLoading ? '#fca5a5' : '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '9px 22px',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: clearScansLoading ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 2px 8px rgba(220, 38, 38, 0.25)',
+                }}
+              >
+                {clearScansLoading ? 'Clearing...' : 'Yes, clear all'}
+              </button>
             </div>
           </div>
         </div>

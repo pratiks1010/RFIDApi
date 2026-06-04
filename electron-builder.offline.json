@@ -16,6 +16,11 @@
       "from": "rfid-bridge/bin/Release/net8.0/win-x64/publish",
       "to": "rfid-bridge",
       "filter": ["**/*"]
+    },
+    {
+      "from": "build-resources/prerequisites",
+      "to": "prerequisites",
+      "filter": ["**/*"]
     }
   ],
   "extraMetadata": {
@@ -31,6 +36,7 @@
     "installerIcon": "build-resources/icon.ico",
     "uninstallerIcon": "build-resources/icon.ico",
     "installerHeaderIcon": "build-resources/icon.ico",
-    "shortcutName": "Sparkle RFID (Offline)"
+    "shortcutName": "Sparkle RFID (Offline)",
+    "include": "build-resources/installer-rfid-prereqs.nsh"
   }
 }

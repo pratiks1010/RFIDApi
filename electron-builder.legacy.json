@@ -24,12 +24,20 @@
     "allowToChangeInstallationDirectory": true,
     "installerIcon": "build-resources/icon.ico",
     "uninstallerIcon": "build-resources/icon.ico",
-    "installerHeaderIcon": "build-resources/icon.ico"
+    "installerHeaderIcon": "build-resources/icon.ico",
+    "include": "build-resources/installer-rfid-prereqs.nsh"
   },
   "extraResources": [
     {
       "from": "rfid-bridge/bin/Release/net6.0/win-x64/publish",
       "to": "rfid-bridge",
+      "filter": [
+        "**/*"
+      ]
+    },
+    {
+      "from": "build-resources/prerequisites",
+      "to": "prerequisites",
       "filter": [
         "**/*"
       ]

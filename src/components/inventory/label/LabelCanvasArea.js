@@ -78,8 +78,15 @@ const LabelCanvasArea = ({
   }, [isDragging, dragElement, dragStart, zoomLevel, layout, onChange]);
 
   // Render element
+  const getRotationTransform = (element) => {
+    const deg = Number(element.rotation);
+    if (!deg || Number.isNaN(deg)) return undefined;
+    return `rotate(${deg}deg)`;
+  };
+
   const renderElement = (element) => {
     const isSelected = selectedElement?.id === element.id;
+    const rotationTransform = getRotationTransform(element);
     const style = {
       position: 'absolute',
       left: `${element.x * zoomLevel}px`,
@@ -89,7 +96,9 @@ const LabelCanvasArea = ({
       border: isSelected ? '2px solid #3b82f6' : '1px dashed transparent',
       cursor: 'move',
       zIndex: element.zIndex || 10,
-      boxSizing: 'border-box'
+      boxSizing: 'border-box',
+      transform: rotationTransform,
+      transformOrigin: 'top left',
     };
 
     if (element.type === 'text') {

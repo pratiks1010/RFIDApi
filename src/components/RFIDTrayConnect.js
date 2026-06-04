@@ -148,7 +148,10 @@ const RFIDTrayConnect = () => {
     const lower = message.toLowerCase();
     if (!message) return 'RFID bridge failed.';
     if (lower.includes('unable to load dll') && lower.includes('uhfapi.dll')) {
-      return 'RFID SDK DLL missing on this laptop (UHFAPI.dll). Install/copy reader SDK files.';
+      return 'RFID reader SDK could not load (UHFAPI.dll). Reinstall the desktop app from the latest Setup.exe, then restart the PC. If it persists, plug the tray USB in and check Device Manager for a COM port.';
+    }
+    if (lower.includes('rfid bridge bundle is incomplete') || lower.includes('sdk files are missing')) {
+      return message;
     }
     if (lower.includes('rfid bridge executable not found')) {
       return 'RFID bridge service is missing in this app build. Reinstall the desktop app.';

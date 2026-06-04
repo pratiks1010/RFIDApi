@@ -2,17 +2,33 @@
 
 Minimal console bridge to test reader control with `UHFAPI.dll`.
 
-## Prerequisites
+## Prerequisites (developer build machine)
 
-- Windows machine with reader driver installed
-- Copy these DLLs into `rfid-bridge/`:
-  - `UHFAPI.dll`
-  - `libusb-1.0.dll`
-  - `UHFControl.dll`
+Copy these DLLs from your UHF reader vendor SDK into `rfid-bridge/`:
+
+- `UHFAPI.dll`
+- `libusb-1.0.dll`
+- `UHFControl.dll`
+
+Optional extra vendor DLLs: `rfid-bridge/sdk/*.dll`
+
+## Desktop installer (end users)
+
+`npm run build:electron:offline` (or online) automatically:
+
+1. Publishes `rfid-bridge` with all SDK DLLs
+2. Downloads Microsoft **VC++ 2015–2022 x64** into the installer
+3. Runs the VC++ installer during Setup (so `UHFAPI.dll` loads on a new PC)
+
+End users only run **Setup.exe** — no manual DLL copy.
+
+USB tray still needs Windows to expose a **COM port** (plug reader in after install; use the same COM/baud as RFID Tray Connect).
 
 ## Build
 
 ```powershell
+npm run build:bridge
+# or
 dotnet build .\rfid-bridge\rfid-bridge.csproj
 ```
 

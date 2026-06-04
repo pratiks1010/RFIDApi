@@ -2,7 +2,7 @@
   "name": "sparkle-rfid-dashboard",
   "homepage": ".",
   "main": "electron/main.js",
-  "version": "0.1.64",
+  "version": "0.1.71",
   "private": true,
   "proxy": "http://3.109.131.101:816",
   "dependencies": {
@@ -130,6 +130,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "build-resources/prerequisites",
+        "to": "prerequisites",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "extraMetadata": {
@@ -144,7 +151,8 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "build-resources/icon.ico",
       "uninstallerIcon": "build-resources/icon.ico",
-      "installerHeaderIcon": "build-resources/icon.ico"
+      "installerHeaderIcon": "build-resources/icon.ico",
+      "include": "build-resources/installer-rfid-prereqs.nsh"
     }
   }
 }

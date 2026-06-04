@@ -17,6 +17,7 @@ const LabelToolbox = ({ onAddElement }) => {
       fontSize: 12,
       fontWeight: 'normal',
       color: '#000000',
+      rotation: 0,
       x: 10,
       y: 10,
       width: 100,

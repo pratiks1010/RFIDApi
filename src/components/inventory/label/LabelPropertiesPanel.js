@@ -258,6 +258,50 @@ const LabelPropertiesPanel = ({
                     }}
                   />
                 </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Text Rotation</label>
+                  <select
+                    value={String(selectedElement.rotation ?? 0)}
+                    onChange={(e) => handleUpdate({ rotation: parseInt(e.target.value, 10) || 0 })}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none'
+                    }}
+                  >
+                    <option value="0">0° (Normal)</option>
+                    <option value="90">90° (Clockwise)</option>
+                    <option value="180">180° (Upside down)</option>
+                    <option value="270">270° (Counter-clockwise)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>
+                    Custom angle (°)
+                  </label>
+                  <input
+                    type="number"
+                    value={selectedElement.rotation ?? 0}
+                    onChange={(e) => {
+                      const deg = parseInt(e.target.value, 10);
+                      handleUpdate({ rotation: Number.isNaN(deg) ? 0 : Math.max(-360, Math.min(360, deg)) });
+                    }}
+                    min="-360"
+                    max="360"
+                    step="1"
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </>

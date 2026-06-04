@@ -224,6 +224,7 @@ const LabelStockList = () => {
     message: '',
   });
   const [folderAutoPushOutcome, setFolderAutoPushOutcome] = useState(null);
+  const [showFolderSyncPopup, setShowFolderSyncPopup] = useState(false);
 
   // Add these state variables for filter options
   const [filterOptions, setFilterOptions] = useState({
@@ -3182,6 +3183,7 @@ const LabelStockList = () => {
       return;
     }
     setFolderAutoPushSyncing(true);
+    setShowFolderSyncPopup(true);
     setFolderAutoPushOutcome(null);
     setFolderAutoPushProgress({
       totalFiles: 0,
@@ -3219,6 +3221,7 @@ const LabelStockList = () => {
           message: res.message || 'No Excel files in the Auto Push source folder.',
         });
         await fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues, sortConfig);
+        setIsGridView(false);
         return;
       }
       const failed = (res.results || []).filter((r) => !r.ok);
@@ -3235,6 +3238,7 @@ const LabelStockList = () => {
         message: msg,
       });
       await fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues, sortConfig);
+      setIsGridView(false);
     } catch (e) {
       setFolderAutoPushOutcome({ type: 'error', message: e?.message || 'Unexpected error during sync.' });
       addNotification({
@@ -4432,92 +4436,6 @@ const LabelStockList = () => {
                 )}
                 <span>Sync</span>
               </button>
-              {(folderAutoPushSyncing || folderAutoPushOutcome || folderAutoPushProgress.message) ? (
-                <div
-                  style={{
-                    minWidth: 240,
-                    maxWidth: 420,
-                    marginLeft: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    border: '1px solid #e2e8f0',
-                    background: '#f8fafc',
-                    borderRadius: 10,
-                    padding: '8px 10px',
-                  }}
-                >
-                  {(() => {
-                    const total = Number(folderAutoPushProgress.totalFiles || 0);
-                    const processed = Number(folderAutoPushProgress.processedFiles || 0);
-                    const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((processed / total) * 100))) : 0;
-                    return (
-                      <>
-                        {(folderAutoPushSyncing || total > 0) ? (
-                          <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                              <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>
-                                {folderAutoPushProgress.phase || 'Syncing'}
-                              </div>
-                              <div style={{ fontSize: 10, color: '#065f46', fontWeight: 800, background: '#dcfce7', borderRadius: 999, padding: '2px 8px' }}>
-                                {percent}%
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                width: '100%',
-                                height: 8,
-                                borderRadius: 999,
-                                background: '#e2e8f0',
-                                overflow: 'hidden',
-                                boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.08)',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: `${percent}%`,
-                                  height: '100%',
-                                  background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)',
-                                  transition: 'width 220ms ease',
-                                }}
-                              />
-                            </div>
-                            <div style={{ fontSize: 11, color: '#334155', fontWeight: 600 }}>
-                              {folderAutoPushProgress.message || 'Sync in progress…'}
-                              {total > 0 ? ` (${processed}/${total})` : ''}
-                            </div>
-                            {(folderAutoPushProgress.okCount > 0 || folderAutoPushProgress.failCount > 0) ? (
-                              <div style={{ fontSize: 10, color: '#64748b' }}>
-                                Success: {folderAutoPushProgress.okCount} | Failed: {folderAutoPushProgress.failCount}
-                              </div>
-                            ) : null}
-                          </>
-                        ) : null}
-                        {folderAutoPushOutcome ? (
-                          <div
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color:
-                                folderAutoPushOutcome.type === 'success'
-                                  ? '#065f46'
-                                  : folderAutoPushOutcome.type === 'warning'
-                                    ? '#92400e'
-                                    : folderAutoPushOutcome.type === 'error'
-                                      ? '#b91c1c'
-                                      : '#334155',
-                            }}
-                            title={folderAutoPushOutcome.message}
-                          >
-                            {folderAutoPushOutcome.message}
-                          </div>
-                        ) : null}
-                      </>
-                    );
-                  })()}
-                </div>
-              ) : null}
-
               {/* Delete Button */}
               <button
                 onClick={handleDelete}
@@ -5928,6 +5846,143 @@ const LabelStockList = () => {
         `}</style>
 
         {exportModal}
+
+        {showFolderSyncPopup ? (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              background: 'rgba(15, 23, 42, 0.35)',
+              zIndex: 10020,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+            }}
+            onClick={() => {
+              if (!folderAutoPushSyncing) setShowFolderSyncPopup(false);
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: 520,
+                maxWidth: '100%',
+                background: '#fff',
+                borderRadius: 14,
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 20px 40px rgba(15, 23, 42, 0.25)',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ height: 3, background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)' }} />
+              <div style={{ padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Label Stock Sync Progress</div>
+                  {!folderAutoPushSyncing ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowFolderSyncPopup(false)}
+                      style={{
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        color: '#475569',
+                        borderRadius: 8,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '4px 10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Close
+                    </button>
+                  ) : null}
+                </div>
+
+                {(() => {
+                  const total = Number(folderAutoPushProgress.totalFiles || 0);
+                  const processed = Number(folderAutoPushProgress.processedFiles || 0);
+                  const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((processed / total) * 100))) : 0;
+                  return (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, color: '#0f172a', fontWeight: 700 }}>
+                          {folderAutoPushProgress.phase || 'Syncing'}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#065f46', fontWeight: 800, background: '#dcfce7', borderRadius: 999, padding: '2px 8px' }}>
+                          {percent}%
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          width: '100%',
+                          height: 10,
+                          borderRadius: 999,
+                          background: '#e2e8f0',
+                          overflow: 'hidden',
+                          boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.08)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${percent}%`,
+                            height: '100%',
+                            background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)',
+                            transition: 'width 220ms ease',
+                          }}
+                        />
+                      </div>
+                      <div style={{ fontSize: 12, color: '#334155', fontWeight: 600, marginTop: 8 }}>
+                        {folderAutoPushProgress.message || 'Sync in progress…'}
+                        {total > 0 ? ` (${processed}/${total})` : ''}
+                      </div>
+                      {(folderAutoPushProgress.okCount > 0 || folderAutoPushProgress.failCount > 0) ? (
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                          Success: {folderAutoPushProgress.okCount} | Failed: {folderAutoPushProgress.failCount}
+                        </div>
+                      ) : null}
+                    </>
+                  );
+                })()}
+
+                {folderAutoPushOutcome ? (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      border: '1px solid #e2e8f0',
+                      color:
+                        folderAutoPushOutcome.type === 'success'
+                          ? '#065f46'
+                          : folderAutoPushOutcome.type === 'warning'
+                            ? '#92400e'
+                            : folderAutoPushOutcome.type === 'error'
+                              ? '#b91c1c'
+                              : '#334155',
+                      background:
+                        folderAutoPushOutcome.type === 'success'
+                          ? '#ecfdf5'
+                          : folderAutoPushOutcome.type === 'warning'
+                            ? '#fffbeb'
+                            : folderAutoPushOutcome.type === 'error'
+                              ? '#fef2f2'
+                              : '#f8fafc',
+                    }}
+                    title={folderAutoPushOutcome.message}
+                  >
+                    {folderAutoPushOutcome.message}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {showDeleteConfirm && (
           <div style={{

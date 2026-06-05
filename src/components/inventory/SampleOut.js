@@ -8,20 +8,14 @@ import {
   FaCalendarAlt,
   FaSearch,
   FaSpinner,
-  FaList,
   FaTimes,
   FaFileInvoice,
-  FaFileExcel,
-  FaFilePdf,
-  FaChevronDown,
   FaInbox,
   FaCheckCircle,
 } from 'react-icons/fa';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
+import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import CustomerSidebarForm from './CustomerSidebarForm';
 import VendorSidebarForm from './VendorSidebarForm';
@@ -46,14 +40,29 @@ import {
 import TrayScanModal from '../common/TrayScanModal';
 import GridItemImage from '../common/GridItemImage';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
-import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl, toRrgoldApiUrl } from '../../services/apiBaseConfig';
-import { getCreateSampleOutUrl, getSampleOutNextNumberUrl } from '../../services/sampleInOutApi';
+import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl, getSoniApiBaseUrl, toRrgoldApiUrl } from '../../services/apiBaseConfig';
+import {
+  getSubmitSampleOutUrl,
+  getPartyLookupUrl,
+  getAllSubUsersUrl,
+  getLastNextSampleLotNumberUrl,
+  getCheckScanStatusUrl,
+  getScanSampleInUrl,
+  sampleAuthHeaders,
+} from '../../services/rfidSampleApi';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
+import { getAuthState } from '../../utils/authState';
+import { authHeaders as rfidUserAuthHeaders, rfidUserUrls } from '../../services/rfidUserManagementApi';
+
+const EMPLOYEE_MASTER_LINK_HELP =
+  'Sub-user login is not linked to Employee Master. Fix: (1) Create Masters — add employee PratikEmp if missing. (2) Sidebar → User Management → From employees — select that employee and Convert (or we auto-link when names match). (3) Sample Out — pick employee from dropdown again.';
 
 /** Fixed page height for sample-out items grid (same as Sample Out list). */
 const ITEMS_GRID_PAGE_SIZE = 6;
 const SAMPLE_OUT_GRID_COLUMNS = 3;
-const SAMPLE_OUT_ITEMS_VIEW_PREF_KEY = 'sampleOutItemsViewPreference';
+const BULK_SCAN_THRESHOLD = 5;
+/** Above this count, batch review popup shows counts only (not every item code). */
+const BULK_REVIEW_DETAIL_CAP = 50;
 const SAMPLE_OUT_TRAY_DEVICE_ID = 'Adb';
 
 const normalizeScanRows = (scanned) => {
@@ -95,28 +104,154 @@ const formatSampleApiDateTime = (value) => {
   }
 };
 
+/** Turn API enums like PendingAcceptance into readable labels. */
+const formatSampleLotStatusLabel = (raw) => {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  const known = {
+    PendingAcceptance: 'Pending acceptance',
+    Pending: 'Pending',
+    Accepted: 'Accepted',
+    Returned: 'Returned',
+    PartiallyReturned: 'Partially returned',
+    Closed: 'Closed',
+    Cancelled: 'Cancelled',
+  };
+  if (known[s]) return known[s];
+  return s
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const getSampleOutStatusBadgeStyle = (rawStatus) => {
+  const key = String(rawStatus ?? '').trim();
+  if (/pending|accept/i.test(key)) {
+    return { bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' };
+  }
+  if (/return|partial/i.test(key)) {
+    return { bg: '#fffbeb', border: '#fde68a', color: '#b45309' };
+  }
+  if (/cancel|reject/i.test(key)) {
+    return { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' };
+  }
+  if (/accept|closed|complete/i.test(key)) {
+    return { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8' };
+  }
+  return { bg: '#f1f5f9', border: '#e2e8f0', color: '#475569' };
+};
+
+/** One short line for the success modal — avoid repeating lot no. in the banner. */
+const formatSampleOutSuccessSubtitle = (apiMessage, lotNo) => {
+  const msg = String(apiMessage ?? '').trim();
+  if (!msg) return 'Your sample out was recorded successfully.';
+  const lot = String(lotNo ?? '').trim();
+  let line = msg
+    .replace(/\s+/g, ' ')
+    .replace(/lot number generated\.?\s*/gi, '')
+    .replace(/sample out created\.?\s*/gi, '')
+    .trim();
+  if (lot && line.toLowerCase().includes(lot.toLowerCase())) {
+    line = line.replace(new RegExp(lot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').trim();
+  }
+  line = line.replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
+  if (!line) return 'Your sample out was recorded successfully.';
+  if (!/[.!?]$/.test(line)) line += '.';
+  return line.charAt(0).toUpperCase() + line.slice(1);
+};
+
 const pickSampleOutSuccessMessage = (data) =>
-  String(data?.Message ?? data?.message ?? data?.msg ?? '').trim();
+  String(
+    data?.message ??
+      data?.Message ??
+      data?.msg ??
+      (data?.success ? 'Sample out created successfully.' : '')
+  ).trim();
+
+/** Map grid row → SubmitSampleOut Items[] entry (at least one identifier). */
+const buildSubmitSampleOutItem = (item) => {
+  const full = item.fullItemData || {};
+  const line = {};
+  const tid = String(
+    item.TIDValue ??
+      item.tidValue ??
+      item.epc ??
+      full.TIDValue ??
+      full.TIDNumber ??
+      full.tidValue ??
+      ''
+  ).trim();
+  const rfid = String(
+    item.RFIDNumber ?? item.RFID ?? item.RFIDCode ?? full.RFIDCode ?? full.RFIDNumber ?? ''
+  ).trim();
+  const rawStockId =
+    item.LabelledStockId ?? full.LabelledStockId ?? full.LabelledStockID ?? full.Id ?? item.id;
+  const labelledStockId = parseInt(rawStockId, 10);
+  const itemCode = rowItemCodeFromRaw(item) || rowItemCodeFromRaw(full);
+
+  if (tid) line.TIDValue = tid;
+  if (rfid) line.RFIDCode = rfid;
+  if (Number.isFinite(labelledStockId) && labelledStockId > 0) line.LabelledStockId = labelledStockId;
+  if (itemCode) line.ItemCode = itemCode;
+  return line;
+};
+
+const rowItemCodeFromRaw = (row) =>
+  String(
+    row?.Itemcode ??
+      row?.ItemCode ??
+      row?.itemcode ??
+      row?.ITEMCODE ??
+      row?.Item_Code ??
+      row?.ITMCode ??
+      ''
+  ).trim();
+
+const pickSubmitSampleOutLotNo = (data) =>
+  String(
+    data?.lotNumber ??
+      data?.LotNumber ??
+      data?.SampleLotNo ??
+      data?.sampleLotNo ??
+      data?.Header?.SampleLotNo ??
+      ''
+  ).trim();
+
+const pickApiResponseMessage = (data) => {
+  if (data == null) return '';
+  if (typeof data === 'string') return data.trim();
+  return String(
+    data.message ?? data.Message ?? data.msg ?? data.error ?? data.detail ?? ''
+  ).trim();
+};
 
 const pickSampleOutErrorMessage = (error) => {
-  const d = error?.response?.data;
-  if (d == null) return error?.message || 'Something went wrong.';
-  if (typeof d === 'string') return d;
-  const direct =
-    d.Message ||
-    d.message ||
-    d.error ||
-    d.title ||
-    d.detail ||
-    '';
-  if (direct) return String(direct);
-  if (Array.isArray(d.errors)) {
-    const parts = d.errors
-      .map((e) => (typeof e === 'string' ? e : e?.message || ''))
-      .filter(Boolean);
-    if (parts.length) return parts.join(' ');
-  }
-  return error?.message || 'Request failed.';
+  const fromBody = pickApiResponseMessage(error?.response?.data);
+  if (fromBody) return fromBody;
+  if (error?.message) return String(error.message).trim();
+  return 'Something went wrong.';
+};
+
+/** Toast popup + notification bell for every Sample Out message. */
+const createSampleOutMessenger = (addNotification) => {
+  const toastOpts = {
+    position: 'top-right',
+    autoClose: 6000,
+    hideProgressBar: false,
+    closeOnClick: true,
+    pauseOnHover: true,
+    theme: 'colored',
+  };
+  return (message, type = 'info', title = 'Sample Out') => {
+    const msg = String(message || '').trim();
+    if (!msg) return;
+    if (type === 'error') toast.error(msg, toastOpts);
+    else if (type === 'success') toast.success(msg, toastOpts);
+    else if (type === 'warning') toast.warning(msg, toastOpts);
+    else toast.info(msg, toastOpts);
+    addNotification?.({ type, title, message: msg });
+  };
 };
 
 /** Backend may wrap payload — normalize to the next lot string (e.g. SO-3). */
@@ -129,6 +264,10 @@ const pickNextSampleLotNoFromResponse = (raw) => {
   if (typeof raw !== 'object') return '';
   const d = raw;
   const tryVals = [
+    d.lotNumber,
+    d.LotNumber,
+    d.nextLotNumber,
+    d.NextLotNumber,
     d.NextSampleLotNo,
     d.nextSampleLotNo,
     d.SampleLotNo,
@@ -146,6 +285,22 @@ const pickNextSampleLotNoFromResponse = (raw) => {
   for (const v of tryVals) {
     if (v != null && String(v).trim() !== '') return String(v).trim();
   }
+  return '';
+};
+
+/** Preview label for header — never show raw API hint text like "No sample lot yet…". */
+const formatNextLotPreview = (data, clientCode) => {
+  const full = pickNextSampleLotNoFromResponse(data);
+  if (full && /SO-/i.test(full)) return full;
+  const seq = data?.nextLotNumber ?? data?.NextLotNumber ?? data?.nextLotNo ?? data?.NextLotNo;
+  const code = String(clientCode || '').trim();
+  if (seq != null && code) {
+    const num = parseInt(seq, 10);
+    if (Number.isFinite(num) && num > 0) {
+      return `SO-${code}-${String(num).padStart(5, '0')}`;
+    }
+  }
+  if (full && !/^\d+$/.test(full)) return full;
   return '';
 };
 
@@ -173,9 +328,108 @@ const resolveClientCodeForSampleApi = (userInfo) => {
   }
 };
 
+const pickScanApiField = (obj, ...keys) => {
+  if (!obj || typeof obj !== 'object') return '';
+  for (const k of keys) {
+    const v = obj[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+  }
+  return '';
+};
+
+const buildProductDataFromRaw = (item, extras = {}) => ({
+  id: Date.now() + Math.floor(Math.random() * 1000),
+  __scannedAt: new Date().toISOString(),
+  TIDValue:
+    item.TIDValue ||
+    item.TIDNumber ||
+    item.tidValue ||
+    item.tidNumber ||
+    item.epc ||
+    item.fullItemData?.TIDValue ||
+    item.fullItemData?.TIDNumber ||
+    '',
+  RFIDNumber: item.RFIDNumber || item.RFID || item.RFIDCode || item.rfidCode || '',
+  Itemcode: rowItemCodeFromRaw(item) || item.Itemcode || item.ItemCode || '',
+  LabelledStockId: item.LabelledStockId || item.LabelledStockID || item.Id || item.id || '',
+  category_id: item.CategoryName || item.Category || item.category_id || item.categoryName || '',
+  product_id: item.ProductName || item.Product || item.product_id || item.productName || '',
+  design_id: item.DesignName || item.Design || item.design_id || item.designName || '',
+  purity_id: item.PurityName || item.Purity || item.purity_id || item.purityName || '',
+  grosswt: item.GrossWt || item.GrossWeight || item.grosswt || item.grossWt || item.TWt || '0.000',
+  stonewt: item.StoneWt || item.StoneWeight || item.stonewt || item.StWt || '0.000',
+  diamondweight: item.DiamondWeight || item.diamondweight || item.DiaWt || '0.000',
+  netwt: item.NetWt || item.NetWeight || item.netwt || item.netWt || item.NtWt || '0.000',
+  FinePercent: item.FinePercent || item.FinePercentage || item['Fine %'] || '0.00',
+  WastagePercent: item.WastagePercent || item.WastagePercentage || item['Wastage %'] || '0.00',
+  Qty: item.Qty || item.Quantity || 1,
+  Pieces: item.Pieces || item.Qty || 1,
+  TotalWt: item.GrossWt || item.GrossWeight || item.grosswt || item.grossWt || item.TWt || '0.000',
+  fullItemData: item,
+  __scanAction: 'SampleOut',
+  ...extras,
+});
+
+const enrichItemFromCheckStatus = (item, checkData) => {
+  const p = checkData?.product ?? checkData?.Product ?? {};
+  const merged = {
+    ...item,
+    ItemCode: pickScanApiField(p, 'itemCode', 'ItemCode') || item.ItemCode,
+    Itemcode: pickScanApiField(p, 'itemCode', 'ItemCode') || item.Itemcode,
+    RFIDNumber: pickScanApiField(p, 'rfidCode', 'RFIDCode') || item.RFIDNumber,
+    RFIDCode: pickScanApiField(p, 'rfidCode', 'RFIDCode') || item.RFIDCode,
+    TIDValue: pickScanApiField(p, 'tidNumber', 'TIDNumber') || item.TIDValue,
+    LabelledStockId: pickScanApiField(p, 'labelledStockId', 'LabelledStockId') || item.LabelledStockId,
+    ProductName: pickScanApiField(p, 'productName', 'ProductName') || item.ProductName,
+    CategoryName: pickScanApiField(p, 'categoryName', 'CategoryName') || item.CategoryName,
+    DesignName: pickScanApiField(p, 'designName', 'DesignName') || item.DesignName,
+    PurityName: pickScanApiField(p, 'purityName', 'PurityName') || item.PurityName,
+    GrossWt: pickScanApiField(p, 'grossWt', 'GrossWt') || item.GrossWt,
+    NetWt: pickScanApiField(p, 'netWt', 'NetWt') || item.NetWt,
+    Status: pickScanApiField(p, 'status', 'Status') || item.Status,
+  };
+  return buildProductDataFromRaw(merged, {
+    __scanAction: 'SampleOut',
+    __stockStatus: checkData?.stockStatus ?? checkData?.StockStatus ?? '',
+    __scanPhase: checkData?.scanPhase ?? checkData?.ScanPhase ?? 'firstScan',
+  });
+};
+
+/** Rows waiting for SubmitSampleOut (excludes Sample In queue / completed). */
+const pendingSampleOutOnly = (items) =>
+  (items || []).filter((item) => item.__scanAction === 'SampleOut');
+
+/** Rows queued for Sample In confirmation (2nd scan — not submitted yet). */
+const pendingSampleInOnly = (items) =>
+  (items || []).filter((item) => item.__scanAction === 'SampleInPending');
+
+const SCAN_POPUP_THEME = {
+  success: { bg: '#ecfdf5', border: '#6ee7b7', fg: '#047857', icon: '#059669' },
+  info: { bg: '#eff6ff', border: '#93c5fd', fg: '#1d4ed8', icon: '#2563eb' },
+  warning: { bg: '#fffbeb', border: '#fcd34d', fg: '#b45309', icon: '#d97706' },
+  error: { bg: '#fef2f2', border: '#fca5a5', fg: '#b91c1c', icon: '#dc2626' },
+};
+
+const summarizeScanRows = (rows) => {
+  let gross = 0;
+  let pieces = 0;
+  let latest = null;
+  (rows || []).forEach((row) => {
+    gross += parseFloat(row?.grosswt ?? row?.GrossWt ?? 0) || 0;
+    pieces += parseFloat(row?.Qty ?? row?.Pieces ?? 1) || 1;
+    const dt = row?.__scannedAt ? new Date(row.__scannedAt) : null;
+    if (dt && !Number.isNaN(dt.getTime()) && (!latest || dt > latest)) latest = dt;
+  });
+  return { gross, pieces, latest };
+};
+
 const SampleOut = () => {
   const { loading, setLoading } = useLoading();
   const { addNotification } = useNotifications();
+  const showSampleOutMessage = useMemo(
+    () => createSampleOutMessenger(addNotification),
+    [addNotification]
+  );
   const navigate = useNavigate();
   const [userInfo, setUserInfo] = useState(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -183,7 +437,6 @@ const SampleOut = () => {
   // Sample Out Header State
   const [sampleOutNumber, setSampleOutNumber] = useState('');
   const [nextLotNoLoading, setNextLotNoLoading] = useState(true);
-  const [nextLotNoError, setNextLotNoError] = useState(null);
   const [sampleOutDate, setSampleOutDate] = useState(new Date().toISOString().split('T')[0]);
   const [customerName, setCustomerName] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -200,7 +453,7 @@ const SampleOut = () => {
   const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
 
-  const [partyType, setPartyType] = useState('customer');
+  const [partyType, setPartyType] = useState('employee');
 
   const [vendorList, setVendorList] = useState([]);
   const [vendorSearch, setVendorSearch] = useState('');
@@ -215,7 +468,15 @@ const SampleOut = () => {
   const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [loadingEmployees, setLoadingEmployees] = useState(false);
-  
+
+  /** Assign To: AspNet user GUID from GetAllSubUsers / ConvertEmployeeToSubUser — not tblEmployee Id. */
+  const [subUserList, setSubUserList] = useState([]);
+  const [assignToSearch, setAssignToSearch] = useState('');
+  const [filteredSubUsers, setFilteredSubUsers] = useState([]);
+  const [showAssignToDropdown, setShowAssignToDropdown] = useState(false);
+  const [selectedAssignToUserId, setSelectedAssignToUserId] = useState('');
+  const [loadingSubUsers, setLoadingSubUsers] = useState(false);
+
   // Item Code Search State
   const [itemCodeSearch, setItemCodeSearch] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -224,6 +485,7 @@ const SampleOut = () => {
   
   // Sample Out Items State
   const [sampleOutItems, setSampleOutItems] = useState([]);
+  const [scanChecking, setScanChecking] = useState(false);
   const [itemsViewMode, setItemsViewMode] = useState('grid');
   
   // Pagination State
@@ -235,6 +497,11 @@ const SampleOut = () => {
   const [successData, setSuccessData] = useState(null);
   const [showConfirmSampleOut, setShowConfirmSampleOut] = useState(false);
   const [confirmSampleOutPhase, setConfirmSampleOutPhase] = useState('summary');
+  const [showConfirmSampleIn, setShowConfirmSampleIn] = useState(false);
+  const [confirmSampleInPhase, setConfirmSampleInPhase] = useState('summary');
+  const [scanReviewModal, setScanReviewModal] = useState(null);
+  const confirmSampleInLockRef = useRef(false);
+  const [formValidationHint, setFormValidationHint] = useState('');
   const confirmSampleOutLockRef = useRef(false);
   const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
   const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
@@ -244,9 +511,6 @@ const SampleOut = () => {
   
   const customerDropdownRef = useRef(null);
   const itemCodeSearchRef = useRef(null);
-  const exportDropdownRef = useRef(null);
-  const [showExportDropdown, setShowExportDropdown] = useState(false);
-
   // Helper function to normalize array responses
   const normalizeArray = (data) => {
     if (!data) return [];
@@ -273,6 +537,8 @@ const SampleOut = () => {
   const rowDedupKey = (row) => {
     const code = rowItemCode(row);
     if (code) return `C:${code.toUpperCase()}`;
+    const tid = String(row?.TIDValue ?? row?.tidValue ?? row?.epc ?? '').trim();
+    if (tid) return `T:${tid.toUpperCase()}`;
     const rfid = String(row?.RFIDNumber ?? row?.RFID ?? row?.RFIDCode ?? '').trim();
     if (rfid) return `R:${rfid.toUpperCase()}`;
     const sid = row?.LabelledStockId ?? row?.LabelledStockID ?? row?.Id ?? row?.id;
@@ -466,7 +732,16 @@ const formatScannedDateTime = (date) => {
     if (e.FirstName) {
       return `${e.FirstName}${e.LastName ? ` ${e.LastName}` : ''}`.trim();
     }
-    return e.EmployeeName || e.Name || 'Unknown';
+    return e.EmployeeName || e.employeeName || e.Name || e.name || 'Unknown';
+  };
+
+  const getSubUserDisplayName = (u) => {
+    const name = String(
+      u?.employeeName ?? u?.EmployeeName ?? u?.UserName ?? u?.userName ?? ''
+    ).trim();
+    const code = String(u?.employeeCode ?? u?.EmployeeCode ?? '').trim();
+    if (name && code) return `${name} (${code})`;
+    return name || code || String(u?.Email ?? u?.email ?? 'Unknown').trim();
   };
 
   const getCustomerDisplayName = (customer) => {
@@ -504,23 +779,40 @@ const formatScannedDateTime = (date) => {
     }
   }, [userInfo]);
 
+  const fetchSubUsers = async () => {
+    setLoadingSubUsers(true);
+    try {
+      const { data } = await axios.get(getAllSubUsersUrl(), { headers: sampleAuthHeaders() });
+      setSubUserList(normalizeArray(data));
+    } catch (error) {
+      console.error('Error fetching sub-users:', error);
+      setSubUserList([]);
+    } finally {
+      setLoadingSubUsers(false);
+    }
+  };
+
   const fetchCustomers = async () => {
     if (!userInfo?.ClientCode) return;
     
     setLoadingCustomers(true);
     try {
-      const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
-      };
-      
-      const response = await axios.post(
-        getGetAllCustomerUrl(),
-        { ClientCode: userInfo.ClientCode },
-        { headers }
-      );
-      
-      const customers = normalizeArray(response.data);
+      const headers = sampleAuthHeaders();
+      let customers = [];
+      try {
+        const lookup = await axios.get(getPartyLookupUrl('Customer', userInfo.ClientCode), { headers });
+        customers = normalizeArray(lookup.data);
+      } catch (_) {
+        /* fallback */
+      }
+      if (!customers.length) {
+        const response = await axios.post(
+          getGetAllCustomerUrl(),
+          { ClientCode: userInfo.ClientCode },
+          { headers }
+        );
+        customers = normalizeArray(response.data);
+      }
       setCustomerList(customers);
     } catch (error) {
       console.error('Error fetching customers:', error);
@@ -538,18 +830,25 @@ const formatScannedDateTime = (date) => {
     if (!userInfo?.ClientCode) return;
     setLoadingVendors(true);
     try {
-      const headers = {
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
-      };
+      const headers = sampleAuthHeaders();
       const body = { ClientCode: userInfo.ClientCode };
-      let response;
+      let vendors = [];
       try {
-        response = await axios.post(getGetAllVendorUrl(), body, { headers });
-      } catch {
-        response = await axios.post(getGetAllVendorsAltUrl(), body, { headers });
+        const lookup = await axios.get(getPartyLookupUrl('Vendor', userInfo.ClientCode), { headers });
+        vendors = normalizeArray(lookup.data);
+      } catch (_) {
+        /* fallback */
       }
-      setVendorList(normalizeArray(response.data));
+      if (!vendors.length) {
+        let response;
+        try {
+          response = await axios.post(getGetAllVendorUrl(), body, { headers });
+        } catch {
+          response = await axios.post(getGetAllVendorsAltUrl(), body, { headers });
+        }
+        vendors = normalizeArray(response.data);
+      }
+      setVendorList(vendors);
     } catch (error) {
       console.error('Error fetching vendors:', error);
       setVendorList([]);
@@ -559,19 +858,31 @@ const formatScannedDateTime = (date) => {
   };
 
   const fetchEmployees = async () => {
-    if (!userInfo?.ClientCode) return;
+    const cc = resolveClientCodeForSampleApi(userInfo);
+    if (!cc) return;
     setLoadingEmployees(true);
     try {
-      const headers = {
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
-      };
-      const response = await axios.post(
-        getGetAllEmployeeUrl(),
-        { ClientCode: userInfo.ClientCode },
-        { headers }
-      );
-      setEmployeeList(normalizeArray(response.data));
+      const headers = sampleAuthHeaders();
+      let employees = [];
+      try {
+        const response = await axios.post(
+          getGetAllEmployeeUrl(),
+          { ClientCode: cc },
+          { headers }
+        );
+        employees = normalizeArray(response.data);
+      } catch (_) {
+        /* fallback */
+      }
+      if (!employees.length) {
+        try {
+          const lookup = await axios.get(getPartyLookupUrl('Employee', cc), { headers });
+          employees = normalizeArray(lookup.data);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      setEmployeeList(employees);
     } catch (error) {
       console.error('Error fetching employees:', error);
       setEmployeeList([]);
@@ -585,6 +896,7 @@ const formatScannedDateTime = (date) => {
       fetchVendors();
       fetchEmployees();
     }
+    fetchSubUsers();
   }, [userInfo]);
 
   // Filter customers based on search input
@@ -696,6 +1008,95 @@ const formatScannedDateTime = (date) => {
     setShowEmployeeDropdown(!selectionLocksDropdown);
   }, [employeeSearch, employeeList, partyType, selectedEmployeeId]);
 
+  useEffect(() => {
+    if (partyType !== 'employee') return;
+
+    const hasQuery = assignToSearch.trim().length > 0;
+    if (!hasQuery) {
+      setFilteredSubUsers(showAssignToDropdown ? subUserList : []);
+      return;
+    }
+
+    const q = assignToSearch.toLowerCase();
+    const filtered = subUserList.filter((u) => {
+      const name = getSubUserDisplayName(u).toLowerCase();
+      const email = String(u.Email || u.email || '').toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+    const selected = selectedAssignToUserId
+      ? subUserList.find((u) => String(u.UserId || u.userId) === String(selectedAssignToUserId))
+      : null;
+    const lockedLabel = selected ? normalizePartyQuery(getSubUserDisplayName(selected)) : '';
+    const nq = normalizePartyQuery(assignToSearch);
+    const selectionLocksDropdown = lockedLabel && nq === lockedLabel;
+    setFilteredSubUsers(filtered);
+    setShowAssignToDropdown(!selectionLocksDropdown);
+  }, [assignToSearch, subUserList, selectedAssignToUserId, partyType, showAssignToDropdown]);
+
+  useEffect(() => {
+    if (partyType !== 'employee' || !selectedAssignToUserId || subUserList.length === 0) return;
+    const u = subUserList.find((x) => String(x.UserId || x.userId) === String(selectedAssignToUserId));
+    if (u) {
+      setAssignToSearch(getSubUserDisplayName(u));
+      syncEmployeePartyIdFromSubUser(u);
+    }
+  }, [selectedAssignToUserId, subUserList, partyType]);
+
+  useEffect(() => {
+    if (partyType !== 'customer') return;
+    const hasQuery = assignToSearch.trim().length > 0;
+    if (!hasQuery) {
+      setFilteredCustomers([]);
+      setShowAssignToDropdown(false);
+      return;
+    }
+    setCustomerSearch(assignToSearch);
+    const searchTerm = assignToSearch.toLowerCase();
+    const filtered = customerList.filter((customer) => {
+      const firstName = (customer.FirstName || '').toLowerCase();
+      const lastName = (customer.LastName || '').toLowerCase();
+      const name = (customer.Name || customer.CustomerName || '').toLowerCase();
+      const mobile = (customer.Mobile || customer.MobileNumber || '').toLowerCase();
+      return (
+        firstName.includes(searchTerm) ||
+        lastName.includes(searchTerm) ||
+        name.includes(searchTerm) ||
+        mobile.includes(searchTerm)
+      );
+    });
+    const selected = selectedCustomerId
+      ? customerList.find((c) => String(c.PartyId ?? c.Id) === String(selectedCustomerId))
+      : null;
+    const lockedLabel = selected ? normalizePartyQuery(toProperPersonName(getCustomerDisplayName(selected))) : '';
+    const nq = normalizePartyQuery(assignToSearch);
+    setFilteredCustomers(filtered);
+    setShowAssignToDropdown(!(lockedLabel && nq === lockedLabel));
+  }, [assignToSearch, customerList, selectedCustomerId, partyType]);
+
+  useEffect(() => {
+    if (partyType !== 'vendor') return;
+    const hasQuery = assignToSearch.trim().length > 0;
+    if (!hasQuery) {
+      setFilteredVendors([]);
+      setShowAssignToDropdown(false);
+      return;
+    }
+    setVendorSearch(assignToSearch);
+    const searchTerm = assignToSearch.toLowerCase();
+    const filtered = vendorList.filter((v) => {
+      const name = getVendorDisplayName(v).toLowerCase();
+      const mob = (v.Mobile || v.Phone || v.PhoneNumber || '').toLowerCase();
+      return name.includes(searchTerm) || mob.includes(searchTerm);
+    });
+    const selected = selectedVendorId
+      ? vendorList.find((v) => String(v.PartyId ?? v.Id) === String(selectedVendorId))
+      : null;
+    const lockedLabel = selected ? normalizePartyQuery(getVendorDisplayName(selected).trim()) : '';
+    const nq = normalizePartyQuery(assignToSearch);
+    setFilteredVendors(filtered);
+    setShowAssignToDropdown(!(lockedLabel && nq === lockedLabel));
+  }, [assignToSearch, vendorList, selectedVendorId, partyType]);
+
   // Update customer details when customer is selected
   useEffect(() => {
     if (partyType !== 'customer') return;
@@ -780,6 +1181,7 @@ const formatScannedDateTime = (date) => {
         setShowCustomerDropdown(false);
         setShowVendorDropdown(false);
         setShowEmployeeDropdown(false);
+        setShowAssignToDropdown(false);
       }
     };
 
@@ -791,12 +1193,12 @@ const formatScannedDateTime = (date) => {
 
   // Handle customer selection from dropdown
   const handleCustomerSelect = (customer) => {
-    setSelectedCustomerId(customer.Id);
+    setSelectedCustomerId(customer.PartyId ?? customer.Id);
     setShowCustomerDropdown(false);
   };
 
   const handleVendorSelect = (v) => {
-    setSelectedVendorId(v.Id);
+    setSelectedVendorId(v.PartyId ?? v.Id);
     setShowVendorDropdown(false);
   };
 
@@ -813,6 +1215,8 @@ const formatScannedDateTime = (date) => {
     setVendorSearch('');
     setSelectedEmployeeId('');
     setEmployeeSearch('');
+    setSelectedAssignToUserId('');
+    setAssignToSearch('');
     setCustomerName('');
     setCustomerMobile('');
     setFineGold('0.000');
@@ -822,108 +1226,101 @@ const formatScannedDateTime = (date) => {
     setShowCustomerDropdown(false);
     setShowVendorDropdown(false);
     setShowEmployeeDropdown(false);
+    setShowAssignToDropdown(false);
+  };
+
+  const assignToFieldLabel =
+    partyType === 'customer'
+      ? 'Customer'
+      : partyType === 'vendor'
+        ? 'Vendor'
+        : 'Employee';
+
+  const assignToPlaceholder =
+    partyType === 'customer'
+      ? 'Search customer…'
+      : partyType === 'vendor'
+        ? 'Search vendor…'
+        : 'Click or type to select employee…';
+
+  const assignToLoading =
+    partyType === 'customer'
+      ? loadingCustomers
+      : partyType === 'vendor'
+        ? loadingVendors
+        : loadingSubUsers;
+
+  const hasAssignToSelection = () => {
+    if (partyType === 'customer') return Boolean(selectedCustomerId);
+    if (partyType === 'vendor') return Boolean(selectedVendorId);
+    return Boolean(selectedAssignToUserId);
+  };
+
+  const resolveAssignedToUserId = () => {
+    if (partyType === 'employee') {
+      if (selectedAssignToUserId) return String(selectedAssignToUserId);
+      const sub = subUserList.find(
+        (u) =>
+          partyLabelCore(getSubUserDisplayName(u)) === partyLabelCore(assignToSearch) ||
+          partyLabelCore(u.UserName || u.userName) === partyLabelCore(assignToSearch)
+      );
+      return sub ? String(sub.UserId || sub.userId || '') : '';
+    }
+    const auth = getAuthState();
+    return String(
+      auth?.userId ||
+        userInfo?.UserId ||
+        userInfo?.UserID ||
+        userInfo?.Id ||
+        userInfo?.id ||
+        ''
+    );
   };
 
   const partyTypeLabel = (t) =>
     t === 'customer' ? 'Customer' : t === 'vendor' ? 'Vendor' : 'Employee';
 
-  const getResolvedPartyNameForSummary = () => {
-    if (partyType === 'customer') {
-      const c = customerList.find(
-        (x) => x.Id == selectedCustomerId || x.Id === selectedCustomerId
-      );
-      if (!c) return '—';
-      return toProperPersonName(getCustomerDisplayName(c));
-    }
-    if (partyType === 'vendor') {
-      const v = vendorList.find((x) => String(x.Id) === String(selectedVendorId));
-      return v ? getVendorDisplayName(v) : '—';
-    }
-    const e = employeeList.find((x) => String(x.Id) === String(selectedEmployeeId));
-    return e ? toProperPersonName(getEmployeeDisplayName(e)) : '—';
-  };
+  const getResolvedPartyNameForSummary = () => getResolvedAssignToName();
 
-  const partyNameFieldLabel =
-    partyType === 'customer'
-      ? 'Customer Name'
-      : partyType === 'vendor'
-        ? 'Vendor Name'
-        : 'Employee Name';
+  const getResolvedAssignToName = () => assignToSearch || '—';
 
-  const partySearchPlaceholder =
-    partyType === 'customer'
-      ? 'Type to search customer...'
-      : partyType === 'vendor'
-        ? 'Type to search vendor...'
-        : 'Type to search employee...';
+  const assignToDropdownOpen =
+    showAssignToDropdown &&
+    (partyType === 'employee'
+      ? filteredSubUsers.length > 0 || loadingSubUsers
+      : assignToSearch.trim().length > 0);
 
-  const loadingPartyList =
-    partyType === 'customer' ? loadingCustomers : partyType === 'vendor' ? loadingVendors : loadingEmployees;
-
-  const partySearchValue =
-    partyType === 'customer' ? customerSearch : partyType === 'vendor' ? vendorSearch : employeeSearch;
-
-  const partyDropdownOpen =
-    (partyType === 'customer' && showCustomerDropdown && customerSearch.trim()) ||
-    (partyType === 'vendor' && showVendorDropdown && vendorSearch.trim()) ||
-    (partyType === 'employee' && showEmployeeDropdown && employeeSearch.trim());
-
-  const noMatchPartyLabel =
+  const noMatchAssignLabel =
     partyType === 'customer' ? 'customer' : partyType === 'vendor' ? 'vendor' : 'employee';
 
-  /** Next sample lot label from RFIDDashboard Sample In/Out API (e.g. SO-3). */
-  const fetchSampleOutNumber = async () => {
+  /** Preview only — GET GetLastNextSampleLotNumber; final lot assigned on SubmitSampleOut. */
+  const refreshLotPreviewLabel = async () => {
     const clientCode = resolveClientCodeForSampleApi(userInfo);
     if (!clientCode) {
       setNextLotNoLoading(false);
-      setNextLotNoError('No client code — log in again.');
       setSampleOutNumber('');
       return;
     }
-
     setNextLotNoLoading(true);
-    setNextLotNoError(null);
     try {
-      const headers = {
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      };
-
-      const response = await axios.post(
-        getSampleOutNextNumberUrl(),
-        { ClientCode: clientCode },
-        { headers }
-      );
-
-      const nextLot = pickNextSampleLotNoFromResponse(response.data);
-      if (nextLot) {
-        setSampleOutNumber(nextLot);
-        setNextLotNoError(null);
-      } else {
+      const url = `${getLastNextSampleLotNumberUrl()}?clientCode=${encodeURIComponent(clientCode)}`;
+      const { data } = await axios.get(url, { headers: sampleAuthHeaders() });
+      if (data?.success === false) {
         setSampleOutNumber('');
-        setNextLotNoError(
-          'No lot number in API response. Expected NextSampleLotNo (check server / network).'
-        );
-        console.warn('GetSampleOutNextNumber unexpected shape:', response.data);
+        return;
       }
+      const preview = formatNextLotPreview(data, clientCode);
+      setSampleOutNumber(preview);
     } catch (error) {
-      console.error('Error fetching next sample lot number:', error);
+      console.warn('GetLastNextSampleLotNumber:', error);
       setSampleOutNumber('');
-      setNextLotNoError(pickSampleOutErrorMessage(error));
     } finally {
       setNextLotNoLoading(false);
     }
   };
 
   useEffect(() => {
-    const clientCode = resolveClientCodeForSampleApi(userInfo);
-    if (!clientCode) {
-      setNextLotNoLoading(false);
-      return undefined;
-    }
-    fetchSampleOutNumber();
-    return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only when login/client changes
+    refreshLotPreviewLabel();
   }, [userInfo]);
 
   // Handle window resize
@@ -950,7 +1347,7 @@ const formatScannedDateTime = (date) => {
     return () => clearTimeout(timeoutId);
   }, [itemCodeSearch]);
 
-  // Search for item by Item Code using GetAllLabeledStock API
+  // Search labeled stock via ProductMaster GetAllLabeledStock (item code / RFID / query)
   const handleItemCodeSearch = async (searchTerm) => {
     if (!searchTerm || searchTerm.trim().length === 0) {
       setSearchResults([]);
@@ -965,21 +1362,55 @@ const formatScannedDateTime = (date) => {
     setSearching(true);
     try {
       const headers = {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
       };
+      const term = searchTerm.trim();
+      const clientCode = userInfo.ClientCode;
+      const labeledStockUrl = toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock');
 
-      // Call GetAllLabeledStock API with ItemCode
-      const response = await axios.post(
-        toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock'),
-        { 
-          ClientCode: userInfo.ClientCode,
-          ItemCode: searchTerm.trim()
-        },
-        { headers }
+      const requestLabeledStock = (payload) =>
+        axios.post(labeledStockUrl, payload, { headers });
+
+      let results = normalizeArray(
+        (
+          await requestLabeledStock({
+            ClientCode: clientCode,
+            ItemCode: term,
+            SearchQuery: term,
+            RFIDCode: term,
+            PageNumber: 1,
+            PageSize: 30,
+          })
+        ).data
       );
 
-      const results = normalizeArray(response.data);
+      if (!results.length) {
+        results = normalizeArray(
+          (
+            await requestLabeledStock({
+              ClientCode: clientCode,
+              CategoryId: 0,
+              ProductId: 0,
+              DesignId: 0,
+              PurityId: 0,
+              BranchId: 0,
+              CounterId: 0,
+              ItemCode: term,
+              RFIDCode: term,
+              SearchQuery: term,
+              FromDate: null,
+              ToDate: null,
+              Status: 'ApiActive',
+              ListType: 'ascending',
+              SortColumn: null,
+              PageNumber: 1,
+              PageSize: 30,
+            })
+          ).data
+        );
+      }
+
       setSearchResults(results);
       setShowSearchResults(results.length > 0);
     } catch (error) {
@@ -996,43 +1427,23 @@ const formatScannedDateTime = (date) => {
     }
   };
 
-  // Select item from search results and add to sample out
-  const selectItemFromSearch = (item) => {
-    const key = rowDedupKey(item);
-    if (!key) {
-      addNotification({
-        type: 'error',
-        title: 'Invalid row',
-        message: 'Could not read item code or stock id from this row. Try another result.',
-      });
-      return;
-    }
+  const openScanReviewModal = (payload) => {
+    setScanReviewModal({
+      title: payload.title || 'Scan review',
+      subtitle: payload.subtitle || '',
+      sections: payload.sections || [],
+    });
+  };
 
-    const productData = {
-      id: Date.now(),
-      __scannedAt: new Date().toISOString(),
-      RFIDNumber: item.RFIDNumber || item.RFID || item.RFIDCode || '',
-      Itemcode: rowItemCode(item) || item.Itemcode || item.ItemCode || '',
-      LabelledStockId: item.LabelledStockId || item.LabelledStockID || item.Id || item.id || '',
-      category_id: item.CategoryName || item.Category || item.category_id || '',
-      product_id: item.ProductName || item.Product || item.product_id || '',
-      design_id: item.DesignName || item.Design || item.design_id || '',
-      purity_id: item.PurityName || item.Purity || item.purity_id || '',
-      grosswt: item.GrossWt || item.GrossWeight || item.grosswt || item.TWt || '0.000',
-      stonewt: item.StoneWt || item.StoneWeight || item.stonewt || item.StWt || '0.000',
-      diamondweight: item.DiamondWeight || item.diamondweight || item.DiaWt || '0.000',
-      netwt: item.NetWt || item.NetWeight || item.netwt || item.NtWt || '0.000',
-      FinePercent: item.FinePercent || item.FinePercentage || item['Fine %'] || '0.00',
-      WastagePercent: item.WastagePercent || item.WastagePercentage || item['Wastage %'] || '0.00',
-      Qty: item.Qty || item.Quantity || 1,
-      Pieces: item.Pieces || item.Pieces || 1,
-      TotalWt: item.GrossWt || item.GrossWeight || item.grosswt || item.TWt || '0.000',
-      fullItemData: item,
-    };
+  const addSampleOutRowToGrid = (productData) => {
+    const key = rowDedupKey(productData);
+    if (!key) {
+      return { ok: false, level: 'error', itemCode: '—', message: 'Could not read item code or stock id.' };
+    }
 
     let duplicate = false;
     setSampleOutItems((prev) => {
-      if (prev.some((sampleItem) => rowDedupKey(sampleItem) === key)) {
+      if (prev.some((sampleItem) => rowDedupKey(sampleItem) === key && sampleItem.__scanAction === 'SampleOut')) {
         duplicate = true;
         return prev;
       }
@@ -1040,23 +1451,336 @@ const formatScannedDateTime = (date) => {
     });
 
     if (duplicate) {
-      addNotification({
-        type: 'error',
-        title: 'Validation Error',
-        message: 'This item is already in the table below.',
+      return {
+        ok: false,
+        level: 'warning',
+        itemCode: productData.Itemcode || productData.ItemCode || '—',
+        message: 'Already in Sample Out list.',
+      };
+    }
+    return {
+      ok: true,
+      level: 'success',
+      itemCode: productData.Itemcode || productData.ItemCode || '—',
+      rfid: productData.RFIDNumber || '—',
+      message: 'Queued for Sample Out.',
+      productData,
+    };
+  };
+
+  const addSampleInPendingRow = (item, checkData) => {
+    const lotNo =
+      checkData?.activeLot?.lotNumber ??
+      checkData?.ActiveLot?.LotNumber ??
+      checkData?.activeLot?.LotNumber ??
+      '—';
+    const lotId =
+      checkData?.activeLot?.lotId ??
+      checkData?.ActiveLot?.LotId ??
+      checkData?.activeLot?.LotId ??
+      null;
+    const itemCode = rowItemCodeFromRaw(item) || item.Itemcode || item.ItemCode || '—';
+    const key = rowDedupKey(item);
+    let duplicate = false;
+    const productData = enrichItemFromCheckStatus(item, checkData);
+    Object.assign(productData, {
+      __scanAction: 'SampleInPending',
+      __scanPhase: 'secondScan',
+      __lotNumber: lotNo,
+      __lotId: lotId,
+    });
+
+    setSampleOutItems((prev) => {
+      if (prev.some((r) => rowDedupKey(r) === key && r.__scanAction === 'SampleInPending')) {
+        duplicate = true;
+        return prev;
+      }
+      return [productData, ...prev];
+    });
+
+    if (duplicate) {
+      return {
+        ok: false,
+        level: 'warning',
+        itemCode,
+        message: `Already queued for Sample In (lot ${lotNo}).`,
+      };
+    }
+    return {
+      ok: true,
+      level: 'info',
+      itemCode,
+      rfid: productData.RFIDNumber || '—',
+      message: `2nd scan — queued Sample In (lot ${lotNo}). Confirm with Sample In button.`,
+      productData,
+    };
+  };
+
+  const processScannedProduct = async (
+    item,
+    { clearSearch = true, source = 'search', silent = false, quietSuccess = true } = {}
+  ) => {
+    const clientCode = resolveClientCodeForSampleApi(userInfo);
+    const itemCode = String(rowItemCodeFromRaw(item) || item.Itemcode || item.ItemCode || '').trim();
+    const rfid = String(item.RFIDNumber || item.RFID || item.RFIDCode || item.rfidCode || '').trim();
+    const tid = String(
+      item.TIDValue || item.TIDNumber || item.tidValue || item.tidNumber || item.epc || ''
+    ).trim();
+    const labelledStockId = parseInt(item.LabelledStockId || item.Id || item.id, 10);
+
+    const fail = (level, message) => ({
+      ok: false,
+      level,
+      itemCode: itemCode || '—',
+      rfid,
+      message,
+    });
+
+    if (!clientCode) {
+      const r = fail('error', 'User information not found. Please refresh the page.');
+      if (!silent) openScanReviewModal({ title: 'Scan error', sections: [{ type: 'error', heading: 'Error', rows: [r] }] });
+      return r;
+    }
+
+    if (!tid && !rfid && !itemCode && !(Number.isFinite(labelledStockId) && labelledStockId > 0)) {
+      const r = fail('error', 'Scan needs RFID, TID, or item code.');
+      if (!silent) openScanReviewModal({ title: 'Scan error', sections: [{ type: 'error', heading: 'Error', rows: [r] }] });
+      return r;
+    }
+
+    try {
+      const { data: checkData } = await axios.post(
+        getCheckScanStatusUrl(),
+        {
+          ClientCode: clientCode,
+          TIDValue: tid || undefined,
+          RFIDCode: rfid || undefined,
+          ItemCode: itemCode || undefined,
+          LabelledStockId: Number.isFinite(labelledStockId) && labelledStockId > 0 ? labelledStockId : undefined,
+        },
+        { headers: sampleAuthHeaders() }
+      );
+
+      const scanAction = String(checkData?.scanAction ?? checkData?.ScanAction ?? '').trim();
+      const statusMsg = String(checkData?.message ?? checkData?.Message ?? '').trim();
+
+      if (scanAction === 'NotFound' || checkData?.success === false) {
+        const r = fail('error', statusMsg || 'Product not found for this scan.');
+        if (!silent) openScanReviewModal({ title: 'Not found', sections: [{ type: 'error', heading: 'Not found', rows: [r] }] });
+        return r;
+      }
+
+      if (scanAction === 'Blocked') {
+        const r = fail('warning', statusMsg || 'This product cannot be scanned right now.');
+        if (!silent) openScanReviewModal({ title: 'Scan blocked', sections: [{ type: 'warning', heading: 'Blocked', rows: [r] }] });
+        return r;
+      }
+
+      if (scanAction === 'SampleIn') {
+        const r = addSampleInPendingRow(item, checkData);
+        if (!silent && !quietSuccess && r.ok) {
+          openScanReviewModal({
+            title: 'Sample In — 2nd scan',
+            subtitle: statusMsg,
+            sections: [{ type: 'info', heading: 'Queued for return', rows: [r] }],
+          });
+        } else if (!silent && !r.ok) {
+          openScanReviewModal({ title: 'Sample In', sections: [{ type: 'warning', heading: 'Skipped', rows: [r] }] });
+        }
+        if (clearSearch) {
+          setSearchResults([]);
+          setShowSearchResults(false);
+          setItemCodeSearch('');
+        }
+        return r;
+      }
+
+      if (scanAction === 'SampleOut') {
+        const productData = enrichItemFromCheckStatus(item, checkData);
+        productData.scanSource = source;
+        const r = addSampleOutRowToGrid(productData);
+        if (!silent && !quietSuccess) {
+          if (r.ok) {
+            openScanReviewModal({
+              title: 'Sample Out — 1st scan',
+              subtitle: statusMsg,
+              sections: [{ type: 'success', heading: 'Added', rows: [r] }],
+            });
+          } else {
+            openScanReviewModal({ title: 'Sample Out', sections: [{ type: 'warning', heading: 'Skipped', rows: [r] }] });
+          }
+        } else if (!silent && quietSuccess && !r.ok) {
+          openScanReviewModal({ title: 'Sample Out', sections: [{ type: 'warning', heading: 'Skipped', rows: [r] }] });
+        }
+        if (clearSearch) {
+          setSearchResults([]);
+          setShowSearchResults(false);
+          setItemCodeSearch('');
+        }
+        return r;
+      }
+
+      const r = fail('warning', statusMsg || `Unknown scan action: ${scanAction || '—'}`);
+      if (!silent) openScanReviewModal({ title: 'Scan', sections: [{ type: 'warning', heading: 'Unknown', rows: [r] }] });
+      return r;
+    } catch (err) {
+      const r = fail('error', pickSampleOutErrorMessage(err));
+      if (!silent) openScanReviewModal({ title: 'Scan failed', sections: [{ type: 'error', heading: 'Error', rows: [r] }] });
+      return r;
+    }
+  };
+
+  const bulkIngestRfidRows = (items, { source = 'device', showReview = false } = {}) => {
+    if (!items?.length) return { added: 0, skipped: 0 };
+
+    let added = 0;
+    let skipped = 0;
+
+    setSampleOutItems((prev) => {
+      const existing = new Set(
+        prev
+          .filter((i) => i.__scanAction === 'SampleOut' || i.__scanAction === 'SampleInPending')
+          .map(rowDedupKey)
+      );
+      const next = [...prev];
+
+      items.forEach((raw) => {
+        const productData = raw.__scanAction
+          ? raw
+          : buildProductDataFromRaw(raw, { scanSource: source, __scanAction: 'SampleOut' });
+        const key = rowDedupKey(productData);
+        if (!key || existing.has(key)) {
+          skipped += 1;
+          return;
+        }
+        existing.add(key);
+        added += 1;
+        next.push(productData);
       });
+
+      return next;
+    });
+
+    if (showReview && (added > 0 || skipped > 0)) {
+      openScanReviewModal({
+        title: 'RFID reader load',
+        subtitle: `${items.length} tag(s) from GetAllRFIDDetails — one summary, not a popup per item.`,
+        sections: [
+          ...(added
+            ? [
+                {
+                  type: 'success',
+                  heading: `Added to grid (${added})`,
+                  rows: [{ itemCode: '—', message: `${added} item(s) ready for Sample Out. Check grid below.` }],
+                },
+              ]
+            : []),
+          ...(skipped
+            ? [
+                {
+                  type: 'warning',
+                  heading: `Skipped (${skipped})`,
+                  rows: [{ itemCode: '—', message: 'Duplicate or already in list.' }],
+                },
+              ]
+            : []),
+        ],
+      });
+    }
+
+    return { added, skipped };
+  };
+
+  const processScannedBatch = async (items, { source = 'tray', showReview = true } = {}) => {
+    if (!items?.length) return;
+
+    if (items.length >= BULK_SCAN_THRESHOLD) {
+      bulkIngestRfidRows(items, { source, showReview });
       return;
     }
 
-    setSearchResults([]);
-    setShowSearchResults(false);
-    setItemCodeSearch('');
+    setScanChecking(true);
+    const outAdded = [];
+    const inQueued = [];
+    const blocked = [];
+    const errors = [];
+    try {
+      for (let i = 0; i < items.length; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await processScannedProduct(items[i], {
+          clearSearch: false,
+          source,
+          silent: true,
+          quietSuccess: true,
+        });
+        if (!result) continue;
+        const row = {
+          itemCode: result.itemCode || '—',
+          rfid: result.rfid || '—',
+          message: result.message || '—',
+        };
+        if (result.ok && result.productData?.__scanAction === 'SampleInPending') inQueued.push(row);
+        else if (result.ok) outAdded.push(row);
+        else if (result.level === 'warning') blocked.push(row);
+        else errors.push(row);
+      }
 
-    addNotification({
-      type: 'success',
-      title: 'Success',
-      message: 'Product added to sample out',
-    });
+      if (!showReview) return;
+
+      const total = items.length;
+      const compact = total > BULK_REVIEW_DETAIL_CAP;
+      const capRows = (rows, heading, type) => {
+        if (!rows.length) return null;
+        if (compact) {
+          return {
+            type,
+            heading: `${heading} (${rows.length})`,
+            rows: [{ itemCode: '—', message: `${rows.length} item(s) — see grid for full list.` }],
+          };
+        }
+        return { type, heading: `${heading} (${rows.length})`, rows };
+      };
+
+      const sections = [
+        capRows(outAdded, 'Sample Out', 'success'),
+        capRows(inQueued, 'Sample In queued', 'info'),
+        capRows(blocked, 'Blocked', 'warning'),
+        capRows(errors, 'Errors', 'error'),
+      ].filter(Boolean);
+
+      openScanReviewModal({
+        title: 'Batch scan review',
+        subtitle: `${total} tag(s) processed — single summary popup.`,
+        sections: sections.length
+          ? sections
+          : [{ type: 'info', heading: 'No changes', rows: [{ itemCode: '—', message: 'Nothing was added.' }] }],
+      });
+    } finally {
+      setScanChecking(false);
+    }
+  };
+
+  const handleDirectScan = async (term) => {
+    const t = String(term || '').trim();
+    if (!t) return;
+    setScanChecking(true);
+    try {
+      await processScannedProduct(
+        { ItemCode: t, RFIDCode: t, RFIDNumber: t, TIDValue: t },
+        { clearSearch: true, source: 'direct' }
+      );
+    } finally {
+      setScanChecking(false);
+    }
+  };
+
+  const selectItemFromSearch = async (item) => {
+    setScanChecking(true);
+    try {
+      await processScannedProduct(item, { clearSearch: true, source: 'search' });
+    } finally {
+      setScanChecking(false);
+    }
   };
 
   const getTrayAuthHeaders = () => ({
@@ -1071,8 +1795,11 @@ const formatScannedDateTime = (date) => {
       const pd = entry?.ProductDetails ?? entry?.productDetails;
       if (!pd || typeof pd !== 'object') return;
       const itemCode = String(pd.ItemCode || pd.Itemcode || '').trim();
+      const tid = String(
+        entry?.TIDValue || pd.TIDValue || pd.TIDNumber || entry?.TIDNumber || ''
+      ).trim();
       const rfid = String(pd.RFIDCode || pd.RFIDNumber || entry?.RFIDCode || '').trim();
-      const dedup = `${itemCode.toUpperCase()}|${rfid.toUpperCase()}`;
+      const dedup = `${itemCode.toUpperCase()}|${tid.toUpperCase()}|${rfid.toUpperCase()}`;
       if (seen.has(dedup)) return;
       seen.add(dedup);
       out.push({
@@ -1087,6 +1814,7 @@ const formatScannedDateTime = (date) => {
         scanSource: String(entry?.DeviceId || '').trim().toLowerCase() === SAMPLE_OUT_TRAY_DEVICE_ID.toLowerCase()
           ? 'tray'
           : 'desktop',
+        TIDValue: tid,
         RFIDNumber: rfid,
         Itemcode: itemCode,
         LabelledStockId: pd.LabelledStockId || pd.Id || entry?.Id || '',
@@ -1120,13 +1848,21 @@ const formatScannedDateTime = (date) => {
       );
       const rows = normalizeArray(data);
       const mapped = mapDeviceRowsToSampleOutItems(rows);
-      setSampleOutItems(mapped);
-      if (notifyOnEmpty && mapped.length === 0) {
-        addNotification({
-          type: 'info',
-          title: 'No scanned stock',
-          message: 'No scanned stock found in RFID device details.',
-        });
+      if (!mapped.length) {
+        if (notifyOnEmpty) {
+          addNotification({
+            type: 'info',
+            title: 'No scanned stock',
+            message: 'No scanned stock found in RFID device details.',
+          });
+        }
+        return [];
+      }
+
+      if (mapped.length >= BULK_SCAN_THRESHOLD) {
+        bulkIngestRfidRows(mapped, { source: 'device', showReview: notifyOnEmpty });
+      } else {
+        await processScannedBatch(mapped, { source: 'device', showReview: notifyOnEmpty });
       }
       return mapped;
     } catch (error) {
@@ -1202,50 +1938,12 @@ const formatScannedDateTime = (date) => {
         addNotification({ type: 'warning', title: 'No Stock Found', message: 'No stock matched scanned EPC tags.' });
         return false;
       }
-      let added = 0;
-      let skipped = 0;
-      setSampleOutItems((prev) => {
-        const existing = new Set(prev.map((x) => String(x.Itemcode || x.ItemCode || '').trim().toUpperCase()));
-        const next = [...prev];
-        rows.forEach((item) => {
-          const itemCode = String(item.Itemcode || item.ItemCode || '').trim().toUpperCase();
-          if (!itemCode || existing.has(itemCode)) {
-            skipped += 1;
-            return;
-          }
-          existing.add(itemCode);
-          added += 1;
-          next.push({
-            id: Date.now() + added,
-            __scannedAt: new Date().toISOString(),
-            scanSource: 'tray',
-            RFIDNumber: item.RFIDNumber || item.RFID || item.RFIDCode || '',
-            Itemcode: item.Itemcode || item.ItemCode || '',
-            LabelledStockId: item.LabelledStockId || item.Id || item.id || '',
-            category_id: item.CategoryName || item.Category || item.category_id || '',
-            product_id: item.ProductName || item.Product || item.product_id || '',
-            design_id: item.DesignName || item.Design || item.design_id || '',
-            purity_id: item.PurityName || item.Purity || item.purity_id || '',
-            grosswt: item.GrossWt || item.GrossWeight || item.grosswt || item.TWt || '0.000',
-            stonewt: item.StoneWt || item.StoneWeight || item.stonewt || item.StWt || '0.000',
-            diamondweight: item.DiamondWeight || item.diamondweight || item.DiaWt || '0.000',
-            netwt: item.NetWt || item.NetWeight || item.netwt || item.NtWt || '0.000',
-            FinePercent: item.FinePercent || item.FinePercentage || item['Fine %'] || '0.00',
-            WastagePercent: item.WastagePercent || item.WastagePercentage || item['Wastage %'] || '0.00',
-            Qty: item.Qty || item.Quantity || 1,
-            Pieces: item.Pieces || 1,
-            TotalWt: item.GrossWt || item.GrossWeight || item.grosswt || item.TWt || '0.000',
-            fullItemData: item
-          });
-        });
-        return next;
-      });
+      await processScannedBatch(rows, { source: 'tray', showReview: true });
       addNotification({
         type: 'success',
-        title: 'Tray scan saved',
-        message: `Saved ${savedRows.length || scanRows.length} scan(s). Added ${added} item(s).${skipped > 0 ? ` Skipped ${skipped}.` : ''}`
+        title: 'Tray scan',
+        message: `${rows.length} tag(s) loaded — see one summary popup if needed.`,
       });
-      await fetchScannedRfidItemsFromDevice(false);
       return true;
     } catch (error) {
       addNotification({ type: 'error', title: 'Save failed', message: error?.response?.data?.message || error?.response?.data?.Message || error?.message || 'Failed to save/fetch tray scan data.' });
@@ -1292,32 +1990,199 @@ const formatScannedDateTime = (date) => {
     return 0; // Will be set from fullItemData if available
   };
 
-  const validateSampleOutForm = () => {
-    const hasParty =
-      (partyType === 'customer' && selectedCustomerId) ||
-      (partyType === 'vendor' && selectedVendorId) ||
-      (partyType === 'employee' && selectedEmployeeId);
-    if (!hasParty) {
-      return `Please select a ${partyTypeLabel(partyType).toLowerCase()}.`;
+  /** Strip trailing "(code)" from typeahead labels for party matching. */
+  const partyLabelCore = (s) =>
+    normalizePartyQuery(String(s || '').replace(/\s*\([^)]*\)\s*$/, '').trim());
+
+  const findEmployeeIdInList = (list, label) => {
+    const q = partyLabelCore(label);
+    if (!q || !Array.isArray(list) || list.length === 0) return 0;
+    const emp = list.find((e) => {
+      const n = partyLabelCore(getEmployeeDisplayName(e));
+      const code = partyLabelCore(e.EmployeeCode ?? e.employeeCode ?? e.Code ?? e.code ?? '');
+      const login = partyLabelCore(e.UserName ?? e.userName ?? '');
+      return (
+        n === q ||
+        login === q ||
+        code === q ||
+        (n && (n.includes(q) || q.includes(n))) ||
+        (code && (code.includes(q) || q.includes(code))) ||
+        (login && (login.includes(q) || q.includes(login)))
+      );
+    });
+    return parseInt(emp?.Id ?? emp?.id ?? 0, 10) || 0;
+  };
+
+  const linkSubUserToEmployeeMaster = async (subUser, employeeId) => {
+    const userId = String(subUser?.UserId || subUser?.userId || '').trim();
+    const empId = parseInt(employeeId, 10);
+    const cc = resolveClientCodeForSampleApi(userInfo);
+    if (!userId || !empId || !cc) return false;
+    if (parseInt(subUser?.EmployeeId ?? subUser?.employeeId, 10) === empId) return true;
+    try {
+      await axios.post(
+        rfidUserUrls.linkSubUserToEmployee(),
+        { ClientCode: cc, UserId: userId, EmployeeId: empId },
+        { headers: rfidUserAuthHeaders() }
+      );
+      subUser.EmployeeId = empId;
+      return true;
+    } catch (err) {
+      console.warn('LinkSubUserToEmployee:', err);
+      return false;
     }
-    if (sampleOutItems.length === 0) {
+  };
+
+  const findEmployeeIdByLabel = (label) => findEmployeeIdInList(employeeList, label);
+
+  const fetchEmployeePartyLookup = async () => {
+    const cc = resolveClientCodeForSampleApi(userInfo);
+    if (!cc) return [];
+    try {
+      const { data } = await axios.get(getPartyLookupUrl('Employee', cc), {
+        headers: sampleAuthHeaders(),
+      });
+      return normalizeArray(data);
+    } catch (err) {
+      console.warn('GetPartyLookup Employee:', err);
+      return [];
+    }
+  };
+
+  const syncEmployeePartyIdFromSubUser = async (subUser) => {
+    if (!subUser) return 0;
+    const fromSub = parseInt(subUser.EmployeeId ?? subUser.employeeId, 10);
+    if (fromSub > 0) {
+      setSelectedEmployeeId(String(fromSub));
+      return fromSub;
+    }
+    const labels = [
+      subUser.UserName,
+      subUser.userName,
+      subUser.employeeName,
+      subUser.EmployeeName,
+      getSubUserDisplayName(subUser),
+    ].filter(Boolean);
+    let list = employeeList;
+    if (!list.length) {
+      list = await fetchEmployeePartyLookup();
+      if (list.length) setEmployeeList(list);
+    }
+    for (const label of labels) {
+      const id = findEmployeeIdInList(list, label);
+      if (id > 0) {
+        setSelectedEmployeeId(String(id));
+        await linkSubUserToEmployeeMaster(subUser, id);
+        return id;
+      }
+    }
+    return 0;
+  };
+
+  const resolveEmployeePartyId = () => {
+    const sub = subUserList.find(
+      (u) =>
+        String(u.UserId || u.userId) === String(selectedAssignToUserId) ||
+        partyLabelCore(getSubUserDisplayName(u)) === partyLabelCore(assignToSearch) ||
+        partyLabelCore(u.UserName || u.userName) === partyLabelCore(assignToSearch)
+    );
+    const fromSub = parseInt(sub?.EmployeeId ?? sub?.employeeId, 10);
+    if (fromSub > 0) return fromSub;
+
+    if (selectedEmployeeId) {
+      const fromPick = parseInt(selectedEmployeeId, 10);
+      if (fromPick > 0) return fromPick;
+    }
+
+    const labels = [];
+    if (sub) {
+      labels.push(
+        sub.UserName,
+        sub.userName,
+        sub.employeeName,
+        sub.EmployeeName,
+        getSubUserDisplayName(sub)
+      );
+    }
+    labels.push(assignToSearch);
+    for (const label of labels) {
+      const id = findEmployeeIdByLabel(label);
+      if (id > 0) return id;
+    }
+
+    return 0;
+  };
+
+  const resolveEmployeePartyIdForSubmit = async () => {
+    let id = resolveEmployeePartyId();
+    if (id > 0) return id;
+
+    const sub = subUserList.find(
+      (u) =>
+        String(u.UserId || u.userId) === String(selectedAssignToUserId) ||
+        partyLabelCore(getSubUserDisplayName(u)) === partyLabelCore(assignToSearch) ||
+        partyLabelCore(u.UserName || u.userName) === partyLabelCore(assignToSearch)
+    );
+    if (sub) {
+      id = await syncEmployeePartyIdFromSubUser(sub);
+      if (id > 0) return id;
+    }
+
+    const list = await fetchEmployeePartyLookup();
+    if (list.length) {
+      setEmployeeList(list);
+      for (const label of [assignToSearch, sub?.UserName, sub?.userName]) {
+        id = findEmployeeIdInList(list, label);
+        if (id > 0) {
+          setSelectedEmployeeId(String(id));
+          return id;
+        }
+      }
+    }
+    return 0;
+  };
+
+  const resolvePartyId = () => {
+    if (partyType === 'employee') {
+      return resolveEmployeePartyId();
+    }
+    if (partyType === 'customer') {
+      const c = customerList.find(
+        (x) =>
+          String(x.Id) === String(selectedCustomerId) ||
+          String(x.PartyId) === String(selectedCustomerId)
+      );
+      return parseInt(c?.PartyId ?? c?.Id ?? selectedCustomerId, 10) || 0;
+    }
+    const v = vendorList.find(
+      (x) =>
+        String(x.Id) === String(selectedVendorId) ||
+        String(x.PartyId) === String(selectedVendorId)
+    );
+    return parseInt(v?.PartyId ?? v?.Id ?? selectedVendorId, 10) || 0;
+  };
+
+  const validateSampleOutForm = () => {
+    if (!hasAssignToSelection()) {
+      return `Please ${assignToFieldLabel.toLowerCase()}.`;
+    }
+    const assignedTo = resolveAssignedToUserId();
+    if (!assignedTo) {
+      return partyType === 'employee'
+        ? 'Please select an employee from the dropdown list.'
+        : 'Unable to resolve assignee — please log in again.';
+    }
+    if (pendingSampleOutOnly(sampleOutItems).length === 0) {
       return 'Please add at least one item to sample out.';
     }
-    const badLine = sampleOutItems.some((item) => {
-      const rawId =
-        item.LabelledStockId ??
-        item.fullItemData?.LabelledStockId ??
-        item.fullItemData?.LabelledStockID ??
-        item.fullItemData?.Id ??
-        item.id;
-      const sid = parseInt(rawId, 10);
-      const code = rowItemCode(item);
-      return !(Number.isFinite(sid) && sid > 0) && !code;
+    const badLine = pendingSampleOutOnly(sampleOutItems).some((item) => {
+      const line = buildSubmitSampleOutItem(item);
+      return !line.TIDValue && !line.RFIDCode && !line.LabelledStockId && !line.ItemCode;
     });
     if (badLine) {
-      return 'Each row needs an item code or labelled stock id from inventory.';
+      return 'Each row needs TID, RFID, item code, or labelled stock id.';
     }
-    if (!userInfo?.ClientCode) {
+    if (!resolveClientCodeForSampleApi(userInfo)) {
       return 'User information not found. Please refresh the page.';
     }
     return null;
@@ -1326,16 +2191,136 @@ const formatScannedDateTime = (date) => {
   const openSampleOutConfirmModal = () => {
     const err = validateSampleOutForm();
     if (err) {
-      addNotification({
-        type: 'error',
-        title: 'Validation Error',
-        message: err
+      setFormValidationHint(err);
+      openScanReviewModal({
+        title: 'Cannot create Sample Out',
+        sections: [{ type: 'error', heading: 'Fix before continuing', rows: [{ itemCode: '—', message: err }] }],
       });
       return;
     }
+    setFormValidationHint('');
     confirmSampleOutLockRef.current = false;
     setConfirmSampleOutPhase('summary');
     setShowConfirmSampleOut(true);
+  };
+
+  const openSampleInConfirmModal = () => {
+    const rows = pendingSampleInOnly(sampleOutItems);
+    if (!rows.length) {
+      openScanReviewModal({
+        title: 'No Sample In items',
+        sections: [{ type: 'warning', heading: 'Empty', rows: [{ itemCode: '—', message: 'Scan returned items (2nd scan) first.' }] }],
+      });
+      return;
+    }
+    confirmSampleInLockRef.current = false;
+    setConfirmSampleInPhase('summary');
+    setShowConfirmSampleIn(true);
+  };
+
+  const executeSampleInSubmit = async () => {
+    const clientCode = resolveClientCodeForSampleApi(userInfo);
+    const rows = pendingSampleInOnly(sampleOutItems);
+    if (!clientCode || !rows.length) {
+      throw new Error('No items to return.');
+    }
+    const failures = [];
+    const successes = [];
+    for (let i = 0; i < rows.length; i += 1) {
+      const item = rows[i];
+      const tid = String(item.TIDValue || item.TIDNumber || '').trim();
+      const rfid = String(item.RFIDNumber || item.RFIDCode || '').trim();
+      const lotId = parseInt(item.__lotId, 10);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const { data: inData } = await axios.post(
+          getScanSampleInUrl(),
+          {
+            ClientCode: clientCode,
+            LotId: Number.isFinite(lotId) && lotId > 0 ? lotId : undefined,
+            TIDValue: tid || undefined,
+            RFIDCode: rfid || undefined,
+            ReturnRemark: 'Returned via unified sample screen',
+          },
+          { headers: sampleAuthHeaders() }
+        );
+        if (inData?.success === false) {
+          throw new Error(inData?.message || inData?.Message || 'Sample In failed');
+        }
+        successes.push({
+          itemCode: rowItemCode(item) || '—',
+          rfid,
+          message: `Returned — lot ${inData?.lotNumber ?? inData?.LotNumber ?? item.__lotNumber ?? '—'}`,
+        });
+      } catch (err) {
+        failures.push({
+          itemCode: rowItemCode(item) || '—',
+          rfid,
+          message: pickSampleOutErrorMessage(err),
+        });
+      }
+    }
+
+    setSampleOutItems((prev) =>
+      prev
+        .filter((item) => item.__scanAction !== 'SampleInPending')
+        .concat(
+          successes.map((s, idx) =>
+            buildProductDataFromRaw(
+              { ItemCode: s.itemCode, RFIDNumber: s.rfid },
+              {
+                __scanAction: 'SampleInDone',
+                __lotNumber: s.message,
+                __returnedOn: new Date().toISOString(),
+                id: Date.now() + idx,
+              }
+            )
+          )
+        )
+    );
+
+    const sections = [];
+    if (successes.length) {
+      sections.push({ type: 'success', heading: `Returned (${successes.length})`, rows: successes });
+    }
+    if (failures.length) {
+      sections.push({ type: 'error', heading: `Failed (${failures.length})`, rows: failures });
+    }
+    openScanReviewModal({
+      title: failures.length ? 'Sample In — partial success' : 'Sample In complete',
+      subtitle: `${successes.length} of ${rows.length} item(s) returned to stock.`,
+      sections,
+    });
+
+    if (failures.length) {
+      throw new Error(`${failures.length} item(s) could not be returned. See review popup.`);
+    }
+  };
+
+  const handleConfirmSampleInProceed = async () => {
+    if (confirmSampleInLockRef.current) return;
+    confirmSampleInLockRef.current = true;
+    let submitOk = false;
+    try {
+      setConfirmSampleInPhase('submitting');
+      setLoading(true);
+      await executeSampleInSubmit();
+      submitOk = true;
+    } catch (err) {
+      openScanReviewModal({
+        title: 'Sample In failed',
+        sections: [{ type: 'error', heading: 'Error', rows: [{ itemCode: '—', message: pickSampleOutErrorMessage(err) }] }],
+      });
+    } finally {
+      confirmSampleInLockRef.current = false;
+      setLoading(false);
+      if (submitOk) {
+        setShowConfirmSampleIn(false);
+        setConfirmSampleInPhase('summary');
+      } else {
+        setConfirmSampleInPhase('summary');
+      }
+    }
   };
 
   const executeSampleOutSubmit = async () => {
@@ -1362,88 +2347,58 @@ const formatScannedDateTime = (date) => {
 
       const apiPartyType =
         partyType === 'customer' ? 'Customer' : partyType === 'vendor' ? 'Vendor' : 'Employee';
-      const partyId =
-        partyType === 'customer'
-          ? parseInt(selectedCustomerId, 10) || 0
-          : partyType === 'vendor'
-            ? parseInt(selectedVendorId, 10) || 0
-            : parseInt(selectedEmployeeId, 10) || 0;
+      let partyId =
+        partyType === 'employee'
+          ? await resolveEmployeePartyIdForSubmit()
+          : resolvePartyId();
 
-      if (!partyId) {
-        throw new Error('Invalid party — please select a customer, vendor, or employee.');
+      if (partyType !== 'employee' && !partyId) {
+        const partyMsg = `Invalid party — please ${assignToFieldLabel.toLowerCase()}.`;
+        addNotification({ type: 'error', title: 'Sample Out', message: partyMsg });
+        throw new Error(partyMsg);
       }
 
       const headerRemarks = String(description || '').trim();
-      const Items = sampleOutItems.map((item) => {
-        const full = item.fullItemData || {};
-        const rawStockId =
-          item.LabelledStockId ??
-          full.LabelledStockId ??
-          full.LabelledStockID ??
-          full.Id ??
-          item.id;
-        const labelledStockId = parseInt(rawStockId, 10);
-        const itemCode = rowItemCode(item);
-        const line = {
-          Remarks: headerRemarks || '',
-        };
-        if (Number.isFinite(labelledStockId) && labelledStockId > 0) {
-          line.LabelledStockId = labelledStockId;
-        }
-        if (itemCode) {
-          line.ItemCode = itemCode;
-        }
-        return line;
-      }).filter((line) => line.LabelledStockId || line.ItemCode);
+      const Items = pendingSampleOutOnly(sampleOutItems)
+        .map((item) => buildSubmitSampleOutItem(item))
+        .filter((line) => line.TIDValue || line.RFIDCode || line.LabelledStockId || line.ItemCode);
 
       if (Items.length === 0) {
-        throw new Error('No valid line items — each row needs ItemCode and/or LabelledStockId.');
+        throw new Error('No valid line items — each row needs TID, RFID, item code, or labelled stock id.');
       }
 
-      const branchId =
-        parseInt(userInfo?.BranchId ?? userInfo?.branchId ?? 1, 10) || 1;
-      const counterId =
-        parseInt(userInfo?.CounterId ?? userInfo?.counterId ?? 1, 10) || 1;
-      const userId =
-        parseInt(
-          userInfo?.UserId ??
-            userInfo?.UserID ??
-            userInfo?.Id ??
-            userInfo?.id ??
-            0,
-          10
-        ) || 0;
-
+      const clientCode = resolveClientCodeForSampleApi(userInfo);
       const payload = {
-        ClientCode: userInfo.ClientCode,
+        ClientCode: clientCode,
         PartyType: apiPartyType,
-        PartyId: partyId,
-        IssueDate: toIsoFromDateInput(sampleOutDate),
+        AssignedToUserId: resolveAssignedToUserId(),
+        SampleOutDate: toIsoFromDateInput(sampleOutDate),
         ExpectedReturnDate: toIsoFromDateInput(returnDate || sampleOutDate),
-        Remarks: headerRemarks,
-        BranchId: branchId,
-        CounterId: counterId,
-        UserId: userId,
+        AdminRemark: headerRemarks,
         Items,
       };
+      if (partyId > 0) payload.PartyId = partyId;
 
-      const headers = {
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      };
+      const response = await axios.post(getSubmitSampleOutUrl(), payload, {
+        headers: sampleAuthHeaders(),
+      });
 
-      const response = await axios.post(getCreateSampleOutUrl(), payload, { headers });
-
-      if (response.data?.Status === 400 || response.data?.status === 400) {
-        throw new Error(
-          response.data?.Message || response.data?.message || 'Failed to create sample out'
-        );
+      const apiBody = response.data ?? {};
+      const apiInlineMsg = pickApiResponseMessage(apiBody);
+      if (
+        apiBody.success === false ||
+        apiBody.Status === 400 ||
+        apiBody.status === 400
+      ) {
+        throw new Error(apiInlineMsg || 'Failed to create sample out');
       }
 
       let resolvedPartyName = '—';
       if (partyType === 'customer') {
         const selectedCustomer = customerList.find(
-          (c) => c.Id == selectedCustomerId || c.Id === selectedCustomerId
+          (c) =>
+            String(c.Id) === String(selectedCustomerId) ||
+            String(c.PartyId) === String(selectedCustomerId)
         );
         resolvedPartyName = selectedCustomer
           ? toProperPersonName(getCustomerDisplayName(selectedCustomer))
@@ -1452,11 +2407,9 @@ const formatScannedDateTime = (date) => {
         const v = vendorList.find((x) => String(x.Id) === String(selectedVendorId));
         resolvedPartyName = v ? getVendorDisplayName(v) : 'Vendor';
       } else {
-        const e = employeeList.find((x) => String(x.Id) === String(selectedEmployeeId));
-        resolvedPartyName = e ? getEmployeeDisplayName(e) : 'Employee';
+        resolvedPartyName = getResolvedAssignToName();
       }
 
-      const apiBody = response.data ?? {};
       const header = apiBody.Header ?? apiBody.header ?? null;
       const lineItems = Array.isArray(apiBody.Items)
         ? apiBody.Items
@@ -1464,29 +2417,33 @@ const formatScannedDateTime = (date) => {
           ? apiBody.items
           : [];
       const apiSuccessMsg = pickSampleOutSuccessMessage(apiBody);
-      const createdLotNo =
-        header?.SampleLotNo ??
-        apiBody.SampleLotNo ??
-        apiBody.sampleLotNo ??
-        sampleOutNumber;
+      const createdLotNo = pickSubmitSampleOutLotNo(apiBody) || sampleOutNumber;
 
-      const partyFromApi = String(header?.PartyName || '').trim();
+      const partyFromApi = String(
+        apiBody.partyName ?? apiBody.PartyName ?? header?.PartyName ?? ''
+      ).trim();
       const partyDisplay = partyFromApi || resolvedPartyName;
+      const assignName = String(
+        apiBody.assignedToUserName ?? apiBody.AssignedToUserName ?? ''
+      ).trim();
 
       setSuccessData({
         apiMessage: apiSuccessMsg,
         sampleOutNo: createdLotNo || '—',
         partyName: partyDisplay,
         customerName: partyDisplay,
+        assignedToUserName: assignName,
+        lotStatus: apiBody.lotStatus ?? apiBody.LotStatus ?? '',
         header,
         lineItems,
       });
+      setSampleOutNumber(createdLotNo || sampleOutNumber);
       setShowSuccessModal(true);
 
       // Reset form after success
       setTimeout(() => {
         setSampleOutItems([]);
-        setPartyType('customer');
+        setPartyType('employee');
         setCustomerSearch('');
         setSelectedCustomerId('');
         setVendorSearch('');
@@ -1501,16 +2458,23 @@ const formatScannedDateTime = (date) => {
         setSampleOutDate(todayIso);
         setReturnDate(todayIso);
         setDescription('');
-        fetchSampleOutNumber(); // Get new sample out number
+        setSelectedAssignToUserId('');
+        setAssignToSearch('');
+        refreshLotPreviewLabel();
       }, 2000);
 
     } catch (error) {
       console.error('Error creating sample out:', error);
-      addNotification({
-        type: 'error',
-        title: 'Could not save sample out',
-        message: pickSampleOutErrorMessage(error),
+      let msg = pickSampleOutErrorMessage(error);
+      if (/partyid|party id|getpartylookup/i.test(msg)) {
+        msg = EMPLOYEE_MASTER_LINK_HELP;
+      }
+      setFormValidationHint(msg);
+      openScanReviewModal({
+        title: 'Sample Out failed',
+        sections: [{ type: 'error', heading: 'Could not save', rows: [{ itemCode: '—', message: msg }] }],
       });
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -1519,15 +2483,28 @@ const formatScannedDateTime = (date) => {
   const handleConfirmSampleOutProceed = async () => {
     if (confirmSampleOutLockRef.current) return;
     confirmSampleOutLockRef.current = true;
+    let submitOk = false;
     try {
       setConfirmSampleOutPhase('acknowledge');
       await new Promise((r) => setTimeout(r, 720));
       setConfirmSampleOutPhase('submitting');
       await executeSampleOutSubmit();
+      submitOk = true;
+    } catch (err) {
+      const msg = pickSampleOutErrorMessage(err);
+      setFormValidationHint(msg);
+      openScanReviewModal({
+        title: 'Sample Out failed',
+        sections: [{ type: 'error', heading: 'Error', rows: [{ itemCode: '—', message: msg }] }],
+      });
     } finally {
       confirmSampleOutLockRef.current = false;
-      setShowConfirmSampleOut(false);
-      setConfirmSampleOutPhase('summary');
+      if (submitOk) {
+        setShowConfirmSampleOut(false);
+        setConfirmSampleOutPhase('summary');
+      } else {
+        setConfirmSampleOutPhase('summary');
+      }
     }
   };
 
@@ -1572,6 +2549,20 @@ const formatScannedDateTime = (date) => {
     });
     return { totalProducts, totalGrossWt, totalPiecesScanned, latestScanDateTime };
   }, [filteredTableItems]);
+
+  const pendingOutRows = useMemo(() => pendingSampleOutOnly(sampleOutItems), [sampleOutItems]);
+  const pendingInRows = useMemo(() => pendingSampleInOnly(sampleOutItems), [sampleOutItems]);
+  const pendingOutSummary = useMemo(() => summarizeScanRows(pendingOutRows), [pendingOutRows]);
+  const pendingInSummary = useMemo(() => summarizeScanRows(pendingInRows), [pendingInRows]);
+  const sampleInBatchLabel = useMemo(() => {
+    if (!pendingInRows.length) return '';
+    const lots = [...new Set(pendingInRows.map((i) => i.__lotNumber).filter(Boolean))];
+    if (lots.length === 1) return lots[0];
+    return `${pendingInRows.length} items · ${lots.length} lots`;
+  }, [pendingInRows]);
+  const canSubmitSampleOut =
+    pendingOutRows.length > 0 && hasAssignToSelection() && !scanChecking && !loading;
+  const canSubmitSampleIn = pendingInRows.length > 0 && !scanChecking && !loading;
   const pageNumbers = useMemo(() => {
     const pages = [];
     const maxButtons = 7;
@@ -1630,9 +2621,9 @@ const formatScannedDateTime = (date) => {
   const partyAccentColor =
     partyType === 'customer' ? '#15803d' : partyType === 'vendor' ? '#a855f7' : '#0ea5e9';
   const partySegments = [
+    { id: 'employee', label: 'Employee', Icon: FaUserTie, color: '#0ea5e9' },
     { id: 'customer', label: 'Customer', Icon: FaUserFriends, color: '#15803d' },
     { id: 'vendor', label: 'Vendor', Icon: FaStore, color: '#a855f7' },
-    { id: 'employee', label: 'Employee', Icon: FaUserTie, color: '#0ea5e9' },
   ];
 
   // Format date for display
@@ -1666,194 +2657,6 @@ const formatScannedDateTime = (date) => {
     });
 
     return totals;
-  };
-
-  // Export to Excel
-  const handleExportToExcel = () => {
-    try {
-      if (sampleOutItems.length === 0) {
-        addNotification({
-          type: 'error',
-          message: 'No items to export',
-          duration: 3000
-        });
-        return;
-      }
-
-      const totals = calculateTotals();
-      const exportData = sampleOutItems.map((item, index) => ({
-        'Sr No': index + 1,
-        'Item Code': rowItemCodeOrDash(item),
-        'RFID Code': rowRfidOrDash(item),
-        'Category': rowCategoryOrDash(item),
-        'Product Name': rowProductOrDash(item),
-        'Design Name': rowDesignOrDash(item),
-        'Total Wt': parseFloat(item.TotalWt || 0),
-        'Gross Wt': parseFloat(item.grosswt || 0),
-        'Net Wt': parseFloat(item.netwt || 0),
-        'Stone Wt': parseFloat(item.stonewt || 0),
-        'Diamond Wt': parseFloat(item.diamondweight || 0),
-        'Fine%': item.FinePercent || '0.00',
-        'Wastage%': item.WastagePercent || '0.00',
-        'Qty': parseInt(item.Qty || 1),
-        'Pcs': parseInt(item.Pieces || 1)
-      }));
-
-      // Add summary row
-      exportData.push({
-        'Sr No': '',
-        'Item Code': '',
-        'RFID Code': '',
-        'Category': '',
-        'Product Name': '',
-        'Design Name': 'TOTAL',
-        'Total Wt': totals.TotalWt,
-        'Gross Wt': totals.GrossWt,
-        'Net Wt': totals.NetWt,
-        'Stone Wt': totals.StoneWt,
-        'Diamond Wt': totals.DiamondWt,
-        'Fine%': '',
-        'Wastage%': '',
-        'Qty': totals.Qty,
-        'Pcs': ''
-      });
-
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Sample Out Items');
-      
-      const fileName = `SampleOut_${sampleOutNumber || 'Items'}_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      
-      addNotification({
-        type: 'success',
-        message: `Sample Out items exported to ${fileName} successfully`,
-        duration: 3000
-      });
-      setShowExportDropdown(false);
-    } catch (err) {
-      console.error('Error exporting to Excel:', err);
-      addNotification({
-        type: 'error',
-        message: 'Failed to export. Please try again.',
-        duration: 3000
-      });
-    }
-  };
-
-  // Export to PDF
-  const handleExportToPDF = () => {
-    try {
-      if (sampleOutItems.length === 0) {
-        addNotification({
-          type: 'error',
-          message: 'No items to export',
-          duration: 3000
-        });
-        return;
-      }
-
-      const totals = calculateTotals();
-      const doc = new jsPDF('landscape');
-      
-      doc.setFontSize(16);
-      doc.text('Sample Out Items', 15, 20);
-      doc.setFontSize(10);
-      doc.text(`Sample Out No: ${sampleOutNumber || 'N/A'}`, 15, 28);
-      doc.text(`Date: ${sampleOutDate}`, 15, 34);
-      doc.text(`Customer: ${customerName || 'N/A'}`, 15, 40);
-      doc.text(`Return Date: ${returnDate || 'N/A'}`, 15, 46);
-      doc.text(`Total Items: ${sampleOutItems.length}`, 15, 52);
-
-      const tableHeaders = [
-        'Sr No',
-        'Item Code',
-        'RFID Code',
-        'Category',
-        'Product',
-        'Design',
-        'Total Wt',
-        'Gross Wt',
-        'Net Wt',
-        'Stone Wt',
-        'Diamond Wt',
-        'Fine%',
-        'Wastage%',
-        'Qty',
-        'Pcs'
-      ];
-
-      const tableData = sampleOutItems.map((item, index) => [
-        index + 1,
-        rowItemCodeOrDash(item),
-        rowRfidOrDash(item),
-        rowCategoryOrDash(item),
-        rowProductOrDash(item),
-        rowDesignOrDash(item),
-        parseFloat(item.TotalWt || 0).toFixed(3),
-        parseFloat(item.grosswt || 0).toFixed(3),
-        parseFloat(item.netwt || 0).toFixed(3),
-        parseFloat(item.stonewt || 0).toFixed(3),
-        parseFloat(item.diamondweight || 0).toFixed(3),
-        item.FinePercent || '0.00',
-        item.WastagePercent || '0.00',
-        item.Qty || 1,
-        item.Pieces || 1
-      ]);
-
-      // Add summary row
-      tableData.push([
-        '',
-        '',
-        '',
-        '',
-        '',
-        'TOTAL',
-        totals.TotalWt.toFixed(3),
-        totals.GrossWt.toFixed(3),
-        totals.NetWt.toFixed(3),
-        totals.StoneWt.toFixed(3),
-        totals.DiamondWt.toFixed(3),
-        '',
-        '',
-        totals.Qty,
-        ''
-      ]);
-
-      doc.autoTable({
-        head: [tableHeaders],
-        body: tableData,
-        startY: 58,
-        styles: { fontSize: 7, cellPadding: 2 },
-        headStyles: { fillColor: [69, 73, 232], textColor: 255, fontSize: 8, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [245, 247, 250] },
-        margin: { left: 8, right: 8 },
-        tableWidth: 'auto',
-        didParseCell: function(data) {
-          if (data.row.index === tableData.length - 1) {
-            data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.fillColor = [241, 245, 249];
-          }
-        }
-      });
-
-      const fileName = `SampleOut_${sampleOutNumber || 'Items'}_${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(fileName);
-      
-      addNotification({
-        type: 'success',
-        message: `Sample Out items exported to ${fileName} successfully`,
-        duration: 3000
-      });
-      setShowExportDropdown(false);
-    } catch (err) {
-      console.error('Error exporting to PDF:', err);
-      addNotification({
-        type: 'error',
-        message: 'Failed to export. Please try again.',
-        duration: 3000
-      });
-    }
   };
 
   const compactLbl = {
@@ -1982,7 +2785,7 @@ const formatScannedDateTime = (date) => {
                 letterSpacing: '-0.02em',
               }}
             >
-              Sample Out
+              Sample Out / In
             </h2>
           </div>
           {process.env.REACT_APP_SHOW_SAMPLE_API_BASE === '1' && (
@@ -1996,7 +2799,7 @@ const formatScannedDateTime = (date) => {
               }}
               title="Shown when REACT_APP_SHOW_SAMPLE_API_BASE=1 at build time"
             >
-              API mode: {getApiMode()} · RFIDDashboard host: {getSampleApiBaseUrl()} · Party lists host:{' '}
+              API mode: {getApiMode()} · Sample Out host: {getSoniApiBaseUrl()} · Stock search host:{' '}
               {getRrgoldApiBaseUrl()}
             </div>
           )}
@@ -2011,176 +2814,30 @@ const formatScannedDateTime = (date) => {
           width: isSmallScreen ? '100%' : 'auto',
           minWidth: 0
         }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '4px 10px',
-              borderRadius: 8,
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              flex: isSmallScreen ? 1 : 'none',
-            }}
-          >
-            <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Lot
-            </span>
+          {!nextLotNoLoading && sampleOutNumber && pendingOutRows.length > 0 ? (
             <span
-              title={
-                nextLotNoError
-                  ? nextLotNoError
-                  : 'Next lot from GetSampleOutNextNumber. Refreshes after you save.'
-              }
               style={{
-              fontSize: isSmallScreen ? '14px' : '15px',
-              color: nextLotNoError ? '#b91c1c' : '#0f172a',
-              fontWeight: 800,
-              fontVariantNumeric: 'tabular-nums',
-              letterSpacing: '-0.03em',
-              lineHeight: 1,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
+                fontSize: isSmallScreen ? '13px' : '14px',
+                color: '#334155',
+                fontVariantNumeric: 'tabular-nums',
+              }}
             >
-              {nextLotNoLoading ? (
-                <>
-                  <FaSpinner style={{ fontSize: '14px', animation: 'spin 0.9s linear infinite' }} />
-                  Loading…
-                </>
-              ) : sampleOutNumber ? (
-                sampleOutNumber
-              ) : (
-                <span style={{ fontWeight: 700, color: '#94a3b8' }}>—</span>
-              )}
+              <span style={{ fontWeight: 600, color: '#64748b' }}>Sample Out NO:</span>{' '}
+              <span style={{ fontWeight: 800, color: '#0f172a' }}>{sampleOutNumber}</span>
             </span>
-            {!nextLotNoLoading && (nextLotNoError || !sampleOutNumber) ? (
-              <button
-                type="button"
-                onClick={() => fetchSampleOutNumber()}
-                style={{
-                  marginLeft: '4px',
-                  padding: '4px 8px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  borderRadius: '8px',
-                  border: '1px solid #cbd5e1',
-                  background: '#fff',
-                  color: '#475569',
-                  cursor: 'pointer',
-                }}
-              >
-                Retry
-              </button>
-            ) : null}
-          </div>
-          {/* Export Button with Dropdown */}
-          {sampleOutItems.length > 0 && (
-            <div ref={exportDropdownRef} style={{ position: 'relative' }}>
-              <button
-                onClick={() => setShowExportDropdown(!showExportDropdown)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #10b981',
-                  background: '#ffffff',
-                  color: '#10b981',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#10b981';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#10b981';
-                }}
-              >
-                <FaFileExcel />
-                <span>Export</span>
-                <FaChevronDown style={{ fontSize: '10px' }} />
-              </button>
-
-              {showExportDropdown && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  right: 0,
-                  marginTop: '8px',
-                  background: '#ffffff',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05)',
-                  zIndex: 1000,
-                  minWidth: '180px',
-                  overflow: 'hidden'
-                }}>
-                  <button
-                    onClick={handleExportToExcel}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '12px 16px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      border: 'none',
-                      background: '#ffffff',
-                      color: '#10b981',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      textAlign: 'left',
-                      borderBottom: '1px solid #f1f5f9'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#f0fdf4';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = '#ffffff';
-                    }}
-                  >
-                    <FaFileExcel style={{ fontSize: '16px' }} />
-                    Export to Excel
-                  </button>
-                  <button
-                    onClick={handleExportToPDF}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '12px 16px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      border: 'none',
-                      background: '#ffffff',
-                      color: '#ef4444',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      textAlign: 'left'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#fef2f2';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = '#ffffff';
-                    }}
-                  >
-                    <FaFilePdf style={{ fontSize: '16px' }} />
-                    Export to PDF
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          ) : null}
+          {sampleInBatchLabel && pendingInRows.length > 0 ? (
+            <span
+              style={{
+                fontSize: isSmallScreen ? '13px' : '14px',
+                color: '#334155',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              <span style={{ fontWeight: 600, color: '#64748b' }}>Sample In:</span>{' '}
+              <span style={{ fontWeight: 800, color: '#15803d' }}>{sampleInBatchLabel}</span>
+            </span>
+          ) : null}
         </div>
           </div>
 
@@ -2200,7 +2857,7 @@ const formatScannedDateTime = (date) => {
             borderLeft: isSmallScreen ? 'none' : `2px solid ${partyAccentColor}`,
             paddingLeft: isSmallScreen ? 0 : 8,
             position: 'relative',
-            zIndex: 40,
+            zIndex: showSearchResults ? 15 : 40,
             overflow: 'visible',
           }}
         >
@@ -2240,349 +2897,212 @@ const formatScannedDateTime = (date) => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: isSmallScreen ? '1fr' : '1fr 92px', gap: 6 }}>
-             <div ref={customerDropdownRef} style={{ position: 'relative', zIndex: 50, overflow: 'visible' }}>
-               <label style={compactLbl}>
-                 {partyNameFieldLabel}<span style={{ color: '#ef4444' }}>*</span>
-               </label>
-               <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                 <div style={{ flex: 1, position: 'relative' }}>
-                   <input
-                     type="text"
-                     value={partySearchValue}
-                     onChange={(e) => {
-                       const v = e.target.value;
-                       if (partyType === 'customer') {
-                         setCustomerSearch(v);
-                         setSelectedCustomerId('');
-                         setShowCustomerDropdown(true);
-                       } else if (partyType === 'vendor') {
-                         setVendorSearch(v);
-                         setSelectedVendorId('');
-                         setShowVendorDropdown(true);
-                       } else {
-                         setEmployeeSearch(v);
-                         setSelectedEmployeeId('');
-                         setShowEmployeeDropdown(true);
-                       }
-                     }}
-                     onFocus={(e) => {
-                       e.target.style.borderColor = partyAccentColor;
-                       e.target.style.boxShadow = `0 0 0 3px ${partyAccentColor}33`;
-                       if (partyType === 'customer' && customerSearch.trim()) {
-                         setShowCustomerDropdown(true);
-                       }
-                       if (partyType === 'vendor' && vendorSearch.trim()) {
-                         setShowVendorDropdown(true);
-                       }
-                       if (partyType === 'employee' && employeeSearch.trim()) {
-                         setShowEmployeeDropdown(true);
-                       }
-                     }}
-                     onBlur={(e) => {
-                       e.target.style.borderColor = '#d1d5db';
-                       e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
-                     }}
-                     placeholder={partySearchPlaceholder}
-                     disabled={loadingPartyList}
-                     style={{
-                       ...compactInp,
-                       background: loadingPartyList ? '#f9fafb' : '#ffffff',
-                     }}
-                   />
-                  {partyDropdownOpen && (
-                    <div
-                      style={{ ...dropdownPanelStyle, borderTop: `3px solid ${partyAccentColor}` }}
-                      role="listbox"
-                      aria-label={`${partyNameFieldLabel} suggestions`}
-                    >
-                      {loadingPartyList && (
-                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
-                          Loading…
-                        </div>
-                      )}
-                      {!loadingPartyList &&
-                        partyType === 'customer' &&
-                        filteredCustomers.length === 0 && (
-                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
-                          No matching {noMatchPartyLabel} found.
-                        </div>
-                      )}
-                      {!loadingPartyList &&
-                        partyType === 'vendor' &&
-                        filteredVendors.length === 0 && (
-                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
-                          No matching {noMatchPartyLabel} found.
-                        </div>
-                      )}
-                      {!loadingPartyList &&
-                        partyType === 'employee' &&
-                        filteredEmployees.length === 0 && (
-                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
-                          No matching {noMatchPartyLabel} found.
-                        </div>
-                      )}
-                      {!loadingPartyList &&
-                        partyType === 'customer' &&
-                        filteredCustomers.map((customer, idx) => {
-                         const displayName = toProperPersonName(getCustomerDisplayName(customer));
-                         const isSelected = String(customer.Id) === String(selectedCustomerId);
-                         return (
-                           <div
-                             key={customer.Id}
-                             onMouseDown={(e) => {
-                               e.preventDefault();
-                               handleCustomerSelect(customer);
-                             }}
+          <div ref={customerDropdownRef} style={{ position: 'relative', zIndex: 50 }}>
+            <label style={compactLbl}>
+              {assignToFieldLabel}<span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <input
+                  type="text"
+                  value={assignToSearch}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setAssignToSearch(v);
+                    setSelectedCustomerId('');
+                    setSelectedVendorId('');
+                    if (partyType === 'employee') setSelectedAssignToUserId('');
+                    setShowAssignToDropdown(true);
+                    setShowSearchResults(false);
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = partyAccentColor;
+                    e.target.style.boxShadow = `0 0 0 3px ${partyAccentColor}33`;
+                    setShowAssignToDropdown(true);
+                    if (partyType === 'employee' && subUserList.length > 0) {
+                      setFilteredSubUsers(subUserList);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#d1d5db';
+                    e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                  }}
+                  placeholder={assignToPlaceholder}
+                  disabled={assignToLoading}
+                  style={{
+                    ...compactInp,
+                    background: assignToLoading ? '#f9fafb' : '#ffffff',
+                  }}
+                />
+                {assignToDropdownOpen && (
+                  <div
+                    style={{ ...dropdownPanelStyle, borderTop: `3px solid ${partyAccentColor}` }}
+                    role="listbox"
+                    aria-label={assignToFieldLabel}
+                  >
+                    {assignToLoading && (
+                      <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>Loading…</div>
+                    )}
+                    {!assignToLoading &&
+                      partyType === 'customer' &&
+                      filteredCustomers.length === 0 && (
+                      <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>
+                        No matching {noMatchAssignLabel} found.
+                      </div>
+                    )}
+                    {!assignToLoading &&
+                      partyType === 'vendor' &&
+                      filteredVendors.length === 0 && (
+                      <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>
+                        No matching {noMatchAssignLabel} found.
+                      </div>
+                    )}
+                    {!assignToLoading &&
+                      partyType === 'employee' &&
+                      filteredSubUsers.length === 0 && (
+                      <div style={{ padding: '10px 12px', fontSize: 11, color: '#64748b' }}>
+                        {subUserList.length === 0
+                          ? 'No sub-users found. Add via User Management → From employees.'
+                          : `No matching ${noMatchAssignLabel} found.`}
+                      </div>
+                    )}
+                    {!assignToLoading &&
+                      partyType === 'customer' &&
+                      filteredCustomers.map((customer, idx) => {
+                        const displayName = toProperPersonName(getCustomerDisplayName(customer));
+                        const partyId = customer.PartyId ?? customer.Id;
+                        const isSelected = String(partyId) === String(selectedCustomerId);
+                        return (
+                          <div
+                            key={partyId}
                             role="option"
-                            aria-selected={isSelected}
-                             style={{
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleCustomerSelect(customer);
+                              setAssignToSearch(displayName);
+                              setShowAssignToDropdown(false);
+                            }}
+                            style={{
                               padding: '10px 12px',
-                               cursor: 'pointer',
-                              fontSize: '11px',
-                               borderBottom: idx < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
-                               transition: 'all 0.15s ease',
-                               backgroundColor: isSelected ? `${partyAccentColor}18` : '#ffffff'
-                             }}
-                             onMouseEnter={(e) => {
-                               if (!isSelected) e.currentTarget.style.background = '#f8fafc';
-                               e.currentTarget.style.transform = 'translateX(2px)';
-                             }}
-                             onMouseLeave={(e) => {
-                               e.currentTarget.style.background = isSelected ? `${partyAccentColor}18` : '#ffffff';
-                               e.currentTarget.style.transform = 'translateX(0)';
-                             }}
-                           >
-                             <div style={{ 
-                              fontWeight: 600,
-                               color: '#1e293b',
-                               marginBottom: customer.Mobile || customer.MobileNumber ? '4px' : '0',
-                              fontSize: '12px',
-                               lineHeight: '1.4'
-                             }}>
-                               {displayName}
-                             </div>
-                             {customer.Mobile || customer.MobileNumber ? (
-                               <div style={{ 
-                                 color: '#64748b', 
-                                 fontSize: '11px',
-                                 fontWeight: 400,
-                                 display: 'flex',
-                                 alignItems: 'center',
-                                 gap: '6px'
-                               }}>
-                                 <span style={{ 
-                                   display: 'inline-block',
-                                   width: '4px',
-                                   height: '4px',
-                                   borderRadius: '50%',
-                                   background: '#94a3b8',
-                                   flexShrink: 0
-                                 }}></span>
-                                 {customer.Mobile || customer.MobileNumber}
-                               </div>
-                             ) : null}
-                           </div>
-                         );
-                       })}
-                      {!loadingPartyList &&
-                        partyType === 'vendor' &&
-                        filteredVendors.map((v, idx) => {
-                          const displayName = getVendorDisplayName(v);
-                          const mob = v.Mobile || v.Phone || v.PhoneNumber;
-                          const isSelected = String(v.Id) === String(selectedVendorId);
-                          return (
-                            <div
-                              key={v.Id}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleVendorSelect(v);
-                              }}
-                              role="option"
-                              aria-selected={isSelected}
-                              style={{
-                                padding: '10px 12px',
-                                cursor: 'pointer',
-                                fontSize: '11px',
-                                borderBottom: idx < filteredVendors.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                transition: 'all 0.15s ease',
-                                backgroundColor: isSelected ? `${partyAccentColor}18` : '#ffffff'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (!isSelected) e.currentTarget.style.background = '#f8fafc';
-                                e.currentTarget.style.transform = 'translateX(2px)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = isSelected ? `${partyAccentColor}18` : '#ffffff';
-                                e.currentTarget.style.transform = 'translateX(0)';
-                              }}
-                            >
-                              <div
-                                style={{
-                                  fontWeight: 600,
-                                  color: '#1e293b',
-                                  marginBottom: mob ? '4px' : '0',
-                                  fontSize: '12px',
-                                  lineHeight: '1.4'
-                                }}
-                              >
-                                {displayName}
-                              </div>
-                              {mob ? (
-                                <div
-                                  style={{
-                                    color: '#64748b',
-                                    fontSize: '11px',
-                                    fontWeight: 400,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                >
-                                  <span
-                                    style={{
-                                      display: 'inline-block',
-                                      width: '4px',
-                                      height: '4px',
-                                      borderRadius: '50%',
-                                      background: '#94a3b8',
-                                      flexShrink: 0
-                                    }}
-                                  />
-                                  {mob}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      {!loadingPartyList &&
-                        partyType === 'employee' &&
-                        filteredEmployees.map((emp, idx) => {
-                          const displayName = toProperPersonName(getEmployeeDisplayName(emp));
-                          const mob = emp.Mobile || emp.Phone || emp.ContactNo || emp.contactNo;
-                          const isSelected = String(emp.Id) === String(selectedEmployeeId);
-                          return (
-                            <div
-                              key={emp.Id}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleEmployeeSelect(emp);
-                              }}
-                              role="option"
-                              aria-selected={isSelected}
-                              style={{
-                                padding: '10px 12px',
-                                cursor: 'pointer',
-                                fontSize: '11px',
-                                borderBottom: idx < filteredEmployees.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                transition: 'all 0.15s ease',
-                                backgroundColor: isSelected ? `${partyAccentColor}18` : '#ffffff'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (!isSelected) e.currentTarget.style.background = '#f8fafc';
-                                e.currentTarget.style.transform = 'translateX(2px)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = isSelected ? `${partyAccentColor}18` : '#ffffff';
-                                e.currentTarget.style.transform = 'translateX(0)';
-                              }}
-                            >
-                              <div
-                                style={{
-                                  fontWeight: 600,
-                                  color: '#1e293b',
-                                  marginBottom: mob ? '4px' : '0',
-                                  fontSize: '12px',
-                                  lineHeight: '1.4'
-                                }}
-                              >
-                                {displayName}
-                              </div>
-                              {mob ? (
-                                <div
-                                  style={{
-                                    color: '#64748b',
-                                    fontSize: '11px',
-                                    fontWeight: 400,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                >
-                                  <span
-                                    style={{
-                                      display: 'inline-block',
-                                      width: '4px',
-                                      height: '4px',
-                                      borderRadius: '50%',
-                                      background: '#94a3b8',
-                                      flexShrink: 0
-                                    }}
-                                  />
-                                  {mob}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                     </div>
-                   )}
-                 </div>
-                 <button
-                   type="button"
-                   onClick={() => {
-                     if (partyType === 'customer') setShowCustomerSidebar(true);
-                     if (partyType === 'vendor') setShowVendorSidebar(true);
-                     if (partyType === 'employee') setShowEmployeeSidebar(true);
-                   }}
-                   style={{
-                     display: 'flex',
-                     alignItems: 'center',
-                     justifyContent: 'center',
-                     borderRadius: 6,
-                     border: `1px solid ${partyAccentColor}`,
-                     background: partyAccentColor,
-                     color: '#ffffff',
-                     cursor: 'pointer',
-                     minWidth: 28,
-                     height: 28,
-                     flexShrink: 0,
-                   }}
-                   title={
-                     partyType === 'customer'
-                       ? 'Add customer (Create Masters API)'
-                       : partyType === 'vendor'
-                         ? 'Add vendor (Create Masters API)'
-                         : 'Add employee (Create Masters API)'
-                   }
-                 >
-                   <FaUserPlus style={{ fontSize: 12 }} />
-                 </button>
-               </div>
-             </div>
-
-            <div>
-              <label style={compactLbl}>Mobile</label>
-              <input
-                type="text"
-                value={customerMobile}
-                placeholder="—"
-                readOnly
-                style={{ ...compactInp, background: '#f8fafc', color: '#475569' }}
-              />
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              borderBottom: idx < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                              background: isSelected ? `${partyAccentColor}18` : '#fff',
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, color: '#1e293b' }}>{displayName}</div>
+                          </div>
+                        );
+                      })}
+                    {!assignToLoading &&
+                      partyType === 'vendor' &&
+                      filteredVendors.map((v, idx) => {
+                        const displayName = getVendorDisplayName(v);
+                        const partyId = v.PartyId ?? v.Id;
+                        const isSelected = String(partyId) === String(selectedVendorId);
+                        return (
+                          <div
+                            key={partyId}
+                            role="option"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleVendorSelect(v);
+                              setAssignToSearch(displayName);
+                              setShowAssignToDropdown(false);
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              borderBottom: idx < filteredVendors.length - 1 ? '1px solid #f1f5f9' : 'none',
+                              background: isSelected ? `${partyAccentColor}18` : '#fff',
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, color: '#1e293b' }}>{displayName}</div>
+                          </div>
+                        );
+                      })}
+                    {!assignToLoading &&
+                      partyType === 'employee' &&
+                      filteredSubUsers.map((u, idx) => {
+                        const uid = u.UserId || u.userId;
+                        const label = getSubUserDisplayName(u);
+                        const isSelected = String(uid) === String(selectedAssignToUserId);
+                        return (
+                          <div
+                            key={uid}
+                            role="option"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelectedAssignToUserId(uid);
+                              setAssignToSearch(label);
+                              setFormValidationHint('');
+                              setShowAssignToDropdown(false);
+                              syncEmployeePartyIdFromSubUser(u);
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              borderBottom: idx < filteredSubUsers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                              background: isSelected ? `${partyAccentColor}18` : '#fff',
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, color: '#1e293b' }}>{label}</div>
+                            {(u.Email || u.email) && (
+                              <div style={{ fontSize: 10, color: '#64748b' }}>{u.Email || u.email}</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (partyType === 'customer') setShowCustomerSidebar(true);
+                  else if (partyType === 'vendor') setShowVendorSidebar(true);
+                  else setShowEmployeeSidebar(true);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 6,
+                  border: `1px solid ${partyAccentColor}`,
+                  background: partyAccentColor,
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  minWidth: 28,
+                  height: 28,
+                  flexShrink: 0,
+                }}
+                title="Add new (Create Masters)"
+              >
+                <FaUserPlus style={{ fontSize: 12 }} />
+              </button>
             </div>
           </div>
         </div>
 
         {/* Item search + dates */}
-        <div style={{ flex: isSmallScreen ? '1 1 100%' : '1 1 380px', minWidth: isSmallScreen ? '100%' : 300 }}>
+        <div
+          style={{
+            flex: isSmallScreen ? '1 1 100%' : '1 1 380px',
+            minWidth: isSmallScreen ? '100%' : 300,
+            position: 'relative',
+            zIndex: showSearchResults ? 80 : 25,
+            overflow: 'visible',
+          }}
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div ref={itemCodeSearchRef} style={{ position: 'relative', width: '100%' }}>
+            <div ref={itemCodeSearchRef} style={{ position: 'relative', width: '100%', overflow: 'visible' }}>
               <label htmlFor="sample-out-item-code-search" style={compactLbl}>
                 Item code <span style={{ color: '#ef4444' }}>*</span>
               </label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
-                <div style={{ position: 'relative', flex: '1 1 auto', minWidth: 0 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%', flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 200, maxWidth: '100%' }}>
                   <FaSearch style={{
                     position: 'absolute',
                     left: '10px',
@@ -2600,11 +3120,18 @@ const formatScannedDateTime = (date) => {
                     autoComplete="off"
                     aria-autocomplete="list"
                     aria-expanded={showSearchResults && !!itemCodeSearch.trim()}
-                    placeholder="Search item code (e.g. ITM-1024 or partial)…"
+                    placeholder="Scan RFID / item code — 1st scan Sample Out, 2nd scan Sample In…"
                     value={itemCodeSearch}
                     onChange={(e) => {
                       setItemCodeSearch(e.target.value);
                       setShowSearchResults(true);
+                      setShowAssignToDropdown(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && itemCodeSearch.trim()) {
+                        e.preventDefault();
+                        handleDirectScan(itemCodeSearch.trim());
+                      }
                     }}
                     style={{
                       ...compactInp,
@@ -2614,7 +3141,8 @@ const formatScannedDateTime = (date) => {
                     onFocus={(e) => {
                       e.target.style.borderColor = '#3b82f6';
                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                      if (itemCodeSearch.trim() && searchResults.length > 0) {
+                      setShowAssignToDropdown(false);
+                      if (itemCodeSearch.trim()) {
                         setShowSearchResults(true);
                       }
                     }}
@@ -2624,7 +3152,7 @@ const formatScannedDateTime = (date) => {
                       setTimeout(() => setShowSearchResults(false), 200);
                     }}
                   />
-                  {searching && (
+                  {(searching || scanChecking) && (
                     <FaSpinner style={{
                       position: 'absolute',
                       right: '10px',
@@ -2635,7 +3163,118 @@ const formatScannedDateTime = (date) => {
                       animation: 'spin 1s linear infinite',
                     }} />
                   )}
+                  {showSearchResults && itemCodeSearch.trim() && (
+                    <div
+                      style={{
+                        ...dropdownPanelStyle,
+                        zIndex: 12100,
+                        borderTop: '3px solid #3b82f6',
+                      }}
+                      role="listbox"
+                      aria-label="Item code suggestions"
+                    >
+                      {searching && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
+                          Searching labeled stock…
+                        </div>
+                      )}
+                      {!searching && !scanChecking && searchResults.length === 0 && (
+                        <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b', lineHeight: 1.5 }}>
+                          No in-stock match in labeled list. Press <strong>Enter</strong> to check live sample
+                          status (Sample Out vs Sample In).
+                        </div>
+                      )}
+                      {!searching && searchResults.map((item, idx) => (
+                        <div
+                          key={`${item.LabelledStockId ?? item.Id ?? 'row'}-${rowItemCode(item) || idx}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                          }}
+                          onClick={() => selectItemFromSearch(item)}
+                          role="option"
+                          style={{
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            borderBottom: idx < searchResults.length - 1 ? '1px solid #f1f5f9' : 'none',
+                            fontSize: '11px',
+                            transition: 'all 0.15s ease',
+                            backgroundColor: '#ffffff',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#f8fafc';
+                            e.currentTarget.style.transform = 'translateX(2px)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#ffffff';
+                            e.currentTarget.style.transform = 'translateX(0)';
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: '9px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                              color: '#64748b',
+                              background: '#f1f5f9',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                            }}>
+                              Item code
+                            </span>
+                            <span style={{
+                              fontWeight: 700,
+                              color: '#0f172a',
+                              fontSize: '13px',
+                              fontVariantNumeric: 'tabular-nums',
+                              letterSpacing: '-0.02em',
+                            }}>
+                              {rowItemCodeOrDash(item)}
+                            </span>
+                            {(item.RFIDNumber || item.RFID || item.RFIDCode) ? (
+                              <span style={{ fontSize: '10px', color: '#64748b' }} title="RFID on tag">
+                                RFID: <strong style={{ color: '#334155' }}>{item.RFIDNumber || item.RFID || item.RFIDCode}</strong>
+                              </span>
+                            ) : null}
+                          </div>
+                          <div style={{
+                            fontSize: '11px',
+                            color: '#64748b',
+                            fontWeight: 400,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            flexWrap: 'wrap',
+                          }}>
+                            <span style={{
+                              display: 'inline-block',
+                              width: '4px',
+                              height: '4px',
+                              borderRadius: '50%',
+                              background: '#94a3b8',
+                              flexShrink: 0,
+                            }}
+                            />
+                            <span>
+                              <span style={{ fontWeight: 600, color: '#475569' }}>Product:</span>{' '}
+                              {item.ProductName || item.Product || '—'}
+                            </span>
+                            {(item.CategoryName || item.Category) ? (
+                              <>
+                                <span style={{ color: '#cbd5e1' }}>·</span>
+                                <span>
+                                  <span style={{ fontWeight: 600, color: '#475569' }}>Category:</span>{' '}
+                                  {item.CategoryName || item.Category}
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', flex: '0 0 auto' }}>
                 {trayEnabled && (
                   <>
                     <button
@@ -2685,11 +3324,55 @@ const formatScannedDateTime = (date) => {
                     </button>
                   </>
                 )}
-                <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                  {formValidationHint ? (
+                    <div
+                      role="alert"
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: '#b91c1c',
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        borderRadius: 6,
+                        padding: '6px 8px',
+                        maxWidth: 320,
+                        textAlign: 'right',
+                      }}
+                    >
+                      <div>{formValidationHint}</div>
+                      {/employee master|partyid|from employees/i.test(formValidationHint) ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/rfid-admin/users/convert-from-employee')}
+                          style={{
+                            marginTop: 6,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#0f766e',
+                            background: '#ecfdf5',
+                            border: '1px solid #a7f3d0',
+                            borderRadius: 6,
+                            padding: '4px 8px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Open From employees
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <button
                     type="button"
                     onClick={openSampleOutConfirmModal}
-                    disabled={loading}
+                    disabled={!canSubmitSampleOut}
+                    title={
+                      !pendingOutRows.length
+                        ? 'Scan items for Sample Out first'
+                        : !hasAssignToSelection()
+                          ? 'Select employee / party first'
+                          : 'Review and confirm Sample Out'
+                    }
                     style={{
                       height: 28,
                       padding: '0 12px',
@@ -2697,152 +3380,56 @@ const formatScannedDateTime = (date) => {
                       fontWeight: 700,
                       borderRadius: 6,
                       border: '1px solid #0d6f63',
-                      background: 'linear-gradient(135deg, #149481 0%, #0f766e 100%)',
-                      color: '#ffffff',
-                      cursor: loading ? 'not-allowed' : 'pointer',
-                      display: 'inline-flex',
+                      background: canSubmitSampleOut
+                        ? 'linear-gradient(135deg, #149481 0%, #0f766e 100%)'
+                        : '#e2e8f0',
+                      color: canSubmitSampleOut ? '#ffffff' : '#94a3b8',
+                      cursor: canSubmitSampleOut ? 'pointer' : 'not-allowed',
+                      display: pendingOutRows.length > 0 ? 'inline-flex' : 'none',
                       alignItems: 'center',
                       gap: 6,
                       opacity: loading ? 0.7 : 1,
                     }}
                   >
                     {loading ? <FaSpinner className="fa-spin" /> : <FaFileInvoice />}
-                    <span>Add Sample Out</span>
+                    <span>Sample Out ({pendingOutRows.length})</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigate('/sample-out-list')}
+                    onClick={openSampleInConfirmModal}
+                    disabled={!canSubmitSampleIn}
+                    title={
+                      !pendingInRows.length
+                        ? 'Scan returned items (2nd scan) first'
+                        : 'Review and confirm Sample In'
+                    }
                     style={{
                       height: 28,
                       padding: '0 12px',
                       fontSize: 11,
                       fontWeight: 700,
                       borderRadius: 6,
-                      border: '1px solid #cbd5e1',
-                      background: '#fff',
-                      color: '#334155',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
+                      border: '1px solid #15803d',
+                      background: canSubmitSampleIn
+                        ? 'linear-gradient(135deg, #22c55e 0%, #15803d 100%)'
+                        : '#e2e8f0',
+                      color: canSubmitSampleIn ? '#ffffff' : '#94a3b8',
+                      cursor: canSubmitSampleIn ? 'pointer' : 'not-allowed',
+                      display: pendingInRows.length > 0 ? 'inline-flex' : 'none',
                       alignItems: 'center',
                       gap: 6,
+                      opacity: loading ? 0.7 : 1,
                     }}
                   >
-                    <FaList />
-                    <span>List</span>
+                    {loading ? <FaSpinner className="fa-spin" /> : <FaInbox />}
+                    <span>
+                      Sample In ({pendingInRows.length})
+                      {sampleInBatchLabel ? ` · ${sampleInBatchLabel}` : ''}
+                    </span>
                   </button>
                 </div>
-              </div>
-
-              {showSearchResults && itemCodeSearch.trim() && (
-                <div style={dropdownPanelStyle} role="listbox" aria-label="Item code suggestions">
-                  {searching && (
-                    <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
-                      Searching labeled stock…
-                    </div>
-                  )}
-                  {!searching && searchResults.length === 0 && (
-                    <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
-                      No labeled stock matches this code. Try another item code or check spelling.
-                    </div>
-                  )}
-                  {!searching && searchResults.map((item, idx) => (
-                    <div
-                      key={`${item.LabelledStockId ?? item.Id ?? 'row'}-${rowItemCode(item) || idx}`}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                      }}
-                      onClick={() => selectItemFromSearch(item)}
-                      role="option"
-                      style={{
-                        padding: '10px 12px',
-                        cursor: 'pointer',
-                        borderBottom: idx < searchResults.length - 1 ? '1px solid #f1f5f9' : 'none',
-                        fontSize: '11px',
-                        transition: 'all 0.15s ease',
-                        backgroundColor: '#ffffff',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f8fafc';
-                        e.currentTarget.style.transform = 'translateX(2px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#ffffff';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                        <span style={{
-                          fontSize: '9px',
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.06em',
-                          color: '#64748b',
-                          background: '#f1f5f9',
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                        }}>
-                          Item code
-                        </span>
-                        <span style={{
-                          fontWeight: 700,
-                          color: '#0f172a',
-                          fontSize: '13px',
-                          fontVariantNumeric: 'tabular-nums',
-                          letterSpacing: '-0.02em',
-                        }}>
-                          {rowItemCodeOrDash(item)}
-                        </span>
-                        {(item.RFIDNumber || item.RFID || item.RFIDCode) ? (
-                          <span style={{ fontSize: '10px', color: '#64748b' }} title="RFID on tag">
-                            RFID: <strong style={{ color: '#334155' }}>{item.RFIDNumber || item.RFID || item.RFIDCode}</strong>
-                          </span>
-                        ) : null}
-                      </div>
-                      <div style={{
-                        fontSize: '11px',
-                        color: '#64748b',
-                        fontWeight: 400,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        flexWrap: 'wrap',
-                      }}>
-                        <span style={{
-                          display: 'inline-block',
-                          width: '4px',
-                          height: '4px',
-                          borderRadius: '50%',
-                          background: '#94a3b8',
-                          flexShrink: 0,
-                        }}
-                        />
-                        <span>
-                          <span style={{ fontWeight: 600, color: '#475569' }}>Product:</span>{' '}
-                          {item.ProductName || item.Product || '—'}
-                        </span>
-                        {(item.CategoryName || item.Category) ? (
-                          <>
-                            <span style={{ color: '#cbd5e1' }}>·</span>
-                            <span>
-                              <span style={{ fontWeight: 600, color: '#475569' }}>Category:</span>{' '}
-                              {item.CategoryName || item.Category}
-                            </span>
-                          </>
-                        ) : null}
-                        {(item.DesignName || item.Design) ? (
-                          <>
-                            <span style={{ color: '#cbd5e1' }}>·</span>
-                            <span>
-                              <span style={{ fontWeight: 600, color: '#475569' }}>Design:</span>{' '}
-                              {item.DesignName || item.Design}
-                            </span>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
                 </div>
-              )}
+              </div>
             </div>
 
             <div
@@ -3036,7 +3623,7 @@ const formatScannedDateTime = (date) => {
                 <div style={{ padding: '28px 16px', textAlign: 'center', color: '#737373', fontSize: 13, lineHeight: 1.55 }}>
                   {tableSearch.trim()
                     ? 'No rows match your filter. Try another item code, RFID, or product keyword.'
-                    : 'No items yet. Use the item code search above to find labeled stock, then choose a row to add it here.'}
+                    : 'Scan or search RFID / item code. 1st scan adds Sample Out; scan again when out returns Sample In.'}
                 </div>
               ) : (
                 <div
@@ -3051,13 +3638,23 @@ const formatScannedDateTime = (date) => {
                     const itemCode = rowItemCode(item);
                     const rfid = rowRfidOrDash(item);
                     const design = rowDesignOrDash(item);
+                    const isSampleInPending = item.__scanAction === 'SampleInPending';
+                    const isSampleInDone = item.__scanAction === 'SampleInDone';
+                    const isSampleIn = isSampleInPending || isSampleInDone;
+                    const badgeLabel = isSampleInDone
+                      ? 'RETURNED'
+                      : isSampleInPending
+                        ? 'SAMPLE IN'
+                        : 'SAMPLE OUT';
+                    const badgeBg = isSampleInDone ? '#dcfce7' : isSampleInPending ? '#fef9c3' : '#e0f2fe';
+                    const badgeFg = isSampleInDone ? '#15803d' : isSampleInPending ? '#a16207' : '#0284c7';
                     return (
                       <article
                         key={item.id ?? `${serial}-${rowItemCode(item)}`}
                         style={{
-                          border: '1px solid #e2e8f0',
+                          border: `1px solid ${isSampleIn ? (isSampleInDone ? '#bbf7d0' : '#fde047') : '#e2e8f0'}`,
                           borderRadius: 12,
-                          background: '#fff',
+                          background: isSampleInDone ? '#f0fdf4' : isSampleInPending ? '#fefce8' : '#fff',
                           overflow: 'hidden',
                           boxShadow: '0 2px 12px rgba(15, 23, 42, 0.06)',
                           display: 'flex',
@@ -3078,18 +3675,19 @@ const formatScannedDateTime = (date) => {
                             style={{
                               fontSize: 9,
                               fontWeight: 800,
-                              color: '#0284c7',
-                              background: '#e0f2fe',
+                              color: badgeFg,
+                              background: badgeBg,
                               padding: '2px 6px',
                               borderRadius: 4,
                               textTransform: 'uppercase',
                               letterSpacing: '0.03em',
                             }}
                           >
-                            SAMPLE
+                            {badgeLabel}
                           </span>
                           <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
                             #{serial}
+                            {isSampleIn && item.__lotNumber ? ` · ${item.__lotNumber}` : ''}
                           </span>
                         </div>
                         <GridItemImage
@@ -3261,7 +3859,7 @@ const formatScannedDateTime = (date) => {
               background: '#ffffff',
               borderRadius: '16px',
               padding: isSmallScreen ? '22px' : '28px',
-              maxWidth: '440px',
+              maxWidth: '520px',
               width: '100%',
               boxShadow:
                 '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -3291,7 +3889,7 @@ const formatScannedDateTime = (date) => {
                     background: '#f8fafc',
                     borderRadius: '10px',
                     padding: '14px 16px',
-                    marginBottom: '20px',
+                    marginBottom: '12px',
                     border: '1px solid #e2e8f0',
                     fontSize: '13px',
                     color: '#334155',
@@ -3299,25 +3897,73 @@ const formatScannedDateTime = (date) => {
                   }}
                 >
                   <div>
-                    <strong style={{ color: '#475569' }}>Party</strong>{' '}
-                    {partyTypeLabel(partyType)} · {getResolvedPartyNameForSummary()}
+                    <strong style={{ color: '#475569' }}>{assignToFieldLabel}:</strong>{' '}
+                    {getResolvedAssignToName()}
+                  </div>
+                  {sampleOutNumber ? (
+                    <div>
+                      <strong style={{ color: '#475569' }}>Sample Out NO:</strong> {sampleOutNumber}
+                    </div>
+                  ) : null}
+                  <div>
+                    <strong style={{ color: '#475569' }}>Items:</strong> {pendingOutRows.length} ·{' '}
+                    <strong style={{ color: '#475569' }}>Pieces:</strong> {pendingOutSummary.pieces} ·{' '}
+                    <strong style={{ color: '#475569' }}>Gross wt:</strong> {pendingOutSummary.gross.toFixed(3)}
                   </div>
                   <div>
-                    <strong style={{ color: '#475569' }}>Sample lot no.</strong>{' '}
-                    {nextLotNoLoading ? 'Loading…' : sampleOutNumber || '—'}
-                    {nextLotNoError ? (
-                      <span style={{ color: '#b91c1c', fontSize: '12px' }}> ({nextLotNoError})</span>
-                    ) : null}
+                    <strong style={{ color: '#475569' }}>Scanned:</strong>{' '}
+                    {pendingOutSummary.latest
+                      ? pendingOutSummary.latest.toLocaleString(undefined, {
+                          dateStyle: 'medium',
+                          timeStyle: 'short',
+                        })
+                      : '—'}
                   </div>
                   <div>
-                    <strong style={{ color: '#475569' }}>Items</strong>{' '}
-                    {sampleOutItems.length} line
-                    {sampleOutItems.length !== 1 ? 's' : ''}
+                    <strong style={{ color: '#475569' }}>Out date:</strong> {sampleOutDate || '—'} ·{' '}
+                    <strong style={{ color: '#475569' }}>Return:</strong> {returnDate || sampleOutDate || '—'}
                   </div>
-                  <div>
-                    <strong style={{ color: '#475569' }}>Return date</strong>{' '}
-                    {returnDate || sampleOutDate || '—'}
-                  </div>
+                  {description ? (
+                    <div>
+                      <strong style={{ color: '#475569' }}>Note:</strong> {description}
+                    </div>
+                  ) : null}
+                </div>
+                <div
+                  style={{
+                    maxHeight: 220,
+                    overflowY: 'auto',
+                    marginBottom: 16,
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 10,
+                    fontSize: 11,
+                  }}
+                >
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0 }}>
+                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>#</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>Item</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>RFID</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Gr wt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingOutRows.slice(0, 200).map((row, i) => (
+                        <tr key={row.id ?? i} style={{ borderTop: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '5px 8px' }}>{i + 1}</td>
+                          <td style={{ padding: '5px 8px', fontWeight: 700 }}>{rowItemCode(row) || '—'}</td>
+                          <td style={{ padding: '5px 8px' }}>{rowRfidOrDash(row)}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right' }}>{rowGrossWtOrZero(row)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {pendingOutRows.length > 200 ? (
+                    <div style={{ padding: 8, color: '#64748b', fontSize: 10 }}>
+                      + {pendingOutRows.length - 200} more items not shown
+                    </div>
+                  ) : null}
                 </div>
                 <div
                   style={{
@@ -3465,231 +4111,572 @@ const formatScannedDateTime = (date) => {
         </div>
       )}
 
-      {/* Success Modal */}
-      {showSuccessModal && successData && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10000,
-          padding: '20px'
-        }}
-        onClick={() => setShowSuccessModal(false)}
-        >
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            padding: isSmallScreen ? '22px' : '28px',
-            maxWidth: 'min(92vw, 560px)',
-            width: '100%',
-            maxHeight: 'min(88vh, 720px)',
-            overflowY: 'auto',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-            position: 'relative',
-            animation: 'fadeIn 0.3s ease-in'
+      {scanReviewModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10080,
+            padding: 16,
           }}
-          onClick={(e) => e.stopPropagation()}
-          >
-            {/* Close Button */}
-            <button
-              onClick={() => setShowSuccessModal(false)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '50%',
-                transition: 'background 0.2s'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-            >
-              <FaTimes style={{ color: '#64748b', fontSize: '18px' }} />
-            </button>
-
-            {/* Success Icon */}
-            <div style={{
+          onClick={() => setScanReviewModal(null)}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              maxWidth: 560,
+              width: '100%',
+              maxHeight: '88vh',
+              overflow: 'hidden',
               display: 'flex',
-              justifyContent: 'center',
-              marginBottom: '20px'
-            }}>
-              <div style={{
-                width: '70px',
-                height: '70px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 18px rgba(16, 185, 129, 0.3)',
-                animation: 'popIn 0.5s cubic-bezier(.68,-0.55,.27,1.55)'
-              }}>
-                <FaCheckCircle style={{ fontSize: '36px', color: '#ffffff' }} />
+              flexDirection: 'column',
+              boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '18px 20px 12px', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
+                    {scanReviewModal.title}
+                  </h2>
+                  {scanReviewModal.subtitle ? (
+                    <p style={{ margin: '6px 0 0', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                      {scanReviewModal.subtitle}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScanReviewModal(null)}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}
+                >
+                  <FaTimes size={18} />
+                </button>
               </div>
             </div>
-
-            <h2 style={{
-              fontWeight: 700,
-              fontSize: isSmallScreen ? '19px' : '22px',
-              color: '#0f172a',
-              textAlign: 'center',
-              marginBottom: '10px',
-              lineHeight: 1.25,
-            }}>
-              Sample out saved
-            </h2>
-
-            {successData.apiMessage ? (
-              <div
+            <div style={{ padding: '12px 16px 16px', overflowY: 'auto', flex: 1 }}>
+              {(scanReviewModal.sections || []).map((section, si) => {
+                const theme = SCAN_POPUP_THEME[section.type] || SCAN_POPUP_THEME.info;
+                const rows = section.rows || [];
+                const cap = 150;
+                return (
+                  <div
+                    key={`scan-sec-${si}`}
+                    style={{
+                      marginBottom: 12,
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 10,
+                      overflow: 'hidden',
+                      background: theme.bg,
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        color: theme.fg,
+                        borderBottom: `1px solid ${theme.border}`,
+                      }}
+                    >
+                      {section.heading}
+                    </div>
+                    <ul style={{ margin: 0, padding: '8px 12px', listStyle: 'none', fontSize: 11 }}>
+                      {rows.slice(0, cap).map((row, ri) => (
+                        <li
+                          key={`${si}-${ri}-${row.itemCode}`}
+                          style={{
+                            padding: '6px 0',
+                            borderBottom: ri < Math.min(rows.length, cap) - 1 ? `1px solid ${theme.border}` : 'none',
+                            color: theme.fg,
+                          }}
+                        >
+                          <strong>{row.itemCode}</strong>
+                          {row.rfid && row.rfid !== '—' ? (
+                            <span style={{ opacity: 0.85 }}> · RFID {row.rfid}</span>
+                          ) : null}
+                          <div style={{ marginTop: 2, opacity: 0.9 }}>{row.message}</div>
+                        </li>
+                      ))}
+                      {rows.length > cap ? (
+                        <li style={{ padding: '8px 0 0', color: theme.fg, fontWeight: 700 }}>
+                          + {rows.length - cap} more — use grid filter to find items
+                        </li>
+                      ) : null}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ padding: '12px 16px', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={() => setScanReviewModal(null)}
                 style={{
-                  marginBottom: '16px',
-                  padding: '12px 14px',
-                  borderRadius: '10px',
-                  background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
-                  border: '1px solid #6ee7b7',
-                  fontSize: '14px',
-                  color: '#065f46',
-                  lineHeight: 1.5,
-                  textAlign: 'center',
-                  fontWeight: 600,
+                  padding: '10px 18px',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: '#fff',
+                  cursor: 'pointer',
                 }}
               >
-                {successData.apiMessage}
-              </div>
-            ) : null}
-
-            <div
-              style={{
-                textAlign: 'center',
-                marginBottom: '18px',
-                padding: '14px 16px',
-                borderRadius: '12px',
-                background: 'linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%)',
-                border: '1px solid #e2e8f0',
-              }}
-            >
-              <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>
-                Sample lot number
-              </div>
-              <div style={{ fontSize: isSmallScreen ? '22px' : '26px', fontWeight: 800, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
-                {successData.sampleOutNo}
-              </div>
-              <div style={{ marginTop: '10px', fontSize: '13px', color: '#475569' }}>
-                Party:{' '}
-                <strong style={{ color: '#1e293b' }}>{successData.partyName || successData.customerName}</strong>
-              </div>
+                OK
+              </button>
             </div>
+          </div>
+        </div>
+      )}
 
-            {successData.header ? (
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Details from server
+      {showConfirmSampleIn && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 20,
+          }}
+          onClick={() => {
+            if (confirmSampleInPhase === 'summary') setShowConfirmSampleIn(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              padding: isSmallScreen ? 22 : 28,
+              maxWidth: 520,
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {confirmSampleInPhase === 'summary' ? (
+              <>
+                <h2 style={{ margin: '0 0 12px', fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
+                  Confirm Sample In (return)?
+                </h2>
+                <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
+                  These items were scanned a 2nd time. Review and confirm return to stock.
+                </p>
+                <div
+                  style={{
+                    background: '#f0fdf4',
+                    borderRadius: 10,
+                    padding: '14px 16px',
+                    marginBottom: 12,
+                    border: '1px solid #bbf7d0',
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <div>
+                    <strong>Sample In:</strong> {sampleInBatchLabel || '—'}
+                  </div>
+                  <div>
+                    <strong>Items:</strong> {pendingInRows.length} · <strong>Pieces:</strong>{' '}
+                    {pendingInSummary.pieces} · <strong>Gross wt:</strong>{' '}
+                    {pendingInSummary.gross.toFixed(3)}
+                  </div>
+                  <div>
+                    <strong>Scanned:</strong>{' '}
+                    {pendingInSummary.latest
+                      ? pendingInSummary.latest.toLocaleString(undefined, {
+                          dateStyle: 'medium',
+                          timeStyle: 'short',
+                        })
+                      : '—'}
+                  </div>
                 </div>
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: isSmallScreen ? '1fr' : '1fr 1fr',
-                    gap: '8px 14px',
-                    fontSize: '13px',
-                    color: '#334155',
+                    maxHeight: 220,
+                    overflowY: 'auto',
+                    marginBottom: 16,
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 10,
+                    fontSize: 11,
                   }}
                 >
-                  {[
-                    ['Status', successData.header.Status ?? '—'],
-                    ['Party type', successData.header.PartyType ?? '—'],
-                    ['Total items', successData.header.TotalItems ?? '—'],
-                    ['Returned', successData.header.ReturnedItems ?? '—'],
-                    ['Pending', successData.header.PendingItems ?? '—'],
-                    ['Issue', formatSampleApiDateTime(successData.header.IssueDate)],
-                    ['Expected return', formatSampleApiDateTime(successData.header.ExpectedReturnDate)],
-                    ['Branch', successData.header.BranchId ?? '—'],
-                    ['Counter', successData.header.CounterId ?? '—'],
-                  ].map(([label, val]) => (
-                    <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>{label}</span>
-                      <span style={{ fontWeight: 600, color: '#0f172a' }}>{val}</span>
-                    </div>
-                  ))}
-                  {successData.header.Remarks ? (
-                    <div style={{ gridColumn: isSmallScreen ? '1' : '1 / -1' }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Remarks</span>
-                      <span style={{ color: '#334155', lineHeight: 1.45 }}>{successData.header.Remarks}</span>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            {successData.lineItems?.length > 0 ? (
-              <div style={{ marginBottom: '18px' }}>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Line items
-                </div>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                      <tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left' }}>
-                        <th style={{ padding: '8px 10px', fontWeight: 700 }}>Item code</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700 }}>Stock id</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700 }}>Status</th>
+                      <tr style={{ background: '#fefce8', position: 'sticky', top: 0 }}>
+                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>#</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>Item</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>Lot</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Gr wt</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {successData.lineItems.map((row, idx) => (
-                        <tr key={row.Id ?? idx} style={{ borderTop: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{row.ItemCode ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', fontFamily: 'ui-monospace, monospace' }}>{row.LabelledStockId ?? '—'}</td>
-                          <td style={{ padding: '8px 10px' }}>{row.ItemStatus ?? '—'}</td>
+                      {pendingInRows.slice(0, 200).map((row, i) => (
+                        <tr key={row.id ?? i} style={{ borderTop: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '5px 8px' }}>{i + 1}</td>
+                          <td style={{ padding: '5px 8px', fontWeight: 700 }}>{rowItemCode(row) || '—'}</td>
+                          <td style={{ padding: '5px 8px' }}>{row.__lotNumber || '—'}</td>
+                          <td style={{ padding: '5px 8px', textAlign: 'right' }}>{rowGrossWtOrZero(row)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmSampleIn(false)}
+                    style={{
+                      padding: '10px 18px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      background: '#fff',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmSampleInProceed}
+                    disabled={loading}
+                    style={{
+                      padding: '10px 18px',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      borderRadius: 10,
+                      border: '1px solid #15803d',
+                      background: 'linear-gradient(135deg, #22c55e 0%, #15803d 100%)',
+                      color: '#fff',
+                      cursor: loading ? 'wait' : 'pointer',
+                    }}
+                  >
+                    Confirm Sample In
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '20px 8px' }}>
+                <FaSpinner style={{ animation: 'spin 1s linear infinite', fontSize: 28, color: '#15803d' }} />
+                <p style={{ margin: '12px 0 0', fontWeight: 600 }}>Returning items to stock…</p>
               </div>
-            ) : null}
-
-            {/* Close Button */}
-            <button
-              onClick={() => setShowSuccessModal(false)}
-              style={{
-                width: '100%',
-                padding: '12px 24px',
-                fontSize: '14px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: 'none',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                color: '#ffffff',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2)';
-              }}
-            >
-              Close
-            </button>
+            )}
           </div>
         </div>
       )}
+
+      {/* Success Modal */}
+      {showSuccessModal && successData && (() => {
+        const partyName = successData.partyName || successData.customerName || '—';
+        const assignName = String(successData.assignedToUserName || '').trim();
+        const samePartyAndAssign =
+          assignName &&
+          partyName &&
+          assignName.toLowerCase() === String(partyName).trim().toLowerCase();
+        const rawStatus =
+          successData.lotStatus ||
+          successData.header?.Status ||
+          successData.header?.status ||
+          '';
+        const statusLabel = formatSampleLotStatusLabel(rawStatus) || '—';
+        const statusBadge = getSampleOutStatusBadgeStyle(rawStatus);
+        const subtitle = formatSampleOutSuccessSubtitle(
+          successData.apiMessage,
+          successData.sampleOutNo
+        );
+        const totalItems =
+          successData.header?.TotalItems ??
+          successData.lineItems?.length ??
+          null;
+        const pendingItems =
+          successData.header?.PendingItems ??
+          (successData.lineItems?.length > 0 ? successData.lineItems.length : null);
+        const returnBy = successData.header?.ExpectedReturnDate
+          ? formatSampleApiDateTime(successData.header.ExpectedReturnDate)
+          : null;
+        const summaryRows = [
+          samePartyAndAssign
+            ? { label: 'Assigned to', value: assignName || partyName }
+            : [
+                { label: 'Party', value: partyName },
+                ...(assignName ? [{ label: 'Assigned to', value: assignName }] : []),
+              ],
+          totalItems != null && totalItems !== ''
+            ? { label: 'Items', value: String(totalItems) }
+            : null,
+          pendingItems != null && pendingItems !== '' && String(pendingItems) !== String(totalItems)
+            ? { label: 'Pending', value: String(pendingItems) }
+            : null,
+          returnBy ? { label: 'Return by', value: returnBy } : null,
+        ]
+          .flat()
+          .filter(Boolean);
+
+        return (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(15, 23, 42, 0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10000,
+              padding: '16px',
+            }}
+            onClick={() => setShowSuccessModal(false)}
+            role="presentation"
+          >
+            <div
+              role="dialog"
+              aria-labelledby="sample-out-success-title"
+              aria-modal="true"
+              style={{
+                background: '#ffffff',
+                borderRadius: '14px',
+                padding: isSmallScreen ? '18px' : '22px',
+                maxWidth: 'min(92vw, 440px)',
+                width: '100%',
+                maxHeight: 'min(90vh, 640px)',
+                overflowY: 'auto',
+                boxShadow: '0 24px 48px -12px rgba(15, 23, 42, 0.22)',
+                position: 'relative',
+                animation: 'fadeIn 0.25s ease-out',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={() => setShowSuccessModal(false)}
+                style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  background: '#f8fafc',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '8px',
+                }}
+              >
+                <FaTimes style={{ color: '#64748b', fontSize: '14px' }} />
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', paddingRight: '28px' }}>
+                <div
+                  style={{
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
+                  }}
+                >
+                  <FaCheckCircle style={{ fontSize: '22px', color: '#fff' }} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <h2
+                    id="sample-out-success-title"
+                    style={{
+                      margin: 0,
+                      fontWeight: 800,
+                      fontSize: isSmallScreen ? '17px' : '18px',
+                      color: '#0f172a',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    Sample out saved
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b', lineHeight: 1.4 }}>
+                    {subtitle}
+                  </p>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  flexWrap: 'wrap',
+                  marginBottom: '14px',
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                    Sample Out NO
+                  </div>
+                  <div
+                    style={{
+                      fontSize: isSmallScreen ? '20px' : '22px',
+                      fontWeight: 800,
+                      color: '#0f172a',
+                      fontVariantNumeric: 'tabular-nums',
+                      lineHeight: 1.2,
+                      marginTop: '2px',
+                    }}
+                  >
+                    {successData.sampleOutNo}
+                  </div>
+                </div>
+                {rawStatus ? (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '5px 10px',
+                      borderRadius: '999px',
+                      background: statusBadge.bg,
+                      border: `1px solid ${statusBadge.border}`,
+                      color: statusBadge.color,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {statusLabel}
+                  </span>
+                ) : null}
+              </div>
+
+              {summaryRows.length > 0 ? (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: summaryRows.length > 2 && !isSmallScreen ? '1fr 1fr' : '1fr',
+                    gap: '8px 12px',
+                    marginBottom: '14px',
+                    fontSize: '13px',
+                  }}
+                >
+                  {summaryRows.map((row) => (
+                    <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {row.label}
+                      </span>
+                      <span style={{ fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {successData.header?.Remarks ? (
+                <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b', lineHeight: 1.45 }}>
+                  <span style={{ fontWeight: 700, color: '#94a3b8' }}>Note: </span>
+                  {successData.header.Remarks}
+                </p>
+              ) : null}
+
+              {successData.lineItems?.length > 0 ? (
+                <div style={{ marginBottom: '16px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Items ({successData.lineItems.length})
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      overflow: 'hidden',
+                      maxHeight: '168px',
+                      overflowY: 'auto',
+                    }}
+                  >
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left', position: 'sticky', top: 0 }}>
+                          <th style={{ padding: '7px 10px', fontWeight: 700 }}>Code</th>
+                          <th style={{ padding: '7px 10px', fontWeight: 700 }}>Stock</th>
+                          <th style={{ padding: '7px 10px', fontWeight: 700 }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {successData.lineItems.map((row, idx) => {
+                          const itemStatus = formatSampleLotStatusLabel(row.ItemStatus ?? row.itemStatus) || '—';
+                          const itemBadge = getSampleOutStatusBadgeStyle(row.ItemStatus ?? row.itemStatus);
+                          return (
+                            <tr key={row.Id ?? idx} style={{ borderTop: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '7px 10px', fontWeight: 600, color: '#0f172a' }}>{row.ItemCode ?? '—'}</td>
+                              <td style={{ padding: '7px 10px', color: '#475569', fontVariantNumeric: 'tabular-nums' }}>
+                                {row.LabelledStockId ?? '—'}
+                              </td>
+                              <td style={{ padding: '7px 10px' }}>
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: '999px',
+                                    background: itemBadge.bg,
+                                    border: `1px solid ${itemBadge.border}`,
+                                    color: itemBadge.color,
+                                  }}
+                                >
+                                  {itemStatus}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => setShowSuccessModal(false)}
+                style={{
+                  width: '100%',
+                  padding: '11px 20px',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.28)',
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       <TrayScanModal
         open={showRfidTrayModal}

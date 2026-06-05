@@ -23,9 +23,11 @@ const mapKnownHost = (host) => {
 export const remapApiUrl = (rawUrl) => {
   const parsed = safeParseUrl(rawUrl);
   if (!parsed) return rawUrl;
-  // Sample / RFIDDashboard APIs may live on same host as auth (e.g. localhost:7095) — do not rewrite.
+  // Sample / RFIDDashboard / RFIDSample APIs use Soni base from callers — do not rewrite.
   if (parsed.pathname.includes('/api/Sample/')) return rawUrl;
   if (parsed.pathname.includes('/api/RFIDDashboard/')) return rawUrl;
+  if (parsed.pathname.includes('/api/RFIDSample/')) return rawUrl;
+  if (parsed.pathname.includes('/api/RFIDUserManagement/')) return rawUrl;
   const mappedBase = mapKnownHost(parsed.origin);
   if (!mappedBase) return rawUrl;
   return `${mappedBase}${parsed.pathname}${parsed.search}${parsed.hash}`;

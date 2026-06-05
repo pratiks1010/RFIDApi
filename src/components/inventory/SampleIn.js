@@ -4135,37 +4135,6 @@ const SampleIn = () => {
       >
           <button
             type="button"
-            onClick={() => navigate('/sample-out-list')}
-            style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            padding: isSmallScreen ? '9px 14px' : '10px 18px',
-            fontSize: isSmallScreen ? '11px' : '12px',
-            fontWeight: 700,
-            borderRadius: '10px',
-            border: '1px solid #cbd5e1',
-              background: '#ffffff',
-              color: '#475569',
-              cursor: 'pointer',
-            transition: 'all 0.2s',
-            width: isSmallScreen ? '100%' : 'auto',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#f8fafc';
-            e.currentTarget.style.borderColor = '#94a3b8';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#ffffff';
-            e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-          >
-          <FaList style={{ fontSize: isSmallScreen ? 14 : 16 }} />
-          <span>Sample Out List</span>
-          </button>
-          <button
-            type="button"
           onClick={handleAddSampleInClick}
           disabled={
             loading ||

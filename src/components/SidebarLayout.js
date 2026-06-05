@@ -8,34 +8,36 @@ import {
   FaUserCircle,
   FaRegBell,
   FaDatabase,
-  FaPrint,
   FaExpand,
   FaCompress,
   FaBars,
   FaTimes,
   FaChevronLeft,
   FaChevronRight,
-  FaExchangeAlt,
   FaArrowDown,
   FaArrowUp,
   FaSignOutAlt,
   FaChartLine,
   FaBoxes,
   FaListUl,
-  FaPaintBrush,
   FaBarcode,
   FaFileUpload,
-  FaFileInvoice,
-  FaClipboardList,
   FaChartPie,
   FaThLarge,
-  FaLayerGroup,
   FaTools,
+  FaUsersCog,
+  FaIdCard,
+  FaUserPlus,
+  FaClipboardList,
+  FaInbox,
+  FaList,
+  FaAsterisk,
 } from 'react-icons/fa';
+import { isSuperAdmin } from '../utils/authState';
+import { filterMenuItems } from '../utils/permissionAccess';
+import { rfidUserUrls, authHeaders } from '../services/rfidUserManagementApi';
 import {
   HiDocumentText,
-  HiDocument,
-  HiReceiptTax,
   HiCheckCircle,
   HiTag,
 } from 'react-icons/hi';
@@ -65,36 +67,37 @@ const SidebarLayout = ({ children }) => {
   const [backupError, setBackupError] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [rfidPlanInfo, setRfidPlanInfo] = useState(null);
+  const showEmployeeAccessMenu = isSuperAdmin();
 
   const notificationsRef = useRef(null);
+
+  const employeeAccessItems = [
+    { path: '/create-masters', icon: FaDatabase, label: 'Create Masters', color: '#8b5cf6' },
+    { path: '/rfid-admin/my-plan', icon: FaClipboardList, label: 'My Plan', color: '#f59e0b' },
+    { path: '/rfid-admin/users', icon: FaUsersCog, label: 'User Management', color: '#38bdf8' },
+    { path: '/rfid-admin/users/convert-from-employee', icon: FaIdCard, label: 'From employees', color: '#a78bfa' },
+    { path: '/rfid-admin/users/create', icon: FaUserPlus, label: 'Add Employee', color: '#34d399' },
+  ];
 
   // Section 0: Quick Access
   const navigationProfile = [
     { path: '/profile-menu', icon: FaThLarge, label: 'All Apps & Resources', color: '#6366f1' },
-    { path: '/rfid-utility', icon: FaTools, label: 'RFID Utility', color: '#6d28d9' }
+    { path: '/create-masters', icon: FaDatabase, label: 'Create Masters', color: '#8b5cf6' },
+    { path: '/rfid-utility', icon: FaTools, label: 'RFID Utility', color: '#6d28d9' },
   ];
 
   // Navigation items – icons matched to menu names, distinct colors
   // Section 1: Inventory Management
   const inventorySession = [
     { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
-     { path: '/create-masters', icon: FaLayerGroup, label: 'Create Masters', color: '#7c3aed', section: 'Inventory Management' },
-    { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management' },
     { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
-    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management' },
-    { path: '/create-label', icon: FaPaintBrush, label: 'Design Label', color: '#0891b2', section: 'Inventory Management' },
-    { path: '/rfid-label', icon: FaPrint, label: 'Create PRN Label', color: '#7c3aed', section: 'Inventory Management' },
   ];
 
   // Section 2: Transaction
   const navigationSection2 = [
-    { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#be185d' },
-    { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#15803d' },
-    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#0d9488' },
-    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#b91c1c' },
-    { path: '/rfid-sample-in-out', icon: FaListUl, label: 'RFID Sample In/Out', color: '#7c3aed' },
-    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#c2410c' },
-    { path: '/order-list', icon: FaClipboardList, label: 'Order List', color: '#6d28d9' },
+    { path: '/my-samples', icon: FaInbox, label: 'My Samples', color: '#7c3aed', subUserOnly: true },
+    { path: '/sample-out', icon: FaArrowUp, label: 'RFID Sample In/Out', color: '#b91c1c' },
+    { path: '/sample-out-list', icon: FaList, label: 'Sample Out List', color: '#dc2626', permissionKey: 'CanSampleOut' },
     { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490' },
   ];
 
@@ -106,6 +109,15 @@ const SidebarLayout = ({ children }) => {
     { path: '/rfid-tags', icon: FaTags, label: 'RFID Tag List', color: '#b91c1c' },
     { path: '/tag-usage', icon: FaChartPie, label: 'RFID Tags Usage', color: '#0e7490' },
   ];
+
+  const filteredProfile = filterMenuItems(navigationProfile);
+  /** Super admin sees Create Masters under Employee & Access — hide duplicate in Main Menu. */
+  const filteredProfileMainMenu = showEmployeeAccessMenu
+    ? filteredProfile.filter((item) => !employeeAccessItems.some((e) => e.path === item.path))
+    : filteredProfile;
+  const filteredInventory = filterMenuItems(inventorySession);
+  const filteredSection2 = filterMenuItems(navigationSection2);
+  const filteredSection3 = filterMenuItems(navigationSection3);
 
   const clientCode = userInfo.ClientCode || userInfo.clientcode || userInfo.clientCode || 'N/A';
   const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
@@ -141,10 +153,9 @@ const SidebarLayout = ({ children }) => {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
-        const response = await axios.get(
-          'https://soni.loyalstring.co.in/api/ProductMaster/GetMyRFIDPlan',
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const response = await axios.get(rfidUserUrls.getMyRFIDPlan(), {
+          headers: authHeaders(),
+        });
         setRfidPlanInfo(response?.data || null);
       } catch (_) {
         setRfidPlanInfo(null);
@@ -263,6 +274,7 @@ const SidebarLayout = ({ children }) => {
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
+    localStorage.removeItem('rfidAuthState');
     sessionStorage.clear();
     navigate('/login', { replace: true });
   };
@@ -432,16 +444,14 @@ const SidebarLayout = ({ children }) => {
             top: 0,
             bottom: 0,
             width: isMobile ? 'min(82vw, 300px)' : sidebarWidth,
-            background: 'linear-gradient(180deg, #042954 0%, #032547 45%, #021f3d 100%)',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
-            borderRight: '1px solid rgba(148, 163, 184, 0.14)',
+            background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
+            borderRight: '1px solid rgba(255, 255, 255, 0.06)',
             transition: isMobile ? 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             overflow: 'hidden',
             zIndex: 999,
             display: isMobile ? 'flex' : (sidebarOpen ? 'flex' : 'none'),
             flexDirection: 'column',
-            boxShadow: 'none',
+            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
             transform: isMobile ? (sidebarOpen ? 'translateX(0)' : 'translateX(-100%)') : undefined,
             visibility: isMobile && !sidebarOpen ? 'hidden' : 'visible',
           }}
@@ -449,14 +459,14 @@ const SidebarLayout = ({ children }) => {
           {/* Sidebar top: Logo + collapse/expand on desktop, close on mobile */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            background: 'rgba(255, 255, 255, 0.04)',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
+            padding: sidebarCollapsed ? '10px 6px' : '12px 14px',
+            background: 'rgba(0, 0, 0, 0.12)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
             display: 'flex',
             flexDirection: sidebarCollapsed ? 'column' : 'row',
             alignItems: 'center',
             gap: 8,
-            justifyContent: sidebarCollapsed ? 'center' : 'flex-start'
+            justifyContent: sidebarCollapsed ? 'center' : 'space-between'
           }}>
             <Link
               to="/analytics"
@@ -464,6 +474,7 @@ const SidebarLayout = ({ children }) => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                gap: 8,
                 justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                 flex: sidebarCollapsed ? 0 : 1,
                 minWidth: 0,
@@ -471,102 +482,217 @@ const SidebarLayout = ({ children }) => {
               }}
               onClick={() => isMobile && setSidebarOpen(false)}
             >
-              <span
-                style={{
-                  color: '#f8fafc',
-                  fontWeight: 700,
-                  fontSize: sidebarCollapsed ? 8 : 16,
-                  letterSpacing: sidebarCollapsed ? 0 : '0.02em',
-                  textAlign: sidebarCollapsed ? 'center' : 'left',
-                  lineHeight: sidebarCollapsed ? 1.15 : 1.25,
-                  overflow: 'hidden',
-                  maxWidth: sidebarCollapsed ? 54 : '100%',
-                }}
-              >
-                {sidebarCollapsed ? (
-                  <>
-                    Loyal
-                    <br />
-                    String
-                  </>
-                ) : (
-                  'Loyal String'
-                )}
+              <span style={{
+                width: 22,
+                height: 22,
+                borderRadius: 5,
+                background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                boxShadow: '0 2px 4px rgba(249, 115, 22, 0.2)'
+              }}>
+                <FaAsterisk style={{ fontSize: 9, color: '#ffffff' }} />
               </span>
+              {!sidebarCollapsed && (
+                <span
+                  style={{
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: 14,
+                    letterSpacing: '-0.02em',
+                    textAlign: 'left',
+                    lineHeight: 1.2,
+                    fontFamily: '"Plus Jakarta Sans", sans-serif',
+                  }}
+                >
+                  Loyal String
+                </span>
+              )}
             </Link>
             {!isMobile && !sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(true)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 8, cursor: 'pointer', color: '#facc15' }} title="Collapse sidebar" aria-label="Collapse sidebar"><FaChevronLeft size={14} /></button>
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                style={{
+                  flexShrink: 0,
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 6,
+                  padding: '5px 6px',
+                  cursor: 'pointer',
+                  color: '#94a3b8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; e.currentTarget.style.color = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'; e.currentTarget.style.color = '#94a3b8'; }}
+                title="Collapse sidebar"
+                aria-label="Collapse sidebar"
+              >
+                <FaChevronLeft size={10} />
+              </button>
             )}
             {!isMobile && sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 6, cursor: 'pointer', color: '#facc15' }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={12} /></button>
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                style={{
+                  flexShrink: 0,
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 6,
+                  padding: '5px 6px',
+                  cursor: 'pointer',
+                  color: '#94a3b8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease',
+                  marginTop: 6
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; e.currentTarget.style.color = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'; e.currentTarget.style.color = '#94a3b8'; }}
+                title="Expand sidebar"
+                aria-label="Expand sidebar"
+              >
+                <FaChevronRight size={8} />
+              </button>
             )}
             {isMobile && (
-              <button type="button" onClick={() => setSidebarOpen(false)} className="sidebar-close-btn" style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10, cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Close menu" aria-label="Close menu"><FaTimes size={18} /></button>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="sidebar-close-btn"
+                style={{
+                  flexShrink: 0,
+                  minWidth: 28,
+                  minHeight: 28,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: 6,
+                  padding: 4,
+                  cursor: 'pointer',
+                  color: '#cbd5e1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title="Close menu"
+                aria-label="Close menu"
+              >
+                <FaTimes size={12} />
+              </button>
             )}
           </div>
 
-          {/* User Profile - Moved to top */}
+          {/* User Profile - Integrated at TOP only */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
+            padding: sidebarCollapsed ? '6px 4px' : '8px 10px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
             display: 'flex',
             flexDirection: 'column',
-            gap: 8
+            background: 'rgba(0, 0, 0, 0.06)',
+            gap: 6
           }}>
-            <button onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }} title={`${username} • ${clientCode}`} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148, 163, 184, 0.18)', padding: sidebarCollapsed ? '7px' : '7px 10px', borderRadius: 12, cursor: 'pointer', transition: 'all 0.2s ease', boxShadow: 'none' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)', color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0, boxShadow: 'none' }}>{avatarLetter}</div>
+            <button
+              onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }}
+              title={`${username} • ${clientCode}`}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: sidebarCollapsed ? 0 : 8,
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                background: 'rgba(255, 255, 255, 0.02)',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+                padding: sidebarCollapsed ? '4px' : '6px 8px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                boxShadow: 'none'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'; e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'; e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.06)'; }}
+            >
+              <div style={{
+                width: 22,
+                height: 22,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #f97316 0%, #facc15 100%)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 11,
+                fontWeight: 800,
+                flexShrink: 0,
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
+              }}>
+                {avatarLetter}
+              </div>
               {!sidebarCollapsed && (
                 <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, marginBottom: 2 }}>{username}</div>
-                  <div style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }}></span>
-                    {clientCode}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 1 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#ffffff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                      {username}
+                    </span>
+                    {(planName || userInfo.IsSuperAdmin) && (
+                      <span style={{
+                        fontSize: '8px',
+                        fontWeight: '800',
+                        color: '#ffedd5',
+                        background: '#ea580c',
+                        padding: '0.5px 4px',
+                        borderRadius: '3px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.2px',
+                        lineHeight: 1
+                      }}>
+                        {userInfo.IsSuperAdmin ? 'Admin' : (planName || 'PRO')}
+                      </span>
+                    )}
                   </div>
-                  {(planName || formattedPlanExpiry) && (
-                    <div style={{ fontSize: 9, color: '#93c5fd', fontWeight: 700, marginTop: 2, lineHeight: 1.25 }}>
-                      {planName ? `Plan: ${planName}` : ''}
-                      {formattedPlanExpiry ? `${planName ? ' • ' : ''}Exp: ${formattedPlanExpiry}` : ''}
-                    </div>
-                  )}
+                  <div style={{ fontSize: 9.5, color: '#94a3b8', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981' }}></span>
+                    {clientCode || 'LS000'}
+                  </div>
                 </div>
               )}
             </button>
           </div>
+
 
           {/* Sidebar nav - no scroll, all items visible in one screen */}
           <div className="sidebar-content" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '2px 0', display: 'flex', flexDirection: 'column' }}>
             {/* Nav sections - IIFE */}
             {/* Helper function to render section header */}
             {(() => {
-              const renderSectionHeader = (title, gradientColors) => {
+              const renderSectionHeader = (title) => {
                 if (sidebarCollapsed) return null;
                 return (
                   <div style={{
-                    padding: '4px 10px 6px',
-                    margin: '8px 8px 4px',
-                    position: 'relative',
+                    padding: '6px 10px 4px',
+                    margin: '6px 8px 2px',
+                    fontSize: '9px',
+                    fontWeight: '700',
+                    color: '#94a3b8',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    lineHeight: 1.2
                   }}>
-                    <span style={{ fontSize: '9px', fontWeight: '700', color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.45px', lineHeight: 1.2 }}>
-                      {title}
-                    </span>
-                    <div
-                      style={{
-                        marginTop: 4,
-                        height: 2,
-                        width: 46,
-                        borderRadius: 999,
-                        background: 'linear-gradient(90deg, #facc15 0%, #60a5fa 100%)',
-                        boxShadow: '0 0 10px rgba(250, 204, 21, 0.35)',
-                      }}
-                    />
+                    {title}
                   </div>
                 );
               };
 
-              const renderMenuItem = (item) => {
+              const renderMenuItem = (item, options = {}) => {
                 const { path, icon: Icon, label, color, comingSoon } = item;
-                const isActive = location.pathname === path;
+                const isActive =
+                  options.isActive !== undefined ? options.isActive : location.pathname === path;
 
                 if (comingSoon) {
                   return (
@@ -576,36 +702,36 @@ const SidebarLayout = ({ children }) => {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
-                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
-                      borderRadius: '9px',
+                        gap: sidebarCollapsed ? '0' : '6px',
+                        padding: sidebarCollapsed ? '3px 4px' : '4px 8px',
+                        margin: sidebarCollapsed ? '1px 4px' : '1px 6px',
+                        borderRadius: '6px',
                         color: '#64748b',
                         background: 'transparent',
                         fontWeight: 500,
-                        fontSize: '12px',
-                        lineHeight: '1.25',
-                        transition: 'all 0.2s ease',
+                        fontSize: '11px',
+                        lineHeight: '1.2',
+                        transition: 'all 0.15s ease',
                         justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                         position: 'relative',
                         border: '1px solid transparent',
                         cursor: 'not-allowed',
-                        opacity: 0.6
+                        opacity: 0.5
                       }}
                       title={sidebarCollapsed ? label : 'Coming Soon'}
                     >
                       <span style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 8,
-                        background: 'rgba(148, 163, 184, 0.16)',
-                        color: '#94a3b8',
+                        width: 20,
+                        height: 20,
+                        borderRadius: 5,
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        color: '#64748b',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0,
                       }}>
-                        <Icon style={{ fontSize: 12 }} />
+                        <Icon style={{ fontSize: 10 }} />
                       </span>
                       {!sidebarCollapsed && (
                         <>
@@ -613,27 +739,26 @@ const SidebarLayout = ({ children }) => {
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
-                            maxWidth: '140px',
+                            maxWidth: '120px',
                             display: 'inline-block',
-                            color: '#94a3b8',
-                            letterSpacing: '-0.2px',
+                            color: '#64748b',
+                            letterSpacing: '-0.1px',
                             flex: 1
                           }}>
                             {label}
                           </span>
                           <span style={{
-                            fontSize: '9px',
+                            fontSize: '8px',
                             fontWeight: '700',
-                            color: '#ffffff',
-                            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                            padding: '2px 6px',
-                            borderRadius: '8px',
+                            color: '#f97316',
+                            background: 'rgba(249, 115, 22, 0.12)',
+                            padding: '1px 4px',
+                            borderRadius: '4px',
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px',
-                            boxShadow: '0 2px 4px rgba(245, 158, 11, 0.3)',
                             whiteSpace: 'nowrap'
                           }}>
-                            Coming Soon
+                            Soon
                           </span>
                         </>
                       )}
@@ -650,58 +775,54 @@ const SidebarLayout = ({ children }) => {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
-                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
-                      borderRadius: '9px',
-                        textDecoration: 'none',
-                        color: '#e2e8f0',
-                        background: isActive
-                        ? `linear-gradient(90deg, rgba(250, 204, 21, 0.22) 0%, rgba(59, 130, 246, 0.34) 55%, rgba(15, 23, 42, 0.86) 100%)`
-                        : 'transparent',
+                      gap: sidebarCollapsed ? '0' : '6px',
+                      padding: sidebarCollapsed ? '3px 4px' : '4px 8px',
+                      margin: sidebarCollapsed ? '1px 4px' : '1px 6px',
+                      borderRadius: '6px',
+                      textDecoration: 'none',
+                      color: isActive ? '#ffffff' : '#94a3b8',
+                      background: isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
                       fontWeight: isActive ? 600 : 500,
-                      fontSize: '12px',
-                      lineHeight: '1.25',
-                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                      fontSize: '11px',
+                      lineHeight: '1.2',
+                      transition: 'all 0.15s ease',
                       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       position: 'relative',
-                      border: isActive ? '1px solid rgba(250, 204, 21, 0.55)' : `1px solid transparent`,
+                      border: isActive ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid transparent',
                       boxShadow: 'none'
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.background = `linear-gradient(90deg, rgba(250, 204, 21, 0.12) 0%, rgba(59, 130, 246, 0.22) 60%, rgba(30, 41, 59, 0.52) 100%)`;
-                        e.currentTarget.style.borderColor = 'rgba(250, 204, 21, 0.35)';
-                        e.currentTarget.style.transform = 'translateX(3px)';
-                        e.currentTarget.style.boxShadow = 'none';
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                        e.currentTarget.style.color = '#ffffff';
+                        e.currentTarget.style.transform = 'translateX(2px)';
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive) {
                         e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.borderColor = 'transparent';
+                        e.currentTarget.style.color = '#94a3b8';
                         e.currentTarget.style.transform = 'translateX(0)';
-                        e.currentTarget.style.boxShadow = 'none';
                       }
                     }}
                     title={sidebarCollapsed ? label : ''}
                   >
                     <span style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 8,
+                      width: 20,
+                      height: 20,
+                      borderRadius: 5,
                       background: isActive
-                        ? 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)'
-                        : `linear-gradient(135deg, ${color}2b 0%, ${color}14 100%)`,
-                      color: isActive ? '#0f172a' : color,
+                        ? 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)'
+                        : `rgba(255, 255, 255, 0.03)`,
+                      color: isActive ? '#ffffff' : (color || '#94a3b8'),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0,
-                      transition: 'all 0.25s ease',
-                      border: isActive ? '1px solid rgba(250, 204, 21, 0.65)' : `1px solid ${color}34`,
+                      transition: 'all 0.15s ease',
+                      border: isActive ? '1px solid rgba(255, 255, 255, 0.1)' : `1px solid rgba(255, 255, 255, 0.02)`,
                     }}>
-                      <Icon style={{ fontSize: 12 }} />
+                      <Icon style={{ fontSize: 10 }} />
                     </span>
                     {!sidebarCollapsed && (
                       <span style={{
@@ -710,7 +831,7 @@ const SidebarLayout = ({ children }) => {
                         textOverflow: 'ellipsis',
                         maxWidth: '150px',
                         display: 'inline-block',
-                        letterSpacing: '-0.2px'
+                        letterSpacing: '-0.1px'
                       }}>
                         {label}
                       </span>
@@ -719,12 +840,11 @@ const SidebarLayout = ({ children }) => {
                       <div style={{
                         position: 'absolute',
                         left: 0,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        width: '4px',
-                        height: '60%',
-                        background: 'linear-gradient(180deg, #facc15 0%, #f59e0b 100%)',
-                        borderRadius: '0 3px 3px 0',
+                        top: '25%',
+                        bottom: '25%',
+                        width: '3px',
+                        background: 'linear-gradient(180deg, #f97316 0%, #facc15 100%)',
+                        borderRadius: '0 2px 2px 0',
                         boxShadow: 'none'
                       }} />
                     )}
@@ -732,62 +852,86 @@ const SidebarLayout = ({ children }) => {
                 );
               };
 
+              const renderEmployeeAccessMenu = () => {
+                if (!showEmployeeAccessMenu) return null;
+                return (
+                  <>
+                    {renderSectionHeader('Employee & Access', ['#38bdf8', '#38bdf8'])}
+                    {employeeAccessItems.map((item) => {
+                      const isActive =
+                        item.path === '/rfid-admin/users'
+                          ? location.pathname.startsWith('/rfid-admin/users') &&
+                            location.pathname !== '/rfid-admin/users/create' &&
+                            location.pathname !== '/rfid-admin/users/convert-from-employee'
+                          : location.pathname === item.path ||
+                            location.pathname.startsWith(`${item.path}/`);
+                      return renderMenuItem(item, { isActive });
+                    })}
+                    {!sidebarCollapsed && (
+                      <div style={{
+                        height: 1,
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        margin: '4px 14px',
+                      }} />
+                    )}
+                  </>
+                );
+              };
+
               return (
                 <>
+                  {renderEmployeeAccessMenu()}
+
                   {/* Section 1: Inventory Management */}
-                  {renderSectionHeader('Inventory Management', ['#10b981', '#10b981'])}
-                  {inventorySession.map(renderMenuItem)}
+                  {renderSectionHeader('Inventory Management')}
+                  {filteredInventory.map(renderMenuItem)}
 
                   {/* Separator */}
                   {!sidebarCollapsed && (
                     <div style={{
                       height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      margin: '4px 14px',
                     }} />
                   )}
 
                   {/* Section 2: Transaction */}
-                  {renderSectionHeader('Transaction', ['#f97316', '#f97316'])}
-                  {navigationSection2.map(renderMenuItem)}
+                  {renderSectionHeader('Transaction')}
+                  {filteredSection2.map(renderMenuItem)}
 
                   {/* Separator */}
                   {!sidebarCollapsed && (
                     <div style={{
                       height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      margin: '4px 14px',
                     }} />
                   )}
 
                   {/* Section 3: RFID Tags Management */}
-                  {renderSectionHeader('RFID Tags Management', ['#ef4444', '#ef4444'])}
-                  {navigationSection3.map(renderMenuItem)}
+                  {renderSectionHeader('RFID Tags Management')}
+                  {filteredSection3.map(renderMenuItem)}
 
                   {/* Separator */}
                   {!sidebarCollapsed && (
                     <div style={{
                       height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      margin: '4px 14px',
                     }} />
                   )}
 
                   {/* Section 5: Third Party (client LS000438 only) */}
                   {showThirdPartyMenu && (
                     <>
-                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
+                      {renderSectionHeader('Third Party')}
                       {navigationSection5.map(renderMenuItem)}
                       
-                       {!sidebarCollapsed && (
+                      {!sidebarCollapsed && (
                         <div style={{
                           height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          margin: '4px 14px',
                         }} />
                       )}
                     </>
@@ -795,14 +939,13 @@ const SidebarLayout = ({ children }) => {
 
                   {showFeroniaMenu && (
                     <>
-                      {renderSectionHeader('Third Party', ['#0f766e', '#0f766e'])}
+                      {renderSectionHeader('Third Party')}
                       {navigationSectionFeronia.map(renderMenuItem)}
                       {!sidebarCollapsed && (
                         <div style={{
                           height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          margin: '4px 14px',
                         }} />
                       )}
                     </>
@@ -810,46 +953,101 @@ const SidebarLayout = ({ children }) => {
 
                   {showKumar916Menu && (
                     <>
-                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
+                      {renderSectionHeader('Third Party')}
                       {navigationSectionKumar916.map(renderMenuItem)}
                       {!sidebarCollapsed && (
                         <div style={{
                           height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          margin: '4px 14px',
                         }} />
                       )}
                     </>
                   )}
 
                   {/* Section 0: Quick Access - Moved to Bottom */}
-                  {renderSectionHeader('Main Menu', ['#6366f1', '#6366f1'])}
-                  {navigationProfile.map(renderMenuItem)}
+                  {renderSectionHeader('Main Menu')}
+                  {filteredProfileMainMenu.map(renderMenuItem)}
 
                 </>
               );
             })()}
           </div>
 
-          {/* Sidebar bottom: Fullscreen, Logout */}
+          {/* Sidebar bottom: Compact Controls only */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            borderTop: '1px solid rgba(148, 163, 184, 0.14)',
+            padding: sidebarCollapsed ? '6px 4px' : '8px 10px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.05)',
             display: 'flex',
-            flexDirection: sidebarCollapsed ? 'column' : 'row',
-            alignItems: 'center',
-            gap: 8,
-            justifyContent: 'center'
+            flexDirection: 'column',
+            background: 'rgba(0, 0, 0, 0.1)',
+            gap: 8
           }}>
-            <button onClick={toggleFullscreen} style={{ flexShrink: 0, background: 'rgba(250, 204, 21, 0.12)', border: '1px solid rgba(250, 204, 21, 0.35)', padding: 8, borderRadius: 10, cursor: 'pointer', color: '#facc15', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
-              {isFullscreen ? <FaCompress size={16} /> : <FaExpand size={16} />}
-            </button>
-            <button onClick={handleLogout} style={{ flex: 1, background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', border: '1px solid #fecaca', padding: '8px', borderRadius: 10, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: sidebarCollapsed ? 'auto' : '100%', transition: 'all 0.2s ease', boxShadow: '0 3px 8px rgba(239, 68, 68, 0.12)' }} title="Logout">
-              <FaSignOutAlt size={16} />
-              {!sidebarCollapsed && <span style={{ fontSize: 13, fontWeight: 700 }}>Logout</span>}
-            </button>
+            {/* Compact Actions Row */}
+            <div style={{
+              display: 'flex',
+              flexDirection: sidebarCollapsed ? 'column' : 'row',
+              alignItems: 'center',
+              gap: 6,
+              width: '100%',
+              justifyContent: 'center'
+            }}>
+              <button
+                onClick={toggleFullscreen}
+                style={{
+                  flexShrink: 0,
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.06)',
+                  padding: sidebarCollapsed ? '4px' : '5px 8px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  color: '#94a3b8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4,
+                  flex: sidebarCollapsed ? 0 : 1,
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  transition: 'all 0.15s ease',
+                  width: '100%'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'; e.currentTarget.style.color = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'; e.currentTarget.style.color = '#94a3b8'; }}
+                title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              >
+                {isFullscreen ? <FaCompress size={10} /> : <FaExpand size={10} />}
+                {!sidebarCollapsed && <span>Screen</span>}
+              </button>
+              
+              <button
+                onClick={handleLogout}
+                style={{
+                  flex: sidebarCollapsed ? 0 : 1,
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  padding: sidebarCollapsed ? '4px' : '5px 8px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  color: '#f87171',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4,
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  width: '100%',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)'; e.currentTarget.style.color = '#fca5a5'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; e.currentTarget.style.color = '#f87171'; }}
+                title="Logout"
+              >
+                <FaSignOutAlt size={10} />
+                {!sidebarCollapsed && <span>Logout</span>}
+              </button>
+            </div>
           </div>
         </aside>
 

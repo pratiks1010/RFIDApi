@@ -5,6 +5,7 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import { getAuthForgotPasswordUrl, getAuthLoginUrl } from '../services/authApiConfig';
+import { buildAuthStateFromLogin, persistAuthState } from '../utils/authState';
 import { getApiMode } from '../services/apiBaseConfig';
 import OfflineApiBaseSettingsForm from './OfflineApiBaseSettingsForm';
 import {
@@ -410,6 +411,7 @@ const Login = () => {
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
+    localStorage.removeItem('rfidAuthState');
   };
 
   const reportLoginError = (message, { autoClose = 4000 } = {}) => {
@@ -482,7 +484,12 @@ const Login = () => {
     }));
   };
 
-  const finalizeLogin = (token, resolvedUsername) => {
+  const finalizeLogin = (loginPayload, resolvedUsername) => {
+    const token =
+      typeof loginPayload === 'string' ? loginPayload : loginPayload?.Token || loginPayload?.token;
+    const loginMeta =
+      typeof loginPayload === 'object' && loginPayload !== null ? loginPayload : {};
+
     let userInfo;
     try {
       ({ userInfo } = parseLoginToken(token, resolvedUsername));
@@ -493,6 +500,17 @@ const Login = () => {
     }
 
     try {
+      const authState = buildAuthStateFromLogin(loginMeta, token);
+      userInfo = {
+        ...userInfo,
+        IsSubUser: authState.isSubUser,
+        RoleType: authState.roleType,
+        Permissions: authState.permissions,
+        AllowedBranchIds: authState.allowedBranchIds,
+        HasAllBranchAccess: authState.hasAllBranchAccess,
+        UserId: authState.userId,
+      };
+
       const finalLoginName = String(resolvedUsername || formData.LoginName || '').trim();
       if (rememberCredentials) {
         localStorage.setItem(
@@ -508,6 +526,7 @@ const Login = () => {
       }
       localStorage.setItem('token', token);
       localStorage.setItem('userInfo', JSON.stringify(userInfo));
+      persistAuthState(authState);
       localStorage.setItem('lastLoginTime', new Date().toLocaleString());
       localStorage.setItem('showWelcomeToast', 'true');
       window.dispatchEvent(new Event('rfid-welcome'));
@@ -524,7 +543,7 @@ const Login = () => {
         ),
       });
 
-      navigate('/analytics', { replace: true });
+      navigate(authState.isSubUser ? '/my-samples' : '/analytics', { replace: true });
       return true;
     } catch (err) {
       console.error('Finalize login error:', err);
@@ -544,7 +563,7 @@ const Login = () => {
         throw new Error('No token received from server');
       }
 
-      finalizeLogin(response.data.Token);
+      finalizeLogin(response.data);
     } catch (err) {
       console.error('Login error:', err);
       const isUnauthorized = err.response?.status === 401;

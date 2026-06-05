@@ -24,6 +24,7 @@ import ProductDetailsPage from './components/inventory/ProductDetailsPage';
 import CreateLabel from './components/inventory/CreateLabel';
 import CreateInvoice from './components/inventory/CreateInvoice';
 import SampleOut from './components/inventory/SampleOut';
+import MyAssignedSamples from './components/inventory/MyAssignedSamples';
 import SampleOutList from './components/inventory/SampleOutList';
 import SampleIn from './components/inventory/SampleIn';
 import RFIDSampleInOut from './components/inventory/RFIDSampleInOut';
@@ -70,6 +71,17 @@ import ZohoLoader from './components/common/Loader';
 import { NotificationProvider } from './context/NotificationContext';
 import { TranslationProvider } from './context/TranslationContext';
 import WelcomeModal from './components/common/WelcomeModal';
+import {
+  SubUserList,
+  SubUserCreate,
+  SubUserConvertFromEmployee,
+  SubUserEdit,
+  SubUserPermissions,
+  SubUserBranches,
+  MyPlan,
+} from './components/rfid-admin';
+import SuperAdminGuard from './components/rfid-admin/SuperAdminGuard';
+import PermissionGuard from './components/guards/PermissionGuard';
 import './i18n';
 
 const Router = (typeof window !== 'undefined' && window.location.protocol === 'file:')
@@ -209,11 +221,19 @@ const useAuthProtection = () => {
         '/passkey-settings',
         '/rfid-sample-in-out',
         '/offline-api-settings',
-        '/download-folder-settings'
+        '/download-folder-settings',
+        '/rfid-admin/my-plan',
+        '/rfid-admin/users',
+        '/rfid-admin/users/create',
+        '/rfid-admin/users/convert-from-employee',
+        '/my-samples',
+        '/sample-out-list',
       ];
       const adminRoutes = ['/admin-dashboard'];
+      const isProtectedUserPath = (path) =>
+        protectedRoutes.includes(path) || path.startsWith('/rfid-admin');
 
-      if (protectedRoutes.includes(currentPath)) {
+      if (isProtectedUserPath(currentPath)) {
         navigate('/login', { replace: true });
       } else if (adminRoutes.includes(currentPath)) {
         navigate('/admin-login', { replace: true });
@@ -284,12 +304,20 @@ const useAuthProtection = () => {
         '/passkey-settings',
         '/rfid-sample-in-out',
         '/offline-api-settings',
-        '/download-folder-settings'
+        '/download-folder-settings',
+        '/rfid-admin/my-plan',
+        '/rfid-admin/users',
+        '/rfid-admin/users/create',
+        '/rfid-admin/users/convert-from-employee',
+        '/my-samples',
+        '/sample-out-list',
       ];
       const adminRoutes = ['/admin-dashboard'];
+      const isProtectedUserPath = (path) =>
+        protectedRoutes.includes(path) || path.startsWith('/rfid-admin');
 
       if (!isAuth && !isAdminAuth) {
-        if (protectedRoutes.includes(currentPath)) {
+        if (isProtectedUserPath(currentPath)) {
           navigate('/login', { replace: true });
         } else if (adminRoutes.includes(currentPath)) {
           navigate('/admin-login', { replace: true });
@@ -399,6 +427,7 @@ const useSessionTimeout = () => {
     localStorage.removeItem('userInfo');
     localStorage.removeItem('lastLoginTime');
     localStorage.removeItem('showWelcomeToast');
+    localStorage.removeItem('rfidAuthState');
     localStorage.removeItem('adminToken');
     sessionStorage.clear();
 
@@ -476,13 +505,16 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
+      const userRoutes = ['/my-samples', '/sample-out-list', '/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
 
+      const isUserRoute =
+        userRoutes.includes(currentPath) || currentPath.startsWith('/rfid-admin');
+
       // Check if trying to access user routes
-      if (userRoutes.includes(currentPath)) {
+      if (isUserRoute) {
         if (!isAuthenticated()) {
           navigate('/login', { replace: true });
           return;
@@ -541,6 +573,76 @@ const RoutesWrapper = () => {
         {/* User protected routes (all require AuthGuard) */}
         <Route element={<Layout />}>
           <Route path="/analytics" element={<AuthGuard><PageWrapper><DashboardAnalytics /></PageWrapper></AuthGuard>} />
+          <Route
+            path="/rfid-admin/my-plan"
+            element={
+              <AuthGuard>
+                <SuperAdminGuard>
+                  <PageWrapper><MyPlan /></PageWrapper>
+                </SuperAdminGuard>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-admin/users"
+            element={
+              <AuthGuard>
+                <SuperAdminGuard>
+                  <PageWrapper><SubUserList /></PageWrapper>
+                </SuperAdminGuard>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-admin/users/create"
+            element={
+              <AuthGuard>
+                <SuperAdminGuard>
+                  <PageWrapper><SubUserCreate /></PageWrapper>
+                </SuperAdminGuard>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-admin/users/convert-from-employee"
+            element={
+              <AuthGuard>
+                <SuperAdminGuard>
+                  <PageWrapper><SubUserConvertFromEmployee /></PageWrapper>
+                </SuperAdminGuard>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-admin/users/:userId/edit"
+            element={
+              <AuthGuard>
+                <SuperAdminGuard>
+                  <PageWrapper><SubUserEdit /></PageWrapper>
+                </SuperAdminGuard>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-admin/users/:userId/permissions"
+            element={
+              <AuthGuard>
+                <SuperAdminGuard>
+                  <PageWrapper><SubUserPermissions /></PageWrapper>
+                </SuperAdminGuard>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/rfid-admin/users/:userId/branches"
+            element={
+              <AuthGuard>
+                <SuperAdminGuard>
+                  <PageWrapper><SubUserBranches /></PageWrapper>
+                </SuperAdminGuard>
+              </AuthGuard>
+            }
+          />
           <Route path="/dashboard" element={<AuthGuard><PageWrapper><Dashboard /></PageWrapper></AuthGuard>} />
           <Route path="/create-masters" element={<AuthGuard><PageWrapper><CreateMasters /></PageWrapper></AuthGuard>} />
           <Route path="/api-documentation" element={<AuthGuard><PageWrapper><APIDocumentation /></PageWrapper></AuthGuard>} />
@@ -765,12 +867,24 @@ const RoutesWrapper = () => {
             }
           />
           <Route
-            path="/sample-out"
+            path="/my-samples"
             element={
               <AuthGuard>
                 <PageWrapper>
-                  <SampleOut />
+                  <MyAssignedSamples />
                 </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/sample-out"
+            element={
+              <AuthGuard>
+                <PermissionGuard permission="CanSampleOut" fallback="/my-samples">
+                  <PageWrapper>
+                    <SampleOut />
+                  </PageWrapper>
+                </PermissionGuard>
               </AuthGuard>
             }
           />
@@ -788,9 +902,11 @@ const RoutesWrapper = () => {
             path="/sample-in"
             element={
               <AuthGuard>
-                <PageWrapper>
-                  <SampleIn />
-                </PageWrapper>
+                <PermissionGuard permission="CanSampleIn" fallback="/my-samples">
+                  <PageWrapper>
+                    <SampleIn />
+                  </PageWrapper>
+                </PermissionGuard>
               </AuthGuard>
             }
           />

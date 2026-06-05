@@ -25,14 +25,14 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
+import { partyTypeToApiEnum } from '../../services/sampleInOutApi';
 import {
-  partyTypeToApiEnum,
   getAllSampleOutListUrl,
-  getSampleLotByNoUrl,
-  getSampleLotItemsUrl,
-} from '../../services/sampleInOutApi';
-import { getSampleApiBaseUrl } from '../../services/apiBaseConfig';
-import { resolveLocalItemImageBlobUrls } from '../../services/localItemImageService';
+  getLotByIdUrl,
+  sampleAuthHeaders,
+} from '../../services/rfidSampleApi';
+import { getSoniApiBaseUrl } from '../../services/apiBaseConfig';
+import { getItemImageLookupKeys, resolveLocalItemImageBlobUrls } from '../../services/localItemImageService';
 import GridItemImage from '../common/GridItemImage';
 
 const LOT_LIST_PAGE_SIZE = 15;
@@ -43,6 +43,7 @@ const lotListStatusSx = (status) => {
   const s = String(status ?? '—').toLowerCase();
   if (s.includes('closed')) return { bg: '#f1f5f9', fg: '#334155', bd: '#94a3b8' };
   if (s.includes('partial')) return { bg: '#fff7ed', fg: '#9a3412', bd: '#fdba74' };
+  if (s.includes('pending')) return { bg: '#fef3c7', fg: '#b45309', bd: '#fcd34d' };
   if (s.includes('open')) return { bg: '#eef2ff', fg: '#4338ca', bd: '#a5b4fc' };
   return { bg: '#fafafa', fg: '#525252', bd: '#d4d4d4' };
 };
@@ -79,34 +80,145 @@ const normalizeArray = (data) => {
   return [];
 };
 
-/** Extract raw `Data` array from API wrapper. */
+const mapRfidSampleLine = (line) => {
+  if (!line || typeof line !== 'object') return line;
+  return {
+    ...line,
+    Id: line.id ?? line.Id,
+    ItemCode: line.itemCode ?? line.ItemCode,
+    Itemcode: line.itemCode ?? line.Itemcode ?? line.ItemCode,
+    RFIDCode: line.rfidCode ?? line.RFIDCode,
+    ItemStatus: line.itemStatus ?? line.ItemStatus,
+    ProductName: line.productName ?? line.ProductName,
+    CategoryName: line.categoryName ?? line.CategoryName,
+    GrossWt: line.grossWt ?? line.GrossWt,
+    NetWt: line.netWt ?? line.NetWt,
+    Mrp: line.mrp ?? line.Mrp ?? line.MRP,
+  };
+};
+
+const isRfidLotRow = (entry) =>
+  entry &&
+  typeof entry === 'object' &&
+  (entry.LotId != null ||
+    entry.lotId != null ||
+    entry.LotNumber != null ||
+    entry.lotNumber != null);
+
+const countPendingLines = (lines) =>
+  lines.filter((l) => {
+    const s = String(l?.ItemStatus || '').toLowerCase();
+    return s.includes('pending') || s.includes('out') || s === '';
+  }).length;
+
+const sumLineWeights = (lines) => {
+  let gross = 0;
+  let net = 0;
+  (lines || []).forEach((l) => {
+    gross += parseFloat(l?.GrossWt) || 0;
+    net += parseFloat(l?.NetWt) || 0;
+  });
+  return { gross, net };
+};
+
+/** RFID Sample API row → UI row (camelCase + PascalCase). */
+const mapRfidSampleLotRow = (entry) => {
+  const items = Array.isArray(entry.Items)
+    ? entry.Items
+    : Array.isArray(entry.items)
+      ? entry.items
+      : [];
+  const lineItems = items.map(mapRfidSampleLine);
+  const lotNumber = entry.LotNumber ?? entry.lotNumber ?? entry.SampleLotNo ?? entry.SampleOutNo;
+  const lotStatus = entry.LotStatus ?? entry.lotStatus ?? entry.Status;
+  const sampleOutDate = entry.SampleOutDate ?? entry.sampleOutDate ?? entry.IssueDate;
+  const partyType = entry.PartyType ?? entry.partyType;
+  const assignee = entry.AssignedToUserName ?? entry.assignedToUserName ?? '';
+  const apiTotal = Number(entry.TotalItems ?? entry.totalItems) || 0;
+  const apiPending = Number(entry.PendingItems ?? entry.pendingItems) || 0;
+  const totalItems = apiTotal > 0 ? apiTotal : lineItems.length;
+  const pendingItems = apiPending > 0 ? apiPending : countPendingLines(lineItems);
+  const partyNameRaw = entry.PartyName ?? entry.partyName;
+  const partyName =
+    partyNameRaw != null && String(partyNameRaw).trim() !== ''
+      ? String(partyNameRaw).trim()
+      : partyType === 'Employee' && assignee
+        ? assignee
+        : partyNameRaw;
+
+  return {
+    ...entry,
+    Id: entry.LotId ?? entry.lotId ?? entry.Id,
+    SampleLotNo: lotNumber,
+    SampleOutNo: lotNumber,
+    Status: lotStatus,
+    PartyType: partyType,
+    PartyId: entry.PartyId ?? entry.partyId,
+    PartyName: partyName,
+    AssignedToUserId: entry.AssignedToUserId ?? entry.assignedToUserId,
+    AssignedToUserName: assignee,
+    IssueDate: sampleOutDate,
+    SampleOutDate: sampleOutDate,
+    ExpectedReturnDate: entry.ExpectedReturnDate ?? entry.expectedReturnDate,
+    TotalItems: totalItems,
+    ReturnedItems: Number(entry.ReturnedItems ?? entry.returnedItems) || 0,
+    PendingItems: pendingItems,
+    IsOverdue: entry.IsOverdue ?? entry.isOverdue,
+    Remarks: entry.AdminRemark ?? entry.adminRemark ?? entry.Remarks ?? '',
+    LineItems: lineItems,
+    LotBranchName: entry.BranchName ?? entry.branchName ?? entry.LotBranchName ?? null,
+  };
+};
+
+const lotDisplayParty = (item) => {
+  const name = String(item?.PartyName || '').trim();
+  if (name && name !== '—') return name;
+  return String(item?.AssignedToUserName || '').trim() || '—';
+};
+
+/** Extract list + total from GetAllSampleOutList response. */
 const extractSampleOutListFromResponse = (payload) => {
-  if (!payload || typeof payload !== 'object') return [];
-  if (Array.isArray(payload.Data)) return payload.Data;
-  if (Array.isArray(payload.data?.Data)) return payload.data.Data;
-  return normalizeArray(payload);
+  if (!payload || typeof payload !== 'object') {
+    return { rows: [], totalRecords: 0 };
+  }
+  if (payload.success === false) {
+    throw new Error(payload.message || payload.Message || 'Could not load sample out list');
+  }
+  let rows = [];
+  if (Array.isArray(payload.data)) rows = payload.data;
+  else if (Array.isArray(payload.Data)) rows = payload.Data;
+  else if (Array.isArray(payload.data?.data)) rows = payload.data.data;
+  else rows = normalizeArray(payload);
+  const totalRecords =
+    payload.totalRecords ??
+    payload.TotalRecords ??
+    payload.data?.totalRecords ??
+    rows.length;
+  return { rows, totalRecords };
 };
 
 /**
- * Maps `SampleLotWithItemsDetailResponse` → flat row + `LineItems` + `LotBranchName`.
- * Legacy flat `SampleTransactionResponse[]` still supported.
+ * Maps RFID `GetAllSampleOutList` rows and legacy `SampleLotWithItemsDetailResponse`.
  */
 const normalizeSampleOutListRows = (raw) => {
   if (!Array.isArray(raw)) return [];
-  return raw.map((entry, idx) => {
+  return raw.map((entry) => {
+    if (isRfidLotRow(entry)) {
+      return mapRfidSampleLotRow(entry);
+    }
     if (entry && typeof entry === 'object' && entry.Header != null) {
       const H = entry.Header;
       const { Items: _hdrItems, ...headerRest } = H;
       return {
         ...headerRest,
         LotBranchName: entry.BranchName ?? null,
-        LineItems: Array.isArray(entry.Items) ? entry.Items : [],
+        LineItems: (Array.isArray(entry.Items) ? entry.Items : []).map(mapRfidSampleLine),
       };
     }
     return {
       ...entry,
       LotBranchName: entry.BranchName ?? entry.LotBranchName ?? null,
-      LineItems: Array.isArray(entry.LineItems) ? entry.LineItems : [],
+      LineItems: (Array.isArray(entry.LineItems) ? entry.LineItems : []).map(mapRfidSampleLine),
     };
   });
 };
@@ -147,6 +259,7 @@ const SampleOutList = ({
   const navigate = useNavigate();
 
   const [sampleOutData, setSampleOutData] = useState([]);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -189,29 +302,25 @@ const SampleOutList = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const authHeaders = useCallback(
-    () => ({
-      Authorization: `Bearer ${localStorage.getItem('token')}`,
-      'Content-Type': 'application/json',
-    }),
-    []
-  );
-
   const fetchSampleOutList = useCallback(async () => {
     const clientCode = resolveClientCode(userInfo);
     if (!clientCode) {
       setSampleOutData([]);
+      setTotalRecords(0);
       return;
     }
 
     setListLoading(true);
     setListError(null);
-    const headers = authHeaders();
+    const headers = sampleAuthHeaders();
 
-    const body = { ClientCode: clientCode };
+    const body = {
+      ClientCode: clientCode,
+      PageNumber: 1,
+      PageSize: 500,
+    };
     if (partyTypeFilter !== 'all') body.PartyType = partyTypeToApiEnum(partyTypeFilter);
-    if (branchScope === 'branch') body.BranchId = branchFromUser(userInfo);
-    if (statusFilter !== 'All') body.Status = statusFilter;
+    if (statusFilter !== 'All') body.LotStatus = statusFilter;
     if (fromDate) body.FromDate = `${fromDate}T00:00:00.000Z`;
     if (toDate) body.ToDate = `${toDate}T23:59:59.999Z`;
 
@@ -220,28 +329,28 @@ const SampleOutList = ({
         headers,
         timeout: SAMPLE_LIST_TIMEOUT_MS,
       });
-      if (data && data.Success === false) {
-        throw new Error(data.Message || 'Could not load sample out list');
-      }
-      const rows = normalizeSampleOutListRows(extractSampleOutListFromResponse(data));
+      const { rows: rawRows, totalRecords: total } = extractSampleOutListFromResponse(data);
+      const rows = normalizeSampleOutListRows(rawRows);
       setSampleOutData(rows);
+      setTotalRecords(total);
     } catch (error) {
       console.error('GetAllSampleOutList:', error);
       const isTimeout =
         error.code === 'ECONNABORTED' || /timeout/i.test(String(error.message || ''));
       const msg = isTimeout
-        ? `Sample API did not respond (timeout). Check the service at ${getSampleApiBaseUrl()} is running.`
+        ? `Sample API did not respond (timeout). Check the service at ${getSoniApiBaseUrl()} is running.`
         : error.response?.data?.Message ||
           error.response?.data?.message ||
           error.message ||
           'Failed to load sample out list';
       setListError(msg);
       setSampleOutData([]);
+      setTotalRecords(0);
       addNotification({ type: 'error', title: 'Sample out list', message: msg });
     } finally {
       setListLoading(false);
     }
-  }, [userInfo, partyTypeFilter, branchScope, statusFilter, fromDate, toDate, authHeaders, addNotification]);
+  }, [userInfo, partyTypeFilter, statusFilter, fromDate, toDate, addNotification]);
 
   useEffect(() => {
     if (!resolveClientCode(userInfo)) return;
@@ -290,6 +399,7 @@ const SampleOutList = ({
       const pt = String(item.PartyType || '').toLowerCase();
       const st = String(item.Status || '').toLowerCase();
       const rem = String(item.Remarks || '').toLowerCase();
+      const assignee = String(item.AssignedToUserName || '').toLowerCase();
       const bid = String(item.BranchId ?? '');
       const bname = String(item.LotBranchName || '').toLowerCase();
       const lines = Array.isArray(item.LineItems) ? item.LineItems : [];
@@ -300,6 +410,7 @@ const SampleOutList = ({
         pt.includes(q) ||
         st.includes(q) ||
         rem.includes(q) ||
+        assignee.includes(q) ||
         bid.includes(q) ||
         bname.includes(q) ||
         anyLine
@@ -351,19 +462,24 @@ const SampleOutList = ({
   };
 
   const visibleLineImageKeys = useMemo(() => {
-    if (lineItemsViewMode !== 'grid') return [];
+    const gridLotLines =
+      lotsViewMode === 'grid'
+        ? currentItems.flatMap((lot) =>
+            (Array.isArray(lot?.LineItems) ? lot.LineItems : []).slice(0, 4)
+          )
+        : [];
     const expandedLines = currentItems.flatMap((lot, idx) => {
       const lotKey = lotRowKey(lot, idx);
       if (!expandedLotIds.has(lotKey)) return [];
       return Array.isArray(lot?.LineItems) ? lot.LineItems : [];
     });
     const modalItems = Array.isArray(detailModal?.items) ? detailModal.items : [];
-    const allVisibleLines = [...expandedLines, ...modalItems];
+    const allVisibleLines = [...gridLotLines, ...expandedLines, ...modalItems];
     return Array.from(new Set(allVisibleLines.map((line) => lineItemKey(line)).filter(Boolean))).slice(0, LINE_GRID_IMAGE_RESOLVE_LIMIT);
-  }, [currentItems, detailModal?.items, expandedLotIds, lineItemsViewMode]);
+  }, [currentItems, detailModal?.items, expandedLotIds, lineItemsViewMode, lotsViewMode]);
 
   useEffect(() => {
-    if (lineItemsViewMode !== 'grid' || !visibleLineImageKeys.length) return;
+    if (!visibleLineImageKeys.length) return;
     let disposed = false;
 
     const resolveMissing = async () => {
@@ -398,10 +514,12 @@ const SampleOutList = ({
 
   const openDetail = async (row) => {
     const lotNo = row.SampleLotNo || row.SampleOutNo;
+    const lotId = row.Id ?? row.lotId ?? row.LotId;
     const clientCode = resolveClientCode(userInfo);
-    if (!lotNo || !clientCode) return;
+    const cacheKey = String(lotId || lotNo || '');
+    if (!cacheKey || !clientCode) return;
 
-    const cached = detailCacheRef.current.get(String(lotNo));
+    const cached = detailCacheRef.current.get(cacheKey);
     if (cached) {
       setDetailLoading(false);
       setDetailModal(cached);
@@ -411,7 +529,7 @@ const SampleOutList = ({
     const embedded = Array.isArray(row.LineItems) ? row.LineItems : [];
     if (embedded.length > 0) {
       const payload = { header: row, items: embedded };
-      detailCacheRef.current.set(String(lotNo), payload);
+      detailCacheRef.current.set(cacheKey, payload);
       setDetailLoading(false);
       setDetailModal(payload);
       return;
@@ -420,19 +538,31 @@ const SampleOutList = ({
     setDetailLoading(true);
     setDetailModal({ header: row, items: [] });
     try {
-      const { data: byNo } = await axios.post(
-        getSampleLotByNoUrl(),
-        { ClientCode: clientCode, SampleLotNo: lotNo },
-        { headers: authHeaders() }
-      );
-      const h = byNo?.Data?.Header ?? byNo?.Header ?? byNo?.header ?? row;
-      const { data: itemsData } = await axios.post(
-        getSampleLotItemsUrl(),
-        { ClientCode: clientCode, SampleLotNo: lotNo, ItemStatus: 'Out' },
-        { headers: authHeaders() }
-      );
-      const payload = { header: h, items: normalizeArray(itemsData) };
-      detailCacheRef.current.set(String(lotNo), payload);
+      if (lotId) {
+        const { data } = await axios.get(getLotByIdUrl(clientCode, lotId), {
+          headers: sampleAuthHeaders(),
+        });
+        if (data?.success === false) {
+          throw new Error(data?.message || data?.Message || 'Could not load lot');
+        }
+        const lotBody =
+          data?.data ?? data?.Data ?? data?.lot ?? data?.Lot ?? data?.header ?? data?.Header ?? data;
+        const header = isRfidLotRow(lotBody)
+          ? mapRfidSampleLotRow(lotBody)
+          : mapRfidSampleLotRow({ ...row, LotId: lotId, LotNumber: lotNo });
+        const items =
+          header.LineItems?.length > 0
+            ? header.LineItems
+            : normalizeArray(data?.items ?? data?.Items ?? lotBody?.items ?? lotBody?.Items ?? []).map(
+                mapRfidSampleLine
+              );
+        const payload = { header, items };
+        detailCacheRef.current.set(cacheKey, payload);
+        setDetailModal(payload);
+        return;
+      }
+      const payload = { header: row, items: embedded };
+      detailCacheRef.current.set(cacheKey, payload);
       setDetailModal(payload);
     } catch (e) {
       addNotification({
@@ -458,6 +588,7 @@ const SampleOutList = ({
       PartyType: r.PartyType || '',
       PartyId: r.PartyId ?? '',
       PartyName: r.PartyName || '',
+      AssignedTo: r.AssignedToUserName || '',
       Status: r.Status || '',
       IssueDate: r.IssueDate || '',
       ExpectedReturn: r.ExpectedReturnDate || '',
@@ -830,6 +961,7 @@ const SampleOutList = ({
             </div>
             <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
               {filteredData.length} lot{filteredData.length !== 1 ? 's' : ''}
+              {totalRecords > filteredData.length ? ` · ${totalRecords} from API` : ''}
             </span>
             <button
               type="button"
@@ -915,6 +1047,7 @@ const SampleOutList = ({
                     style={{ ...inputBase, width: '100%' }}
                   >
                     <option value="All">All statuses</option>
+                    <option value="PendingAcceptance">Pending acceptance</option>
                     <option value="Open">Open</option>
                     <option value="PartialReturned">Partial returned</option>
                     <option value="Closed">Closed</option>
@@ -1071,36 +1204,185 @@ const SampleOutList = ({
                 {currentItems.map((item, idx) => {
                   const lotNo = item.SampleLotNo || item.SampleOutNo || '—';
                   const lines = Array.isArray(item.LineItems) ? item.LineItems : [];
+                  const weights = sumLineWeights(lines);
+                  const previewLines = lines.slice(0, 3);
+                  const partyLabel = lotDisplayParty(item);
                   return (
                     <div
                       key={`lot-grid-${lotNo}-${idx}`}
                       style={{
-                        border: '1px solid #e2e8f0',
+                        border: item.IsOverdue ? '1px solid #fecaca' : '1px solid #e2e8f0',
                         borderRadius: 10,
                         background: '#fff',
                         padding: 10,
                         boxShadow: '0 2px 8px rgba(15,23,42,0.06)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minHeight: 200,
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lotNo}</div>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6, marginBottom: 6 }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}>
+                            {lotNo}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+                            {item.PartyType || '—'}
+                            {item.AssignedToUserName ? ` · ${item.AssignedToUserName}` : ''}
+                          </div>
+                        </div>
                         <LotStatusPill status={item.Status} />
                       </div>
-                      <div style={{ fontSize: 10, color: '#475569', marginBottom: 2 }}>{item.PartyName || '—'}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>Type: {item.PartyType || '—'}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>Issue: {formatDate(item.IssueDate)}</div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8 }}>
-                        Items: {item.TotalItems ?? '—'} · Pending: {item.PendingItems ?? '—'}
+
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: '#334155',
+                          marginBottom: 6,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={partyLabel}
+                      >
+                        {partyLabel}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(3, 1fr)',
+                          gap: 4,
+                          fontSize: 9,
+                          color: '#64748b',
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{ background: '#f8fafc', borderRadius: 6, padding: '4px 6px' }}>
+                          <div style={{ fontWeight: 700, color: '#475569' }}>Items</div>
+                          <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 11 }}>
+                            {item.TotalItems ?? lines.length}
+                          </div>
+                        </div>
+                        <div style={{ background: '#f8fafc', borderRadius: 6, padding: '4px 6px' }}>
+                          <div style={{ fontWeight: 700, color: '#475569' }}>Gross</div>
+                          <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 11 }}>
+                            {weights.gross > 0 ? weights.gross.toFixed(3) : '—'}
+                          </div>
+                        </div>
+                        <div style={{ background: '#f8fafc', borderRadius: 6, padding: '4px 6px' }}>
+                          <div style={{ fontWeight: 700, color: '#475569' }}>Net</div>
+                          <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 11 }}>
+                            {weights.net > 0 ? weights.net.toFixed(3) : '—'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: 9, color: '#64748b', marginBottom: 6 }}>
+                        Out: {formatDate(item.IssueDate)} · Due: {formatDate(item.ExpectedReturnDate)}
+                      </div>
+
+                      {previewLines.length > 0 ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: 6,
+                            marginBottom: 8,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          {previewLines.map((line, li) => {
+                            const code = lineItemCode(line);
+                            const imgKey = lineItemKey(line);
+                            return (
+                              <div
+                                key={`${lotNo}-prev-${li}-${code}`}
+                                style={{
+                                  flex: '1 1 72px',
+                                  maxWidth: 88,
+                                  border: '1px solid #e2e8f0',
+                                  borderRadius: 8,
+                                  overflow: 'hidden',
+                                  background: '#fafafa',
+                                }}
+                              >
+                                <GridItemImage
+                                  lookupKeys={getItemImageLookupKeys({
+                                    ItemCode: line.ItemCode,
+                                    Itemcode: line.Itemcode,
+                                    RFIDCode: line.RFIDCode,
+                                    ProductName: line.ProductName,
+                                  })}
+                                  remoteUrl={lineImageUrl(line)}
+                                  localBlobUrl={lineItemLocalImageUrls[imgKey]}
+                                  alt={code}
+                                  wrapperStyle={{
+                                    height: 56,
+                                    background: '#f1f5f9',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                  imgStyle={{ objectFit: 'cover' }}
+                                />
+                                <div
+                                  style={{
+                                    padding: '4px 5px',
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    color: '#334155',
+                                    textAlign: 'center',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  title={code}
+                                >
+                                  {code}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {lines.length > 3 && (
+                            <div
+                              style={{
+                                flex: '0 0 auto',
+                                alignSelf: 'center',
+                                fontSize: 9,
+                                fontWeight: 700,
+                                color: '#64748b',
+                                padding: '0 4px',
+                              }}
+                            >
+                              +{lines.length - 3}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 8 }}>No line items</div>
+                      )}
+
+                      <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                         <button
                           type="button"
                           onClick={() => openDetail(item)}
-                          style={{ border: '1px solid #dbe4f0', background: '#fff', color: '#334155', borderRadius: 8, fontSize: 10, fontWeight: 700, padding: '6px 10px', cursor: 'pointer' }}
+                          style={{
+                            border: 'none',
+                            background: '#0f4c81',
+                            color: '#fff',
+                            borderRadius: 8,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '6px 12px',
+                            cursor: 'pointer',
+                          }}
                         >
-                          View
+                          View details
                         </button>
-                        <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>Line items ({lines.length})</span>
+                        <span style={{ fontSize: 9, color: '#64748b' }}>
+                          Pending {item.PendingItems ?? 0}
+                        </span>
                       </div>
                     </div>
                   );
@@ -1213,7 +1495,12 @@ const SampleOutList = ({
                           </div>
                         </td>
                         <td style={{ ...tdL, fontWeight: 700, color: '#171717' }}>{lotNo}</td>
-                        <td style={{ ...tdL, color: '#262626' }}>{item.PartyName || '—'}</td>
+                        <td style={{ ...tdL, color: '#262626' }} title={lotDisplayParty(item)}>
+                          {lotDisplayParty(item)}
+                          {item.AssignedToUserName && item.PartyType === 'Customer' ? (
+                            <div style={{ fontSize: 9, color: '#64748b' }}>{item.AssignedToUserName}</div>
+                          ) : null}
+                        </td>
                         <td style={tdL}>{item.PartyType || '—'}</td>
                         <td style={tdL}>
                           <LotStatusPill status={item.Status} />

@@ -1,10 +1,23 @@
 import { getSoniApiBaseUrl } from './apiBaseConfig';
 
 /**
- * Password login host (ProductMaster). Override: REACT_APP_AUTH_API_BASE_URL.
+ * Primary RFID / ProductMaster API host.
+ * Override: REACT_APP_API_URL, VITE_API_URL, or REACT_APP_AUTH_API_BASE_URL.
+ * Default local Kestrel: https://localhost:7095
  */
-export const getAuthApiBaseUrl = () =>
-  (process.env.REACT_APP_AUTH_API_BASE_URL || getSoniApiBaseUrl()).replace(/\/$/, '');
+export const getRfidApiBaseUrl = () =>
+  (
+    process.env.REACT_APP_API_URL ||
+    process.env.VITE_API_URL ||
+    process.env.REACT_APP_AUTH_API_BASE_URL ||
+    'https://localhost:7095' ||
+    getSoniApiBaseUrl()
+  ).replace(/\/$/, '');
+
+/**
+ * Password login host (ProductMaster). Uses same base as RFID APIs.
+ */
+export const getAuthApiBaseUrl = () => getRfidApiBaseUrl();
 
 export const getAuthLoginUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthLogin`;
 export const getAuthForgotPasswordUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthForgotPassword`;

@@ -20,46 +20,32 @@ const stringToHex = (str) => {
 
 
 
-// Calculate EPC bit length and PC value based on hex code length (memory allocation)
+// Calculate EPC bit length and PC value from actual hex length (no zero padding)
+// 4 hex digits = 1 EPC word (16 bits). PC = (wordCount << 11) | 0x0400
+// Matches *1C00* (48b), *2400* (64b), *2C00* (80b), *3400* (96b)
 const calculateEpcMemory = (hexCode) => {
   if (!hexCode) {
     return { epcBits: 96, pcValue: '*3400*', epcHex: '000000000000000000000000' };
   }
-  
-  let epcHex = hexCode;
-  const len = epcHex.length;
-  
-  let epcBits;
-  let pcValue;
-  
-  // Pad to nearest standard EPC length
-  if (len <= 8) {
-    // 32 bits (8 chars) - Rare, but supported
-    epcBits = 32;
-    pcValue = '*1C00*'; // Length 3 words? No, 32bits is 2 words. 1C00 is 3 words (48 bits). 
-                    // 2 words would be 1000 (00010...). Let's stick to 48 bits min to be safe if 32 is odd.
-                    // Actually, let's bump to 48 bits (12 chars) minimum for better compatibility.
-    epcBits = 48;
-    pcValue = '*1C00*';
-    epcHex = epcHex.padStart(12, '0');
-  } else if (len <= 12) {
-    // 48 bits (12 chars)
-    epcBits = 48;
-    pcValue = '*1C00*';
-    epcHex = epcHex.padStart(12, '0');
-  } else if (len <= 16) {
-    // 64 bits (16 chars)
-    epcBits = 64;
-    pcValue = '*2400*';
-    epcHex = epcHex.padStart(16, '0');
-  } else {
-    // Default to 96 bits (24 chars) for anything larger than 64 bits
-    // This covers 80 bits (20 chars) case by promoting to 96 bits standard
-    epcBits = 96;
-    pcValue = '*3400*';
-    epcHex = epcHex.padStart(24, '0');
+
+  let epcHex = String(hexCode).toUpperCase().replace(/[^0-9A-F]/g, '');
+  if (!epcHex) {
+    return { epcBits: 96, pcValue: '*3400*', epcHex: '000000000000000000000000' };
   }
-  
+
+  const len = epcHex.length;
+  // Minimum 3 words (48 bits) for printer compatibility
+  const words = Math.max(3, Math.ceil(len / 4));
+  const epcBits = words * 16;
+  const maxHexLen = words * 4;
+  const pcWord = (words << 11) | 0x0400;
+  const pcValue = `*${pcWord.toString(16).toUpperCase().padStart(4, '0')}*`;
+
+  // Exact hex only — never pad with trailing/leading zeros (extra zeros break scanning)
+  if (len > maxHexLen) {
+    epcHex = epcHex.substring(0, maxHexLen);
+  }
+
   return { epcBits, pcValue, epcHex };
 };
 
@@ -266,14 +252,7 @@ const generateLS000443DiamondPrn = (item) => {
   const grossWt = item.GrossWt || item.GrossWeight || '0.000';
   const dWt = item.TotalDiamondWeight || item.DiamondWt || '0.000';
   const oWt = item.TotalStoneWeight || item.StoneWt || '0.000';
-  let rawEpcHex = stringToHex(barcodeValue);
-  
-  // Pad to 24 characters (96 bits) for EPC
-  if (rawEpcHex.length < 24) {
-    rawEpcHex = rawEpcHex.padStart(24, "0");
-  } else if (rawEpcHex.length > 24) {
-    rawEpcHex = rawEpcHex.substring(0, 24);
-  }
+  const { epcHex: rawEpcHex } = calculateEpcMemory(stringToHex(barcodeValue));
 
   const isGrossWtVisible = parseFloat(grossWt) > 0;
   const isDWtVisible = parseFloat(dWt) > 0;
@@ -385,48 +364,55 @@ const formatDiamondCt = (value) => {
   return `${n.toFixed(2)} Ct`;
 };
 
-const formatSizeInch = (item) => {
-  const raw = item.Size ?? item.size ?? item.BoxDetails ?? '';
-  const str = String(raw).trim();
-  if (!str) return '';
-  if (/inch/i.test(str)) return str;
-  return `${str}inch`;
-};
+/** Design label for LS000533 bottom field — matches grid "Design" column (e.g. 1pt, 1.5pt, 3pt) */
+const resolveLS000533DesignLabel = (item) => {
+  const designName = String(
+    item.DesignName || item.Design || item.design || item.design_name || ''
+  ).trim();
+  if (designName) return designName;
 
-/** Code128C payload: FNC1 (0x0E) + apostrophe + suffix (matches client sample `'1534`) */
-const formatLS000533C128Payload = (barcodeValue) => {
-  const v = String(barcodeValue || '').trim();
-  if (!v) return `${String.fromCharCode(14)}'0`;
-  if (v.length > 3) {
-    return `${String.fromCharCode(14)}'${v.substring(3)}`;
+  const designId = item.DesignId ?? item.design_id ?? item.DesignID ?? '';
+  if (designId !== '' && designId != null && String(designId).trim() !== '0') {
+    return String(designId).trim();
   }
-  return `${String.fromCharCode(14)}'${v}`;
+
+  return '';
 };
 
-// LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128C)
+/** Purity line on LS000533 label (e.g. "14Kt") */
+const resolveLS000533Purity = (item) =>
+  String(item.PurityName || item.Purity || item.purity || '').trim();
+
+/** Description line on LS000533 label (e.g. "7.25inch") */
+const resolveLS000533Description = (item) =>
+  String(item.Description || item.description || item.ProductName || '').trim();
+
+/** ASCII EPC memory for LS000533 — dynamic PC + EPC bank, no leading zeros */
+const calculateAsciiEpcMemory = (text) => {
+  const rawHex = stringToHex(String(text || '').trim());
+  return calculateEpcMemory(rawHex);
+};
+
+/** Code128B payload: FNC1 (0x0E) + & + item code (matches client sample `&FLX-4P1.5FD`) */
+const formatLS000533C128BPayload = (itemCode) => {
+  const v = String(itemCode || '').trim();
+  return `${String.fromCharCode(14)}&${v}`;
+};
+
+// LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128B)
 const generateLS000533Prn = (item) => {
   const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
   const barcodeValue = String(item.RFIDCode || item.Barcode || item.BarcodeValue || itemCode).trim();
-  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight);
+  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
   const diamondWt = formatDiamondCt(
     item.TotalDiamondWeight ?? item.DiamondWt ?? item.DiamondWeight ?? item.diamondweight
   );
-  const ywp = prnQuote(item.YWP || item.StoneName || item.DesignName || item.CategoryName || 'YWP');
-  const purity = prnQuote(item.PurityName || item.Purity || '');
-  const sizeLabel = prnQuote(formatSizeInch(item));
-  const ptLabel = prnQuote(
-    item.PTLabel || item.ProductType || item.ProductName || item.Description || '1.5PT'
-  );
+  const purity = prnQuote(resolveLS000533Purity(item));
+  const description = prnQuote(resolveLS000533Description(item));
+  const designLabel = prnQuote(resolveLS000533DesignLabel(item));
   const displayCode = prnQuote(itemCode);
-
-  let rawEpcHex = stringToHex(itemCode || barcodeValue);
-  if (rawEpcHex.length < 24) {
-    rawEpcHex = rawEpcHex.padStart(24, '0');
-  } else if (rawEpcHex.length > 24) {
-    rawEpcHex = rawEpcHex.substring(0, 24);
-  }
-
-  const c128Payload = formatLS000533C128Payload(barcodeValue);
+  const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode || barcodeValue);
+  const c128Payload = formatLS000533C128BPayload(itemCode);
 
   return `!PTX_SETUP
 ENGINE-WIDTH;3941:LENGTH;710:MIRROR;0.
@@ -449,10 +435,10 @@ END
 SCALE;DOT;203;203
 ISET;'UTF8'
 RFWTAG;16;PC
-16;H;*3400*
+16;H;${pcValue}
 STOP
-RFWTAG;96;EPC
-96;H;*${rawEpcHex}*
+RFWTAG;${epcBits};EPC
+${epcBits};H;*${epcHex}*
 STOP
 FONT;FACE 92250;BOLD 1;SLANT 0
 ALPHA
@@ -460,23 +446,22 @@ INV;POINT;116;778;9;10;"${displayCode}"
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
-INV;POINT;95;778;7;8;"Wt :"
-INV;POINT;95;728;7;7;"${grossWt}"
-INV;POINT;68;780;7;7;"Dw :"
-INV;POINT;70;728;7;7;"${diamondWt}"
-INV;POINT;42;780;7;7;"${ywp}"
-INV;POINT;17;693;7;7;"${purity}"
-INV;POINT;17;780;7;7;"${sizeLabel}"
+INV;POINT;90;778;7;8;"Wt :"
+INV;POINT;90;728;7;7;"${grossWt}"
+INV;POINT;59;780;7;7;"Dw :"
+INV;POINT;59;728;7;7;"${diamondWt}"
+INV;POINT;24;693;7;7;"${purity}"
+INV;POINT;24;780;7;7;"${description}"
 STOP
 BARCODE
 QRCODE;INV;XD4;T2;E0;M0;I0;23;558
 "${displayCode}"
 STOP
 ALPHA
-INV;POINT;119;615;7;7;"${ptLabel}"
+INV;POINT;119;615;7;7;"${designLabel}"
 STOP
 BARCODE
-C128C;INV;XRD3:3:6:6:9:9:12:12;H4.8;49;338
+C128B;INV;XRD1:1:2:2:3:3:4:4;H4.8;49;326
 "${c128Payload}"
 STOP
 END
@@ -493,15 +478,8 @@ const generateLS000443SilverPrn = (item) => {
   const barcodeValue = item.BarcodeValue || item.Barcode || itemCode;
   const purityName = item.PurityName || item.Purity || 'SILVER NECKLASE';
   const grossWt = item.GrossWt || item.GrossWeight || '0.610';
-  let rawEpcHex = stringToHex(barcodeValue);
-  
-  // Pad to 24 characters (96 bits) for EPC
-  if (rawEpcHex.length < 24) {
-    rawEpcHex = rawEpcHex.padStart(24, "0");
-  } else if (rawEpcHex.length > 24) {
-    rawEpcHex = rawEpcHex.substring(0, 24);
-  }
-  
+  const { epcHex: rawEpcHex } = calculateEpcMemory(stringToHex(barcodeValue));
+
   // Format barcode: & prefix + first 3 chars + apostrophe + rest (e.g., SLR25000333 -> &SLR'25000333)
   let formattedBarcode = barcodeValue;
   if (barcodeValue.length > 3) {

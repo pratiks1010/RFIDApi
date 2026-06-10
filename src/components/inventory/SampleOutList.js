@@ -21,6 +21,12 @@ import {
   FaThLarge,
   FaTable,
   FaInbox,
+  FaLayerGroup,
+  FaUser,
+  FaWeight,
+  FaGem,
+  FaHourglassHalf,
+  FaBoxOpen,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -48,7 +54,173 @@ const LOT_GRID_PAGE_SIZE = 6;
 const LOT_GRID_COLUMNS = 3;
 const MODAL_GRID_COLUMNS = 3;
 const MODAL_ITEMS_PER_PAGE = 6;
+const MODAL_CARD_IMAGE_HEIGHT = 320;
+const MODAL_CARD_IMAGE_HEIGHT_SM = 240;
 const LINE_GRID_IMAGE_RESOLVE_LIMIT = 120;
+
+const LOT_DETAIL_BLUE = '#0f4c81';
+const LOT_DETAIL_GOLD = '#c9a227';
+const LOT_DETAIL_FONT = "'Inter', 'Poppins', system-ui, -apple-system, sans-serif";
+
+const lotDetailMetricSx = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  whiteSpace: 'nowrap',
+  fontSize: 12,
+  lineHeight: 1.3,
+};
+
+const LotDetailSummaryMetric = ({ icon: Icon, label, value, valueColor = '#0f172a' }) => (
+  <div style={lotDetailMetricSx} title={`${label}: ${value}`}>
+    <Icon size={12} style={{ color: '#94a3b8', flexShrink: 0 }} />
+    <span style={{ color: '#64748b', fontWeight: 600 }}>{label}:</span>
+    <strong style={{ color: valueColor, fontWeight: 800 }}>{value}</strong>
+  </div>
+);
+
+const LotDetailSummaryBar = ({ itemsCount, pending, grossWt, netWt, pieces, outDate, dueDate, employee }) => (
+  <div
+    style={{
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      gap: '10px 18px',
+      padding: '10px 14px',
+      marginBottom: 14,
+      borderRadius: 12,
+      border: '1px solid #e8ecf4',
+      background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
+      fontFamily: LOT_DETAIL_FONT,
+    }}
+  >
+    <LotDetailSummaryMetric icon={FaBoxOpen} label="Items" value={itemsCount} valueColor={LOT_DETAIL_BLUE} />
+    <LotDetailSummaryMetric icon={FaHourglassHalf} label="Pending" value={pending} />
+    <LotDetailSummaryMetric icon={FaWeight} label="Gross Wt" value={grossWt} />
+    <LotDetailSummaryMetric icon={FaWeight} label="Net Wt" value={netWt} />
+    <LotDetailSummaryMetric icon={FaGem} label="Pieces" value={pieces} />
+    <LotDetailSummaryMetric icon={FaCalendarAlt} label="Out" value={outDate} />
+    <LotDetailSummaryMetric icon={FaCalendarAlt} label="Due" value={dueDate} />
+    <LotDetailSummaryMetric icon={FaUser} label="Employee" value={employee} />
+  </div>
+);
+
+const LotDetailViewToggle = ({ mode, onGrid, onTable }) => (
+  <div
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      border: '1px solid #dbe4f0',
+      borderRadius: 8,
+      overflow: 'hidden',
+      background: '#fff',
+      boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+    }}
+  >
+    <button
+      type="button"
+      onClick={onGrid}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        border: 'none',
+        borderRight: '1px solid #dbe4f0',
+        background: mode === 'grid' ? LOT_DETAIL_BLUE : '#fff',
+        color: mode === 'grid' ? '#fff' : '#475569',
+        height: 30,
+        padding: '0 12px',
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: 'pointer',
+        fontFamily: LOT_DETAIL_FONT,
+        transition: 'background 0.15s ease, color 0.15s ease',
+      }}
+    >
+      <FaThLarge size={10} />
+      Grid
+    </button>
+    <button
+      type="button"
+      onClick={onTable}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        border: 'none',
+        background: mode === 'table' ? LOT_DETAIL_BLUE : '#fff',
+        color: mode === 'table' ? '#fff' : '#475569',
+        height: 30,
+        padding: '0 12px',
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: 'pointer',
+        fontFamily: LOT_DETAIL_FONT,
+        transition: 'background 0.15s ease, color 0.15s ease',
+      }}
+    >
+      <FaTable size={10} />
+      Table
+    </button>
+  </div>
+);
+
+const ModalGridPagination = ({ currentPage, totalPages, onPrev, onNext, compact = false }) => {
+  if (totalPages <= 1) return null;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: compact ? 8 : 10,
+        marginTop: compact ? 0 : 14,
+        marginBottom: compact ? 0 : 4,
+        fontFamily: LOT_DETAIL_FONT,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={currentPage === 1}
+        aria-label="Previous page"
+        style={{
+          ...pageBtnStyle(currentPage === 1),
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 32,
+          height: 32,
+          padding: 0,
+          borderRadius: 8,
+        }}
+      >
+        <FaChevronLeft size={11} />
+      </button>
+      <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', minWidth: 48, textAlign: 'center' }}>
+        {currentPage} / {totalPages}
+      </span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={currentPage === totalPages}
+        aria-label="Next page"
+        style={{
+          ...pageBtnStyle(currentPage === totalPages),
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 32,
+          height: 32,
+          padding: 0,
+          borderRadius: 8,
+        }}
+      >
+        <FaChevronRight size={11} />
+      </button>
+    </div>
+  );
+};
 
 const getLineImageLookupKeys = (line) => {
   const keys = getItemImageLookupKeys(line);
@@ -100,6 +272,20 @@ const getLineItemStatusStyle = (status) => {
   return { background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' };
 };
 
+const getLineItemStatusHeaderStyle = (status) => {
+  const s = String(status || '').toLowerCase();
+  if (s.includes('pending')) {
+    return { background: '#fef08a', color: '#92400e', border: '1px solid #facc15', shadow: '0 2px 8px rgba(180, 83, 9, 0.2)' };
+  }
+  if (s === 'out' || s.includes('sampleout') || s.includes('out')) {
+    return { background: '#bae6fd', color: '#0c4a6e', border: '1px solid #38bdf8', shadow: '0 2px 8px rgba(3, 105, 161, 0.18)' };
+  }
+  if (s.includes('return') || s === 'in') {
+    return { background: '#bbf7d0', color: '#065f46', border: '1px solid #34d399', shadow: '0 2px 8px rgba(4, 120, 87, 0.18)' };
+  }
+  return { background: '#e2e8f0', color: '#1e293b', border: '1px solid #cbd5e1', shadow: '0 2px 6px rgba(15, 23, 42, 0.1)' };
+};
+
 const linePiecesFromMrp = (line) => {
   const v = line?.MRP ?? line?.mrp ?? line?.Mrp ?? line?.MRPAmount ?? line?.FixedAmt ?? 0;
   const n = parseFloat(v);
@@ -131,10 +317,92 @@ const lotListStatusSx = (status) => {
   const s = String(status ?? '—').toLowerCase();
   if (s.includes('closed')) return { bg: '#f1f5f9', fg: '#334155', bd: '#94a3b8' };
   if (s.includes('partial')) return { bg: '#fff7ed', fg: '#9a3412', bd: '#fdba74' };
-  if (s.includes('pending')) return { bg: '#fef3c7', fg: '#b45309', bd: '#fcd34d' };
-  if (s.includes('open')) return { bg: '#eef2ff', fg: '#4338ca', bd: '#a5b4fc' };
+  if (s.includes('pending')) return { bg: '#fef9e7', fg: '#92650a', bd: '#e8d48b' };
+  if (s.includes('open')) return { bg: '#eff6ff', fg: '#1e40af', bd: '#93c5fd' };
   return { bg: '#fafafa', fg: '#525252', bd: '#d4d4d4' };
 };
+
+const LOT_CARD_LABEL = { color: '#64748b', fontWeight: 600, fontSize: 11 };
+const LOT_CARD_VALUE = { color: '#0f172a', fontWeight: 800, fontSize: 11 };
+const LOT_CARD_GROSS = { color: '#15803d', fontWeight: 800, fontSize: 11 };
+const LOT_CARD_NET = { color: '#dc2626', fontWeight: 800, fontSize: 11 };
+const LOT_CARD_DOT = (
+  <span style={{ color: '#c9a227', margin: '0 5px', opacity: 0.75, fontWeight: 700 }}>•</span>
+);
+
+const lotPartyLabel = (item) => {
+  const pt = String(item?.PartyType || '').toLowerCase();
+  if (pt.includes('employee')) return 'Employee';
+  if (pt.includes('customer')) return 'Customer';
+  if (pt.includes('vendor')) return 'Vendor';
+  return 'Given to';
+};
+
+const lotSampleOutDateTimeRaw = (item) =>
+  item?.IssueDate ||
+  item?.SampleOutDate ||
+  item?.sampleOutDate ||
+  item?.CreatedOn ||
+  item?.createdOn ||
+  item?.SubmittedAt ||
+  item?.submittedAt ||
+  '';
+
+const formatLotDateTime = (dateString) => {
+  if (!dateString) return '—';
+  try {
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return String(dateString);
+    const raw = String(dateString);
+    const hasTime =
+      raw.includes('T') ||
+      /\d{1,2}:\d{2}/.test(raw) ||
+      date.getHours() > 0 ||
+      date.getMinutes() > 0 ||
+      date.getSeconds() > 0;
+    if (hasTime) {
+      return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+    return date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return String(dateString);
+  }
+};
+
+const lotDisplayParty = (item) => {
+  const name = String(item?.PartyName || '').trim();
+  if (name && name !== '—') return name;
+  return String(item?.AssignedToUserName || '').trim() || '—';
+};
+
+const LotCardStatRow = ({ children, title, withDivider = true }) => (
+  <div
+    title={title}
+    style={{
+      padding: '5px 10px',
+      fontSize: 11,
+      lineHeight: 1.35,
+      color: '#1e293b',
+      borderBottom: withDivider ? '1px solid #f1f5f9' : 'none',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      background: '#fff',
+    }}
+  >
+    {children}
+  </div>
+);
 
 const LotStatusPill = ({ status }) => {
   const sx = lotListStatusSx(status);
@@ -253,7 +521,6 @@ const LotGridCard = ({
   const [imageIndex, setImageIndex] = useState(0);
   const [activeImageSrc, setActiveImageSrc] = useState('');
   const lotNo = item.SampleLotNo || item.SampleOutNo || '—';
-  const sampleOutDate = item.SampleOutDate || item.IssueDate || item.sampleOutDate;
   const lines = Array.isArray(item.LineItems) ? item.LineItems : [];
   const weights = sumLineWeights(lines);
   const totalPieces = formatPiecesDisplay(sumLinePieces(lines));
@@ -296,81 +563,101 @@ const LotGridCard = ({
     setImageIndex((i) => (i >= lines.length - 1 ? 0 : i + 1));
   };
 
-  const dot = <span style={{ color: '#cbd5e1', margin: '0 4px' }}>·</span>;
+  const grossDisplay = weights.gross > 0 ? weights.gross.toFixed(3) : '—';
+  const netDisplay = weights.net > 0 ? weights.net.toFixed(3) : '—';
+  const partyName = lotDisplayParty(item);
+  const partyLabel = lotPartyLabel(item);
+  const sampleOutDateTime = formatLotDateTime(lotSampleOutDateTimeRaw(item));
+  const summaryTitle = `Gross: ${grossDisplay} · Net: ${netDisplay} · Pcs: ${totalPieces}`;
+  const detailTitle = `Sample Out: ${sampleOutDateTime} · Due: ${formatDate(item.ExpectedReturnDate)} · Item: ${activeCode}${
+    item.Remarks ? ` · Remark: ${item.Remarks}` : ''
+  }`;
 
   return (
     <article
       style={{
-        border: item.IsOverdue ? '1px solid #fecaca' : '1px solid #e2e8f0',
-        borderRadius: 12,
+        border: item.IsOverdue ? '1px solid #fecaca' : '1px solid #e8ecf4',
+        borderRadius: 14,
         background: '#fff',
         overflow: 'hidden',
-        boxShadow: '0 2px 12px rgba(15, 23, 42, 0.06)',
+        boxShadow: '0 4px 16px rgba(15, 76, 129, 0.07), 0 1px 3px rgba(15, 23, 42, 0.04)',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 10px',
-          borderBottom: '1px solid #f1f5f9',
-          background: '#fafafa',
+          height: 3,
+          background: 'linear-gradient(90deg, #0f4c81 0%, #c9a227 55%, #1e40af 100%)',
+          flexShrink: 0,
         }}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, minWidth: 0 }}>
-          <span style={{ fontSize: 14, fontWeight: 800, color: '#0f4c81' }}>{lotNo}</span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              color: '#64748b',
-              fontVariantNumeric: 'tabular-nums',
-              whiteSpace: 'nowrap',
-            }}
-            title="Sample out date"
-          >
-            Out: {formatDate(sampleOutDate)}
-          </span>
-        </div>
-        <LotStatusPill status={item.Status} />
-      </div>
-
+      />
       <div
         style={{
-          padding: '8px 10px',
-          fontSize: 13,
-          fontWeight: 800,
-          color: '#1e293b',
-          lineHeight: 1.5,
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 8,
+          padding: '7px 10px 6px',
           borderBottom: '1px solid #f1f5f9',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
+          background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
+          minWidth: 0,
         }}
-        title={`Items: ${item.TotalItems ?? lines.length} · Gross: ${weights.gross.toFixed(3)} · Net: ${weights.net.toFixed(3)} · Pcs: ${totalPieces}`}
       >
-        <span style={{ color: '#64748b' }}>Items:</span> {item.TotalItems ?? lines.length}
-        {dot}
-        <span style={{ color: '#64748b' }}>Gr:</span> {weights.gross > 0 ? weights.gross.toFixed(3) : '—'}
-        {dot}
-        <span style={{ color: '#64748b' }}>Net:</span> {weights.net > 0 ? weights.net.toFixed(3) : '—'}
-        {dot}
-        <span style={{ color: '#64748b' }}>Pcs:</span> {totalPieces}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: '1 1 auto' }}>
+          <div
+            style={{
+              fontSize: 12,
+              lineHeight: 1.35,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={`Sample Out No: ${lotNo}`}
+          >
+            <span style={LOT_CARD_LABEL}>Sample Out No:</span>{' '}
+            <span style={{ ...LOT_CARD_VALUE, fontSize: 14, color: '#0f4c81' }}>{lotNo}</span>
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              lineHeight: 1.35,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={`${partyLabel}: ${partyName}`}
+          >
+            <span style={LOT_CARD_LABEL}>{partyLabel}:</span>{' '}
+            <span style={{ ...LOT_CARD_VALUE, color: '#0f172a' }}>{partyName}</span>
+          </div>
+        </div>
+        <div style={{ flexShrink: 0, paddingTop: 1 }}>
+          <LotStatusPill status={item.Status} />
+        </div>
       </div>
+
+      <LotCardStatRow title={summaryTitle}>
+        <span style={LOT_CARD_LABEL}>Gross:</span>{' '}
+        <span style={LOT_CARD_GROSS}>{grossDisplay}</span>
+        {LOT_CARD_DOT}
+        <span style={LOT_CARD_LABEL}>Net:</span>{' '}
+        <span style={LOT_CARD_NET}>{netDisplay}</span>
+        {LOT_CARD_DOT}
+        <span style={LOT_CARD_LABEL}>Pcs:</span>{' '}
+        <span style={LOT_CARD_VALUE}>{totalPieces}</span>
+      </LotCardStatRow>
 
       <div
         style={{
           width: '100%',
-          height: isSmallScreen ? 220 : 300,
-          background: '#ffffff',
-          borderBottom: '1px solid #edf2f7',
+          height: isSmallScreen ? 210 : 268,
+          background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+          borderBottom: '1px solid #f1f5f9',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '10px 14px',
+          padding: '6px 8px',
           boxSizing: 'border-box',
           position: 'relative',
         }}
@@ -490,42 +777,40 @@ const LotGridCard = ({
         )}
       </div>
 
-      <div style={{ padding: '10px 12px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: '#1e293b', lineHeight: 1.55, marginBottom: 10 }}>
-          <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginBottom: 4 }}>
-            <span style={{ color: '#64748b' }}>Out:</span> {formatDate(item.IssueDate)}
-            {dot}
-            <span style={{ color: '#64748b' }}>Due:</span> {formatDate(item.ExpectedReturnDate)}
-          </div>
-          <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-            <span style={{ color: '#64748b' }}>Item:</span> {activeCode}
-            {dot}
-            <span style={{ color: '#64748b' }}>Pending:</span> {item.PendingItems ?? 0}
-            {dot}
-            <span style={{ color: '#64748b' }}>Returned:</span> {item.ReturnedItems ?? 0}
-            {item.Remarks ? (
-              <>
-                {dot}
-                <span style={{ color: '#64748b' }}>Remark:</span> {item.Remarks}
-              </>
-            ) : null}
-          </div>
-        </div>
+      <LotCardStatRow title={detailTitle} withDivider={false}>
+        <span style={LOT_CARD_LABEL}>Sample Out:</span>{' '}
+        <span style={{ ...LOT_CARD_VALUE, fontVariantNumeric: 'tabular-nums' }}>{sampleOutDateTime}</span>
+        {LOT_CARD_DOT}
+        <span style={LOT_CARD_LABEL}>Due:</span>{' '}
+        <span style={LOT_CARD_VALUE}>{formatDate(item.ExpectedReturnDate)}</span>
+        {LOT_CARD_DOT}
+        <span style={LOT_CARD_LABEL}>Item:</span>{' '}
+        <span style={LOT_CARD_VALUE}>{activeCode}</span>
+        {item.Remarks ? (
+          <>
+            {LOT_CARD_DOT}
+            <span style={LOT_CARD_LABEL}>Remark:</span>{' '}
+            <span style={{ ...LOT_CARD_VALUE, fontWeight: 700 }}>{item.Remarks}</span>
+          </>
+        ) : null}
+      </LotCardStatRow>
 
+      <div style={{ padding: '6px 8px 8px', background: '#fafcff' }}>
         <button
           type="button"
           onClick={() => openDetail(item)}
           style={{
-            marginTop: 'auto',
             width: '100%',
-            padding: '10px 12px',
-            borderRadius: 10,
-            border: 'none',
+            padding: '8px 10px',
+            borderRadius: 9,
+            border: '1px solid rgba(201, 162, 39, 0.35)',
             background: 'linear-gradient(135deg, #0f4c81 0%, #1e40af 100%)',
             color: '#fff',
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 12,
             cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(15, 76, 129, 0.22)',
+            letterSpacing: '0.01em',
           }}
         >
           View details
@@ -538,12 +823,10 @@ const LotGridCard = ({
 const LotDetailItemCard = ({
   line,
   lotHeader,
-  idx,
   isSmallScreen,
   lineItemCode,
   lineCategory,
   lineProduct,
-  lineDesign,
   lineGrossWt,
   lineNetWt,
   lineImageUrl,
@@ -553,57 +836,75 @@ const LotDetailItemCard = ({
 }) => {
   const itemCode = lineItemCode(line);
   const rfid = lineRfidValue(line);
-  const design = lineDesign(line);
   const category = lineCategory(line);
   const product = lineProduct(line);
   const pieces = formatPiecesDisplay(linePiecesFromMrp(line));
   const status = String(line?.ItemStatus || '—').trim() || '—';
-  const statusStyle = getLineItemStatusStyle(status);
+  const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
   const sampleOutDate = formatListDate(lineSampleOutDateRaw(line, lotHeader));
   const sampleInDate = formatListDate(lineSampleInDateRaw(line));
   const employeeName = lineEmployeeNameRaw(line, lotHeader) || '—';
-  const dot = <span style={{ color: '#cbd5e1', margin: '0 4px' }}>·</span>;
+  const dot = <span style={{ color: LOT_DETAIL_GOLD, margin: '0 5px', opacity: 0.7, fontWeight: 700 }}>•</span>;
   const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+  const imageHeight = isSmallScreen ? MODAL_CARD_IMAGE_HEIGHT_SM : MODAL_CARD_IMAGE_HEIGHT;
 
   return (
-    <article
-      style={{
-        border: '1px solid #e2e8f0',
-        borderRadius: 12,
-        background: '#fff',
-        overflow: 'hidden',
-        boxShadow: '0 2px 12px rgba(15, 23, 42, 0.06)',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
+    <article className="lot-detail-item-card" style={{ height: '100%' }}>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '8px 10px',
+          padding: '8px 12px',
           borderBottom: '1px solid #f1f5f9',
-          background: '#fafafa',
+          background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
+          flexShrink: 0,
         }}
       >
         <button
           type="button"
           onClick={() => onOpenItem?.(line)}
+          className="lot-detail-item-code"
           style={{
             border: 'none',
             background: 'none',
             padding: 0,
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 800,
-            color: '#0f4c81',
+            color: LOT_DETAIL_BLUE,
             cursor: 'pointer',
             textAlign: 'left',
+            fontFamily: LOT_DETAIL_FONT,
+            minWidth: 0,
+            flex: '1 1 auto',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            marginRight: 10,
           }}
         >
           {itemCode}
         </button>
-        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>#{idx + 1}</span>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 900,
+            padding: '5px 12px',
+            borderRadius: 8,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            lineHeight: 1.2,
+            background: statusHeaderStyle.background,
+            color: statusHeaderStyle.color,
+            border: statusHeaderStyle.border,
+            boxShadow: statusHeaderStyle.shadow,
+            fontFamily: LOT_DETAIL_FONT,
+            flexShrink: 0,
+            alignSelf: 'center',
+          }}
+        >
+          {status}
+        </span>
       </div>
       <GridItemImage
         src={img}
@@ -613,95 +914,101 @@ const LotDetailItemCard = ({
         eagerLoad
         wrapperStyle={{
           width: '100%',
-          height: isSmallScreen ? 220 : 300,
-          background: '#ffffff',
+          height: imageHeight,
+          minHeight: imageHeight,
+          background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
           borderBottom: '1px solid #edf2f7',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '10px 14px',
+          padding: '6px 8px',
           boxSizing: 'border-box',
+          flexShrink: 0,
         }}
         imgStyle={{
           width: '100%',
           height: '100%',
+          maxHeight: imageHeight - 12,
           objectFit: 'contain',
           objectPosition: 'center',
-          background: '#fff',
-          borderRadius: 8,
+          background: 'transparent',
         }}
         placeholder={
-          <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700 }}>No image</div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#94a3b8' }}>
+            <FaInbox size={22} style={{ opacity: 0.45 }} />
+            <span style={{ fontSize: 10, fontWeight: 700 }}>No image</span>
+          </div>
         }
       />
-      <div style={{ padding: '10px 12px 12px', fontSize: 12, lineHeight: 1.5, color: '#0f172a' }}>
+      <div
+        style={{
+          padding: '10px 12px 12px',
+          fontSize: 11,
+          lineHeight: 1.45,
+          color: '#0f172a',
+          fontFamily: LOT_DETAIL_FONT,
+          flex: '1 1 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
         <div
           style={{
-            fontWeight: 800,
+            fontWeight: 700,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            marginBottom: 4,
           }}
-          title={`${category} | ${product} | ${rfid} | ${design}`}
+          title={`Category: ${category} · Product: ${product} · RFID: ${rfid}`}
         >
-          <span style={{ color: '#475569' }}>Category:</span> {category}
+          <span style={{ color: '#64748b' }}>Category:</span> {category}
           {dot}
-          <span style={{ color: '#475569' }}>Product:</span> {product}
+          <span style={{ color: '#64748b' }}>Product:</span> {product}
           {dot}
-          <span style={{ color: '#475569' }}>RFID:</span> {rfid}
-          {dot}
-          <span style={{ color: '#475569' }}>Design:</span> {design}
+          <span style={{ color: '#64748b' }}>RFID:</span> {rfid}
         </div>
-        <div style={{ fontWeight: 800, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        <div
+          style={{
+            fontWeight: 700,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={`Gross: ${lineGrossWt(line)} · Net: ${lineNetWt(line)} · Pieces: ${pieces}`}
+        >
           <span>
-            <strong>Gross Wt:</strong> {lineGrossWt(line)}
+            <span style={{ color: '#64748b' }}>Gross:</span> {lineGrossWt(line)}
           </span>
-          <span style={{ color: '#cbd5e1' }}>·</span>
+          {dot}
           <span>
-            <strong>Net Wt:</strong> {lineNetWt(line)}
+            <span style={{ color: '#64748b' }}>Net:</span> {lineNetWt(line)}
           </span>
-          <span style={{ color: '#cbd5e1' }}>·</span>
+          {dot}
           <span>
-            <strong>Pieces:</strong> {pieces}
-          </span>
-          <span style={{ color: '#cbd5e1' }}>·</span>
-          <span style={{ color: '#64748b', fontWeight: 700 }}>Status:</span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 800,
-              padding: '2px 6px',
-              borderRadius: 4,
-              textTransform: 'uppercase',
-              letterSpacing: '0.02em',
-              background: statusStyle.background,
-              color: statusStyle.color,
-              border: statusStyle.border,
-            }}
-          >
-            {status}
+            <span style={{ color: '#64748b' }}>Pieces:</span> {pieces}
           </span>
         </div>
         <div
           style={{
-            marginTop: 8,
+            marginTop: 'auto',
             paddingTop: 8,
             borderTop: '1px solid #f1f5f9',
-            fontSize: 11,
-            fontWeight: 800,
-            lineHeight: 1.55,
+            fontSize: 10,
+            fontWeight: 700,
+            lineHeight: 1.5,
             color: '#334155',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
+          title={`Sample out: ${sampleOutDate} · Sample in: ${sampleInDate} · Employee: ${employeeName}`}
         >
-          <div style={{ marginBottom: 2 }}>
-            <span style={{ color: '#64748b' }}>Sample out:</span> {sampleOutDate}
-            {dot}
-            <span style={{ color: '#64748b' }}>Sample in:</span> {sampleInDate}
-          </div>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <span style={{ color: '#64748b' }}>Employee:</span> {employeeName}
-          </div>
+          <span style={{ color: '#64748b' }}>Sample out:</span> {sampleOutDate}
+          {dot}
+          <span style={{ color: '#64748b' }}>Sample in:</span> {sampleInDate}
+          {dot}
+          <span style={{ color: '#64748b' }}>Employee:</span> {employeeName}
         </div>
       </div>
     </article>
@@ -899,12 +1206,6 @@ const mapRfidSampleLotRow = (entry) => {
     LineItems: lineItems,
     LotBranchName: entry.BranchName ?? entry.branchName ?? entry.LotBranchName ?? null,
   };
-};
-
-const lotDisplayParty = (item) => {
-  const name = String(item?.PartyName || '').trim();
-  if (name && name !== '—') return name;
-  return String(item?.AssignedToUserName || '').trim() || '—';
 };
 
 /** Extract list + total from GetAllSampleOutList response. */
@@ -2557,10 +2858,11 @@ const SampleOutList = ({
 
       {detailModal && (
         <div
+          className="lot-detail-modal-overlay"
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(15,23,42,0.45)',
+            background: 'rgba(15,23,42,0.5)',
             zIndex: 10050,
             display: 'flex',
             alignItems: 'center',
@@ -2570,42 +2872,79 @@ const SampleOutList = ({
           onClick={() => !detailLoading && setDetailModal(null)}
         >
           <div
+            className="lot-detail-modal"
             style={{
               background: '#fff',
               borderRadius: '16px',
-              maxWidth: 'min(1100px, 96vw)',
+              maxWidth: 'min(1280px, 98vw)',
               width: '100%',
-              maxHeight: '90vh',
+              maxHeight: '92vh',
               overflow: 'auto',
-              padding: '18px 20px 20px',
+              padding: '16px 18px 18px',
               position: 'relative',
-              boxShadow: '0 24px 48px rgba(0,0,0,0.15)',
+              boxShadow: '0 24px 64px rgba(15, 23, 42, 0.18), 0 8px 24px rgba(15, 76, 129, 0.08)',
               display: 'flex',
               flexDirection: 'column',
+              fontFamily: LOT_DETAIL_FONT,
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              type="button"
-              onClick={() => setDetailModal(null)}
+            <div
               style={{
-                position: 'absolute',
-                top: '12px',
-                right: '12px',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                padding: '8px',
+                height: 3,
+                background: `linear-gradient(90deg, ${LOT_DETAIL_BLUE} 0%, ${LOT_DETAIL_GOLD} 55%, #1e40af 100%)`,
+                borderRadius: '16px 16px 0 0',
+                margin: '-16px -18px 14px',
+              }}
+            />
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginBottom: 12,
               }}
             >
-              <FaTimes size={18} color="#64748b" />
-            </button>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingRight: 36 }}>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
-                Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
-              </h3>
-              <LotStatusPill status={detailModal.header?.Status} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)',
+                    border: '1px solid #dbeafe',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: LOT_DETAIL_BLUE,
+                    flexShrink: 0,
+                  }}
+                >
+                  <FaLayerGroup size={15} />
+                </div>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                  Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
+                </h3>
+                <LotStatusPill status={detailModal.header?.Status} />
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailModal(null)}
+                aria-label="Close lot details"
+                style={{
+                  border: 'none',
+                  background: '#f8fafc',
+                  cursor: 'pointer',
+                  padding: '8px',
+                  borderRadius: 8,
+                  color: '#64748b',
+                  flexShrink: 0,
+                }}
+              >
+                <FaTimes size={16} />
+              </button>
             </div>
 
             {detailLoading ? (
@@ -2620,7 +2959,7 @@ const SampleOutList = ({
               >
                 <FaSpinner
                   size={28}
-                  style={{ color: '#0f4c81', animation: 'spin 0.9s linear infinite', marginBottom: 16 }}
+                  style={{ color: LOT_DETAIL_BLUE, animation: 'spin 0.9s linear infinite', marginBottom: 16 }}
                 />
                 <h4 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
                   Loading lot items
@@ -2631,99 +2970,61 @@ const SampleOutList = ({
               </div>
             ) : (
               <>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: '#475569',
-                    marginBottom: 14,
-                    paddingBottom: 12,
-                    borderBottom: '1px solid #f1f5f9',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  Items: <strong style={{ color: '#0f4c81' }}>{detailModal.header?.TotalItems ?? detailModalItems.length}</strong>
-                  <span style={{ color: '#cbd5e1', margin: '0 8px' }}>·</span>
-                  Pending: <strong style={{ color: '#0f172a' }}>{detailModal.header?.PendingItems ?? '—'}</strong>
-                  <span style={{ color: '#cbd5e1', margin: '0 8px' }}>·</span>
-                  Gross Wt: <strong style={{ color: '#0f172a' }}>{detailModalWeights.gross > 0 ? detailModalWeights.gross.toFixed(3) : '—'}</strong>
-                  <span style={{ color: '#cbd5e1', margin: '0 8px' }}>·</span>
-                  Net Wt: <strong style={{ color: '#0f172a' }}>{detailModalWeights.net > 0 ? detailModalWeights.net.toFixed(3) : '—'}</strong>
-                  <span style={{ color: '#cbd5e1', margin: '0 8px' }}>·</span>
-                  Pieces: <strong style={{ color: '#0f172a' }}>{detailModalPieces}</strong>
-                  <span style={{ color: '#cbd5e1', margin: '0 8px' }}>·</span>
-                  Out: <strong style={{ color: '#0f172a' }}>{formatDate(detailModal.header?.IssueDate || detailModal.header?.SampleOutDate)}</strong>
-                  <span style={{ color: '#cbd5e1', margin: '0 8px' }}>·</span>
-                  Due: <strong style={{ color: '#0f172a' }}>{formatDate(detailModal.header?.ExpectedReturnDate)}</strong>
-                  <span style={{ color: '#cbd5e1', margin: '0 8px' }}>·</span>
-                  Employee: <strong style={{ color: '#0f172a' }}>{lotDisplayParty(detailModal.header)}</strong>
-                </div>
+                <LotDetailSummaryBar
+                  itemsCount={detailModal.header?.TotalItems ?? detailModalItems.length}
+                  pending={detailModal.header?.PendingItems ?? '—'}
+                  grossWt={detailModalWeights.gross > 0 ? detailModalWeights.gross.toFixed(3) : '—'}
+                  netWt={detailModalWeights.net > 0 ? detailModalWeights.net.toFixed(3) : '—'}
+                  pieces={detailModalPieces}
+                  outDate={formatDate(detailModal.header?.IssueDate || detailModal.header?.SampleOutDate)}
+                  dueDate={formatDate(detailModal.header?.ExpectedReturnDate)}
+                  employee={lotDisplayParty(detailModal.header)}
+                />
 
                 {detailModalItems.length > 0 ? (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: '#334155' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 10,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b', letterSpacing: '-0.01em' }}>
                         Lot Items ({detailModalItems.length})
                       </span>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #dbe4f0', borderRadius: 7, overflow: 'hidden', background: '#fff' }}>
-                        <button
-                          type="button"
-                          onClick={() => setLineItemsViewMode('grid')}
-                          style={{
-                            border: 'none',
-                            borderRight: '1px solid #dbe4f0',
-                            background: lineItemsViewMode === 'grid' ? '#eef2ff' : '#fff',
-                            color: lineItemsViewMode === 'grid' ? '#3730a3' : '#475569',
-                            height: 28,
-                            padding: '0 10px',
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Grid
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setLineItemsViewMode('table')}
-                          style={{
-                            border: 'none',
-                            background: lineItemsViewMode === 'table' ? '#eef2ff' : '#fff',
-                            color: lineItemsViewMode === 'table' ? '#3730a3' : '#475569',
-                            height: 28,
-                            padding: '0 10px',
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Table
-                        </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        {lineItemsViewMode === 'grid' && detailModalTotalPages > 1 ? (
+                          <ModalGridPagination
+                            compact
+                            currentPage={detailModalPage}
+                            totalPages={detailModalTotalPages}
+                            onPrev={() => setDetailModalPage((p) => Math.max(1, p - 1))}
+                            onNext={() => setDetailModalPage((p) => Math.min(detailModalTotalPages, p + 1))}
+                          />
+                        ) : null}
+                        <LotDetailViewToggle
+                          mode={lineItemsViewMode}
+                          onGrid={() => setLineItemsViewMode('grid')}
+                          onTable={() => setLineItemsViewMode('table')}
+                        />
                       </div>
                     </div>
 
                     {lineItemsViewMode === 'grid' ? (
                       <>
-                        {detailModalItems.length > MODAL_ITEMS_PER_PAGE ? (
-                          <LotGridPaginationBar
-                            currentPage={detailModalPage}
-                            totalPages={detailModalTotalPages}
-                            startIndex={detailModalStartIndex}
-                            endIndex={detailModalEndIndex}
-                            totalCount={detailModalItems.length}
-                            pageSize={MODAL_ITEMS_PER_PAGE}
-                            onPrev={() => setDetailModalPage((p) => Math.max(1, p - 1))}
-                            onNext={() => setDetailModalPage((p) => Math.min(detailModalTotalPages, p + 1))}
-                            onPage={(page) => setDetailModalPage(page)}
-                          />
-                        ) : null}
                         <div
+                          className="lot-detail-grid"
                           style={{
                             display: 'grid',
                             gridTemplateColumns: isSmallScreen
                               ? 'repeat(1, minmax(0, 1fr))'
                               : `repeat(${MODAL_GRID_COLUMNS}, minmax(0, 1fr))`,
-                            gap: 14,
+                            gap: 12,
+                            alignItems: 'stretch',
                           }}
                         >
                           {paginatedDetailModalItems.map((line, idx) => (
@@ -2731,12 +3032,10 @@ const SampleOutList = ({
                               key={line.Id ?? `${lineItemCode(line)}-${detailModalStartIndex + idx}`}
                               line={line}
                               lotHeader={detailModal.header}
-                              idx={detailModalStartIndex + idx}
                               isSmallScreen={isSmallScreen}
                               lineItemCode={lineItemCode}
                               lineCategory={lineCategory}
                               lineProduct={lineProduct}
-                              lineDesign={lineDesign}
                               lineGrossWt={lineGrossWt}
                               lineNetWt={lineNetWt}
                               lineImageUrl={lineImageUrl}
@@ -2748,44 +3047,70 @@ const SampleOutList = ({
                         </div>
                       </>
                     ) : (
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                        <thead>
-                          <tr style={{ background: '#f8fafc' }}>
-                            <th style={{ padding: '8px', textAlign: 'left' }}>Item code</th>
-                            <th style={{ padding: '8px', textAlign: 'left' }}>Employee</th>
-                            <th style={{ padding: '8px', textAlign: 'left' }}>Sample out</th>
-                            <th style={{ padding: '8px', textAlign: 'left' }}>Sample in</th>
-                            <th style={{ padding: '8px', textAlign: 'left' }}>Line status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detailModalItems.map((line, idx) => (
-                            <tr key={line.Id ?? `${line.ItemCode}-${idx}`} style={{ borderTop: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '8px' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => openDetailItemFromModal(line)}
-                                  style={{
-                                    border: 'none',
-                                    background: 'none',
-                                    padding: 0,
-                                    color: '#b91c1c',
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    textDecoration: 'underline',
-                                  }}
-                                >
-                                  {line.ItemCode || line.Itemcode || '—'}
-                                </button>
-                              </td>
-                              <td style={{ padding: '8px' }}>{lineEmployeeNameRaw(line, detailModal.header) || '—'}</td>
-                              <td style={{ padding: '8px' }}>{formatListDate(lineSampleOutDateRaw(line, detailModal.header))}</td>
-                              <td style={{ padding: '8px' }}>{formatListDate(lineSampleInDateRaw(line))}</td>
-                              <td style={{ padding: '8px' }}>{line.ItemStatus || '—'}</td>
+                      <div style={{ borderRadius: 12, border: '1px solid #e8ecf4', overflow: 'hidden' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                          <thead>
+                            <tr style={{ background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' }}>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Item code</th>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Category</th>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Gross Wt</th>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Net Wt</th>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Employee</th>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Sample out</th>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Sample in</th>
+                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Status</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {detailModalItems.map((line, idx) => {
+                              const status = String(line?.ItemStatus || '—').trim() || '—';
+                              const statusStyle = getLineItemStatusStyle(status);
+                              return (
+                                <tr key={line.Id ?? `${line.ItemCode}-${idx}`} className="lot-detail-table-row">
+                                  <td style={{ padding: '10px 12px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openDetailItemFromModal(line)}
+                                      style={{
+                                        border: 'none',
+                                        background: 'none',
+                                        padding: 0,
+                                        color: LOT_DETAIL_BLUE,
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {line.ItemCode || line.Itemcode || '—'}
+                                    </button>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineCategory(line)}</td>
+                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineGrossWt(line)}</td>
+                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineNetWt(line)}</td>
+                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineEmployeeNameRaw(line, detailModal.header) || '—'}</td>
+                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{formatListDate(lineSampleOutDateRaw(line, detailModal.header))}</td>
+                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{formatListDate(lineSampleInDateRaw(line))}</td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    <span
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: 800,
+                                        padding: '2px 8px',
+                                        borderRadius: 5,
+                                        textTransform: 'uppercase',
+                                        background: statusStyle.background,
+                                        color: statusStyle.color,
+                                        border: statusStyle.border,
+                                      }}
+                                    >
+                                      {status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </>
                 ) : (
@@ -2794,24 +3119,57 @@ const SampleOutList = ({
                   </p>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => printRow(detailModal.header)}
+                <div
                   style={{
-                    marginTop: '16px',
-                    padding: '10px 16px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: '#f8fafc',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    alignSelf: 'flex-start',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginTop: 16,
+                    paddingTop: 14,
+                    borderTop: '1px solid #f1f5f9',
                   }}
                 >
-                  <FaPrint style={{ marginRight: '8px' }} />
-                  Print summary
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => printRow(detailModal.header)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '10px 16px',
+                      fontWeight: 700,
+                      borderRadius: '10px',
+                      border: '1px solid #dbe4f0',
+                      background: '#fff',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      color: '#334155',
+                      fontFamily: LOT_DETAIL_FONT,
+                    }}
+                  >
+                    <FaPrint size={13} />
+                    Print summary
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailModal(null)}
+                    style={{
+                      padding: '10px 22px',
+                      fontWeight: 700,
+                      borderRadius: '10px',
+                      border: 'none',
+                      background: `linear-gradient(135deg, ${LOT_DETAIL_BLUE} 0%, #1e40af 100%)`,
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      boxShadow: '0 4px 14px rgba(15, 76, 129, 0.28)',
+                      fontFamily: LOT_DETAIL_FONT,
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -2890,6 +3248,32 @@ const SampleOutList = ({
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        .lot-detail-item-card {
+          border: 1px solid #e8ecf4;
+          border-radius: 16px;
+          background: #fff;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+          display: flex;
+          flex-direction: column;
+          transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+        .lot-detail-item-card:hover {
+          transform: translateY(-2px);
+          border-color: rgba(15, 76, 129, 0.22);
+          box-shadow: 0 8px 24px rgba(15, 76, 129, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+        }
+        .lot-detail-item-code:hover {
+          color: #1e40af !important;
+          text-decoration: underline;
+        }
+        .lot-detail-table-row {
+          border-top: 1px solid #f1f5f9;
+          transition: background 0.12s ease;
+        }
+        .lot-detail-table-row:hover {
+          background: #fafcff;
         }
         @media print {
           .no-print { display: none !important; }

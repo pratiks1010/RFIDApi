@@ -12,6 +12,7 @@ import {
   FaFileInvoice,
   FaInbox,
   FaCheckCircle,
+  FaExclamationCircle,
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
@@ -599,7 +600,44 @@ const SCAN_POPUP_THEME = {
   success: { bg: '#ecfdf5', border: '#6ee7b7', fg: '#047857', icon: '#059669' },
   info: { bg: '#eff6ff', border: '#93c5fd', fg: '#1d4ed8', icon: '#2563eb' },
   warning: { bg: '#fffbeb', border: '#fcd34d', fg: '#b45309', icon: '#d97706' },
-  error: { bg: '#fef2f2', border: '#fca5a5', fg: '#b91c1c', icon: '#dc2626' },
+  error: { bg: '#fef2f2', border: '#fecaca', fg: '#991b1b', icon: '#dc2626' },
+};
+
+const formatBlockedScanMessage = (rawMessage, itemCode, checkData) => {
+  const msg = String(rawMessage || '').trim();
+  const code = String(itemCode || '').trim();
+  const lotNo = String(
+    checkData?.lotNumber ??
+      checkData?.LotNumber ??
+      checkData?.sampleOutNo ??
+      checkData?.SampleOutNo ??
+      ''
+  ).trim();
+  const lotMatch = msg.match(/in lot\s+([^\s.,]+)/i);
+  const detectedLot = lotMatch?.[1] || lotNo;
+  const itemLabel = code || 'This item';
+
+  if (/waiting for employee acceptance/i.test(msg) || /return after accept/i.test(msg)) {
+    const lotPart = detectedLot ? ` in lot ${detectedLot}` : '';
+    return `${itemLabel} is already part of a sample out${lotPart} and is waiting for the employee to accept it. You can scan this item again only after the employee accepts the lot.`;
+  }
+
+  if (/already.*sample out/i.test(msg) || /already.*out/i.test(msg)) {
+    return msg;
+  }
+
+  return (
+    msg ||
+    `${itemLabel} cannot be scanned right now. Please check its sample out status and try again.`
+  );
+};
+
+const scanReviewModalTone = (sections) => {
+  const types = (sections || []).map((s) => s.type);
+  if (types.includes('error')) return 'error';
+  if (types.includes('warning')) return 'warning';
+  if (types.includes('success')) return 'success';
+  return 'info';
 };
 
 const summarizeScanRows = (rows) => {
@@ -613,6 +651,37 @@ const summarizeScanRows = (rows) => {
     if (dt && !Number.isNaN(dt.getTime()) && (!latest || dt > latest)) latest = dt;
   });
   return { gross, pieces, latest };
+};
+
+const pickScannerDisplayName = (src) => {
+  if (!src || typeof src !== 'object') return '';
+  const firstLast = src.FirstName
+    ? `${src.FirstName}${src.LastName ? ` ${src.LastName}` : ''}`.trim()
+    : '';
+  return String(
+    src.Username ??
+      src.username ??
+      src.LoginName ??
+      src.loginName ??
+      src.UserName ??
+      src.userName ??
+      src.EmployeeName ??
+      src.employeeName ??
+      firstLast ??
+      src.Name ??
+      src.name ??
+      ''
+  ).trim();
+};
+
+const resolveScannerDisplayName = (userInfo) => {
+  const fromState = pickScannerDisplayName(userInfo);
+  if (fromState) return fromState;
+  try {
+    return pickScannerDisplayName(JSON.parse(localStorage.getItem('userInfo') || '{}'));
+  } catch {
+    return '';
+  }
 };
 
 const SampleOut = () => {
@@ -746,6 +815,17 @@ const SampleOut = () => {
     String(row?.product_id ?? row?.ProductName ?? row?.Product ?? '').trim() || '—';
   const rowDesignOrDash = (row) =>
     String(row?.design_id ?? row?.DesignName ?? row?.Design ?? '').trim() || '—';
+  const currentScannerName = useMemo(() => resolveScannerDisplayName(userInfo), [userInfo]);
+  const rowScannedByUser = (row) => {
+    const stored = String(
+      row?.__scannedByUser ?? row?.ScannedByUser ?? row?.scannedByUser ?? ''
+    ).trim();
+    return stored || currentScannerName || resolveScannerDisplayName(userInfo);
+  };
+  const stampScannedByUser = (item) => ({
+    ...item,
+    __scannedByUser: String(item?.__scannedByUser ?? '').trim() || currentScannerName || '',
+  });
   const rowGrossWtOrZero = (row) => String(row?.grosswt ?? row?.GrossWt ?? row?.GrossWeight ?? row?.TWt ?? '0.000');
   const rowNetWtOrZero = (row) => String(row?.netwt ?? row?.NetWt ?? row?.NetWeight ?? row?.NtWt ?? '0.000');
   const rowPurityOrZero = (row) => {
@@ -1684,7 +1764,7 @@ const formatScannedTime = (date) => {
         duplicate = true;
         return prev;
       }
-      return [...prev, productData];
+      return [...prev, stampScannedByUser(productData)];
     });
 
     if (duplicate) {
@@ -1695,13 +1775,14 @@ const formatScannedTime = (date) => {
         message: 'Already in Sample Out list.',
       };
     }
+    const stamped = stampScannedByUser(productData);
     return {
       ok: true,
       level: 'success',
-      itemCode: productData.Itemcode || productData.ItemCode || '—',
-      rfid: productData.RFIDNumber || '—',
+      itemCode: stamped.Itemcode || stamped.ItemCode || '—',
+      rfid: stamped.RFIDNumber || '—',
       message: 'Queued for Sample Out.',
-      productData,
+      productData: stamped,
     };
   };
 
@@ -1743,7 +1824,7 @@ const formatScannedTime = (date) => {
     const itemCode = rowItemCodeFromRaw(item) || item.Itemcode || item.ItemCode || '—';
     const key = rowDedupKey(item);
     let duplicate = false;
-    const productData = enrichItemFromCheckStatus(item, checkData);
+    const productData = stampScannedByUser(enrichItemFromCheckStatus(item, checkData));
     Object.assign(productData, {
       scanSource: item.scanSource || source,
       __scanAction: 'SampleInPending',
@@ -1880,8 +1961,15 @@ const formatScannedTime = (date) => {
       }
 
       if (scanAction === 'Blocked') {
-        const r = fail('warning', statusMsg || 'This product cannot be scanned right now.');
-        if (!silent) openScanReviewModal({ title: 'Scan blocked', sections: [{ type: 'warning', heading: 'Blocked', rows: [r] }] });
+        const friendlyMsg = formatBlockedScanMessage(statusMsg, itemCode, checkData);
+        const r = fail('error', friendlyMsg);
+        if (!silent) {
+          openScanReviewModal({
+            title: 'Cannot Scan Item',
+            subtitle: 'This item is not available for scanning at the moment.',
+            sections: [{ type: 'error', heading: 'Scan Not Allowed', rows: [r] }],
+          });
+        }
         return r;
       }
 
@@ -1954,9 +2042,11 @@ const formatScannedTime = (date) => {
       const next = [...prev];
 
       items.forEach((raw) => {
-        const productData = raw.__scanAction
-          ? raw
-          : buildProductDataFromRaw(raw, { scanSource: source, __scanAction: 'SampleOut' });
+        const productData = stampScannedByUser(
+          raw.__scanAction
+            ? raw
+            : buildProductDataFromRaw(raw, { scanSource: source, __scanAction: 'SampleOut' })
+        );
         const key = rowDedupKey(productData);
         if (!key || existing.has(key)) {
           skipped += 1;
@@ -2683,14 +2773,16 @@ const formatScannedTime = (date) => {
         .filter((item) => item.__scanAction !== 'SampleInPending')
         .concat(
           successes.map((s, idx) =>
-            buildProductDataFromRaw(
-              { ItemCode: s.itemCode, RFIDNumber: s.rfid },
-              {
-                __scanAction: 'SampleInDone',
-                __lotNumber: s.message,
-                __returnedOn: new Date().toISOString(),
-                id: Date.now() + idx,
-              }
+            stampScannedByUser(
+              buildProductDataFromRaw(
+                { ItemCode: s.itemCode, RFIDNumber: s.rfid },
+                {
+                  __scanAction: 'SampleInDone',
+                  __lotNumber: s.message,
+                  __returnedOn: new Date().toISOString(),
+                  id: Date.now() + idx,
+                }
+              )
             )
           )
         )
@@ -2853,6 +2945,34 @@ const formatScannedTime = (date) => {
         apiBody.assignedToUserName ?? apiBody.AssignedToUserName ?? ''
       ).trim();
 
+      const submittedRows = pendingSampleOutOnly(sampleOutItems);
+      const enrichedLineItems = lineItems.map((line, idx) => {
+        const code = String(line.ItemCode ?? line.Itemcode ?? '').trim().toLowerCase();
+        const stockId = line.LabelledStockId ?? line.labelledStockId;
+        const match =
+          submittedRows.find((item) => {
+            const itemCode = rowItemCode(item).toLowerCase();
+            if (code && itemCode === code) return true;
+            const sid = item.LabelledStockId ?? item.fullItemData?.LabelledStockId ?? item.id;
+            return stockId != null && String(sid) === String(stockId);
+          }) ?? submittedRows[idx];
+        if (!match) return line;
+        return {
+          ...line,
+          ItemCode: line.ItemCode ?? rowItemCode(match),
+          DesignName:
+            match.design_id ||
+            match.DesignName ||
+            match.Design ||
+            match.fullItemData?.DesignName ||
+            match.fullItemData?.Design ||
+            line.DesignName ||
+            line.Design,
+          GrossWt: rowGrossWtOrZero(match),
+          NetWt: rowNetWtOrZero(match),
+        };
+      });
+
       setSuccessData({
         apiMessage: apiSuccessMsg,
         sampleOutNo: createdLotNo || '—',
@@ -2861,7 +2981,7 @@ const formatScannedTime = (date) => {
         assignedToUserName: assignName,
         lotStatus: apiBody.lotStatus ?? apiBody.LotStatus ?? '',
         header,
-        lineItems,
+        lineItems: enrichedLineItems,
       });
       setSampleOutNumber(createdLotNo || sampleOutNumber);
       setShowSuccessModal(true);
@@ -2967,6 +3087,10 @@ const formatScannedTime = (date) => {
       (sum, item) => sum + (parseFloat(rowGrossWtOrZero(item)) || 0),
       0
     );
+    const totalNetWt = filteredTableItems.reduce(
+      (sum, item) => sum + (parseFloat(rowNetWtOrZero(item)) || 0),
+      0
+    );
     const totalPiecesScanned = filteredTableItems.reduce((sum, item) => sum + rowPieces(item), 0);
     let latestScanDateTime = null;
     filteredTableItems.forEach((item) => {
@@ -2974,7 +3098,7 @@ const formatScannedTime = (date) => {
       if (!dt) return;
       if (!latestScanDateTime || dt.getTime() > latestScanDateTime.getTime()) latestScanDateTime = dt;
     });
-    return { totalProducts, totalGrossWt, totalPiecesScanned, latestScanDateTime };
+    return { totalProducts, totalGrossWt, totalNetWt, totalPiecesScanned, latestScanDateTime };
   }, [filteredTableItems]);
 
   const pendingOutRows = useMemo(() => pendingSampleOutOnly(sampleOutItems), [sampleOutItems]);
@@ -4007,7 +4131,7 @@ const formatScannedTime = (date) => {
                     }}
                   >
                     {loading ? <FaSpinner className="fa-spin" /> : <FaFileInvoice />}
-                    <span>Sample Out ({pendingOutRows.length})</span>
+                    <span>Sample Out</span>
                   </button>
                   <button
                     type="button"
@@ -4037,10 +4161,7 @@ const formatScannedTime = (date) => {
                     }}
                   >
                     {loading ? <FaSpinner className="fa-spin" /> : <FaInbox />}
-                    <span>
-                      Sample In ({pendingInRows.length})
-                      {sampleInBatchLabel ? ` · ${sampleInBatchLabel}` : ''}
-                    </span>
+                    <span>Sample In</span>
                   </button>
                 </div>
                 </div>
@@ -4120,13 +4241,12 @@ const formatScannedTime = (date) => {
               display: 'flex',
               flexWrap: 'nowrap',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
+              gap: 8,
               borderBottom: '1px solid #f1f5f9',
               overflowX: 'auto',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: isSmallScreen ? 15 : 17, fontWeight: 700, color: '#334155', flexWrap: 'nowrap', minWidth: 'max-content' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: isSmallScreen ? 15 : 17, fontWeight: 700, color: '#334155', flexWrap: 'nowrap', minWidth: 'max-content', flex: '1 1 auto' }}>
                 <span style={{ padding: '5px 10px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
                   Scanned Date & Time:{' '}
                   <strong style={{ color: '#047857', fontWeight: 800, fontSize: isSmallScreen ? 16 : 18 }}>
@@ -4142,9 +4262,16 @@ const formatScannedTime = (date) => {
                 </span>
                 <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
                 <span style={{ padding: '5px 10px', borderRadius: 8, background: '#f8fafc' }}>
-                  Total Gross Wt:{' '}
+                  T Gr.Wt:{' '}
                   <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: isSmallScreen ? 18 : 22 }}>
                     {itemsSummary.totalGrossWt.toFixed(3)}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '5px 10px', borderRadius: 8, background: '#f8fafc' }}>
+                  T Net.Wt:{' '}
+                  <strong style={{ color: '#0f172a', fontWeight: 800, fontSize: isSmallScreen ? 18 : 22 }}>
+                    {itemsSummary.totalNetWt.toFixed(3)}
                   </strong>
                 </span>
                 <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
@@ -4154,31 +4281,6 @@ const formatScannedTime = (date) => {
                     {itemsSummary.totalPiecesScanned}
                   </strong>
                 </span>
-            </div>
-            <div style={{ position: 'relative', flex: '0 0 280px', width: 280, minWidth: 220 }}>
-              <FaSearch
-                style={{
-                  position: 'absolute',
-                  left: 8,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#94a3b8',
-                  fontSize: 11,
-                  pointerEvents: 'none',
-                }}
-              />
-              <input
-                id="sample-out-table-filter"
-                type="search"
-                value={tableSearch}
-                onChange={(e) => {
-                  setTableSearch(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Search RFID / Item / Design…"
-                aria-label="Filter sample out items"
-                style={{ ...compactInp, paddingLeft: 26, width: '100%' }}
-              />
             </div>
           </div>
 
@@ -4224,12 +4326,37 @@ const formatScannedTime = (date) => {
                 marginBottom: 10,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'flex-end',
+                justifyContent: 'space-between',
                 gap: 10,
                 flexWrap: 'wrap',
               }}
             >
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200, maxWidth: 320 }}>
+                <FaSearch
+                  style={{
+                    position: 'absolute',
+                    left: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#94a3b8',
+                    fontSize: 11,
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  id="sample-out-table-filter"
+                  type="search"
+                  value={tableSearch}
+                  onChange={(e) => {
+                    setTableSearch(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="Search RFID / Item / Design…"
+                  aria-label="Filter sample out items"
+                  style={{ ...compactInp, paddingLeft: 26, width: '100%' }}
+                />
+              </div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -4297,6 +4424,7 @@ const formatScannedTime = (date) => {
                     const isSampleIn = isSampleInPending || isSampleInDone;
                     const dot = <span style={{ color: '#cbd5e1', margin: '0 5px' }}>·</span>;
                     const scannedAt = rowScannedDateTime(item);
+                    const scannedByUser = rowScannedByUser(item);
                     return (
                       <article
                         key={item.id ?? `${serial}-${rowItemCode(item)}`}
@@ -4314,14 +4442,64 @@ const formatScannedTime = (date) => {
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'flex-end',
+                            justifyContent: 'space-between',
                             gap: 8,
                             padding: '8px 10px',
                             borderBottom: '1px solid #f1f5f9',
                             background: '#fafafa',
+                            minWidth: 0,
                           }}
+                          title={[
+                            scannedAt ? `Scanned at ${formatScannedTime(scannedAt)}` : '',
+                            scannedByUser ? `By ${scannedByUser}` : '',
+                            scanSource === 'tray' ? 'Tray' : 'Desktop',
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          {scannedAt ? (
+                            <div
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: '#64748b',
+                                fontVariantNumeric: 'tabular-nums',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <span style={{ color: '#94a3b8' }}>Scanned at:</span>{' '}
+                              {formatScannedTime(scannedAt)}
+                            </div>
+                          ) : (
+                            <span />
+                          )}
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'flex-end',
+                              gap: 6,
+                              minWidth: 0,
+                              flex: '1 1 auto',
+                              overflow: 'hidden',
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: '#64748b',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {scannedByUser ? (
+                              <strong
+                                style={{
+                                  color: '#0f172a',
+                                  fontWeight: 800,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {scannedByUser}
+                              </strong>
+                            ) : null}
                             {scanSource === 'tray' ? (
                               <span
                                 style={{
@@ -4333,6 +4511,7 @@ const formatScannedTime = (date) => {
                                   borderRadius: 4,
                                   textTransform: 'uppercase',
                                   letterSpacing: '0.03em',
+                                  flexShrink: 0,
                                 }}
                               >
                                 Tray
@@ -4348,12 +4527,20 @@ const formatScannedTime = (date) => {
                                   borderRadius: 4,
                                   textTransform: 'uppercase',
                                   letterSpacing: '0.03em',
+                                  flexShrink: 0,
                                 }}
                               >
                                 Desktop
                               </span>
                             )}
-                            <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: '#94a3b8',
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
                               #{serial}
                               {isSampleIn && item.__lotNumber ? ` · ${item.__lotNumber}` : ''}
                             </span>
@@ -4417,52 +4604,31 @@ const formatScannedTime = (date) => {
                               whiteSpace: 'nowrap',
                               marginBottom: 4,
                             }}
-                            title={`${rfid} | ${itemCode} | ${design} | ${purity}`}
+                            title={`${rfid} | ${itemCode} | ${design}`}
                           >
                             <span style={{ color: '#475569' }}>RFID:</span> {rfid}
                             {dot}
                             <span style={{ color: '#475569' }}>Item:</span> {itemCode}
                             {dot}
                             <span style={{ color: '#475569' }}>Design:</span> {design}
-                            {dot}
-                            <span style={{ color: '#475569' }}>Purity:</span> {purity}
                           </div>
                           <div
                             style={{
                               fontWeight: 800,
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              alignItems: 'center',
-                              gap: 6,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
                             }}
-                            title={`Gross ${rowGrossWtOrZero(item)} · Net ${rowNetWtOrZero(item)} · Pieces ${pieces}`}
+                            title={`${purity} · Gr. Wt ${rowGrossWtOrZero(item)} · Net Wt ${rowNetWtOrZero(item)} · Pieces ${pieces}`}
                           >
-                            <span style={{ color: '#475569' }}>
-                              <strong>Gross Wt:</strong> {rowGrossWtOrZero(item)}
-                            </span>
-                            <span style={{ color: '#cbd5e1' }}>·</span>
-                            <span style={{ color: '#475569' }}>
-                              <strong>Net Wt:</strong> {rowNetWtOrZero(item)}
-                            </span>
-                            <span style={{ color: '#cbd5e1' }}>·</span>
-                            <span style={{ color: '#475569' }}>
-                              <strong>Pieces:</strong> {pieces}
-                            </span>
+                            <span style={{ color: '#475569' }}>Purity:</span> {purity}
+                            {dot}
+                            <span style={{ color: '#475569' }}>Gr. Wt:</span> {rowGrossWtOrZero(item)}
+                            {dot}
+                            <span style={{ color: '#475569' }}>Net Wt:</span> {rowNetWtOrZero(item)}
+                            {dot}
+                            <span style={{ color: '#475569' }}>Pieces:</span> {pieces}
                           </div>
-                          {scannedAt ? (
-                            <div
-                              style={{
-                                marginTop: 6,
-                                fontSize: 10,
-                                fontWeight: 700,
-                                color: '#64748b',
-                                fontVariantNumeric: 'tabular-nums',
-                              }}
-                            >
-                              <span style={{ color: '#94a3b8' }}>Scanned at:</span>{' '}
-                              {formatScannedTime(scannedAt)}
-                            </div>
-                          ) : null}
                         </div>
                       </article>
                     );
@@ -4633,15 +4799,28 @@ const formatScannedTime = (date) => {
                     fontWeight: 600,
                     fontSize: isSmallScreen ? '18px' : '20px',
                     color: '#0f172a',
-                    margin: '0 0 16px 0',
+                    margin: '0 0 8px 0',
                     lineHeight: 1.3
                   }}
                 >
-                  Create this sample out?
+                  Confirm Sample Out
                 </h2>
-                <p style={{ margin: '0 0 14px 0', fontSize: '13px', color: '#64748b' }}>
-                  Do you want to create this sample out? Please review the details below before confirming.
+                <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b', lineHeight: 1.55 }}>
+                  Review the transaction details below. Once confirmed, these items will be recorded as
+                  sample out.
                 </p>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: '#64748b',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    marginBottom: 8,
+                  }}
+                >
+                  Transaction Summary
+                </div>
                 <div
                   style={{
                     background: '#f8fafc',
@@ -4660,16 +4839,16 @@ const formatScannedTime = (date) => {
                   </div>
                   {sampleOutNumber ? (
                     <div>
-                      <strong style={{ color: '#475569' }}>Sample Out NO:</strong> {sampleOutNumber}
+                      <strong style={{ color: '#475569' }}>Sample Out No.:</strong> {sampleOutNumber}
                     </div>
                   ) : null}
                   <div>
                     <strong style={{ color: '#475569' }}>Items:</strong> {pendingOutRows.length} ·{' '}
                     <strong style={{ color: '#475569' }}>Pieces:</strong> {pendingOutSummary.pieces} ·{' '}
-                    <strong style={{ color: '#475569' }}>Gross wt:</strong> {pendingOutSummary.gross.toFixed(3)}
+                    <strong style={{ color: '#475569' }}>Gross Weight:</strong> {pendingOutSummary.gross.toFixed(3)}
                   </div>
                   <div>
-                    <strong style={{ color: '#475569' }}>Scanned:</strong>{' '}
+                    <strong style={{ color: '#475569' }}>Last Scanned:</strong>{' '}
                     {pendingOutSummary.latest
                       ? pendingOutSummary.latest.toLocaleString(undefined, {
                           dateStyle: 'medium',
@@ -4678,14 +4857,26 @@ const formatScannedTime = (date) => {
                       : '—'}
                   </div>
                   <div>
-                    <strong style={{ color: '#475569' }}>Out date:</strong> {sampleOutDate || '—'} ·{' '}
-                    <strong style={{ color: '#475569' }}>Return:</strong> {returnDate || sampleOutDate || '—'}
+                    <strong style={{ color: '#475569' }}>Issue Date:</strong> {sampleOutDate || '—'} ·{' '}
+                    <strong style={{ color: '#475569' }}>Return Date:</strong> {returnDate || sampleOutDate || '—'}
                   </div>
                   {description ? (
                     <div>
                       <strong style={{ color: '#475569' }}>Note:</strong> {description}
                     </div>
                   ) : null}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: '#64748b',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    marginBottom: 8,
+                  }}
+                >
+                  Items to Issue ({pendingOutRows.length})
                 </div>
                 <div
                   style={{
@@ -4701,9 +4892,9 @@ const formatScannedTime = (date) => {
                     <thead>
                       <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0 }}>
                         <th style={{ padding: '6px 8px', textAlign: 'left' }}>#</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>Item</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>Item Code</th>
                         <th style={{ padding: '6px 8px', textAlign: 'left' }}>RFID</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Gr wt</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Gross Wt</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -4719,7 +4910,7 @@ const formatScannedTime = (date) => {
                   </table>
                   {pendingOutRows.length > 200 ? (
                     <div style={{ padding: 8, color: '#64748b', fontSize: 10 }}>
-                      + {pendingOutRows.length - 200} more items not shown
+                      + {pendingOutRows.length - 200} more item(s) not shown in this list
                     </div>
                   ) : null}
                 </div>
@@ -4745,7 +4936,7 @@ const formatScannedTime = (date) => {
                       cursor: 'pointer'
                     }}
                   >
-                    Cancel
+                    Go Back
                   </button>
                   <button
                     type="button"
@@ -4764,7 +4955,7 @@ const formatScannedTime = (date) => {
                       boxShadow: '0 6px 14px rgba(20, 184, 166, 0.28)'
                     }}
                   >
-                    Confirm
+                    Confirm Sample Out
                   </button>
                 </div>
               </>
@@ -4811,10 +5002,10 @@ const formatScannedTime = (date) => {
                     color: '#0f172a'
                   }}
                 >
-                  Confirmed
+                  Sample Out Confirmed
                 </p>
                 <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#64748b' }}>
-                  Preparing your sample out…
+                  Saving the transaction, please wait…
                 </p>
               </div>
             ) : (
@@ -4858,10 +5049,10 @@ const formatScannedTime = (date) => {
                     color: '#0f172a'
                   }}
                 >
-                  Submitting sample out…
+                  Saving Sample Out…
                 </p>
                 <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#64748b' }}>
-                  Please wait — do not close this window
+                  Please wait — do not close this window until complete
                 </p>
               </div>
             )}
@@ -4869,21 +5060,28 @@ const formatScannedTime = (date) => {
         </div>
       )}
 
-      {scanReviewModal && (
+      {scanReviewModal && (() => {
+        const modalTone = scanReviewModalTone(scanReviewModal.sections);
+        const toneTheme = SCAN_POPUP_THEME[modalTone] || SCAN_POPUP_THEME.info;
+        const isErrorModal = modalTone === 'error';
+        return (
         <div
+          className="scan-review-overlay"
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(15, 23, 42, 0.55)',
+            background: isErrorModal ? 'rgba(127, 29, 29, 0.45)' : 'rgba(15, 23, 42, 0.55)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 10080,
             padding: 16,
+            animation: 'scanOverlayIn 0.25s ease-out',
           }}
           onClick={() => setScanReviewModal(null)}
         >
           <div
+            className={isErrorModal ? 'scan-review-dialog scan-review-dialog--error' : 'scan-review-dialog'}
             style={{
               background: '#fff',
               borderRadius: 14,
@@ -4893,26 +5091,77 @@ const formatScannedTime = (date) => {
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+              boxShadow: isErrorModal
+                ? '0 24px 48px rgba(220, 38, 38, 0.22)'
+                : '0 24px 48px rgba(0,0,0,0.2)',
+              border: isErrorModal ? `2px solid ${toneTheme.border}` : 'none',
+              animation: 'scanModalIn 0.32s cubic-bezier(0.34, 1.4, 0.64, 1)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '18px 20px 12px', borderBottom: '1px solid #e2e8f0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
-                    {scanReviewModal.title}
-                  </h2>
-                  {scanReviewModal.subtitle ? (
-                    <p style={{ margin: '6px 0 0', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                      {scanReviewModal.subtitle}
-                    </p>
+            <div
+              style={{
+                padding: '18px 20px 12px',
+                borderBottom: `1px solid ${isErrorModal ? '#fecaca' : '#e2e8f0'}`,
+                background: isErrorModal ? '#fef2f2' : '#fff',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
+                  {isErrorModal ? (
+                    <div
+                      className="scan-error-icon-pulse"
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        background: '#fee2e2',
+                        border: `2px solid ${toneTheme.border}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        animation: 'scanErrorIconIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                      }}
+                    >
+                      <FaExclamationCircle size={20} color={toneTheme.icon} />
+                    </div>
                   ) : null}
+                  <div style={{ minWidth: 0 }}>
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontSize: 18,
+                        fontWeight: 800,
+                        color: isErrorModal ? '#991b1b' : '#0f172a',
+                      }}
+                    >
+                      {scanReviewModal.title}
+                    </h2>
+                    {scanReviewModal.subtitle ? (
+                      <p
+                        style={{
+                          margin: '6px 0 0',
+                          fontSize: 12,
+                          color: isErrorModal ? '#b91c1c' : '#64748b',
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        {scanReviewModal.subtitle}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setScanReviewModal(null)}
-                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}
+                  style={{
+                    border: 'none',
+                    background: 'none',
+                    cursor: 'pointer',
+                    color: isErrorModal ? '#b91c1c' : '#64748b',
+                    flexShrink: 0,
+                  }}
                 >
                   <FaTimes size={18} />
                 </button>
@@ -4923,6 +5172,7 @@ const formatScannedTime = (date) => {
                 const theme = SCAN_POPUP_THEME[section.type] || SCAN_POPUP_THEME.info;
                 const rows = section.rows || [];
                 const cap = 150;
+                const isErrorSection = section.type === 'error';
                 return (
                   <div
                     key={`scan-sec-${si}`}
@@ -4932,6 +5182,7 @@ const formatScannedTime = (date) => {
                       borderRadius: 10,
                       overflow: 'hidden',
                       background: theme.bg,
+                      animation: isErrorSection ? 'scanErrorShake 0.55s ease 0.15s' : undefined,
                     }}
                   >
                     <div
@@ -4941,25 +5192,32 @@ const formatScannedTime = (date) => {
                         fontWeight: 800,
                         color: theme.fg,
                         borderBottom: `1px solid ${theme.border}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
+                      {isErrorSection ? <FaExclamationCircle size={13} color={theme.icon} /> : null}
                       {section.heading}
                     </div>
-                    <ul style={{ margin: 0, padding: '8px 12px', listStyle: 'none', fontSize: 11 }}>
+                    <ul style={{ margin: 0, padding: '10px 12px', listStyle: 'none', fontSize: 12 }}>
                       {rows.slice(0, cap).map((row, ri) => (
                         <li
                           key={`${si}-${ri}-${row.itemCode}`}
                           style={{
-                            padding: '6px 0',
+                            padding: '8px 0',
                             borderBottom: ri < Math.min(rows.length, cap) - 1 ? `1px solid ${theme.border}` : 'none',
                             color: theme.fg,
+                            lineHeight: 1.55,
                           }}
                         >
-                          <strong>{row.itemCode}</strong>
-                          {row.rfid && row.rfid !== '—' ? (
-                            <span style={{ opacity: 0.85 }}> · RFID {row.rfid}</span>
-                          ) : null}
-                          <div style={{ marginTop: 2, opacity: 0.9 }}>{row.message}</div>
+                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                            {row.itemCode}
+                            {row.rfid && row.rfid !== '—' ? (
+                              <span style={{ fontWeight: 600, opacity: 0.88 }}> · RFID {row.rfid}</span>
+                            ) : null}
+                          </div>
+                          <div style={{ opacity: 0.95 }}>{row.message}</div>
                         </li>
                       ))}
                       {rows.length > cap ? (
@@ -4972,26 +5230,36 @@ const formatScannedTime = (date) => {
                 );
               })}
             </div>
-            <div style={{ padding: '12px 16px', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+            <div
+              style={{
+                padding: '12px 16px',
+                borderTop: `1px solid ${isErrorModal ? '#fecaca' : '#e2e8f0'}`,
+                textAlign: 'right',
+                background: isErrorModal ? '#fffbfb' : '#fff',
+              }}
+            >
               <button
                 type="button"
                 onClick={() => setScanReviewModal(null)}
                 style={{
-                  padding: '10px 18px',
+                  padding: '10px 20px',
                   fontSize: 13,
                   fontWeight: 700,
                   borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: '#fff',
+                  border: isErrorModal ? '1px solid #dc2626' : '1px solid #cbd5e1',
+                  background: isErrorModal ? '#dc2626' : '#fff',
+                  color: isErrorModal ? '#fff' : '#0f172a',
                   cursor: 'pointer',
+                  boxShadow: isErrorModal ? '0 4px 12px rgba(220, 38, 38, 0.28)' : 'none',
                 }}
               >
-                OK
+                {isErrorModal ? 'Got It' : 'OK'}
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {showConfirmSampleIn && (
         <div
@@ -5233,15 +5501,16 @@ const formatScannedTime = (date) => {
               role="dialog"
               aria-labelledby="sample-out-success-title"
               aria-modal="true"
+              className="sample-out-success-modal"
               style={{
                 background: '#ffffff',
-                borderRadius: '14px',
-                padding: isSmallScreen ? '18px' : '22px',
-                maxWidth: 'min(92vw, 440px)',
+                borderRadius: '16px',
+                padding: isSmallScreen ? '18px' : '24px',
+                maxWidth: isSmallScreen ? 'min(94vw, 100%)' : 'min(94vw, 580px)',
                 width: '100%',
-                maxHeight: 'min(90vh, 640px)',
+                maxHeight: 'min(90vh, 680px)',
                 overflowY: 'auto',
-                boxShadow: '0 24px 48px -12px rgba(15, 23, 42, 0.22)',
+                boxShadow: '0 28px 56px -16px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(15, 23, 42, 0.04)',
                 position: 'relative',
                 animation: 'fadeIn 0.25s ease-out',
               }}
@@ -5381,60 +5650,65 @@ const formatScannedTime = (date) => {
               ) : null}
 
               {successData.lineItems?.length > 0 ? (
-                <div style={{ marginBottom: '16px' }}>
+                <div style={{ marginBottom: '18px' }}>
                   <div
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      marginBottom: '6px',
+                      marginBottom: '8px',
                     }}
                   >
-                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       Items ({successData.lineItems.length})
                     </span>
                   </div>
                   <div
+                    className="sample-out-success-items-scroll"
                     style={{
                       border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
+                      borderRadius: '12px',
                       overflow: 'hidden',
-                      maxHeight: '168px',
+                      maxHeight: '220px',
                       overflowY: 'auto',
+                      background: '#fafbfc',
                     }}
                   >
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <table className="sample-out-success-items-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                       <thead>
-                        <tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left', position: 'sticky', top: 0 }}>
-                          <th style={{ padding: '7px 10px', fontWeight: 700 }}>Code</th>
-                          <th style={{ padding: '7px 10px', fontWeight: 700 }}>Stock</th>
-                          <th style={{ padding: '7px 10px', fontWeight: 700 }}>Status</th>
+                        <tr>
+                          <th>Design</th>
+                          <th>Item code</th>
+                          <th style={{ textAlign: 'right' }}>Gr Wt</th>
+                          <th style={{ textAlign: 'right' }}>Nwt</th>
                         </tr>
                       </thead>
                       <tbody>
                         {successData.lineItems.map((row, idx) => {
-                          const itemStatus = formatSampleLotStatusLabel(row.ItemStatus ?? row.itemStatus) || '—';
-                          const itemBadge = getSampleOutStatusBadgeStyle(row.ItemStatus ?? row.itemStatus);
+                          const design =
+                            String(row.DesignName ?? row.Design ?? row.designName ?? '').trim() || '—';
+                          const itemCode = String(row.ItemCode ?? row.Itemcode ?? '').trim() || '—';
+                          const grossWt = (() => {
+                            const n = parseFloat(row.GrossWt ?? row.GrossWeight ?? row.grosswt ?? row.TWt);
+                            return Number.isFinite(n) ? n.toFixed(3) : '—';
+                          })();
+                          const netWt = (() => {
+                            const n = parseFloat(row.NetWt ?? row.NetWeight ?? row.netwt ?? row.NtWt);
+                            return Number.isFinite(n) ? n.toFixed(3) : '—';
+                          })();
                           return (
-                            <tr key={row.Id ?? idx} style={{ borderTop: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '7px 10px', fontWeight: 600, color: '#0f172a' }}>{row.ItemCode ?? '—'}</td>
-                              <td style={{ padding: '7px 10px', color: '#475569', fontVariantNumeric: 'tabular-nums' }}>
-                                {row.LabelledStockId ?? '—'}
+                            <tr key={row.Id ?? `${itemCode}-${idx}`}>
+                              <td style={{ color: '#475569', maxWidth: 120 }} title={design}>
+                                {design}
                               </td>
-                              <td style={{ padding: '7px 10px' }}>
-                                <span
-                                  style={{
-                                    fontSize: '10px',
-                                    fontWeight: 700,
-                                    padding: '2px 8px',
-                                    borderRadius: '999px',
-                                    background: itemBadge.bg,
-                                    border: `1px solid ${itemBadge.border}`,
-                                    color: itemBadge.color,
-                                  }}
-                                >
-                                  {itemStatus}
-                                </span>
+                              <td style={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                                {itemCode}
+                              </td>
+                              <td style={{ textAlign: 'right', color: '#334155', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                {grossWt}
+                              </td>
+                              <td style={{ textAlign: 'right', color: '#334155', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                {netWt}
                               </td>
                             </tr>
                           );
@@ -5480,6 +5754,37 @@ const formatScannedTime = (date) => {
       />
 
       <style>{`
+        .sample-out-success-items-table thead tr {
+          background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+          color: #64748b;
+          text-align: left;
+          position: sticky;
+          top: 0;
+          z-index: 1;
+        }
+        .sample-out-success-items-table th {
+          padding: 9px 12px;
+          font-weight: 700;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .sample-out-success-items-table td {
+          padding: 9px 12px;
+          border-top: 1px solid #f1f5f9;
+          background: #fff;
+        }
+        .sample-out-success-items-table tbody tr:hover td {
+          background: #f8fafc;
+        }
+        .sample-out-success-items-scroll::-webkit-scrollbar {
+          width: 6px;
+        }
+        .sample-out-success-items-scroll::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 999px;
+        }
         @keyframes fadeIn {
           from {
             opacity: 0;
@@ -5488,6 +5793,38 @@ const formatScannedTime = (date) => {
           to {
             opacity: 1;
             transform: scale(1);
+          }
+        }
+        @keyframes scanOverlayIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scanModalIn {
+          from {
+            opacity: 0;
+            transform: scale(0.88) translateY(12px);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+        }
+        @keyframes scanErrorShake {
+          0%, 100% { transform: translateX(0); }
+          18% { transform: translateX(-7px); }
+          36% { transform: translateX(6px); }
+          54% { transform: translateX(-4px); }
+          72% { transform: translateX(3px); }
+          90% { transform: translateX(-1px); }
+        }
+        @keyframes scanErrorIconIn {
+          0% {
+            transform: scale(0);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 1;
           }
         }
         @keyframes confirmTickCircleIn {

@@ -11,8 +11,9 @@ import {
   TRAY_POWER_PRESET_OPTIONS
 } from '../../services/trayReaderConfig';
 
-const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1000;
-const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 1000;
+const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1200;
+const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 1200;
+const TRAY_MODAL_FADE_MS = 220;
 
 /** Matches `SidebarLayout` sidebar-glass gradient + accent */
 const SIDEBAR_GRADIENT = 'linear-gradient(180deg, #042954 0%, #032547 45%, #021f3d 100%)';
@@ -113,6 +114,7 @@ const TrayScanModal = ({
   subtitle = 'Use the RFID tray reader in the desktop app: connect COM ports, start scanning, then load tags into this screen.',
   loadButtonLabel = 'Load data',
   compactLayout = false,
+  closeBeforeFetch = false,
 }) => {
   const initialReaderConfig = useMemo(() => getTrayReaderConfig(), []);
   const [comPrimary, setComPrimary] = useState(initialReaderConfig.comPrimary);
@@ -128,6 +130,8 @@ const TrayScanModal = ({
   const [resolvingCodes, setResolvingCodes] = useState(false);
   const [resolveError, setResolveError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [renderOpen, setRenderOpen] = useState(open);
+  const [isClosing, setIsClosing] = useState(false);
 
   const hasBridge = typeof window !== 'undefined' && !!window.electronAPI?.rfidBridgeCommand;
   const pageSize = compactLayout ? 20 : 10;
@@ -175,6 +179,21 @@ const TrayScanModal = ({
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    if (open) {
+      setRenderOpen(true);
+      setIsClosing(false);
+      return undefined;
+    }
+    if (!renderOpen) return undefined;
+    setIsClosing(true);
+    const timer = setTimeout(() => {
+      setRenderOpen(false);
+      setIsClosing(false);
+    }, TRAY_MODAL_FADE_MS);
+    return () => clearTimeout(timer);
+  }, [open, renderOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -257,16 +276,18 @@ const TrayScanModal = ({
         epc: String(epc || '').trim().toUpperCase(),
         rfidCode: String(rfidCodeMap[epc] || '').trim(),
       }));
+      if (closeBeforeFetch) {
+        await closeModal({ skipFade: true });
+      }
       const result = await onFetchData(scanRows);
       const normalizedResult = typeof result === 'object' && result !== null
         ? result
         : { success: result !== false };
       const isSuccess = normalizedResult.success !== false;
-      if (!isSuccess) {
+      if (!isSuccess && !closeBeforeFetch) {
         setFetchMessage(normalizedResult.message || 'No product data found for scanned tray tags.');
       }
-      const shouldClose = isSuccess;
-      if (shouldClose) {
+      if (!closeBeforeFetch && isSuccess) {
         await closeModal();
       }
     } finally {
@@ -313,11 +334,17 @@ const TrayScanModal = ({
     }
   };
 
-  const closeModal = async () => {
+  const closeModal = async ({ skipFade = false } = {}) => {
     try {
       if (hasBridge) await run('stop');
     } catch (_) {}
     setIsScanning(false);
+    if (!skipFade && renderOpen) {
+      setIsClosing(true);
+      await new Promise((resolve) => setTimeout(resolve, TRAY_MODAL_FADE_MS));
+    }
+    setRenderOpen(false);
+    setIsClosing(false);
     onClose?.();
   };
 
@@ -354,7 +381,7 @@ const TrayScanModal = ({
     return () => clearTimeout(idleTimer);
   }, [open, isScanning, tags, autoLoading]);
 
-  if (!open) return null;
+  if (!renderOpen) return null;
 
   const btnBase = { borderRadius: 10, fontWeight: 700, border: 'none', padding: '8px 13px' };
   const inputStyle = { borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13 };
@@ -370,9 +397,19 @@ const TrayScanModal = ({
         background: 'linear-gradient(145deg, rgba(2, 31, 61, 0.72) 0%, rgba(4, 41, 84, 0.55) 50%, rgba(2, 31, 61, 0.78) 100%)',
         backdropFilter: 'blur(10px)',
         zIndex: 10001,
+        opacity: isClosing ? 0 : 1,
+        transition: `opacity ${TRAY_MODAL_FADE_MS}ms ease`,
       }}
     >
-      <div className="modal-dialog modal-dialog-centered modal-xl" style={{ maxWidth: compactLayout ? 1040 : 1120 }}>
+      <div
+        className="modal-dialog modal-dialog-centered modal-xl"
+        style={{
+          maxWidth: compactLayout ? 1040 : 1120,
+          transform: isClosing ? 'translateY(10px) scale(0.985)' : 'translateY(0) scale(1)',
+          transition: `transform ${TRAY_MODAL_FADE_MS}ms ease, opacity ${TRAY_MODAL_FADE_MS}ms ease`,
+          opacity: isClosing ? 0 : 1,
+        }}
+      >
         <div
           className="modal-content border-0"
           style={{
@@ -380,8 +417,39 @@ const TrayScanModal = ({
             background: '#f1f5f9',
             boxShadow: '0 28px 70px rgba(2, 31, 61, 0.45), 0 0 0 1px rgba(251, 191, 36, 0.12)',
             overflow: 'hidden',
+            position: 'relative',
           }}
         >
+          {autoLoading && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 5,
+                background: 'rgba(248, 250, 252, 0.82)',
+                backdropFilter: 'blur(2px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  border: '3px solid #cbd5e1',
+                  borderTopColor: ACCENT_TEAL,
+                  animation: 'trayScanSpin 0.75s linear infinite',
+                }}
+              />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                {closeBeforeFetch ? 'Sending tags to grid…' : 'Loading scanned items…'}
+              </div>
+            </div>
+          )}
           <div
             className="modal-header border-0 flex-column align-items-stretch"
             style={{
@@ -608,6 +676,11 @@ const TrayScanModal = ({
           </div>
         </div>
       </div>
+      <style>{`
+        @keyframes trayScanSpin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 };

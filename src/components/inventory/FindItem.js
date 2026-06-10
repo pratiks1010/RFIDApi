@@ -12,6 +12,7 @@ import {
   FaGem,
 } from 'react-icons/fa';
 import GridItemImage from '../common/GridItemImage';
+import { getRrgoldApiBaseUrl, toRrgoldApiUrl } from '../../services/apiBaseConfig';
 import { getCheckScanStatusUrl, sampleAuthHeaders } from '../../services/rfidSampleApi';
 import { getClientCode } from '../../utils/authState';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
@@ -22,6 +23,80 @@ const pick = (obj, ...keys) => {
     if (v !== undefined && v !== null && String(v).trim() !== '') return v;
   }
   return '';
+};
+
+const absolutizeImagePath = (rawPath) => {
+  const path = String(rawPath || '').trim();
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path) || path.startsWith('blob:') || path.startsWith('data:')) return path;
+  const base = getRrgoldApiBaseUrl().replace(/\/$/, '');
+  return `${base}/${path.replace(/^\//, '')}`;
+};
+
+/** API image from Images CSV, Image1, imageurl — same as label stock list */
+const getItemImageUrl = (item) => {
+  if (!item) return '';
+  if (item.Images && typeof item.Images === 'string') {
+    const paths = item.Images.split(',').map((s) => s.trim()).filter(Boolean);
+    const lastPath = paths.length > 0 ? paths[paths.length - 1] : null;
+    if (lastPath) return absolutizeImagePath(lastPath);
+  }
+  const direct = pick(item, 'Image1', 'imageurl', 'ImageUrl', 'imageUrl', 'ImageURL');
+  return direct ? absolutizeImagePath(direct) : '';
+};
+
+const parseStockRows = (responseData) => {
+  if (!responseData) return [];
+  if (Array.isArray(responseData)) return responseData;
+  if (Array.isArray(responseData.data)) return responseData.data;
+  if (Array.isArray(responseData.Data)) return responseData.Data;
+  if (responseData.success && Array.isArray(responseData.data)) return responseData.data;
+  return [];
+};
+
+const fetchLabelledStockRow = async (clientCode, itemCode) => {
+  const labeledStockUrl = toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock');
+  const headers = sampleAuthHeaders();
+  const basePayload = {
+    ClientCode: clientCode,
+    CategoryId: 0,
+    ProductId: 0,
+    DesignId: 0,
+    PurityId: 0,
+    FromDate: null,
+    ToDate: null,
+    RFIDCode: '',
+    PageNumber: 1,
+    PageSize: 20,
+    BranchId: 0,
+    SearchQuery: itemCode,
+    ItemCode: itemCode,
+    ListType: 'ascending',
+    SortColumn: null,
+  };
+  const codeLower = String(itemCode).trim().toLowerCase();
+  for (const status of ['ApiActive', 'Active']) {
+    try {
+      const response = await axios.post(
+        labeledStockUrl,
+        { ...basePayload, Status: status },
+        { headers }
+      );
+      const rows = parseStockRows(response.data);
+      const match = rows.find(
+        (row) => String(pick(row, 'ItemCode', 'Itemcode', 'itemCode')).trim().toLowerCase() === codeLower
+      );
+      if (match) return match;
+    } catch {
+      /* try next status */
+    }
+  }
+  return null;
+};
+
+const mergeProductDetails = (scanProduct, stockRow) => {
+  if (!stockRow) return scanProduct || {};
+  return { ...stockRow, ...(scanProduct || {}) };
 };
 
 const normalizeScanAction = (raw) => {
@@ -149,7 +224,16 @@ const FindItem = () => {
         return;
       }
 
-      setResult({ raw: data, scanAction });
+      const scanProduct = data?.product ?? data?.Product ?? {};
+      let stockRow = null;
+      try {
+        stockRow = await fetchLabelledStockRow(clientCode, code);
+      } catch {
+        stockRow = null;
+      }
+      const mergedProduct = mergeProductDetails(scanProduct, stockRow);
+
+      setResult({ raw: data, scanAction, stockRow, mergedProduct });
     } catch (err) {
       const msg =
         err?.response?.data?.message ||
@@ -168,7 +252,8 @@ const FindItem = () => {
   };
 
   const data = result?.raw;
-  const product = data?.product ?? data?.Product ?? {};
+  const stockRow = result?.stockRow;
+  const product = result?.mergedProduct ?? data?.product ?? data?.Product ?? {};
   const lot = data?.activeLot ?? data?.ActiveLot ?? null;
   const scanAction = result?.scanAction ?? normalizeScanAction(data?.scanAction ?? data?.ScanAction);
   const scanPhase = pick(data, 'scanPhase', 'ScanPhase');
@@ -178,10 +263,18 @@ const FindItem = () => {
   const statusMessage = pick(data, 'message', 'Message') || '—';
 
   const productItemCode = pick(product, 'itemCode', 'ItemCode', 'Itemcode') || lastQuery || '—';
+  const imageItem = { ...stockRow, ...product };
+  const apiImageUrl = getItemImageUrl(imageItem);
   const lookupKeys = getItemImageLookupKeys({
-    ItemCode: productItemCode,
-    Itemcode: productItemCode,
+    ...imageItem,
+    ItemCode: productItemCode === '—' ? '' : productItemCode,
+    Itemcode: productItemCode === '—' ? '' : productItemCode,
+    RFIDCode: pick(imageItem, 'RFIDCode', 'RFIDNumber', 'rfidCode'),
+    DesignId: pick(imageItem, 'DesignId', 'design_id', 'DesignID'),
+    DesignName: pick(imageItem, 'designName', 'DesignName', 'Design'),
   });
+  const productTitle =
+    pick(product, 'productTitle', 'ProductTitle', 'productName', 'ProductName') || '—';
 
   const lotNumber = pick(lot, 'lotNumber', 'LotNumber') || '—';
   const lotStatus = pick(lot, 'lotStatus', 'LotStatus', 'status', 'Status');
@@ -356,28 +449,73 @@ const FindItem = () => {
               }}
             >
               <GridItemImage
-                src=""
+                src={apiImageUrl}
                 itemCode={productItemCode === '—' ? '' : productItemCode}
                 lookupKeys={lookupKeys}
-                alt={productItemCode}
+                alt={productTitle !== '—' ? productTitle : productItemCode}
                 eagerLoad
+                placeholder={
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 10,
+                      color: '#94a3b8',
+                      padding: 16,
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 14,
+                        background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <FaGem size={26} style={{ color: '#cbd5e1' }} />
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>No photo yet</div>
+                    <div style={{ fontSize: 11, lineHeight: 1.45, maxWidth: 200 }}>
+                      Uses stock image, local item folder, or design image if available.
+                    </div>
+                  </div>
+                }
                 wrapperStyle={{
                   width: '100%',
-                  height: 260,
-                  background: '#fafafa',
+                  height: 280,
+                  background: 'linear-gradient(180deg, #fafafa 0%, #f1f5f9 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: 12,
+                  padding: 14,
                   boxSizing: 'border-box',
                 }}
-                imgStyle={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                imgStyle={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  borderRadius: 8,
+                }}
               />
               <div style={{ padding: '12px 14px', borderTop: '1px solid #f1f5f9', textAlign: 'center' }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#0f4c81' }}>{productItemCode}</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                  {pick(product, 'productName', 'ProductName') || '—'}
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4, fontWeight: 600 }}>
+                  {productTitle}
                 </div>
+                {pick(imageItem, 'CategoryName', 'Category') ? (
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                    {pick(imageItem, 'CategoryName', 'Category')}
+                    {pick(imageItem, 'PurityName', 'Purity')
+                      ? ` · ${pick(imageItem, 'PurityName', 'Purity')}`
+                      : ''}
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -396,10 +534,13 @@ const FindItem = () => {
                   <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Item details</h2>
                 </div>
                 <InfoRow label="Item code" value={productItemCode} highlight />
-                <InfoRow label="Product" value={pick(product, 'productName', 'ProductName')} />
-                <InfoRow label="Category" value={pick(product, 'categoryName', 'CategoryName')} />
-                <InfoRow label="Design" value={pick(product, 'designName', 'DesignName')} />
-                <InfoRow label="Purity" value={pick(product, 'purityName', 'PurityName')} />
+                <InfoRow label="Product" value={productTitle} />
+                <InfoRow label="Category" value={pick(product, 'categoryName', 'CategoryName', 'Category')} />
+                <InfoRow label="Design" value={pick(product, 'designName', 'DesignName', 'Design')} />
+                <InfoRow label="Purity" value={pick(product, 'purityName', 'PurityName', 'Purity')} />
+                {pick(product, 'BoxName', 'boxName') ? (
+                  <InfoRow label="Box" value={pick(product, 'BoxName', 'boxName')} />
+                ) : null}
                 {grossWt ? <InfoRow label="Gross wt" value={grossWt} /> : null}
                 {netWt ? <InfoRow label="Net wt" value={netWt} /> : null}
                 {mrp ? <InfoRow label="MRP" value={mrp} /> : null}

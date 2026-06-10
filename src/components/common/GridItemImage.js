@@ -44,9 +44,11 @@ const GridItemImage = ({
   placeholder = defaultPlaceholder,
   /** When true, parent already resolved src — skip duplicate local lookup. */
   localResolved = false,
+  /** When true, resolve local images immediately (cards/modals above the fold). */
+  eagerLoad = false,
 }) => {
   const hostRef = useRef(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(Boolean(eagerLoad));
   const [hasError, setHasError] = useState(false);
   const [apiFailed, setApiFailed] = useState(false);
   const [localSrc, setLocalSrc] = useState('');
@@ -95,6 +97,11 @@ const GridItemImage = ({
   }, [displaySrc]);
 
   useEffect(() => {
+    if (eagerLoad) {
+      setIsVisible(true);
+      return undefined;
+    }
+
     if (!displaySrc && !codesToTry.length) {
       setIsVisible(false);
       return undefined;
@@ -124,7 +131,7 @@ const GridItemImage = ({
       observer.unobserve(node);
       observerRegistry.delete(node);
     };
-  }, [displaySrc, codesKey, codesToTry.length]);
+  }, [displaySrc, codesKey, codesToTry.length, eagerLoad]);
 
   const shouldRenderImage = Boolean(displaySrc) && isVisible && !hasError;
 
@@ -185,5 +192,6 @@ export default memo(GridItemImage, (prev, next) =>
   prev.wrapperStyle === next.wrapperStyle &&
   prev.imgStyle === next.imgStyle &&
   prev.placeholder === next.placeholder &&
-  prev.localResolved === next.localResolved
+  prev.localResolved === next.localResolved &&
+  prev.eagerLoad === next.eagerLoad
 );

@@ -1,23 +1,21 @@
-import { getRfidApiBaseUrl } from './authApiConfig';
-
-const base = () => getRfidApiBaseUrl();
+import { toSoniApiUrl } from './apiBaseConfig';
 
 export const rfidUserUrls = {
-  getAllSubUsers: () => `${base()}/api/RFIDUserManagement/GetAllSubUsers`,
-  createDashboardUser: () => `${base()}/api/RFIDUserManagement/CreateDashboardUser`,
-  updateSubUser: () => `${base()}/api/RFIDUserManagement/UpdateSubUser`,
-  deleteSubUser: () => `${base()}/api/RFIDUserManagement/DeleteSubUser`,
-  getAvailableModules: () => `${base()}/api/RFIDUserManagement/GetAvailableModules`,
-  updateModulePermissions: () => `${base()}/api/RFIDUserManagement/UpdateModulePermissions`,
-  toggleUserStatus: () => `${base()}/api/RFIDUserManagement/ToggleUserStatus`,
-  forceLogout: () => `${base()}/api/RFIDUserManagement/ForceLogout`,
+  getAllSubUsers: () => toSoniApiUrl('/api/RFIDUserManagement/GetAllSubUsers'),
+  createDashboardUser: () => toSoniApiUrl('/api/RFIDUserManagement/CreateDashboardUser'),
+  updateSubUser: () => toSoniApiUrl('/api/RFIDUserManagement/UpdateSubUser'),
+  deleteSubUser: () => toSoniApiUrl('/api/RFIDUserManagement/DeleteSubUser'),
+  getAvailableModules: () => toSoniApiUrl('/api/RFIDUserManagement/GetAvailableModules'),
+  updateModulePermissions: () => toSoniApiUrl('/api/RFIDUserManagement/UpdateModulePermissions'),
+  toggleUserStatus: () => toSoniApiUrl('/api/RFIDUserManagement/ToggleUserStatus'),
+  forceLogout: () => toSoniApiUrl('/api/RFIDUserManagement/ForceLogout'),
   getUserBranchAccess: (userId) =>
-    `${base()}/api/RFIDUserManagement/GetUserBranchAccess?userId=${encodeURIComponent(userId)}`,
-  assignBranches: () => `${base()}/api/RFIDUserManagement/AssignBranches`,
-  getEmployeesForSubUser: () => `${base()}/api/RFIDUserManagement/GetEmployeesForSubUser`,
-  convertEmployeeToSubUser: () => `${base()}/api/RFIDUserManagement/ConvertEmployeeToSubUser`,
-  linkSubUserToEmployee: () => `${base()}/api/RFIDUserManagement/LinkSubUserToEmployee`,
-  getMyRFIDPlan: () => `${base()}/api/ProductMaster/GetMyRFIDPlan`,
+    toSoniApiUrl(`/api/RFIDUserManagement/GetUserBranchAccess?userId=${encodeURIComponent(userId)}`),
+  assignBranches: () => toSoniApiUrl('/api/RFIDUserManagement/AssignBranches'),
+  getEmployeesForSubUser: () => toSoniApiUrl('/api/RFIDUserManagement/GetEmployeesForSubUser'),
+  convertEmployeeToSubUser: () => toSoniApiUrl('/api/RFIDUserManagement/ConvertEmployeeToSubUser'),
+  linkSubUserToEmployee: () => toSoniApiUrl('/api/RFIDUserManagement/LinkSubUserToEmployee'),
+  getMyRFIDPlan: () => toSoniApiUrl('/api/ProductMaster/GetMyRFIDPlan'),
 };
 
 export const authHeaders = () => ({

@@ -56,6 +56,12 @@ export const getLotByIdUrl = (clientCode, lotId) =>
     `/GetLotById?clientCode=${encodeURIComponent(clientCode || '')}&lotId=${encodeURIComponent(lotId)}`
   );
 
+/** Whether assigned employee accepted the lot and returns are allowed. */
+export const getLotAcceptanceStatusUrl = (clientCode, lotId) =>
+  rfidSampleUrl(
+    `/GetLotAcceptanceStatus?clientCode=${encodeURIComponent(clientCode || '')}&lotId=${encodeURIComponent(lotId)}`
+  );
+
 export const getAcceptLotUrl = () => rfidSampleUrl('/AcceptLot');
 
 /** All sample-out lots with line items (admin list; sub-user sees assigned only). */

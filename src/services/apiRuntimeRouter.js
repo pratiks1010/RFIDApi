@@ -1,9 +1,11 @@
 import axios from 'axios';
 import { getRrgoldApiBaseUrl, getSoniApiBaseUrl } from './apiBaseConfig';
+import { getRfidApiBaseUrl } from './authApiConfig';
 
 const SONI_HOSTS = ['https://soni.loyalstring.co.in'];
 const RRGOLD_HOSTS = ['https://rrgold.loyalstring.co.in'];
-const LOCAL_AUTH_HOSTS = ['https://localhost:7095'];
+/** Legacy dev host — remapped to configured RFID/Soni base. */
+const LEGACY_LOCAL_AUTH_HOSTS = ['https://localhost:7095'];
 
 const safeParseUrl = (value) => {
   try {
@@ -16,7 +18,7 @@ const safeParseUrl = (value) => {
 const mapKnownHost = (host) => {
   if (SONI_HOSTS.includes(host)) return getSoniApiBaseUrl();
   if (RRGOLD_HOSTS.includes(host)) return getRrgoldApiBaseUrl();
-  if (LOCAL_AUTH_HOSTS.includes(host)) return getSoniApiBaseUrl();
+  if (LEGACY_LOCAL_AUTH_HOSTS.includes(host)) return getRfidApiBaseUrl();
   return '';
 };
 

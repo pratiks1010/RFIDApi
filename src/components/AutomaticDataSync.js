@@ -16,6 +16,7 @@ import {
   FaFileExcel
 } from 'react-icons/fa';
 import { useLoading } from '../App';
+import { toRrgoldApiUrl, toSoniApiUrl } from '../services/apiBaseConfig';
 
 const AutomaticDataSync = () => {
   const { setLoading } = useLoading();
@@ -89,7 +90,7 @@ const AutomaticDataSync = () => {
     setLoading(true);
     try {
       const response = await axios.post(
-        'https://localhost:7095/api/Invoice/alltemplate',
+        toRrgoldApiUrl('/api/Invoice/alltemplate'),
         { ClientCode: clientCode },
         {
           headers: {
@@ -119,7 +120,7 @@ const AutomaticDataSync = () => {
 
     try {
       const response = await axios.post(
-        'https://localhost:7095/api/ExcelTemplate/GetFieldMappingFromTemplate',
+        toRrgoldApiUrl('/api/ExcelTemplate/GetFieldMappingFromTemplate'),
         {
           ClientCode: clientCode,
           TemplateId: selectedTemplate.Id || selectedTemplate.id
@@ -151,7 +152,7 @@ const AutomaticDataSync = () => {
 
     try {
       const response = await axios.post(
-        'https://localhost:7095/api/ExcelTemplate/GetExcelPath',
+        toRrgoldApiUrl('/api/ExcelTemplate/GetExcelPath'),
         {
           ClientCode: clientCode,
           TemplateId: selectedTemplate.Id || selectedTemplate.id
@@ -182,7 +183,7 @@ const AutomaticDataSync = () => {
 
     try {
       const response = await axios.post(
-        'https://localhost:7095/api/ExcelTemplate/UpdateExcelPath',
+        toRrgoldApiUrl('/api/ExcelTemplate/UpdateExcelPath'),
         {
           ClientCode: clientCode,
           TemplateId: selectedTemplate.Id || selectedTemplate.id,
@@ -216,7 +217,7 @@ const AutomaticDataSync = () => {
       });
 
       const response = await axios.post(
-        'https://localhost:7095/api/ExcelTemplate/GetExcelFile',
+        toRrgoldApiUrl('/api/ExcelTemplate/GetExcelFile'),
         {
           ClientCode: clientCode,
           TemplateId: selectedTemplate.Id || selectedTemplate.id,
@@ -398,7 +399,7 @@ const AutomaticDataSync = () => {
 
       // Step 5: Send all Excel data to SaveRFIDTransactionDetails API (like bulk upload button)
       await axios.post(
-        'https://localhost:7095/api/ProductMaster/SaveRFIDTransactionDetails',
+        toSoniApiUrl('/api/ProductMaster/SaveRFIDTransactionDetails'),
         mappedData,
         {
           headers: {
@@ -411,7 +412,7 @@ const AutomaticDataSync = () => {
       // Step 6: Delete the Excel file after successful processing
       try {
         await axios.post(
-          'https://localhost:7095/api/ExcelTemplate/DeleteExcelFile',
+          toRrgoldApiUrl('/api/ExcelTemplate/DeleteExcelFile'),
           {
             ClientCode: clientCode,
             TemplateId: selectedTemplate.Id || selectedTemplate.id,

@@ -32,4 +32,4 @@ nsis:
   installerHeaderIcon: build-resources/icon.ico
   shortcutName: Sparkle RFID (Offline)
   include: build-resources/installer-rfid-prereqs.nsh
-electronVersion: 41.2.0
+electronVersion: 41.7.1

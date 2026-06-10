@@ -36,6 +36,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import IconButton from '@mui/material/IconButton';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
+import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100];
 const DEFAULT_PAGE_SIZE = 25;
@@ -2149,7 +2150,7 @@ const Labeling = () => {
 
       // Call GenerateLabel API
       const response = await axios.post(
-        'https://localhost:7095/api/LabelTemplates/GenerateLabel',
+        toRrgoldApiUrl('/api/LabelTemplates/GenerateLabel'),
         payload,
         {
           headers: {

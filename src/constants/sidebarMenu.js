@@ -19,6 +19,7 @@ export const SIDEBAR_PERMISSION_BY_PATH = {
   '/rfid-tags': 'CanRFIDTagList',
   '/tag-usage': 'CanRFIDTagsUsage',
   '/stock-tracking': 'CanViewStock',
+  '/box-rfid': 'CanViewStock',
   '/create-masters': 'CanManageBranches',
   '/rfid-utility': null,
   '/profile-menu': null,

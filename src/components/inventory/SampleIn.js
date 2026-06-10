@@ -59,7 +59,7 @@ import {
 } from '../../services/memberOnboardingApi';
 import TrayScanModal from '../common/TrayScanModal';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
-import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl } from '../../services/apiBaseConfig';
+import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl, toRrgoldApiUrl } from '../../services/apiBaseConfig';
 import {
   partyTypeToApiEnum,
   getCreateSampleInUrl,
@@ -1182,7 +1182,7 @@ const SampleIn = () => {
       };
 
       const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllLabeledStock',
+        toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock'),
         { 
           ClientCode: userInfo.ClientCode,
           ItemCode: searchTerm.trim()
@@ -1257,7 +1257,7 @@ const SampleIn = () => {
         'Content-Type': 'application/json'
       };
       const { data } = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetLabelledStockByTIDNumbers',
+        toRrgoldApiUrl('/api/ProductMaster/GetLabelledStockByTIDNumbers'),
         { ClientCode: userInfo.ClientCode, TIDNumbers: epcs },
         { headers }
       );

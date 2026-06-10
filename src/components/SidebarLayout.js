@@ -32,6 +32,7 @@ import {
   FaInbox,
   FaList,
   FaAsterisk,
+  FaSearch,
 } from 'react-icons/fa';
 import { isSuperAdmin } from '../utils/authState';
 import { filterMenuItems } from '../utils/permissionAccess';
@@ -98,6 +99,7 @@ const SidebarLayout = ({ children }) => {
     { path: '/my-samples', icon: FaInbox, label: 'My Samples', color: '#7c3aed', subUserOnly: true },
     { path: '/sample-out', icon: FaArrowUp, label: 'RFID Sample In/Out', color: '#b91c1c' },
     { path: '/sample-out-list', icon: FaList, label: 'Sample Out List', color: '#dc2626', permissionKey: 'CanSampleOut' },
+    { path: '/find-item', icon: FaSearch, label: 'Find Item', color: '#0369a1' },
     { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490' },
   ];
 

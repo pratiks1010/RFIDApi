@@ -26,6 +26,7 @@ import CreateInvoice from './components/inventory/CreateInvoice';
 import SampleOut from './components/inventory/SampleOut';
 import MyAssignedSamples from './components/inventory/MyAssignedSamples';
 import SampleOutList from './components/inventory/SampleOutList';
+import FindItem from './components/inventory/FindItem';
 import SampleIn from './components/inventory/SampleIn';
 import RFIDSampleInOut from './components/inventory/RFIDSampleInOut';
 import SessionDetails from './components/inventory/SessionDetails';
@@ -228,6 +229,7 @@ const useAuthProtection = () => {
         '/rfid-admin/users/convert-from-employee',
         '/my-samples',
         '/sample-out-list',
+        '/find-item',
       ];
       const adminRoutes = ['/admin-dashboard'];
       const isProtectedUserPath = (path) =>
@@ -311,6 +313,7 @@ const useAuthProtection = () => {
         '/rfid-admin/users/convert-from-employee',
         '/my-samples',
         '/sample-out-list',
+        '/find-item',
       ];
       const adminRoutes = ['/admin-dashboard'];
       const isProtectedUserPath = (path) =>
@@ -505,7 +508,7 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/my-samples', '/sample-out-list', '/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
+      const userRoutes = ['/my-samples', '/sample-out-list', '/find-item', '/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -894,6 +897,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <SampleOutList />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/find-item"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <FindItem />
                 </PageWrapper>
               </AuthGuard>
             }

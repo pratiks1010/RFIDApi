@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { getGetAllCustomerUrl, getAddCustomerUrl } from '../services/customerOnboardingApi';
+import { toSoniApiUrl } from '../services/apiBaseConfig';
+import { assignBoxRfidTag } from '../services/boxRfidApi';
 import {
   FaTags,
   FaBox,
@@ -134,10 +136,110 @@ const getClientCode = () => {
   }
 };
 
+const getUserInfo = () => {
+  try {
+    return JSON.parse(localStorage.getItem('userInfo') || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const toIntOrUndefined = (value) => {
+  if (value === null || value === undefined || value === '') return undefined;
+  const n = parseInt(String(value), 10);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** CompanyId is numeric master id — never ClientCode string */
+const resolveCompanyId = (preferred, branches = []) => {
+  const fromPreferred = toIntOrUndefined(preferred);
+  if (fromPreferred !== undefined) return fromPreferred;
+
+  const u = getUserInfo();
+  const fromUser = toIntOrUndefined(u.CompanyId ?? u.companyId);
+  if (fromUser !== undefined) return fromUser;
+
+  for (const branch of branches) {
+    const fromBranch = toIntOrUndefined(branch?.CompanyId ?? branch?.companyId);
+    if (fromBranch !== undefined) return fromBranch;
+  }
+
+  return 1;
+};
+
+const buildCompanySelectOptions = (branches = []) => {
+  const companyId = resolveCompanyId(null, branches);
+  const u = getUserInfo();
+  const label =
+    u.CompanyName ||
+    u.companyName ||
+    u.CompanyTitle ||
+    u.companyTitle ||
+    `Company #${companyId}`;
+  return [{ Id: companyId, CompanyName: label }];
+};
+
+const firstMasterId = (items) => {
+  const row = (items || [])[0];
+  return toIntOrUndefined(row?.Id ?? row?.id);
+};
+
+const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
+  || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
+
+const rfidTextToHex = (str) =>
+  String(str || '')
+    .split('')
+    .map((char) => char.charCodeAt(0).toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+
+const extractRfidMappingFromEpc = (raw) => {
+  const normalizeRows = (value) => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.Items)) return value.Items;
+    if (value && typeof value === 'object') {
+      return Object.entries(value).map(([epc, rfid]) => ({ EPCValue: epc, RFIDCode: rfid }));
+    }
+    return [];
+  };
+
+  const rowSources = [
+    raw?.items,
+    raw?.Items,
+    raw?.Data?.items,
+    raw?.Data?.Items,
+    raw?.data?.items,
+    raw?.data?.Items,
+    raw?.Data,
+    raw?.data,
+    raw?.Result,
+    raw?.result,
+    raw,
+  ];
+  const rows = rowSources.map(normalizeRows).find((sourceRows) => sourceRows.length > 0) || [];
+  const map = {};
+  rows.forEach((item) => {
+    const epc = String(
+      item?.EPCValue || item?.EpcValue || item?.epcValue || item?.EPC || item?.epc || item?.RequestedIdentifier || ''
+    ).trim().toUpperCase();
+    const rfid = String(
+      item?.RFIDCode || item?.RfidCode || item?.rfidCode || item?.RFIDNumber || item?.RfidNumber || item?.rfidNumber || ''
+    ).trim();
+    if (epc && rfid) map[epc] = rfid;
+  });
+  return map;
+};
+
 const CreateMasters = () => {
   const [activeOption, setActiveOption] = useState('category');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({});
+  const [boxRfidTagMode, setBoxRfidTagMode] = useState('reuse');
+  const [boxRfidLookupLoading, setBoxRfidLookupLoading] = useState(false);
+  const [boxRfidLookupError, setBoxRfidLookupError] = useState('');
+  const boxRfidLookupTimerRef = useRef(null);
   const [dropdownData, setDropdownData] = useState({
     categories: [],
     products: [],
@@ -159,6 +261,10 @@ const CreateMasters = () => {
   const formCardRef = React.useRef(null);
 
   const clientCode = getClientCode();
+  const companySelectOptions = React.useMemo(
+    () => buildCompanySelectOptions(dropdownData.branches),
+    [dropdownData.branches]
+  );
 
   // Daily Rates (Category + Purity) module
   const [ratesLoading, setRatesLoading] = useState(false);
@@ -819,13 +925,24 @@ const CreateMasters = () => {
   }, [fetchDropdownData]);
 
   useEffect(() => {
-    setFormData({});
+    const initialForm = {};
+    if (['counter', 'packet', 'branch'].includes(activeOption)) {
+      const defaultCompanyId = companySelectOptions[0]?.Id;
+      if (defaultCompanyId != null) initialForm.companyId = defaultCompanyId;
+    }
+    if (activeOption === 'box') {
+      initialForm.status = 'Active';
+    }
+    setFormData(initialForm);
     setBoxPackets([]);
     setListSearch('');
     setListPage(1);
     setEditingId(null);
     setDeleteConfirm(null);
-  }, [activeOption]);
+    setBoxRfidTagMode('reuse');
+    setBoxRfidLookupError('');
+    setBoxRfidLookupLoading(false);
+  }, [activeOption, companySelectOptions]);
 
   useEffect(() => {
     if (activeOption === 'rates') {
@@ -833,7 +950,119 @@ const CreateMasters = () => {
     }
   }, [activeOption, fetchDailyRates]);
 
-  const updateField = (key, value) => setFormData(prev => ({ ...prev, [key]: value }));
+  const fetchBoxRfidCodeByEpc = useCallback(async (epcValue) => {
+    const epc = String(epcValue || '').trim().toUpperCase();
+    if (!epc || epc.length < 4) {
+      setBoxRfidLookupError('');
+      return;
+    }
+    if (!clientCode) {
+      setBoxRfidLookupError('Client code not found.');
+      return;
+    }
+
+    setBoxRfidLookupLoading(true);
+    setBoxRfidLookupError('');
+    try {
+      const response = await axios.post(
+        RFID_CODE_LOOKUP_URL,
+        { ClientCode: clientCode, EPCValues: [epc] },
+        { headers: getAuthHeaders(), timeout: 45000 }
+      );
+      const mapping = extractRfidMappingFromEpc(response?.data);
+      const rfidCode = mapping[epc] || '';
+      if (!rfidCode) {
+        setBoxRfidLookupError('No RFID code found for this EPC/hex value.');
+        setFormData((prev) => ({ ...prev, rfidCode: '' }));
+        return;
+      }
+      setFormData((prev) => {
+        const tidWasSynced = !String(prev.tidNumber || '').trim() || prev.tidNumber === prev.hexCode;
+        return {
+          ...prev,
+          rfidCode: rfidCode.toUpperCase(),
+          tidNumber: tidWasSynced ? epc : prev.tidNumber,
+        };
+      });
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'RFID lookup failed.';
+      setBoxRfidLookupError(msg);
+      setFormData((prev) => ({ ...prev, rfidCode: '' }));
+    } finally {
+      setBoxRfidLookupLoading(false);
+    }
+  }, [clientCode]);
+
+  const scheduleBoxRfidLookup = useCallback((epcValue) => {
+    if (boxRfidLookupTimerRef.current) clearTimeout(boxRfidLookupTimerRef.current);
+    boxRfidLookupTimerRef.current = setTimeout(() => {
+      fetchBoxRfidCodeByEpc(epcValue);
+    }, 350);
+  }, [fetchBoxRfidCodeByEpc]);
+
+  useEffect(() => () => {
+    if (boxRfidLookupTimerRef.current) clearTimeout(boxRfidLookupTimerRef.current);
+  }, []);
+
+  const handleBoxRfidModeChange = (mode) => {
+    setBoxRfidTagMode(mode);
+    setBoxRfidLookupError('');
+    setBoxRfidLookupLoading(false);
+    setFormData((prev) => ({ ...prev, rfidCode: '', hexCode: '', tidNumber: '' }));
+  };
+
+  const updateField = (key, value) => {
+    if (activeOption === 'box' && key === 'hexCode' && boxRfidTagMode === 'reuse') {
+      const hex = String(value || '').trim().toUpperCase().replace(/[^0-9A-F]/g, '');
+      setFormData((prev) => {
+        const tidWasSynced = !String(prev.tidNumber || '').trim() || prev.tidNumber === prev.hexCode;
+        return {
+          ...prev,
+          hexCode: hex,
+          tidNumber: tidWasSynced ? hex : prev.tidNumber,
+          rfidCode: '',
+        };
+      });
+      if (hex.length >= 4) {
+        scheduleBoxRfidLookup(hex);
+      } else {
+        setBoxRfidLookupError('');
+      }
+      return;
+    }
+
+    if (activeOption === 'box' && key === 'rfidCode' && boxRfidTagMode === 'singleUse') {
+      const rfid = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const hex = rfid ? rfidTextToHex(rfid) : '';
+      setFormData((prev) => {
+        const tidWasSynced = !String(prev.tidNumber || '').trim() || prev.tidNumber === prev.hexCode;
+        return {
+          ...prev,
+          rfidCode: rfid,
+          hexCode: hex,
+          tidNumber: tidWasSynced ? hex : prev.tidNumber,
+        };
+      });
+      return;
+    }
+
+    setFormData((prev) => {
+      const next = { ...prev, [key]: value };
+      if (activeOption === 'box') {
+        if (key === 'hexCode') {
+          const hex = String(value || '').trim().toUpperCase();
+          next.hexCode = hex;
+          if (!String(prev.tidNumber || '').trim() || prev.tidNumber === prev.hexCode) {
+            next.tidNumber = hex;
+          }
+        }
+        if (key === 'rfidCode') {
+          next.rfidCode = String(value || '').trim().toUpperCase();
+        }
+      }
+      return next;
+    });
+  };
 
   const getFieldConfig = () => {
     const cats = { options: dropdownData.categories, optionLabel: 'CategoryName', optionValue: 'Id' };
@@ -884,7 +1113,7 @@ const CreateMasters = () => {
         ];
       case 'counter':
         return [
-          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
+          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: companySelectOptions, optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
           { key: 'name', label: 'Counter Name', type: 'text', required: true, ...placeholder('Enter counter name'), colSpan: 1 },
           { key: 'counterDescription', label: 'Counter Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
           { key: 'branchId', label: 'Branch ID', type: 'select', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', required: true, placeholder: 'Select an option', colSpan: 1 },
@@ -893,20 +1122,18 @@ const CreateMasters = () => {
         ];
       case 'box':
         return [
-          { key: 'companyId', label: 'Company', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
-          { key: 'categoryId', label: 'Category', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
-          { key: 'name', label: 'Box Name', type: 'text', required: true, ...placeholder('Enter box name'), colSpan: 1 },
-          { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
-          { key: 'branchId', label: 'Branch', type: 'select', required: true, placeholder: 'Select an option', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', colSpan: 1 },
-          { key: 'productId', label: 'Product', type: 'select', required: true, placeholder: 'Select an option', ...prods, colSpan: 1 },
           { key: 'emptyWeight', label: 'Empty Weight', type: 'text', required: true, ...placeholder('Enter empty weight'), colSpan: 1 },
-          { key: 'productName', label: 'Product Name', type: 'text', required: false, ...placeholder('Product name'), colSpan: 1 },
+          { key: 'description', label: 'Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
           { key: 'status', label: 'Status', type: 'select', required: true, placeholder: 'Select an option', options: STATUS_OPTIONS, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
           { key: 'packetIds', label: 'Packet IDs', type: 'text', required: false, ...placeholder('e.g. 1 or 1,2,3'), colSpan: 1 },
+          { key: 'rfidCode', label: 'Box RFID Code', type: 'text', required: false, ...placeholder('e.g. BOXEPC001'), colSpan: 1 },
+          { key: 'hexCode', label: 'Hex Code', type: 'text', required: false, ...placeholder('e.g. 424F584145'), colSpan: 1 },
+          { key: 'tidNumber', label: 'TID Number', type: 'text', required: false, ...placeholder('Defaults to hex code'), colSpan: 1 },
+          { key: 'employeeCode', label: 'Employee Code', type: 'text', required: false, ...placeholder('e.g. EMP01'), colSpan: 1 },
         ];
       case 'packet':
         return [
-          { key: 'companyId', label: 'Company', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
+          { key: 'companyId', label: 'Company', type: 'select', required: true, placeholder: 'Select an option', options: companySelectOptions, optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
           { key: 'categoryId', label: 'Category', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
           { key: 'designId', label: 'Design', type: 'select', required: false, placeholder: 'Select an option', options: dropdownData.designs, optionLabel: 'DesignName', optionValue: 'Id', colSpan: 1 },
           { key: 'packetName', label: 'Packet Name', type: 'text', required: true, ...placeholder('Enter packet name'), colSpan: 1 },
@@ -930,7 +1157,7 @@ const CreateMasters = () => {
           { key: 'state', label: 'State', type: 'select', required: true, placeholder: 'Select an option', options: [{ id: '', name: 'Select state' }, ...['Andhra Pradesh', 'Karnataka', 'Maharashtra', 'Tamil Nadu', 'Telangana'].map(s => ({ id: s, name: s }))], optionLabel: 'name', optionValue: 'id', colSpan: 1 },
           { key: 'gstin', label: 'GSTIN', type: 'text', required: false, ...placeholder('GSTIN'), colSpan: 1 },
           { key: 'financialYear', label: 'Financial Year', type: 'text', required: false, ...placeholder('Financial year'), colSpan: 1 },
-          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: [{ Id: clientCode, CompanyName: clientCode }], optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
+          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: companySelectOptions, optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
           { key: 'branchType', label: 'Branch Type', type: 'select', required: true, placeholder: 'Select an option', options: BRANCH_TYPES, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
           { key: 'address', label: 'Branch Address', type: 'textarea', required: false, ...placeholder('Address'), colSpan: 1 },
           { key: 'mobileNumber', label: 'Mobile Number', type: 'text', required: false, ...placeholder('Mobile'), colSpan: 1 },
@@ -1019,6 +1246,9 @@ const CreateMasters = () => {
           { key: 'CategoryName', label: 'Category', width: '90px' },
           { key: 'ProductName', label: 'Product', width: '90px' },
           { key: 'EmptyWeight', label: 'Empty Wt', width: '80px' },
+          { key: 'RFIDCode', label: 'RFID', width: '90px' },
+          { key: 'HexCode', label: 'Hex', width: '90px' },
+          { key: 'IsRfidTagged', label: 'Tagged', width: '70px' },
           { key: 'Status', label: 'Status', width: '70px' },
         ]);
       case 'packet':
@@ -1052,7 +1282,24 @@ const CreateMasters = () => {
   const listColumns = useMemo(() => getListColumns(), [activeOption]);
 
   const getCellDisplay = (row, colKey) => {
-    const fallbacks = { PacketName: 'Name', BranchName: 'Name', BoxName: 'Name' };
+    if (colKey === 'IsRfidTagged') {
+      const tagged =
+        row?.IsRfidTagged === true ||
+        row?.isRfidTagged === true ||
+        String(row?.IsRfidTagged).toLowerCase() === 'true' ||
+        Boolean(
+          String(row?.RFIDCode ?? row?.rfidCode ?? '').trim() ||
+            String(row?.HexCode ?? row?.hexCode ?? '').trim()
+        );
+      return tagged ? 'Tagged' : 'Not tagged';
+    }
+    const fallbacks = {
+      PacketName: 'Name',
+      BranchName: 'Name',
+      BoxName: 'Name',
+      RFIDCode: 'rfidCode',
+      HexCode: 'hexCode',
+    };
     let v = row[colKey];
     if ((v === null || v === undefined) && fallbacks[colKey]) v = row[fallbacks[colKey]];
     if (v === null || v === undefined) return '—';
@@ -1183,7 +1430,7 @@ const CreateMasters = () => {
         };
       case 'counter':
         return {
-          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
           name: row.Name ?? '',
           counterDescription: row.Description ?? '',
           branchId: row.BranchId ?? row.branchId ?? '',
@@ -1193,20 +1440,24 @@ const CreateMasters = () => {
         };
       case 'box':
         return {
-          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
           categoryId: row.CategoryId ?? row.categoryId ?? '',
           name: row.BoxName ?? row.Name ?? '',
           description: row.Description ?? '',
           branchId: row.BranchId ?? row.branchId ?? '',
           productId: row.ProductId ?? row.productId ?? '',
-          emptyWeight: row.EmptyWeight ?? '',
-          status: row.Status ?? 'Active',
-          packetIds: row.PacketIds ?? '',
+          emptyWeight: row.EmptyWeight ?? row.emptyWeight ?? '',
+          status: row.Status ?? row.status ?? 'Active',
+          packetIds: row.PacketIds ?? row.packetIds ?? '',
+          rfidCode: row.RFIDCode ?? row.rfidCode ?? '',
+          hexCode: row.HexCode ?? row.hexCode ?? '',
+          tidNumber: row.TIDNumber ?? row.tidNumber ?? '',
+          employeeCode: row.EmployeeCode ?? row.employeeCode ?? '',
           _id: id,
         };
       case 'packet':
         return {
-          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
           categoryId: row.CategoryId ?? row.categoryId ?? '',
           designId: row.DesignId ?? row.designId ?? '',
           packetName: row.PacketName ?? row.Name ?? '',
@@ -1231,7 +1482,7 @@ const CreateMasters = () => {
           state: row.State ?? '',
           gstin: row.GSTIN ?? '',
           financialYear: row.FinancialYear ?? '',
-          companyId: row.CompanyId ?? row.companyId ?? clientCode,
+          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
           branchType: row.BranchType ?? '',
           address: row.Address ?? '',
           mobileNumber: row.MobileNumber ?? '',
@@ -1316,23 +1567,38 @@ const CreateMasters = () => {
     }
     if (activeOption === 'counter') {
       if (str(formData.name)) payload.Name = str(formData.name);
-      if (formData.branchId != null && formData.branchId !== '') payload.BranchId = formData.branchId;
+      const branchId = toIntOrUndefined(formData.branchId);
+      if (branchId !== undefined) payload.BranchId = branchId;
       if (str(formData.counterNumber)) payload.CounterNumber = str(formData.counterNumber);
       if (str(formData.counterDescription)) payload.Description = str(formData.counterDescription);
       if (str(formData.financialYear)) payload.FinancialYear = str(formData.financialYear);
-      if (formData.companyId != null && formData.companyId !== '') payload.CompanyId = formData.companyId;
+      payload.CompanyId = resolveCompanyId(formData.companyId, dropdownData.branches);
       return payload;
     }
     if (activeOption === 'box') {
-      payload.CategoryId = formData.categoryId != null && formData.categoryId !== '' ? String(formData.categoryId) : '';
-      payload.BoxName = str(formData.name) || '';
+      const categoryId =
+        toIntOrUndefined(formData.categoryId) ?? firstMasterId(dropdownData.categories);
+      const productId =
+        toIntOrUndefined(formData.productId) ?? firstMasterId(dropdownData.products);
+      const branchId =
+        toIntOrUndefined(formData.branchId) ?? firstMasterId(dropdownData.branches);
+      if (categoryId !== undefined) payload.CategoryId = categoryId;
+      const rfidCode = str(formData.rfidCode);
+      const hexCode = str(formData.hexCode);
+      payload.BoxName =
+        str(formData.name) || rfidCode || hexCode || `Box-${Date.now()}`;
       payload.EmptyWeight = str(formData.emptyWeight) || '0';
-      payload.ProductId = formData.productId != null && formData.productId !== '' ? String(formData.productId) : '';
-      payload.CompanyId = formData.companyId != null && formData.companyId !== '' ? String(formData.companyId) : '';
-      payload.BranchId = formData.branchId != null && formData.branchId !== '' ? String(formData.branchId) : '';
+      if (productId !== undefined) payload.ProductId = productId;
+      payload.CompanyId = resolveCompanyId(formData.companyId, dropdownData.branches);
+      if (branchId !== undefined) payload.BranchId = branchId;
       payload.Description = str(formData.description) || '';
       payload.Status = str(formData.status) || 'Active';
       payload.PacketIds = str(formData.packetIds) || '';
+      const tidNumber = str(formData.tidNumber) || hexCode;
+      if (rfidCode) payload.RFIDCode = rfidCode.toUpperCase();
+      if (hexCode) payload.HexCode = hexCode.toUpperCase();
+      if (tidNumber) payload.TIDNumber = tidNumber.toUpperCase();
+      if (str(formData.employeeCode)) payload.EmployeeCode = str(formData.employeeCode);
       return payload;
     }
     if (activeOption === 'packet') {
@@ -1360,7 +1626,7 @@ const CreateMasters = () => {
       if (str(formData.state)) payload.State = str(formData.state);
       if (str(formData.gstin)) payload.GSTIN = str(formData.gstin);
       if (str(formData.financialYear)) payload.FinancialYear = str(formData.financialYear);
-      if (formData.companyId != null && formData.companyId !== '') payload.CompanyId = formData.companyId;
+      payload.CompanyId = resolveCompanyId(formData.companyId, dropdownData.branches);
       if (str(formData.branchType)) payload.BranchType = str(formData.branchType);
       if (str(formData.mobileNumber)) payload.MobileNumber = str(formData.mobileNumber);
       if (str(formData.street)) payload.Street = str(formData.street);
@@ -1386,10 +1652,16 @@ const CreateMasters = () => {
   const handleResetForm = () => {
     setFormData({});
     setEditingId(null);
+    setBoxRfidTagMode('reuse');
+    setBoxRfidLookupError('');
+    setBoxRfidLookupLoading(false);
   };
   const handleCancel = () => {
     setFormData({});
     setEditingId(null);
+    setBoxRfidTagMode('reuse');
+    setBoxRfidLookupError('');
+    setBoxRfidLookupLoading(false);
   };
 
   const handleEdit = (row) => {
@@ -1434,6 +1706,27 @@ const CreateMasters = () => {
     }
   };
 
+  const validateBoxRfidUniqueness = () => {
+    const rfid = String(formData.rfidCode || '').trim().toUpperCase();
+    const hex = String(formData.hexCode || '').trim().toUpperCase();
+    if (!rfid && !hex) return null;
+    const currentId = editingId != null ? String(editingId) : null;
+    for (const box of dropdownData.boxes || []) {
+      const boxId = String(box.Id ?? box.id ?? '');
+      if (currentId && boxId === currentId) continue;
+      const existingName = box.BoxName ?? box.boxName ?? box.Name ?? 'Box';
+      const existingRfid = String(box.RFIDCode ?? box.rfidCode ?? '').trim().toUpperCase();
+      const existingHex = String(box.HexCode ?? box.hexCode ?? '').trim().toUpperCase();
+      if (rfid && existingRfid && rfid === existingRfid) {
+        return `RFIDCode already used on Box: ${existingName}`;
+      }
+      if (hex && existingHex && hex === existingHex) {
+        return `HexCode already used on Box: ${existingName}`;
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!clientCode) {
@@ -1446,6 +1739,13 @@ const CreateMasters = () => {
       toast.warning(`${missing.label} is required.`);
       return;
     }
+    if (activeOption === 'box') {
+      const rfidConflict = validateBoxRfidUniqueness();
+      if (rfidConflict) {
+        toast.error(rfidConflict);
+        return;
+      }
+    }
     const successMessages = {
       category: 'Category created successfully.',
       product: 'Product created successfully.',
@@ -1457,6 +1757,15 @@ const CreateMasters = () => {
       branch: 'Branch created successfully.',
     };
     setLoading(true);
+    const str = (v) => (v != null && String(v).trim() !== '' ? String(v).trim() : null);
+    const boxRfidDraft =
+      activeOption === 'box' && !editingId
+        ? {
+            rfidCode: str(formData.rfidCode),
+            hexCode: str(formData.hexCode),
+            tidNumber: str(formData.tidNumber) || str(formData.hexCode),
+          }
+        : null;
     try {
       const payload = buildPayload();
       const isEdit = editingId != null;
@@ -1465,9 +1774,48 @@ const CreateMasters = () => {
       const data = res.data;
       const serverMsg = data?.message ?? data?.Message ?? data?.msg ?? '';
       const serverErr = data?.error ?? data?.Error ?? data?.message ?? data?.Message ?? '';
-      const ok = data?.status === 'success' || data?.success === true || (res.status === 200 && data?.status !== 'failed');
+      const ok =
+        data?.status === 'success' ||
+        data?.success === true ||
+        (activeOption === 'box' && data?.id != null) ||
+        (res.status === 200 && data?.status !== 'failed');
       if (ok) {
-        toast.success(serverMsg || (isEdit ? 'Updated successfully.' : successMessages[activeOption] || 'Saved successfully.'));
+        let boxRfidTagged = activeOption === 'box' && data?.isRfidTagged;
+        const newBoxId = data?.id ?? data?.Id;
+        if (
+          activeOption === 'box' &&
+          !isEdit &&
+          newBoxId != null &&
+          boxRfidDraft &&
+          (boxRfidDraft.rfidCode || boxRfidDraft.hexCode || boxRfidDraft.tidNumber)
+        ) {
+          try {
+            const tagPayload = {
+              ClientCode: clientCode,
+              BoxId: parseInt(newBoxId, 10),
+            };
+            if (boxRfidDraft.rfidCode) tagPayload.RFIDCode = boxRfidDraft.rfidCode.toUpperCase();
+            if (boxRfidDraft.hexCode) {
+              tagPayload.HexCode = boxRfidDraft.hexCode.toUpperCase();
+              tagPayload.TIDNumber = (boxRfidDraft.tidNumber || boxRfidDraft.hexCode).toUpperCase();
+            } else if (boxRfidDraft.tidNumber) {
+              tagPayload.TIDNumber = boxRfidDraft.tidNumber.toUpperCase();
+            }
+            const tagRes = await assignBoxRfidTag(tagPayload);
+            if (tagRes?.success !== false) boxRfidTagged = true;
+          } catch (tagErr) {
+            toast.warning(
+              tagErr?.response?.data?.message ||
+                tagErr?.message ||
+                'Box created but RFID tag could not be assigned. Use Assign Box RFID Tag later.'
+            );
+          }
+        }
+        const boxRfidNote = activeOption === 'box' && boxRfidTagged ? ' Box RFID tag saved.' : '';
+        toast.success(
+          serverMsg ||
+            (isEdit ? 'Updated successfully.' : successMessages[activeOption] || 'Saved successfully.') + boxRfidNote
+        );
         setFormData({});
         setEditingId(null);
         fetchDropdownData();
@@ -2637,44 +2985,141 @@ const CreateMasters = () => {
                     {editingId ? `Edit ${current.label}` : `Add ${current.label}`}
                   </span>
                 </h2>
+                {activeOption === 'box' && (
+                  <p style={{ margin: '0 0 10px', fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
+                    Set box RFID here in one step (RFID Code + Hex). Then use{' '}
+                    <strong style={{ color: '#0f766e' }}>Box RFID Pack</strong> to add labelled items and scan the tray.
+                  </p>
+                )}
                 <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'auto' }}>
                   <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', alignContent: 'start' }} className="create-masters-fields-grid">
-                    {fields.map((f) => (
-                      <div key={f.key} data-colspan={f.colSpan || 1} style={{ ...baseStyles.fieldGroup }}>
-                        <label style={baseStyles.label}>
-                          {f.label} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
-                        </label>
-                        {f.type === 'select' ? (
-                          <select
-                            value={formData[f.key] ?? ''}
-                            onChange={(e) => updateField(f.key, e.target.value)}
-                            style={baseStyles.select}
-                          >
-                            <option value="">{f.placeholder || `Select ${f.label}`}</option>
-                            {(f.options || []).map((opt, i) => (
-                              <option key={i} value={opt[f.optionValue] ?? opt.Id ?? opt.id ?? ''}>
-                                {opt[f.optionLabel] ?? opt.Name ?? opt.CategoryName ?? opt.ProductName ?? opt.DesignName ?? opt.PurityName ?? opt.BranchName ?? opt.CounterName ?? ''}
-                              </option>
-                            ))}
-                          </select>
-                        ) : f.type === 'textarea' ? (
-                          <textarea
-                            value={formData[f.key] ?? ''}
-                            onChange={(e) => updateField(f.key, e.target.value)}
-                            placeholder={f.placeholder}
-                            style={{ ...baseStyles.textarea, minHeight: f.colSpan === 3 ? 56 : 48 }}
-                          />
-                        ) : (
-                          <input
-                            type={f.type || 'text'}
-                            value={formData[f.key] ?? ''}
-                            onChange={(e) => updateField(f.key, e.target.value)}
-                            placeholder={f.placeholder}
-                            style={baseStyles.input}
-                          />
-                        )}
-                      </div>
-                    ))}
+                    {fields.map((f) => {
+                      if (activeOption === 'box' && f.key === 'hexCode') return null;
+
+                      if (activeOption === 'box' && f.key === 'rfidCode') {
+                        const isReuse = boxRfidTagMode === 'reuse';
+                        const rfidReadOnly = isReuse;
+                        const hexReadOnly = !isReuse;
+                        return (
+                          <React.Fragment key="box-rfid-fields">
+                            <div style={{ ...baseStyles.fieldGroup, gridColumn: '1 / -1' }}>
+                              <label style={baseStyles.label}>RFID Tag Type</label>
+                              <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#f8fafc' }}>
+                                {[
+                                  { id: 'reuse', label: 'Reuse' },
+                                  { id: 'singleUse', label: 'Single Use' },
+                                ].map((opt) => {
+                                  const active = boxRfidTagMode === opt.id;
+                                  return (
+                                    <button
+                                      key={opt.id}
+                                      type="button"
+                                      onClick={() => handleBoxRfidModeChange(opt.id)}
+                                      style={{
+                                        padding: '6px 14px',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        background: active ? '#dc2626' : 'transparent',
+                                        color: active ? '#ffffff' : '#64748b',
+                                        transition: 'all 0.15s',
+                                      }}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p style={{ margin: '6px 0 0', fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>
+                                {isReuse
+                                  ? 'Enter or scan EPC/hex — Box RFID Code is fetched from the server (same as Add Stock).'
+                                  : 'Enter Box RFID Code — hex is generated automatically from the code.'}
+                              </p>
+                            </div>
+                            <div style={{ ...baseStyles.fieldGroup }}>
+                              <label style={baseStyles.label}>
+                                Box RFID Code {isReuse && boxRfidLookupLoading ? (
+                                  <FaSpinner size={10} style={{ marginLeft: 6, animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
+                                ) : null}
+                              </label>
+                              <input
+                                type="text"
+                                value={formData.rfidCode ?? ''}
+                                readOnly={rfidReadOnly}
+                                onChange={(e) => !rfidReadOnly && updateField('rfidCode', e.target.value)}
+                                placeholder={isReuse ? 'Filled from EPC lookup' : 'e.g. SJ0260'}
+                                style={{
+                                  ...baseStyles.input,
+                                  background: rfidReadOnly ? '#f1f5f9' : baseStyles.input.background,
+                                  cursor: rfidReadOnly ? 'default' : 'text',
+                                }}
+                              />
+                              {isReuse && boxRfidLookupError ? (
+                                <span style={{ fontSize: 10, color: '#dc2626', marginTop: 4, display: 'block' }}>{boxRfidLookupError}</span>
+                              ) : null}
+                            </div>
+                            <div style={{ ...baseStyles.fieldGroup }}>
+                              <label style={baseStyles.label}>Hex Code</label>
+                              <input
+                                type="text"
+                                value={formData.hexCode ?? ''}
+                                readOnly={hexReadOnly}
+                                onChange={(e) => !hexReadOnly && updateField('hexCode', e.target.value)}
+                                onBlur={() => {
+                                  if (isReuse && (formData.hexCode || '').trim().length >= 4) {
+                                    fetchBoxRfidCodeByEpc(formData.hexCode);
+                                  }
+                                }}
+                                placeholder={isReuse ? 'e.g. 424F584145 (EPC)' : 'Auto from RFID code'}
+                                style={{
+                                  ...baseStyles.input,
+                                  background: hexReadOnly ? '#f1f5f9' : baseStyles.input.background,
+                                  cursor: hexReadOnly ? 'default' : 'text',
+                                }}
+                              />
+                            </div>
+                          </React.Fragment>
+                        );
+                      }
+
+                      return (
+                        <div key={f.key} data-colspan={f.colSpan || 1} style={{ ...baseStyles.fieldGroup }}>
+                          <label style={baseStyles.label}>
+                            {f.label} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
+                          </label>
+                          {f.type === 'select' ? (
+                            <select
+                              value={formData[f.key] ?? ''}
+                              onChange={(e) => updateField(f.key, e.target.value)}
+                              style={baseStyles.select}
+                            >
+                              <option value="">{f.placeholder || `Select ${f.label}`}</option>
+                              {(f.options || []).map((opt, i) => (
+                                <option key={i} value={opt[f.optionValue] ?? opt.Id ?? opt.id ?? ''}>
+                                  {opt[f.optionLabel] ?? opt.Name ?? opt.CategoryName ?? opt.ProductName ?? opt.DesignName ?? opt.PurityName ?? opt.BranchName ?? opt.CounterName ?? ''}
+                                </option>
+                              ))}
+                            </select>
+                          ) : f.type === 'textarea' ? (
+                            <textarea
+                              value={formData[f.key] ?? ''}
+                              onChange={(e) => updateField(f.key, e.target.value)}
+                              placeholder={f.placeholder}
+                              style={{ ...baseStyles.textarea, minHeight: f.colSpan === 3 ? 56 : 48 }}
+                            />
+                          ) : (
+                            <input
+                              type={f.type || 'text'}
+                              value={formData[f.key] ?? ''}
+                              onChange={(e) => updateField(f.key, e.target.value)}
+                              placeholder={f.placeholder}
+                              style={baseStyles.input}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                   <div className="create-masters-form-actions" style={{ flexShrink: 0, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
                     <div className="create-masters-form-actions-inner">

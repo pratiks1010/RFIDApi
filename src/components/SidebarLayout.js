@@ -20,6 +20,7 @@ import {
   FaArrowUp,
   FaSignOutAlt,
   FaChartLine,
+  FaBox,
   FaBoxes,
   FaListUl,
   FaPaintBrush,
@@ -102,6 +103,7 @@ const SidebarLayout = ({ children }) => {
   const navigationSection3 = [
     { path: '/rfid-devices', icon: FaBarcode, label: 'Scan to Desktop', color: '#a21caf' },
     { path: '/stock-tracking', icon: FaBoxes, label: 'Stock Tracking', color: '#059669' },
+    { path: '/box-rfid', icon: FaBox, label: 'Box RFID Pack', color: '#0f766e' },
     { path: '/upload-rfid', icon: FaFileUpload, label: 'RFID Tags Sheet Upload', color: '#4f46e5' },
     { path: '/rfid-tags', icon: FaTags, label: 'RFID Tag List', color: '#b91c1c' },
     { path: '/tag-usage', icon: FaChartPie, label: 'RFID Tags Usage', color: '#0e7490' },

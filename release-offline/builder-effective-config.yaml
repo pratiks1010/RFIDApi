@@ -27,4 +27,4 @@ nsis:
   uninstallerIcon: build-resources/icon.ico
   installerHeaderIcon: build-resources/icon.ico
   shortcutName: Sparkle RFID (Offline)
-electronVersion: 41.2.0
+electronVersion: 41.7.1

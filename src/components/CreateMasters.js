@@ -151,32 +151,25 @@ const toIntOrUndefined = (value) => {
 };
 
 /** CompanyId is numeric master id — never ClientCode string */
-const resolveCompanyId = (preferred, branches = []) => {
-  const fromPreferred = toIntOrUndefined(preferred);
-  if (fromPreferred !== undefined) return fromPreferred;
-
-  const u = getUserInfo();
-  const fromUser = toIntOrUndefined(u.CompanyId ?? u.companyId);
-  if (fromUser !== undefined) return fromUser;
+const resolveCompanyId = (branches = []) => {
+  const clientCode = String(getClientCode() || '').trim().toUpperCase();
+  const toCompanyId = (value) => {
+    if (value == null || value === '') return undefined;
+    const raw = String(value).trim();
+    if (clientCode && raw.toUpperCase() === clientCode) return undefined;
+    return toIntOrUndefined(raw);
+  };
 
   for (const branch of branches) {
-    const fromBranch = toIntOrUndefined(branch?.CompanyId ?? branch?.companyId);
+    const fromBranch = toCompanyId(branch?.CompanyId ?? branch?.companyId);
     if (fromBranch !== undefined) return fromBranch;
   }
 
-  return 1;
-};
-
-const buildCompanySelectOptions = (branches = []) => {
-  const companyId = resolveCompanyId(null, branches);
   const u = getUserInfo();
-  const label =
-    u.CompanyName ||
-    u.companyName ||
-    u.CompanyTitle ||
-    u.companyTitle ||
-    `Company #${companyId}`;
-  return [{ Id: companyId, CompanyName: label }];
+  const fromUser = toCompanyId(u.CompanyId ?? u.companyId);
+  if (fromUser !== undefined) return fromUser;
+
+  return 1;
 };
 
 const firstMasterId = (items) => {
@@ -261,10 +254,6 @@ const CreateMasters = () => {
   const formCardRef = React.useRef(null);
 
   const clientCode = getClientCode();
-  const companySelectOptions = React.useMemo(
-    () => buildCompanySelectOptions(dropdownData.branches),
-    [dropdownData.branches]
-  );
 
   // Daily Rates (Category + Purity) module
   const [ratesLoading, setRatesLoading] = useState(false);
@@ -926,10 +915,6 @@ const CreateMasters = () => {
 
   useEffect(() => {
     const initialForm = {};
-    if (['counter', 'packet', 'branch'].includes(activeOption)) {
-      const defaultCompanyId = companySelectOptions[0]?.Id;
-      if (defaultCompanyId != null) initialForm.companyId = defaultCompanyId;
-    }
     if (activeOption === 'box') {
       initialForm.status = 'Active';
     }
@@ -942,7 +927,7 @@ const CreateMasters = () => {
     setBoxRfidTagMode('reuse');
     setBoxRfidLookupError('');
     setBoxRfidLookupLoading(false);
-  }, [activeOption, companySelectOptions]);
+  }, [activeOption]);
 
   useEffect(() => {
     if (activeOption === 'rates') {
@@ -1113,7 +1098,6 @@ const CreateMasters = () => {
         ];
       case 'counter':
         return [
-          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: companySelectOptions, optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
           { key: 'name', label: 'Counter Name', type: 'text', required: true, ...placeholder('Enter counter name'), colSpan: 1 },
           { key: 'counterDescription', label: 'Counter Description', type: 'text', required: false, ...placeholder('Enter description'), colSpan: 1 },
           { key: 'branchId', label: 'Branch ID', type: 'select', options: dropdownData.branches, optionLabel: 'BranchName', optionValue: 'Id', required: true, placeholder: 'Select an option', colSpan: 1 },
@@ -1133,7 +1117,6 @@ const CreateMasters = () => {
         ];
       case 'packet':
         return [
-          { key: 'companyId', label: 'Company', type: 'select', required: true, placeholder: 'Select an option', options: companySelectOptions, optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
           { key: 'categoryId', label: 'Category', type: 'select', required: true, placeholder: 'Select an option', ...cats, colSpan: 1 },
           { key: 'designId', label: 'Design', type: 'select', required: false, placeholder: 'Select an option', options: dropdownData.designs, optionLabel: 'DesignName', optionValue: 'Id', colSpan: 1 },
           { key: 'packetName', label: 'Packet Name', type: 'text', required: true, ...placeholder('Enter packet name'), colSpan: 1 },
@@ -1157,7 +1140,6 @@ const CreateMasters = () => {
           { key: 'state', label: 'State', type: 'select', required: true, placeholder: 'Select an option', options: [{ id: '', name: 'Select state' }, ...['Andhra Pradesh', 'Karnataka', 'Maharashtra', 'Tamil Nadu', 'Telangana'].map(s => ({ id: s, name: s }))], optionLabel: 'name', optionValue: 'id', colSpan: 1 },
           { key: 'gstin', label: 'GSTIN', type: 'text', required: false, ...placeholder('GSTIN'), colSpan: 1 },
           { key: 'financialYear', label: 'Financial Year', type: 'text', required: false, ...placeholder('Financial year'), colSpan: 1 },
-          { key: 'companyId', label: 'Company ID', type: 'select', required: true, placeholder: 'Select an option', options: companySelectOptions, optionLabel: 'CompanyName', optionValue: 'Id', colSpan: 1 },
           { key: 'branchType', label: 'Branch Type', type: 'select', required: true, placeholder: 'Select an option', options: BRANCH_TYPES, optionLabel: 'name', optionValue: 'id', colSpan: 1 },
           { key: 'address', label: 'Branch Address', type: 'textarea', required: false, ...placeholder('Address'), colSpan: 1 },
           { key: 'mobileNumber', label: 'Mobile Number', type: 'text', required: false, ...placeholder('Mobile'), colSpan: 1 },
@@ -1234,10 +1216,10 @@ const CreateMasters = () => {
       case 'counter':
         return cols([
           srNo,
-          { key: 'Name', label: 'Counter Name' },
+          { key: 'CounterName', label: 'Counter Name' },
           { key: 'CounterNumber', label: 'Counter No', width: '90px' },
           { key: 'BranchName', label: 'Branch', width: '100px' },
-          { key: 'Description', label: 'Description' },
+          { key: 'CounterDescription', label: 'Description' },
         ]);
       case 'box':
         return cols([
@@ -1297,6 +1279,8 @@ const CreateMasters = () => {
       PacketName: 'Name',
       BranchName: 'Name',
       BoxName: 'Name',
+      CounterName: 'Name',
+      CounterDescription: 'Description',
       RFIDCode: 'rfidCode',
       HexCode: 'hexCode',
     };
@@ -1430,9 +1414,8 @@ const CreateMasters = () => {
         };
       case 'counter':
         return {
-          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
-          name: row.Name ?? '',
-          counterDescription: row.Description ?? '',
+          name: row.CounterName ?? row.Name ?? '',
+          counterDescription: row.CounterDescription ?? row.Description ?? '',
           branchId: row.BranchId ?? row.branchId ?? '',
           counterNumber: row.CounterNumber ?? '',
           financialYear: row.FinancialYear ?? '',
@@ -1440,7 +1423,6 @@ const CreateMasters = () => {
         };
       case 'box':
         return {
-          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
           categoryId: row.CategoryId ?? row.categoryId ?? '',
           name: row.BoxName ?? row.Name ?? '',
           description: row.Description ?? '',
@@ -1457,7 +1439,6 @@ const CreateMasters = () => {
         };
       case 'packet':
         return {
-          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
           categoryId: row.CategoryId ?? row.categoryId ?? '',
           designId: row.DesignId ?? row.designId ?? '',
           packetName: row.PacketName ?? row.Name ?? '',
@@ -1482,7 +1463,6 @@ const CreateMasters = () => {
           state: row.State ?? '',
           gstin: row.GSTIN ?? '',
           financialYear: row.FinancialYear ?? '',
-          companyId: row.CompanyId ?? row.companyId ?? resolveCompanyId(null),
           branchType: row.BranchType ?? '',
           address: row.Address ?? '',
           mobileNumber: row.MobileNumber ?? '',
@@ -1566,13 +1546,17 @@ const CreateMasters = () => {
       return payload;
     }
     if (activeOption === 'counter') {
-      if (str(formData.name)) payload.Name = str(formData.name);
+      const counterName = str(formData.name);
+      if (counterName) payload.CounterName = counterName;
       const branchId = toIntOrUndefined(formData.branchId);
       if (branchId !== undefined) payload.BranchId = branchId;
-      if (str(formData.counterNumber)) payload.CounterNumber = str(formData.counterNumber);
-      if (str(formData.counterDescription)) payload.Description = str(formData.counterDescription);
-      if (str(formData.financialYear)) payload.FinancialYear = str(formData.financialYear);
-      payload.CompanyId = resolveCompanyId(formData.companyId, dropdownData.branches);
+      const counterNumber = str(formData.counterNumber);
+      if (counterNumber) payload.CounterNumber = counterNumber;
+      const counterDescription = str(formData.counterDescription);
+      if (counterDescription) payload.CounterDescription = counterDescription;
+      const financialYear = str(formData.financialYear);
+      if (financialYear) payload.FinancialYear = financialYear;
+      payload.CompanyId = resolveCompanyId(dropdownData.branches);
       return payload;
     }
     if (activeOption === 'box') {
@@ -1589,7 +1573,7 @@ const CreateMasters = () => {
         str(formData.name) || rfidCode || hexCode || `Box-${Date.now()}`;
       payload.EmptyWeight = str(formData.emptyWeight) || '0';
       if (productId !== undefined) payload.ProductId = productId;
-      payload.CompanyId = resolveCompanyId(formData.companyId, dropdownData.branches);
+      payload.CompanyId = resolveCompanyId(dropdownData.branches);
       if (branchId !== undefined) payload.BranchId = branchId;
       payload.Description = str(formData.description) || '';
       payload.Status = str(formData.status) || 'Active';
@@ -1603,11 +1587,17 @@ const CreateMasters = () => {
     }
     if (activeOption === 'packet') {
       if (str(formData.packetName)) payload.Name = str(formData.packetName);
-      if (formData.categoryId != null && formData.categoryId !== '') payload.CategoryId = formData.categoryId;
-      if (formData.productId != null && formData.productId !== '') payload.ProductId = formData.productId;
-      if (formData.designId != null && formData.designId !== '') payload.DesignId = formData.designId;
-      if (formData.boxId != null && formData.boxId !== '') payload.BoxId = formData.boxId;
-      if (formData.branchId != null && formData.branchId !== '') payload.BranchId = formData.branchId;
+      const packetCategoryId = toIntOrUndefined(formData.categoryId);
+      const packetProductId = toIntOrUndefined(formData.productId);
+      const packetDesignId = toIntOrUndefined(formData.designId);
+      const packetBoxId = toIntOrUndefined(formData.boxId);
+      const packetBranchId = toIntOrUndefined(formData.branchId);
+      if (packetCategoryId !== undefined) payload.CategoryId = packetCategoryId;
+      if (packetProductId !== undefined) payload.ProductId = packetProductId;
+      if (packetDesignId !== undefined) payload.DesignId = packetDesignId;
+      if (packetBoxId !== undefined) payload.BoxId = packetBoxId;
+      if (packetBranchId !== undefined) payload.BranchId = packetBranchId;
+      payload.CompanyId = resolveCompanyId(dropdownData.branches);
       if (str(formData.emptyWeight)) payload.EmptyWeight = str(formData.emptyWeight);
       if (str(formData.description)) payload.Description = str(formData.description);
       if (str(formData.sku)) payload.SKU = str(formData.sku);
@@ -1626,7 +1616,7 @@ const CreateMasters = () => {
       if (str(formData.state)) payload.State = str(formData.state);
       if (str(formData.gstin)) payload.GSTIN = str(formData.gstin);
       if (str(formData.financialYear)) payload.FinancialYear = str(formData.financialYear);
-      payload.CompanyId = resolveCompanyId(formData.companyId, dropdownData.branches);
+      payload.CompanyId = resolveCompanyId(dropdownData.branches);
       if (str(formData.branchType)) payload.BranchType = str(formData.branchType);
       if (str(formData.mobileNumber)) payload.MobileNumber = str(formData.mobileNumber);
       if (str(formData.street)) payload.Street = str(formData.street);

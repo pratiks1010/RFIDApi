@@ -241,6 +241,79 @@ export const parseReadExcelResult = (result) => {
   return { rows: [], headers: [] };
 };
 
+const SAMPLE_OUT_BLOCK_RE =
+  /sample out|sample return|waiting for employee sample acceptance|sample acceptance|take sample return/i;
+
+/** Parse SaveRFIDTransactionDetails body (success, partial, or failed with errors[]). */
+export const parseSaveRfidTransactionResponse = (data) => {
+  const body = data && typeof data === 'object' ? data : {};
+  const status = String(body.status ?? body.Status ?? '').toLowerCase();
+  const message = String(body.message ?? body.Message ?? '').trim();
+  const failedItems = Number(body.failedItems ?? body.FailedItems ?? 0) || 0;
+  const successfulItems = Number(body.successfulItems ?? body.SuccessfulItems ?? 0) || 0;
+  const errors = [];
+
+  const rawErrors = body.errors ?? body.Errors ?? [];
+  if (Array.isArray(rawErrors)) {
+    rawErrors.forEach((entry) => {
+      if (typeof entry === 'string') {
+        const text = entry.trim();
+        if (text) errors.push(text);
+        return;
+      }
+      const errText = String(entry?.error ?? entry?.Error ?? entry?.message ?? entry?.Message ?? '').trim();
+      const itemCode = String(entry?.itemcode ?? entry?.Itemcode ?? entry?.itemCode ?? '').trim();
+      const itemIndex = entry?.itemIndex ?? entry?.ItemIndex;
+      let line = errText;
+      if (!line && itemCode) line = `Product '${itemCode}' could not be saved.`;
+      if (itemIndex != null && line && !/^row\s+\d+/i.test(line) && !/^item\s+\d+/i.test(line)) {
+        line = `Item ${Number(itemIndex)}: ${line}`;
+      }
+      if (line) errors.push(line);
+    });
+  }
+
+  if (!errors.length && message && /validation|fix validation|no new items were saved/i.test(message)) {
+    message.split(/[;\n]+/).map((s) => s.trim()).filter(Boolean).forEach((part) => errors.push(part));
+  }
+
+  const isFailed = status === 'failed' || (failedItems > 0 && successfulItems === 0);
+  const isPartial = status === 'partial' || (failedItems > 0 && successfulItems > 0);
+  const isSampleOutBlock = errors.some((e) => SAMPLE_OUT_BLOCK_RE.test(e));
+
+  return {
+    status,
+    message,
+    errors,
+    failedItems,
+    successfulItems,
+    isFailed,
+    isPartial,
+    isSampleOutBlock,
+  };
+};
+
+export const formatSaveRfidErrorsTitle = (parsed) => {
+  if (!parsed) return 'Sync failed';
+  if (parsed.isSampleOutBlock) return 'Sample return required before adding stock';
+  if (parsed.isPartial) return 'Some items could not be saved';
+  return 'Could not add stock';
+};
+
+export const buildSaveRfidFailureError = (data) => {
+  const parsed = parseSaveRfidTransactionResponse(data);
+  if (!parsed.isFailed && !parsed.isPartial) return null;
+  const summary =
+    parsed.message ||
+    (parsed.isPartial
+      ? `${parsed.successfulItems} saved, ${parsed.failedItems} failed.`
+      : 'No new items were saved. Please fix validation errors and try again.');
+  const detail = parsed.errors.length ? parsed.errors.join(' ') : summary;
+  const err = new Error(detail);
+  err.saveRfidDetails = parsed;
+  return err;
+};
+
 export const sendAutoPushMappedData = async (mappedData) => {
   const authToken = localStorage.getItem('authToken') || localStorage.getItem('token');
   const headers = {
@@ -254,11 +327,15 @@ export const sendAutoPushMappedData = async (mappedData) => {
     body: JSON.stringify(mappedData),
     mode: 'cors',
   });
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || errorData.Message || `HTTP ${response.status}: ${response.statusText}`);
+    const failErr = buildSaveRfidFailureError(data);
+    if (failErr) throw failErr;
+    throw new Error(data.message || data.Message || `HTTP ${response.status}: ${response.statusText}`);
   }
-  return response.json();
+  const failErr = buildSaveRfidFailureError(data);
+  if (failErr) throw failErr;
+  return { ...data, ...parseSaveRfidTransactionResponse(data) };
 };
 
 /**
@@ -390,7 +467,16 @@ export async function runAutoPushFolderSyncOnce({ clientCode, username, onProgre
       }
       results.push({ fileName, ok: true, moved, rows: mappedData.length });
     } catch (e) {
-      results.push({ fileName, ok: false, message: e?.message || String(e) });
+      const details = e?.saveRfidDetails || null;
+      results.push({
+        fileName,
+        ok: false,
+        message: e?.message || String(e),
+        errors: details?.errors?.length ? details.errors : [],
+        isSampleOutBlock: details?.isSampleOutBlock ?? SAMPLE_OUT_BLOCK_RE.test(String(e?.message || '')),
+        failedItems: details?.failedItems ?? 0,
+        successfulItems: details?.successfulItems ?? 0,
+      });
     }
     emitProgress({
       phase: 'process',

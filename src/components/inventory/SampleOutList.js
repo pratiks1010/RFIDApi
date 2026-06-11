@@ -21,12 +21,7 @@ import {
   FaThLarge,
   FaTable,
   FaInbox,
-  FaLayerGroup,
-  FaUser,
-  FaWeight,
-  FaGem,
-  FaHourglassHalf,
-  FaBoxOpen,
+  FaUndo,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -35,10 +30,12 @@ import { useNotifications } from '../../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import { partyTypeToApiEnum } from '../../services/sampleInOutApi';
 import {
+  getAdminBulkSampleReturnUrl,
   getAllSampleOutListUrl,
   getLotByIdUrl,
   sampleAuthHeaders,
 } from '../../services/rfidSampleApi';
+import { isSuperAdmin } from '../../utils/authState';
 import { getRrgoldApiBaseUrl, getSoniApiBaseUrl } from '../../services/apiBaseConfig';
 import {
   getItemImageLookupKeys,
@@ -64,18 +61,17 @@ const LOT_DETAIL_FONT = "'Inter', 'Poppins', system-ui, -apple-system, sans-seri
 
 const lotDetailMetricSx = {
   display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
+  alignItems: 'baseline',
+  gap: 8,
   whiteSpace: 'nowrap',
-  fontSize: 12,
-  lineHeight: 1.3,
+  fontSize: 16,
+  lineHeight: 1.35,
 };
 
-const LotDetailSummaryMetric = ({ icon: Icon, label, value, valueColor = '#0f172a' }) => (
+const LotDetailSummaryMetric = ({ label, value, valueColor = '#0f172a' }) => (
   <div style={lotDetailMetricSx} title={`${label}: ${value}`}>
-    <Icon size={12} style={{ color: '#94a3b8', flexShrink: 0 }} />
-    <span style={{ color: '#64748b', fontWeight: 600 }}>{label}:</span>
-    <strong style={{ color: valueColor, fontWeight: 800 }}>{value}</strong>
+    <span style={{ color: '#64748b', fontWeight: 600, fontSize: 15 }}>{label}:</span>
+    <strong style={{ color: valueColor, fontWeight: 800, fontSize: 17 }}>{value}</strong>
   </div>
 );
 
@@ -85,8 +81,8 @@ const LotDetailSummaryBar = ({ itemsCount, pending, grossWt, netWt, pieces, outD
       display: 'flex',
       flexWrap: 'wrap',
       alignItems: 'center',
-      gap: '10px 18px',
-      padding: '10px 14px',
+      gap: '14px 24px',
+      padding: '14px 18px',
       marginBottom: 14,
       borderRadius: 12,
       border: '1px solid #e8ecf4',
@@ -94,14 +90,14 @@ const LotDetailSummaryBar = ({ itemsCount, pending, grossWt, netWt, pieces, outD
       fontFamily: LOT_DETAIL_FONT,
     }}
   >
-    <LotDetailSummaryMetric icon={FaBoxOpen} label="Items" value={itemsCount} valueColor={LOT_DETAIL_BLUE} />
-    <LotDetailSummaryMetric icon={FaHourglassHalf} label="Pending" value={pending} />
-    <LotDetailSummaryMetric icon={FaWeight} label="Gross Wt" value={grossWt} />
-    <LotDetailSummaryMetric icon={FaWeight} label="Net Wt" value={netWt} />
-    <LotDetailSummaryMetric icon={FaGem} label="Pieces" value={pieces} />
-    <LotDetailSummaryMetric icon={FaCalendarAlt} label="Out" value={outDate} />
-    <LotDetailSummaryMetric icon={FaCalendarAlt} label="Due" value={dueDate} />
-    <LotDetailSummaryMetric icon={FaUser} label="Employee" value={employee} />
+    <LotDetailSummaryMetric label="Items" value={itemsCount} valueColor={LOT_DETAIL_BLUE} />
+    <LotDetailSummaryMetric label="Pending" value={pending} />
+    <LotDetailSummaryMetric label="Gross Wt" value={grossWt} />
+    <LotDetailSummaryMetric label="Net Wt" value={netWt} />
+    <LotDetailSummaryMetric label="Pieces" value={pieces} />
+    <LotDetailSummaryMetric label="Out" value={outDate} />
+    <LotDetailSummaryMetric label="Due" value={dueDate} />
+    <LotDetailSummaryMetric label="Employee" value={employee} />
   </div>
 );
 
@@ -128,16 +124,15 @@ const LotDetailViewToggle = ({ mode, onGrid, onTable }) => (
         borderRight: '1px solid #dbe4f0',
         background: mode === 'grid' ? LOT_DETAIL_BLUE : '#fff',
         color: mode === 'grid' ? '#fff' : '#475569',
-        height: 30,
-        padding: '0 12px',
-        fontSize: 11,
+        height: 34,
+        padding: '0 14px',
+        fontSize: 13,
         fontWeight: 700,
         cursor: 'pointer',
         fontFamily: LOT_DETAIL_FONT,
         transition: 'background 0.15s ease, color 0.15s ease',
       }}
     >
-      <FaThLarge size={10} />
       Grid
     </button>
     <button
@@ -150,16 +145,15 @@ const LotDetailViewToggle = ({ mode, onGrid, onTable }) => (
         border: 'none',
         background: mode === 'table' ? LOT_DETAIL_BLUE : '#fff',
         color: mode === 'table' ? '#fff' : '#475569',
-        height: 30,
-        padding: '0 12px',
-        fontSize: 11,
+        height: 34,
+        padding: '0 14px',
+        fontSize: 13,
         fontWeight: 700,
         cursor: 'pointer',
         fontFamily: LOT_DETAIL_FONT,
         transition: 'background 0.15s ease, color 0.15s ease',
       }}
     >
-      <FaTable size={10} />
       Table
     </button>
   </div>
@@ -270,6 +264,33 @@ const getLineItemStatusStyle = (status) => {
     return { background: '#ecfdf5', color: '#047857', border: '1px solid #bbf7d0' };
   }
   return { background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' };
+};
+
+const isAdminReturnableLotStatus = (status) => {
+  const s = String(status || '').toLowerCase();
+  return s.includes('open') || s.includes('partial');
+};
+
+const isOutItemStatus = (status) => {
+  const s = String(status || '').toLowerCase();
+  if (!s) return false;
+  if (s.includes('return')) return false;
+  return s === 'out' || s.includes('sampleout') || s.includes('out');
+};
+
+const lineLotItemId = (line) => {
+  const raw = line?.Id ?? line?.id;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isNaN(n) ? raw : n;
+};
+
+const lineCanAdminReturn = (line, lotHeader) => {
+  if (line?.canAdminReturn === true || line?.CanAdminReturn === true) return true;
+  if (line?.canAdminReturn === false || line?.CanAdminReturn === false) return false;
+  const lotStatus =
+    lotHeader?.Status ?? lotHeader?.LotStatus ?? lotHeader?.lotStatus ?? lotHeader?.status;
+  return isAdminReturnableLotStatus(lotStatus) && isOutItemStatus(line?.ItemStatus);
 };
 
 const getLineItemStatusHeaderStyle = (status) => {
@@ -833,6 +854,9 @@ const LotDetailItemCard = ({
   lineItemKey,
   lineItemLocalImageUrls,
   onOpenItem,
+  adminSelectable = false,
+  adminSelected = false,
+  onAdminToggle,
 }) => {
   const itemCode = lineItemCode(line);
   const rfid = lineRfidValue(line);
@@ -848,8 +872,22 @@ const LotDetailItemCard = ({
   const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
   const imageHeight = isSmallScreen ? MODAL_CARD_IMAGE_HEIGHT_SM : MODAL_CARD_IMAGE_HEIGHT;
 
+  const cardClick = () => {
+    if (adminSelectable) onAdminToggle?.(line);
+    else onOpenItem?.(line);
+  };
+
   return (
-    <article className="lot-detail-item-card" style={{ height: '100%' }}>
+    <article
+      className="lot-detail-item-card"
+      style={{
+        height: '100%',
+        border: adminSelected ? `2px solid ${LOT_DETAIL_BLUE}` : undefined,
+        boxShadow: adminSelected ? '0 8px 24px rgba(15, 76, 129, 0.16)' : undefined,
+        cursor: adminSelectable ? 'pointer' : undefined,
+      }}
+      onClick={adminSelectable ? cardClick : undefined}
+    >
       <div
         style={{
           display: 'flex',
@@ -857,34 +895,50 @@ const LotDetailItemCard = ({
           justifyContent: 'space-between',
           padding: '8px 12px',
           borderBottom: '1px solid #f1f5f9',
-          background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
+          background: adminSelected
+            ? 'linear-gradient(180deg, #eff6ff 0%, #ffffff 100%)'
+            : 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
           flexShrink: 0,
         }}
       >
-        <button
-          type="button"
-          onClick={() => onOpenItem?.(line)}
-          className="lot-detail-item-code"
-          style={{
-            border: 'none',
-            background: 'none',
-            padding: 0,
-            fontSize: 13,
-            fontWeight: 800,
-            color: LOT_DETAIL_BLUE,
-            cursor: 'pointer',
-            textAlign: 'left',
-            fontFamily: LOT_DETAIL_FONT,
-            minWidth: 0,
-            flex: '1 1 auto',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            marginRight: 10,
-          }}
-        >
-          {itemCode}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: '1 1 auto' }}>
+          {adminSelectable ? (
+            <input
+              type="checkbox"
+              checked={adminSelected}
+              onChange={() => onAdminToggle?.(line)}
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 18, height: 18, accentColor: LOT_DETAIL_BLUE, flexShrink: 0, cursor: 'pointer' }}
+              aria-label={`Select ${itemCode} for admin return`}
+            />
+          ) : null}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenItem?.(line);
+            }}
+            className="lot-detail-item-code"
+            style={{
+              border: 'none',
+              background: 'none',
+              padding: 0,
+              fontSize: 13,
+              fontWeight: 800,
+              color: LOT_DETAIL_BLUE,
+              cursor: 'pointer',
+              textAlign: 'left',
+              fontFamily: LOT_DETAIL_FONT,
+              minWidth: 0,
+              flex: '1 1 auto',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {itemCode}
+          </button>
+        </div>
         <span
           style={{
             fontSize: 12,
@@ -1058,6 +1112,8 @@ const mapRfidSampleLine = (line) => {
       line.EmployeeName ??
       line.AssignToName ??
       line.assignToName,
+    CanAdminReturn: line.canAdminReturn ?? line.CanAdminReturn,
+    canAdminReturn: line.canAdminReturn ?? line.CanAdminReturn,
   };
 };
 
@@ -1115,13 +1171,18 @@ const lineEmployeeNameRaw = (line, lotHeader) =>
 
 const enrichDetailLineItem = (line, lotHeader) => {
   const mapped = mapRfidSampleLine(line);
-  return {
+  const enriched = {
     ...mapped,
     OutDate: lineSampleOutDateRaw(mapped, lotHeader),
     SampleOutDate: lineSampleOutDateRaw(mapped, lotHeader),
     InDate: lineSampleInDateRaw(mapped),
     SampleInDate: lineSampleInDateRaw(mapped),
     AssignedToUserName: lineEmployeeNameRaw(mapped, lotHeader),
+  };
+  return {
+    ...enriched,
+    canAdminReturn: lineCanAdminReturn(enriched, lotHeader),
+    CanAdminReturn: lineCanAdminReturn(enriched, lotHeader),
   };
 };
 
@@ -1316,8 +1377,14 @@ const SampleOutList = ({
   const [lineItemsViewMode, setLineItemsViewMode] = useState('grid');
   const [lineItemLocalImageUrls, setLineItemLocalImageUrls] = useState({});
   const [imageFolderReady, setImageFolderReady] = useState(false);
+  const [adminReturnSelectedIds, setAdminReturnSelectedIds] = useState(() => new Set());
+  const [adminReturnRemark, setAdminReturnRemark] = useState(
+    'Products received back at counter — employee did not scan return'
+  );
+  const [adminReturning, setAdminReturning] = useState(false);
   const detailCacheRef = useRef(new Map());
   const lineItemLocalImageUrlsRef = useRef({});
+  const isAdminUser = isSuperAdmin();
 
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('userInfo');
@@ -1407,6 +1474,8 @@ const SampleOutList = ({
 
   useEffect(() => {
     setDetailModalPage(1);
+    setAdminReturnSelectedIds(new Set());
+    setAdminReturnRemark('Products received back at counter — employee did not scan return');
   }, [detailModal?.header?.Id, detailModal?.header?.SampleLotNo, detailModal?.header?.SampleOutNo]);
 
   useEffect(() => {
@@ -1508,6 +1577,17 @@ const SampleOutList = ({
   };
 
   const detailModalItems = detailModal?.items ?? [];
+  const adminReturnableItems = useMemo(() => {
+    if (!detailModal?.header) return [];
+    return detailModalItems.filter((line) => lineCanAdminReturn(line, detailModal.header));
+  }, [detailModal?.header, detailModalItems]);
+  const adminReturnSelectedCount = adminReturnSelectedIds.size;
+  const allAdminReturnableSelected =
+    adminReturnableItems.length > 0 &&
+    adminReturnableItems.every((line) => {
+      const id = lineLotItemId(line);
+      return id != null && adminReturnSelectedIds.has(id);
+    });
   const detailModalTotalPages = Math.max(1, Math.ceil(detailModalItems.length / MODAL_ITEMS_PER_PAGE));
   const detailModalStartIndex = (detailModalPage - 1) * MODAL_ITEMS_PER_PAGE;
   const detailModalEndIndex = detailModalStartIndex + MODAL_ITEMS_PER_PAGE;
@@ -1583,6 +1663,123 @@ const SampleOutList = ({
       });
     } catch {
       return String(dateString);
+    }
+  };
+
+  const toggleAdminReturnLine = (line) => {
+    const id = lineLotItemId(line);
+    if (id == null) return;
+    setAdminReturnSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllAdminReturnable = () => {
+    setAdminReturnSelectedIds(
+      new Set(adminReturnableItems.map((line) => lineLotItemId(line)).filter((id) => id != null))
+    );
+  };
+
+  const clearAdminReturnSelection = () => {
+    setAdminReturnSelectedIds(new Set());
+  };
+
+  const applyAdminReturnResponse = (data) => {
+    const returnedMap = new Map(
+      (data?.returnedProducts || data?.ReturnedProducts || []).map((p) => [
+        Number(p.lotItemId ?? p.LotItemId),
+        p,
+      ])
+    );
+    setDetailModal((prev) => {
+      if (!prev) return prev;
+      const nextItems = (prev.items || []).map((line) => {
+        const id = lineLotItemId(line);
+        const hit = id != null ? returnedMap.get(Number(id)) : null;
+        if (!hit) return line;
+        return {
+          ...line,
+          ItemStatus: hit.itemStatus ?? hit.ItemStatus ?? 'Returned',
+          canAdminReturn: false,
+          CanAdminReturn: false,
+        };
+      });
+      const nextHeader = {
+        ...prev.header,
+        Status: data?.lotStatus ?? data?.LotStatus ?? prev.header?.Status,
+        LotStatus: data?.lotStatus ?? data?.LotStatus ?? prev.header?.LotStatus,
+        PendingItems:
+          data?.pendingItems ?? data?.PendingItems ?? prev.header?.PendingItems,
+        ReturnedItems:
+          data?.returnedItems ?? data?.ReturnedItems ?? prev.header?.ReturnedItems,
+      };
+      const payload = { header: nextHeader, items: nextItems };
+      const cacheKey = String(nextHeader.Id ?? nextHeader.LotId ?? '');
+      if (cacheKey) detailCacheRef.current.set(cacheKey, payload);
+      return payload;
+    });
+    setAdminReturnSelectedIds(new Set());
+  };
+
+  const handleAdminBulkReturn = async () => {
+    const lotId = detailModal?.header?.Id ?? detailModal?.header?.LotId ?? detailModal?.header?.lotId;
+    const clientCode = resolveClientCode(userInfo);
+    const ids = Array.from(adminReturnSelectedIds);
+    if (!isAdminUser) {
+      addNotification({
+        type: 'error',
+        title: 'Admin return',
+        message: 'Only admin accounts can perform bulk sample return.',
+      });
+      return;
+    }
+    if (!lotId || !clientCode) return;
+    if (!ids.length) {
+      addNotification({
+        type: 'warning',
+        title: 'Admin return',
+        message: 'Select at least one Out item to return.',
+      });
+      return;
+    }
+
+    setAdminReturning(true);
+    try {
+      const { data } = await axios.post(
+        getAdminBulkSampleReturnUrl(),
+        {
+          ClientCode: clientCode,
+          LotId: Number(lotId),
+          LotItemIds: ids.map((id) => Number(id)),
+          AdminReturnRemark: String(adminReturnRemark || '').trim() || 'Returned by admin',
+        },
+        { headers: sampleAuthHeaders() }
+      );
+      if (data?.success === false) {
+        throw new Error(data?.message || data?.Message || 'Admin bulk return failed');
+      }
+      applyAdminReturnResponse(data);
+      await fetchSampleOutList();
+      addNotification({
+        type: 'success',
+        title: 'Admin return',
+        message:
+          data?.message ||
+          data?.Message ||
+          `${ids.length} product(s) returned by admin.`,
+      });
+    } catch (error) {
+      const msg =
+        error.response?.data?.message ||
+        error.response?.data?.Message ||
+        error.message ||
+        'Could not complete admin bulk return';
+      addNotification({ type: 'error', title: 'Admin return failed', message: msg });
+    } finally {
+      setAdminReturning(false);
     }
   };
 
@@ -2908,23 +3105,7 @@ const SampleOutList = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 10,
-                    background: 'linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)',
-                    border: '1px solid #dbeafe',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: LOT_DETAIL_BLUE,
-                    flexShrink: 0,
-                  }}
-                >
-                  <FaLayerGroup size={15} />
-                </div>
-                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
                   Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
                 </h3>
                 <LotStatusPill status={detailModal.header?.Status} />
@@ -2993,10 +3174,62 @@ const SampleOutList = ({
                         marginBottom: 12,
                       }}
                     >
-                      <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b', letterSpacing: '-0.01em' }}>
+                      <span style={{ fontSize: 16, fontWeight: 800, color: '#1e293b', letterSpacing: '-0.01em' }}>
                         Lot Items ({detailModalItems.length})
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        {isAdminUser && adminReturnableItems.length > 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={selectAllAdminReturnable}
+                              disabled={allAdminReturnableSelected}
+                              style={{
+                                padding: '7px 12px',
+                                borderRadius: 8,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: '#475569',
+                                cursor: allAdminReturnableSelected ? 'not-allowed' : 'pointer',
+                                fontFamily: LOT_DETAIL_FONT,
+                              }}
+                            >
+                              Select returnable ({adminReturnableItems.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={clearAdminReturnSelection}
+                              disabled={adminReturnSelectedCount === 0}
+                              style={{
+                                padding: '7px 12px',
+                                borderRadius: 8,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: '#475569',
+                                cursor: adminReturnSelectedCount === 0 ? 'not-allowed' : 'pointer',
+                                fontFamily: LOT_DETAIL_FONT,
+                              }}
+                            >
+                              Clear
+                            </button>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 800,
+                                color: LOT_DETAIL_BLUE,
+                                padding: '7px 10px',
+                                background: '#eff6ff',
+                                borderRadius: 8,
+                              }}
+                            >
+                              {adminReturnSelectedCount} selected for return
+                            </span>
+                          </div>
+                        ) : null}
                         {lineItemsViewMode === 'grid' && detailModalTotalPages > 1 ? (
                           <ModalGridPagination
                             compact
@@ -3027,30 +3260,51 @@ const SampleOutList = ({
                             alignItems: 'stretch',
                           }}
                         >
-                          {paginatedDetailModalItems.map((line, idx) => (
-                            <LotDetailItemCard
-                              key={line.Id ?? `${lineItemCode(line)}-${detailModalStartIndex + idx}`}
-                              line={line}
-                              lotHeader={detailModal.header}
-                              isSmallScreen={isSmallScreen}
-                              lineItemCode={lineItemCode}
-                              lineCategory={lineCategory}
-                              lineProduct={lineProduct}
-                              lineGrossWt={lineGrossWt}
-                              lineNetWt={lineNetWt}
-                              lineImageUrl={lineImageUrl}
-                              lineItemKey={lineItemKey}
-                              lineItemLocalImageUrls={lineItemLocalImageUrls}
-                              onOpenItem={openDetailItemFromModal}
-                            />
-                          ))}
+                          {paginatedDetailModalItems.map((line, idx) => {
+                            const lotItemId = lineLotItemId(line);
+                            const canReturn =
+                              isAdminUser && lineCanAdminReturn(line, detailModal.header);
+                            return (
+                              <LotDetailItemCard
+                                key={line.Id ?? `${lineItemCode(line)}-${detailModalStartIndex + idx}`}
+                                line={line}
+                                lotHeader={detailModal.header}
+                                isSmallScreen={isSmallScreen}
+                                lineItemCode={lineItemCode}
+                                lineCategory={lineCategory}
+                                lineProduct={lineProduct}
+                                lineGrossWt={lineGrossWt}
+                                lineNetWt={lineNetWt}
+                                lineImageUrl={lineImageUrl}
+                                lineItemKey={lineItemKey}
+                                lineItemLocalImageUrls={lineItemLocalImageUrls}
+                                onOpenItem={openDetailItemFromModal}
+                                adminSelectable={canReturn}
+                                adminSelected={
+                                  lotItemId != null && adminReturnSelectedIds.has(lotItemId)
+                                }
+                                onAdminToggle={toggleAdminReturnLine}
+                              />
+                            );
+                          })}
                         </div>
+                        <ModalGridPagination
+                          currentPage={detailModalPage}
+                          totalPages={detailModalTotalPages}
+                          onPrev={() => setDetailModalPage((p) => Math.max(1, p - 1))}
+                          onNext={() => setDetailModalPage((p) => Math.min(detailModalTotalPages, p + 1))}
+                        />
                       </>
                     ) : (
                       <div style={{ borderRadius: 12, border: '1px solid #e8ecf4', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                           <thead>
                             <tr style={{ background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' }}>
+                              {isAdminUser && adminReturnableItems.length > 0 ? (
+                                <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: '#475569', width: 44 }}>
+                                  Return
+                                </th>
+                              ) : null}
                               <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Item code</th>
                               <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Category</th>
                               <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Gross Wt</th>
@@ -3065,8 +3319,26 @@ const SampleOutList = ({
                             {detailModalItems.map((line, idx) => {
                               const status = String(line?.ItemStatus || '—').trim() || '—';
                               const statusStyle = getLineItemStatusStyle(status);
+                              const lotItemId = lineLotItemId(line);
+                              const canReturn =
+                                isAdminUser && lineCanAdminReturn(line, detailModal.header);
                               return (
                                 <tr key={line.Id ?? `${line.ItemCode}-${idx}`} className="lot-detail-table-row">
+                                  {isAdminUser && adminReturnableItems.length > 0 ? (
+                                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                      {canReturn ? (
+                                        <input
+                                          type="checkbox"
+                                          checked={lotItemId != null && adminReturnSelectedIds.has(lotItemId)}
+                                          onChange={() => toggleAdminReturnLine(line)}
+                                          style={{ width: 16, height: 16, accentColor: LOT_DETAIL_BLUE }}
+                                          aria-label={`Select ${line.ItemCode || 'item'} for admin return`}
+                                        />
+                                      ) : (
+                                        <span style={{ color: '#cbd5e1' }}>—</span>
+                                      )}
+                                    </td>
+                                  ) : null}
                                   <td style={{ padding: '10px 12px' }}>
                                     <button
                                       type="button"
@@ -3119,6 +3391,101 @@ const SampleOutList = ({
                   </p>
                 )}
 
+                {isAdminUser && adminReturnableItems.length > 0 ? (
+                  <div
+                    style={{
+                      marginTop: 18,
+                      padding: '16px 18px',
+                      borderRadius: 14,
+                      border: '1px solid #fde68a',
+                      background: 'linear-gradient(135deg, #fffbeb 0%, #fff7ed 100%)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        flexWrap: 'wrap',
+                        marginBottom: 12,
+                      }}
+                    >
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#92400e' }}>
+                          Admin bulk sample return
+                        </h4>
+                        <p style={{ margin: '4px 0 0', fontSize: 12, color: '#b45309', fontWeight: 600 }}>
+                          Select Out items and return them without employee scan. Sub-users cannot use this action.
+                        </p>
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: LOT_DETAIL_BLUE }}>
+                        {adminReturnSelectedCount} of {adminReturnableItems.length} returnable selected
+                      </span>
+                    </div>
+                    <label
+                      htmlFor="admin-return-remark"
+                      style={{
+                        display: 'block',
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: '#78350f',
+                        marginBottom: 8,
+                      }}
+                    >
+                      Admin return remark
+                    </label>
+                    <textarea
+                      id="admin-return-remark"
+                      value={adminReturnRemark}
+                      onChange={(e) => setAdminReturnRemark(e.target.value)}
+                      placeholder="e.g. Products received back at counter — employee did not scan return"
+                      rows={2}
+                      style={{
+                        width: '100%',
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        border: '1px solid #fcd34d',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        lineHeight: 1.5,
+                        color: '#0f172a',
+                        resize: 'vertical',
+                        minHeight: 72,
+                        boxSizing: 'border-box',
+                        fontFamily: 'inherit',
+                        background: '#fff',
+                        marginBottom: 12,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={adminReturning || adminReturnSelectedCount === 0}
+                      onClick={handleAdminBulkReturn}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        height: 44,
+                        padding: '0 20px',
+                        borderRadius: 10,
+                        border: 'none',
+                        background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
+                        color: '#fff',
+                        fontWeight: 800,
+                        fontSize: 14,
+                        cursor: adminReturning || adminReturnSelectedCount === 0 ? 'not-allowed' : 'pointer',
+                        opacity: adminReturning || adminReturnSelectedCount === 0 ? 0.6 : 1,
+                        boxShadow: '0 4px 14px rgba(180, 83, 9, 0.28)',
+                        fontFamily: LOT_DETAIL_FONT,
+                      }}
+                    >
+                      {adminReturning ? <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} /> : <FaUndo />}
+                      Return Selected ({adminReturnSelectedCount})
+                    </button>
+                  </div>
+                ) : null}
+
                 <div
                   style={{
                     display: 'flex',
@@ -3128,6 +3495,7 @@ const SampleOutList = ({
                     marginTop: 16,
                     paddingTop: 14,
                     borderTop: '1px solid #f1f5f9',
+                    flexWrap: 'wrap',
                   }}
                 >
                   <button

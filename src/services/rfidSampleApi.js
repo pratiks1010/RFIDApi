@@ -64,6 +64,9 @@ export const getLotAcceptanceStatusUrl = (clientCode, lotId) =>
 
 export const getAcceptLotUrl = () => rfidSampleUrl('/AcceptLot');
 
+/** Admin-only: bulk return Out items without employee scan. */
+export const getAdminBulkSampleReturnUrl = () => rfidSampleUrl('/AdminBulkSampleReturn');
+
 /** All sample-out lots with line items (admin list; sub-user sees assigned only). */
 export const getAllSampleOutListUrl = () => rfidSampleUrl('/GetAllSampleOutList');
 

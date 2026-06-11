@@ -40,7 +40,11 @@ import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
-import { runAutoPushFolderSyncOnce, extractAutoPushUsername } from '../../services/autoPushStockSyncService';
+import {
+  runAutoPushFolderSyncOnce,
+  extractAutoPushUsername,
+  formatSaveRfidErrorsTitle,
+} from '../../services/autoPushStockSyncService';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -3226,16 +3230,52 @@ const LabelStockList = () => {
       }
       const failed = (res.results || []).filter((r) => !r.ok);
       const okList = (res.results || []).filter((r) => r.ok);
+      const errorDetails = failed.flatMap((f) => {
+        if (Array.isArray(f.errors) && f.errors.length) {
+          return f.errors.map((errText) => ({
+            fileName: f.fileName,
+            text: String(errText),
+            isSampleOutBlock: f.isSampleOutBlock || /sample out|sample return|sample acceptance/i.test(String(errText)),
+          }));
+        }
+        return [
+          {
+            fileName: f.fileName,
+            text: String(f.message || 'Sync failed for this file.'),
+            isSampleOutBlock: Boolean(f.isSampleOutBlock),
+          },
+        ];
+      });
+      const sampleOutBlocked = errorDetails.some((e) => e.isSampleOutBlock);
       let msg = `Template: ${res.templateName || '—'}. `;
       if (okList.length) msg += `OK: ${okList.length} file(s). `;
       if (failed.length) {
-        msg += `Failed (${failed.length}): ${failed.map((f) => `${f.fileName} (${f.message || 'error'})`).join('; ')}`;
+        msg += `Failed: ${failed.length} file(s).`;
       }
-      setFolderAutoPushOutcome({ type: failed.length ? 'warning' : 'success', message: msg });
-      addNotification({
-        type: failed.length ? 'warning' : 'success',
-        title: 'Folder sync',
+      const outcomeType = failed.length ? (sampleOutBlocked ? 'error' : 'warning') : 'success';
+      const outcomeTitle = sampleOutBlocked
+        ? 'Sample return required before adding stock'
+        : failed.length
+          ? 'Some files could not be synced'
+          : 'Sync completed';
+      setFolderAutoPushOutcome({
+        type: outcomeType,
+        title: outcomeTitle,
         message: msg,
+        errorDetails,
+        sampleOutBlocked,
+        hint: sampleOutBlocked
+          ? 'Complete Sample In (return scan) for items still on sample out, then run Sync again.'
+          : null,
+      });
+      const notifyBody =
+        errorDetails.length > 0
+          ? errorDetails.map((e) => e.text).join(' ')
+          : msg;
+      addNotification({
+        type: outcomeType,
+        title: outcomeTitle,
+        message: notifyBody,
       });
       await fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues, sortConfig);
       setIsGridView(false);
@@ -5952,11 +5992,18 @@ const LabelStockList = () => {
                   <div
                     style={{
                       marginTop: 12,
-                      padding: '10px 12px',
+                      padding: '12px 14px',
                       borderRadius: 10,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      border: '1px solid #e2e8f0',
+                      fontSize: 13,
+                      border: '1px solid',
+                      borderColor:
+                        folderAutoPushOutcome.type === 'success'
+                          ? '#bbf7d0'
+                          : folderAutoPushOutcome.type === 'warning'
+                            ? '#fde68a'
+                            : folderAutoPushOutcome.type === 'error'
+                              ? '#fecaca'
+                              : '#e2e8f0',
                       color:
                         folderAutoPushOutcome.type === 'success'
                           ? '#065f46'
@@ -5974,9 +6021,45 @@ const LabelStockList = () => {
                               ? '#fef2f2'
                               : '#f8fafc',
                     }}
-                    title={folderAutoPushOutcome.message}
                   >
-                    {folderAutoPushOutcome.message}
+                    <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>
+                      {folderAutoPushOutcome.title ||
+                        formatSaveRfidErrorsTitle({
+                          isSampleOutBlock: folderAutoPushOutcome.sampleOutBlocked,
+                          isPartial: folderAutoPushOutcome.type === 'warning',
+                        })}
+                    </div>
+                    <div style={{ fontWeight: 600, marginBottom: folderAutoPushOutcome.errorDetails?.length ? 8 : 0 }}>
+                      {folderAutoPushOutcome.message}
+                    </div>
+                    {folderAutoPushOutcome.hint ? (
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, lineHeight: 1.5 }}>
+                        {folderAutoPushOutcome.hint}
+                      </div>
+                    ) : null}
+                    {folderAutoPushOutcome.errorDetails?.length ? (
+                      <div
+                        style={{
+                          maxHeight: 220,
+                          overflowY: 'auto',
+                          border: '1px solid rgba(15,23,42,0.08)',
+                          borderRadius: 8,
+                          background: 'rgba(255,255,255,0.65)',
+                          padding: '8px 10px',
+                        }}
+                      >
+                        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55, fontSize: 12, fontWeight: 600 }}>
+                          {folderAutoPushOutcome.errorDetails.map((entry, idx) => (
+                            <li key={`sync-err-${idx}`} style={{ marginBottom: 6, color: '#0f172a' }}>
+                              {entry.fileName ? (
+                                <span style={{ color: '#64748b', fontWeight: 700 }}>{entry.fileName}: </span>
+                              ) : null}
+                              {entry.text}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

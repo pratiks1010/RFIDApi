@@ -642,15 +642,98 @@ const scanReviewModalTone = (sections) => {
 
 const summarizeScanRows = (rows) => {
   let gross = 0;
+  let net = 0;
   let pieces = 0;
   let latest = null;
   (rows || []).forEach((row) => {
     gross += parseFloat(row?.grosswt ?? row?.GrossWt ?? 0) || 0;
+    net += parseFloat(row?.netwt ?? row?.NetWt ?? 0) || 0;
     pieces += parseFloat(row?.Qty ?? row?.Pieces ?? 1) || 1;
     const dt = row?.__scannedAt ? new Date(row.__scannedAt) : null;
     if (dt && !Number.isNaN(dt.getTime()) && (!latest || dt > latest)) latest = dt;
   });
-  return { gross, pieces, latest };
+  return { gross, net, pieces, latest };
+};
+
+const SampleInReturnConfirmBanner = ({ report }) => {
+  const isFullReturn = report.isFullLotReturn;
+  const tone = report.isPartial ? 'partial' : 'full';
+  const bg = tone === 'partial' ? '#fffbeb' : '#f0fdf4';
+  const border = tone === 'partial' ? '#fde68a' : '#86efac';
+  const titleColor = tone === 'partial' ? '#92400e' : '#15803d';
+  const textColor = tone === 'partial' ? '#78350f' : '#14532d';
+  const chipBg = tone === 'partial' ? '#fef3c7' : '#dcfce7';
+
+  const statChip = (label, value, emphasize = false) => (
+    <span
+      key={label}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'baseline',
+        gap: 5,
+        padding: '4px 10px',
+        borderRadius: 8,
+        background: chipBg,
+        fontSize: 13,
+        fontWeight: 600,
+        color: textColor,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{ color: tone === 'partial' ? '#a16207' : '#166534', fontWeight: 700 }}>{label}:</span>
+      <strong style={{ fontWeight: 800, fontSize: emphasize ? 15 : 13, color: '#0f172a' }}>{value}</strong>
+    </span>
+  );
+
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        borderRadius: 10,
+        background: bg,
+        border: `1px solid ${border}`,
+        color: textColor,
+        fontSize: 13,
+        lineHeight: 1.45,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: '8px 10px',
+          marginBottom: 6,
+        }}
+      >
+        <span style={{ fontWeight: 800, fontSize: 14, color: titleColor }}>
+          {isFullReturn ? 'Complete lot return' : report.isPartial ? 'Partial return' : 'Return confirmation'}
+        </span>
+        {statChip('Lot', report.lotNo, true)}
+        {report.assignedName && report.assignedName !== '—' ? statChip('Employee', report.assignedName) : null}
+        {statChip('Returning', `${report.returning} item${report.returning === 1 ? '' : 's'}`)}
+        {statChip('Gr.Wt', report.grossWt)}
+        {statChip('Net Wt', report.netWt, true)}
+        {statChip('Pieces', report.pieces)}
+        {report.outOnLot != null ? statChip('Out on lot', report.outOnLot) : null}
+        {report.returned > 0 ? statChip('Already returned', report.returned) : null}
+        {report.remainingAfter != null && report.remainingAfter > 0
+          ? statChip('Still out after', report.remainingAfter)
+          : null}
+      </div>
+      <div style={{ fontWeight: 600, fontSize: 13, color: textColor }}>{report.confirmationMessage}</div>
+      {!report.isAccepted ? (
+        <div style={{ marginTop: 6, fontWeight: 700, fontSize: 12, color: '#b45309' }}>
+          Employee has not accepted this lot yet — return may be blocked until acceptance.
+        </div>
+      ) : null}
+      {report.isAccepted && report.canReturn === false ? (
+        <div style={{ marginTop: 6, fontWeight: 700, fontSize: 12, color: '#b45309' }}>
+          Lot is not open for returns right now.
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 const pickScannerDisplayName = (src) => {
@@ -3198,17 +3281,21 @@ const formatScannedTime = (date) => {
       const canReturn = ctx?.acceptance?.canReturnItems ?? ctx?.acceptance?.CanReturnItems ?? true;
       const isAccepted = ctx?.acceptance?.isEmployeeAccepted ?? ctx?.acceptance?.IsEmployeeAccepted ?? true;
 
-      let message;
-      if (outOnLot != null) {
-        if (isPartial) {
-          message = `Returning ${returning} item(s) now — ${remainingAfter} will remain out after this return.`;
-          if (returned > 0) message += ` Already returned: ${returned}.`;
-          if (total != null) message += ` Total on lot: ${total}.`;
-        } else {
-          message = `Returning all ${returning} remaining out item(s) on this lot.`;
-        }
+      const rowTotals = summarizeScanRows(group.rows);
+      const grossWt = rowTotals.gross.toFixed(3);
+      const netWt = rowTotals.net.toFixed(3);
+      const pieces = rowTotals.pieces;
+      const isFullLotReturn =
+        outOnLot != null && remainingAfter === 0 && returning > 0 && returning >= outOnLot;
+
+      let confirmationMessage;
+      if (isFullLotReturn) {
+        confirmationMessage = `All ${returning} remaining out item(s) on Lot ${lotNo} will be returned (${grossWt} g gross, ${netWt} g net). Press Sample In to confirm this complete return.`;
+      } else if (outOnLot != null && remainingAfter != null && remainingAfter > 0) {
+        confirmationMessage = `Returning ${returning} of ${outOnLot} out item(s) on Lot ${lotNo} (${grossWt} g gross, ${netWt} g net). ${remainingAfter} item(s) will remain out after you confirm.`;
+        if (returned > 0) confirmationMessage += ` ${returned} already returned on this lot.`;
       } else {
-        message = `${returning} item(s) queued for return on lot ${lotNo}.`;
+        confirmationMessage = `${returning} item(s) ready for Sample In on Lot ${lotNo} — ${grossWt} g gross, ${netWt} g net. Press Sample In to confirm return.`;
       }
 
       return {
@@ -3221,9 +3308,14 @@ const formatScannedTime = (date) => {
         total,
         outOnLot,
         isPartial,
+        isFullLotReturn,
+        grossWt,
+        netWt,
+        pieces,
         canReturn,
         isAccepted,
-        message,
+        confirmationMessage,
+        message: confirmationMessage,
       };
     });
   }, [pendingInRows, sampleInLotDetails]);
@@ -3581,19 +3673,18 @@ const formatScannedTime = (date) => {
                 borderRadius: 8,
                 background: '#f0fdf4',
                 border: '1px solid #bbf7d0',
-                fontSize: 11,
-                lineHeight: 1.55,
+                fontSize: 12,
+                lineHeight: 1.45,
                 color: '#14532d',
               }}
             >
-              <div style={{ fontWeight: 800, marginBottom: 4, color: '#15803d' }}>Sample In — return scan</div>
-              <div>
-                <strong>Assigned employee:</strong>{' '}
-                {sampleInAssignedEmployee || assignToSearch || 'From original Sample Out lot'}
+              <div style={{ fontWeight: 800, marginBottom: 2, color: '#15803d', fontSize: 13 }}>
+                Sample In — return scan
               </div>
-              <div style={{ marginTop: 4, color: '#166534' }}>
-                No employee selection needed — employee was chosen when items went out on lot{' '}
-                <strong>{sampleInBatchLabel || '—'}</strong>.
+              <div style={{ fontWeight: 600 }}>
+                Employee <strong>{sampleInAssignedEmployee || assignToSearch || '—'}</strong>
+                {' · '}
+                Lot <strong>{sampleInBatchLabel || '—'}</strong>
               </div>
             </div>
           ) : (
@@ -4286,38 +4377,12 @@ const formatScannedTime = (date) => {
 
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '8px 10px' }}>
             {sampleInReturnReports.length > 0 ? (
-              <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {sampleInReturnReports.map((report) => (
-                  <div
+                  <SampleInReturnConfirmBanner
                     key={`sample-in-report-${report.lotId || report.lotNo}`}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: 10,
-                      background: report.isPartial ? '#fffbeb' : '#f0fdf4',
-                      border: `1px solid ${report.isPartial ? '#fde68a' : '#bbf7d0'}`,
-                      fontSize: 12,
-                      lineHeight: 1.55,
-                      color: report.isPartial ? '#92400e' : '#14532d',
-                    }}
-                  >
-                    <div style={{ fontWeight: 800, marginBottom: 4 }}>
-                      {report.isPartial ? 'Partial return' : 'Return'} — Lot {report.lotNo}
-                      {report.assignedName && report.assignedName !== '—'
-                        ? ` · Assigned: ${report.assignedName}`
-                        : ''}
-                    </div>
-                    <div>{report.message}</div>
-                    {!report.isAccepted ? (
-                      <div style={{ marginTop: 4, fontWeight: 700, color: '#b45309' }}>
-                        Employee has not accepted this lot yet — return may be blocked until acceptance.
-                      </div>
-                    ) : null}
-                    {report.isAccepted && report.canReturn === false ? (
-                      <div style={{ marginTop: 4, fontWeight: 700, color: '#b45309' }}>
-                        Lot is not open for returns right now.
-                      </div>
-                    ) : null}
-                  </div>
+                    report={report}
+                  />
                 ))}
               </div>
             ) : null}
@@ -5332,30 +5397,12 @@ const formatScannedTime = (date) => {
                   </div>
                 </div>
                 {sampleInReturnReports.length > 0 ? (
-                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {sampleInReturnReports.map((report) => (
-                      <div
+                      <SampleInReturnConfirmBanner
                         key={`confirm-report-${report.lotId || report.lotNo}`}
-                        style={{
-                          padding: '10px 12px',
-                          borderRadius: 10,
-                          background: report.isPartial ? '#fffbeb' : '#f8fafc',
-                          border: `1px solid ${report.isPartial ? '#fde68a' : '#e2e8f0'}`,
-                          fontSize: 12,
-                          lineHeight: 1.5,
-                          color: '#334155',
-                        }}
-                      >
-                        <div style={{ fontWeight: 800, marginBottom: 4 }}>
-                          {report.isPartial ? 'Partial return status' : 'Return status'} — {report.lotNo}
-                        </div>
-                        <div>{report.message}</div>
-                        {report.remainingAfter != null && report.remainingAfter > 0 ? (
-                          <div style={{ marginTop: 4, color: '#b45309', fontWeight: 700 }}>
-                            {report.remainingAfter} product(s) will still need Sample In after this confirm.
-                          </div>
-                        ) : null}
-                      </div>
+                        report={report}
+                      />
                     ))}
                   </div>
                 ) : null}

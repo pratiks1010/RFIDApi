@@ -472,6 +472,93 @@ END
 `;
 };
 
+const formatWeight2 = (value) => {
+  const n = parseFloat(value);
+  if (Number.isNaN(n)) return '0.00';
+  return n.toFixed(2);
+};
+
+/** Melting / purity line on LS000544 label (e.g. "916") */
+const resolveLS000544Melting = (item) =>
+  String(item.Purity || item.PurityName || item.purity || '').trim();
+
+/** HUID value line on LS000544 — maps from Description (e.g. "AA6754") */
+const resolveLS000544HuidValue = (item) =>
+  String(
+    item.Description ||
+      item.description ||
+      item.HUIDCode ||
+      item.HallmarkAmount ||
+      ''
+  ).trim();
+
+// LS000544 — mangalsutra label (ENGINE 3941×710, RFID 48-bit EPC, QR)
+const generateLS000544Prn = (item) => {
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  const productName = prnQuote(item.ProductName || item.CategoryName || '');
+  const grossWt = prnQuote(formatWeight2(item.GrossWt ?? item.GrossWeight ?? item.grosswt));
+  const netWt = prnQuote(formatWeight2(item.NetWt ?? item.netwt));
+  const size = prnQuote(String(item.MRP ?? item.Size ?? item.size ?? '').trim());
+  const melting = prnQuote(resolveLS000544Melting(item));
+  const huidValue = prnQuote(resolveLS000544HuidValue(item));
+  const displayCode = prnQuote(itemCode);
+  const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode);
+
+  return `!PTX_SETUP
+ENGINE-WIDTH;3941:LENGTH;710:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
+~CONFIG
+CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
+END
+~CREATE;FORM-0;51
+SCALE;DOT;203;203
+ISET;'UTF8'
+RFWTAG;16;PC
+16;H;${pcValue}
+STOP
+RFWTAG;${epcBits};EPC
+${epcBits};H;*${epcHex}*
+STOP
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+INV;POINT;120;777;7;7;"${productName}"
+INV;POINT;97;778;7;8;"Gross wt:"
+INV;POINT;76;778;7;8;"Net wt:"
+INV;POINT;53;778;7;7;"Size:"
+INV;POINT;30;778;7;8;"Melting:"
+INV;POINT;97;684;7;8;"${grossWt}"
+INV;POINT;76;684;7;7;"${netWt}"
+INV;POINT;53;685;7;7;"${size}"
+INV;POINT;31;685;7;7;"${melting}"
+INV;POINT;8;685;7;8;"${huidValue}"
+INV;POINT;8;777;7;7;"HUID:"
+STOP
+BARCODE
+QRCODE;INV;XD4;T2;E0;M0;I0;42;370
+"${displayCode}"
+STOP
+ALPHA
+INV;POINT;13;442;7;7;"${displayCode}"
+STOP
+END
+~EXECUTE;FORM-0;1
+
+~NORMAL
+~DELETE FORM;FORM-0
+`;
+};
+
 // Generate PRN for LS000443 - Silver Category (New template)
 const generateLS000443SilverPrn = (item) => {
   const itemCode = item.ItemCode || '';
@@ -550,6 +637,8 @@ export const generateClientPrn = (item, clientCode) => {
       return generateLS000431Prn(item);
     case 'LS000533':
       return generateLS000533Prn(item);
+    case 'LS000544':
+      return generateLS000544Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection

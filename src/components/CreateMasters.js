@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { getGetAllCustomerUrl, getAddCustomerUrl } from '../services/customerOnboardingApi';
-import { toSoniApiUrl } from '../services/apiBaseConfig';
 import { assignBoxRfidTag } from '../services/boxRfidApi';
+import { rfidService } from '../services/rfidService';
 import {
   FaTags,
   FaBox,
@@ -177,9 +177,6 @@ const firstMasterId = (items) => {
   return toIntOrUndefined(row?.Id ?? row?.id);
 };
 
-const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
-  || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
-
 const rfidTextToHex = (str) =>
   String(str || '')
     .split('')
@@ -187,42 +184,18 @@ const rfidTextToHex = (str) =>
     .join('')
     .toUpperCase();
 
-const extractRfidMappingFromEpc = (raw) => {
-  const normalizeRows = (value) => {
-    if (Array.isArray(value)) return value;
-    if (Array.isArray(value?.items)) return value.items;
-    if (Array.isArray(value?.Items)) return value.Items;
-    if (value && typeof value === 'object') {
-      return Object.entries(value).map(([epc, rfid]) => ({ EPCValue: epc, RFIDCode: rfid }));
-    }
-    return [];
-  };
-
-  const rowSources = [
-    raw?.items,
-    raw?.Items,
-    raw?.Data?.items,
-    raw?.Data?.Items,
-    raw?.data?.items,
-    raw?.data?.Items,
-    raw?.Data,
-    raw?.data,
-    raw?.Result,
-    raw?.result,
-    raw,
-  ];
-  const rows = rowSources.map(normalizeRows).find((sourceRows) => sourceRows.length > 0) || [];
-  const map = {};
-  rows.forEach((item) => {
-    const epc = String(
-      item?.EPCValue || item?.EpcValue || item?.epcValue || item?.EPC || item?.epc || item?.RequestedIdentifier || ''
-    ).trim().toUpperCase();
-    const rfid = String(
-      item?.RFIDCode || item?.RfidCode || item?.rfidCode || item?.RFIDNumber || item?.RfidNumber || item?.rfidNumber || ''
-    ).trim();
-    if (epc && rfid) map[epc] = rfid;
-  });
-  return map;
+const parseTidFromBarcodeResponse = (res) => {
+  if (res == null) return null;
+  if (typeof res === 'string') return res.trim();
+  if (typeof res.tidValue === 'string') return res.tidValue.trim();
+  if (typeof res.Tid === 'string') return res.Tid.trim();
+  if (typeof res.TID === 'string') return res.TID.trim();
+  if (Array.isArray(res) && res.length > 0) {
+    const first = res[0];
+    const tid = typeof first === 'string' ? first : (first?.tidValue ?? first?.Tid ?? first?.TID ?? null);
+    return tid != null ? String(tid).trim() : null;
+  }
+  return null;
 };
 
 const CreateMasters = () => {
@@ -935,9 +908,9 @@ const CreateMasters = () => {
     }
   }, [activeOption, fetchDailyRates]);
 
-  const fetchBoxRfidCodeByEpc = useCallback(async (epcValue) => {
-    const epc = String(epcValue || '').trim().toUpperCase();
-    if (!epc || epc.length < 4) {
+  const fetchBoxTidForRfid = useCallback(async (rfidValue) => {
+    const barcode = String(rfidValue || '').trim();
+    if (!barcode || barcode.length <= 4) {
       setBoxRfidLookupError('');
       return;
     }
@@ -949,41 +922,35 @@ const CreateMasters = () => {
     setBoxRfidLookupLoading(true);
     setBoxRfidLookupError('');
     try {
-      const response = await axios.post(
-        RFID_CODE_LOOKUP_URL,
-        { ClientCode: clientCode, EPCValues: [epc] },
-        { headers: getAuthHeaders(), timeout: 45000 }
-      );
-      const mapping = extractRfidMappingFromEpc(response?.data);
-      const rfidCode = mapping[epc] || '';
-      if (!rfidCode) {
-        setBoxRfidLookupError('No RFID code found for this EPC/hex value.');
-        setFormData((prev) => ({ ...prev, rfidCode: '' }));
+      const res = await rfidService.getTidByBarcode(clientCode, barcode);
+      const tid = parseTidFromBarcodeResponse(res);
+      if (!tid) {
+        setBoxRfidLookupError('No TID found for this RFID number.');
+        setFormData((prev) => ({ ...prev, hexCode: '', tidNumber: '' }));
         return;
       }
-      setFormData((prev) => {
-        const tidWasSynced = !String(prev.tidNumber || '').trim() || prev.tidNumber === prev.hexCode;
-        return {
-          ...prev,
-          rfidCode: rfidCode.toUpperCase(),
-          tidNumber: tidWasSynced ? epc : prev.tidNumber,
-        };
-      });
+      const tidUpper = tid.toUpperCase();
+      setFormData((prev) => ({
+        ...prev,
+        rfidCode: barcode.toUpperCase(),
+        hexCode: tidUpper,
+        tidNumber: tidUpper,
+      }));
     } catch (err) {
-      const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'RFID lookup failed.';
+      const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'TID lookup failed.';
       setBoxRfidLookupError(msg);
-      setFormData((prev) => ({ ...prev, rfidCode: '' }));
+      setFormData((prev) => ({ ...prev, hexCode: '', tidNumber: '' }));
     } finally {
       setBoxRfidLookupLoading(false);
     }
   }, [clientCode]);
 
-  const scheduleBoxRfidLookup = useCallback((epcValue) => {
+  const scheduleBoxTidLookup = useCallback((rfidValue) => {
     if (boxRfidLookupTimerRef.current) clearTimeout(boxRfidLookupTimerRef.current);
     boxRfidLookupTimerRef.current = setTimeout(() => {
-      fetchBoxRfidCodeByEpc(epcValue);
+      fetchBoxTidForRfid(rfidValue);
     }, 350);
-  }, [fetchBoxRfidCodeByEpc]);
+  }, [fetchBoxTidForRfid]);
 
   useEffect(() => () => {
     if (boxRfidLookupTimerRef.current) clearTimeout(boxRfidLookupTimerRef.current);
@@ -997,19 +964,15 @@ const CreateMasters = () => {
   };
 
   const updateField = (key, value) => {
-    if (activeOption === 'box' && key === 'hexCode' && boxRfidTagMode === 'reuse') {
-      const hex = String(value || '').trim().toUpperCase().replace(/[^0-9A-F]/g, '');
-      setFormData((prev) => {
-        const tidWasSynced = !String(prev.tidNumber || '').trim() || prev.tidNumber === prev.hexCode;
-        return {
-          ...prev,
-          hexCode: hex,
-          tidNumber: tidWasSynced ? hex : prev.tidNumber,
-          rfidCode: '',
-        };
-      });
-      if (hex.length >= 4) {
-        scheduleBoxRfidLookup(hex);
+    if (activeOption === 'box' && key === 'rfidCode' && boxRfidTagMode === 'reuse') {
+      const rfid = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      setFormData((prev) => ({
+        ...prev,
+        rfidCode: rfid,
+        ...(rfid.length <= 4 ? { hexCode: '', tidNumber: '' } : {}),
+      }));
+      if (rfid.length > 4) {
+        scheduleBoxTidLookup(rfid);
       } else {
         setBoxRfidLookupError('');
       }
@@ -2985,11 +2948,16 @@ const CreateMasters = () => {
                   <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', alignContent: 'start' }} className="create-masters-fields-grid">
                     {fields.map((f) => {
                       if (activeOption === 'box' && f.key === 'hexCode') return null;
+                      if (activeOption === 'box' && f.key === 'tidNumber' && boxRfidTagMode === 'reuse') return null;
 
                       if (activeOption === 'box' && f.key === 'rfidCode') {
                         const isReuse = boxRfidTagMode === 'reuse';
-                        const rfidReadOnly = isReuse;
-                        const hexReadOnly = !isReuse;
+                        const rfidTrim = String(formData.rfidCode || '').trim();
+                        const hasRfidMoreThan4 = rfidTrim.length > 4;
+                        const showTidPresent = hasRfidMoreThan4 && Boolean(formData.hexCode || formData.tidNumber);
+                        const showTidMissing = hasRfidMoreThan4 && !boxRfidLookupLoading && !showTidPresent && !boxRfidLookupError;
+                        const rfidInputOk = showTidPresent && !boxRfidLookupError;
+                        const rfidInputBad = Boolean(boxRfidLookupError) || showTidMissing;
                         return (
                           <React.Fragment key="box-rfid-fields">
                             <div style={{ ...baseStyles.fieldGroup, gridColumn: '1 / -1' }}>
@@ -3023,49 +2991,78 @@ const CreateMasters = () => {
                               </div>
                               <p style={{ margin: '6px 0 0', fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>
                                 {isReuse
-                                  ? 'Enter or scan EPC/hex — Box RFID Code is fetched from the server (same as Add Stock).'
+                                  ? 'Enter RFID Number — TID and Hex are fetched from the server (same as Add Stock).'
                                   : 'Enter Box RFID Code — hex is generated automatically from the code.'}
                               </p>
                             </div>
                             <div style={{ ...baseStyles.fieldGroup }}>
                               <label style={baseStyles.label}>
-                                Box RFID Code {isReuse && boxRfidLookupLoading ? (
+                                {isReuse ? 'RFID Number' : 'Box RFID Code'}
+                                {isReuse && boxRfidLookupLoading ? (
                                   <FaSpinner size={10} style={{ marginLeft: 6, animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
                                 ) : null}
                               </label>
                               <input
                                 type="text"
                                 value={formData.rfidCode ?? ''}
-                                readOnly={rfidReadOnly}
-                                onChange={(e) => !rfidReadOnly && updateField('rfidCode', e.target.value)}
-                                placeholder={isReuse ? 'Filled from EPC lookup' : 'e.g. SJ0260'}
+                                readOnly={false}
+                                onChange={(e) => updateField('rfidCode', e.target.value)}
+                                onBlur={() => {
+                                  if (isReuse && rfidTrim.length > 4) fetchBoxTidForRfid(rfidTrim);
+                                }}
+                                placeholder={isReuse ? 'e.g. SJ0260' : 'e.g. SJ0260'}
                                 style={{
                                   ...baseStyles.input,
-                                  background: rfidReadOnly ? '#f1f5f9' : baseStyles.input.background,
-                                  cursor: rfidReadOnly ? 'default' : 'text',
+                                  ...(isReuse
+                                    ? {
+                                        border: rfidInputBad
+                                          ? '2px solid #dc2626'
+                                          : rfidInputOk
+                                            ? '2px solid #16a34a'
+                                            : '2px solid #6366f1',
+                                        background: rfidInputBad ? '#fef2f2' : rfidInputOk ? '#f0fdf4' : baseStyles.input.background,
+                                      }
+                                    : {}),
                                 }}
                               />
                               {isReuse && boxRfidLookupError ? (
                                 <span style={{ fontSize: 10, color: '#dc2626', marginTop: 4, display: 'block' }}>{boxRfidLookupError}</span>
                               ) : null}
                             </div>
+                            {isReuse ? (
+                              <div style={{ ...baseStyles.fieldGroup }}>
+                                <label style={baseStyles.label}>TID</label>
+                                <div
+                                  title={formData.tidNumber || formData.hexCode || ''}
+                                  style={{
+                                    ...baseStyles.input,
+                                    background: '#f8fafc',
+                                    color: '#475569',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    height: 34,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    cursor: 'default',
+                                  }}
+                                >
+                                  {boxRfidLookupLoading ? '...' : formData.tidNumber || formData.hexCode || '—'}
+                                </div>
+                              </div>
+                            ) : null}
                             <div style={{ ...baseStyles.fieldGroup }}>
                               <label style={baseStyles.label}>Hex Code</label>
                               <input
                                 type="text"
                                 value={formData.hexCode ?? ''}
-                                readOnly={hexReadOnly}
-                                onChange={(e) => !hexReadOnly && updateField('hexCode', e.target.value)}
-                                onBlur={() => {
-                                  if (isReuse && (formData.hexCode || '').trim().length >= 4) {
-                                    fetchBoxRfidCodeByEpc(formData.hexCode);
-                                  }
-                                }}
-                                placeholder={isReuse ? 'e.g. 424F584145 (EPC)' : 'Auto from RFID code'}
+                                readOnly={isReuse}
+                                onChange={(e) => !isReuse && updateField('hexCode', e.target.value)}
+                                placeholder={isReuse ? 'Auto from RFID lookup' : 'Auto from RFID code'}
                                 style={{
                                   ...baseStyles.input,
-                                  background: hexReadOnly ? '#f1f5f9' : baseStyles.input.background,
-                                  cursor: hexReadOnly ? 'default' : 'text',
+                                  background: isReuse ? '#f1f5f9' : baseStyles.input.background,
+                                  cursor: isReuse ? 'default' : 'text',
                                 }}
                               />
                             </div>

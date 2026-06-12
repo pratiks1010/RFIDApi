@@ -1,5 +1,10 @@
 import axios from 'axios';
 import { toRrgoldApiUrl } from './apiBaseConfig';
+import {
+  normalizeBoxDetailsResponse,
+  normalizeBoxListResponse,
+  normalizeBoxOperationResponse,
+} from './boxRfidNormalize';
 
 const boxRfidUrl = (path) => toRrgoldApiUrl(`/api/BoxRfid${path.startsWith('/') ? path : `/${path}`}`);
 const productMasterUrl = (path) =>
@@ -118,5 +123,50 @@ export const getBoxContents = async (payload) => {
     headers: boxRfidAuthHeaders(),
     timeout: 60000,
   });
-  return data;
+  return normalizeBoxDetailsResponse(data);
+};
+
+/** Wall screen — all boxes with summary */
+export const getBoxList = async (payload) => {
+  const { data } = await axios.post(boxRfidUrl('/GetBoxList'), payload, {
+    headers: boxRfidAuthHeaders(),
+    timeout: 60000,
+  });
+  return normalizeBoxListResponse(data);
+};
+
+/** Box details + products inside (same as GetBoxContents) */
+export const getBoxDetails = async (payload) => {
+  const { data } = await axios.post(boxRfidUrl('/GetBoxDetails'), payload, {
+    headers: boxRfidAuthHeaders(),
+    timeout: 60000,
+  });
+  return normalizeBoxDetailsResponse(data);
+};
+
+/** Move all products from one box to another */
+export const transferBoxProducts = async (payload) => {
+  const { data } = await axios.post(boxRfidUrl('/TransferBoxProducts'), payload, {
+    headers: boxRfidAuthHeaders(),
+    timeout: 120000,
+  });
+  return normalizeBoxOperationResponse(data);
+};
+
+/** Remove all products from box but keep the box */
+export const unboxAllProducts = async (payload) => {
+  const { data } = await axios.post(boxRfidUrl('/UnboxAllProducts'), payload, {
+    headers: boxRfidAuthHeaders(),
+    timeout: 120000,
+  });
+  return normalizeBoxOperationResponse(data);
+};
+
+/** Unbox all products and delete the box */
+export const deleteBoxAndUnbox = async (payload) => {
+  const { data } = await axios.post(boxRfidUrl('/DeleteBoxAndUnbox'), payload, {
+    headers: boxRfidAuthHeaders(),
+    timeout: 120000,
+  });
+  return normalizeBoxOperationResponse(data);
 };

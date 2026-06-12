@@ -5,6 +5,7 @@ import {
   FaBox,
   FaCheckCircle,
   FaExclamationTriangle,
+  FaList,
   FaPlus,
   FaSearch,
   FaSpinner,
@@ -75,6 +76,52 @@ const formatWt = (value) => {
   if (value === undefined || value === null || value === '') return '-';
   const n = parseFloat(value);
   return Number.isFinite(n) ? n.toFixed(3) : String(value);
+};
+
+/** Normalize AddProductsToBox API (camelCase or PascalCase). */
+const normalizePackResponse = (data) => {
+  if (!data || typeof data !== 'object') {
+    return {
+      success: false,
+      message: '',
+      box: {},
+      summary: {},
+      addedProducts: [],
+      failedItems: [],
+    };
+  }
+  const addedProducts = data.addedProducts ?? data.AddedProducts ?? [];
+  const failedItems = data.failedItems ?? data.FailedItems ?? [];
+  const explicitSuccess = data.success ?? data.Success;
+  const success =
+    explicitSuccess === true ||
+    (explicitSuccess !== false && addedProducts.length > 0 && failedItems.length === 0);
+  return {
+    success,
+    message: String(data.message ?? data.Message ?? '').trim(),
+    box: data.box ?? data.Box ?? {},
+    summary: data.summary ?? data.Summary ?? {},
+    addedProducts: Array.isArray(addedProducts) ? addedProducts : [],
+    failedItems: Array.isArray(failedItems) ? failedItems : [],
+  };
+};
+
+const formatFailedItemsSummary = (failedItems) =>
+  failedItems
+    .map((f) => {
+      const code = pick(f, 'itemCode', 'ItemCode') || 'Item';
+      const reason = pick(f, 'reason', 'Reason', 'message', 'Message') || 'Could not add';
+      return `${code}: ${reason}`;
+    })
+    .join(' · ');
+
+const getPackOutcome = (pack) => {
+  const added = pack.addedProducts.length;
+  const failed = pack.failedItems.length;
+  if (added > 0 && failed === 0) return 'success';
+  if (added > 0 && failed > 0) return 'partial';
+  if (added === 0 && failed > 0) return 'failed';
+  return 'none';
 };
 
 const parseStockResponse = (responseData, page, pageSize) => {
@@ -369,39 +416,70 @@ const BoxRfid = () => {
     if (!clientCode || !selectedBoxId || !selectedItemCodes.length) return;
     setPacking(true);
     try {
-      const data = await addProductsToBox({
+      const raw = await addProductsToBox({
         ClientCode: clientCode,
         BoxId: parseInt(selectedBoxId, 10),
         ItemCodes: selectedItemCodes,
         ...(addedBy.trim() ? { AddedBy: addedBy.trim() } : {}),
       });
-      setPackResult(data);
+      const pack = normalizePackResponse(raw);
+      setPackResult(pack);
       setPackStep('result');
 
-      const failed = data?.failedItems || [];
-      const added = data?.addedProducts || [];
+      const outcome = getPackOutcome(pack);
+      const failedDetail = formatFailedItemsSummary(pack.failedItems);
+      const baseMessage = pack.message || 'Add to box completed.';
 
-      if (data?.success === false && !added.length) {
+      if (outcome === 'failed') {
         addNotification({
           type: 'error',
-          title: 'Add to box',
-          message: data?.message || 'No items were added to the box.',
+          title: 'Add to box failed',
+          message: failedDetail ? `${baseMessage} ${failedDetail}` : baseMessage,
         });
-      } else {
+      } else if (outcome === 'partial') {
         addNotification({
-          type: failed.length ? 'warning' : 'success',
-          title: 'Box packed',
-          message: data?.message || `${added.length} item(s) added to box.`,
+          type: 'warning',
+          title: 'Partially added to box',
+          message: failedDetail ? `${baseMessage} Failed: ${failedDetail}` : baseMessage,
         });
         setSelectedItemsMap({});
         fetchStock(currentPage, itemsPerPage, searchQuery);
+      } else if (outcome === 'success') {
+        addNotification({
+          type: 'success',
+          title: 'Box packed',
+          message: pack.message || `${pack.addedProducts.length} item(s) added to box.`,
+        });
+        setSelectedItemsMap({});
+        fetchStock(currentPage, itemsPerPage, searchQuery);
+      } else {
+        addNotification({
+          type: 'warning',
+          title: 'Add to box',
+          message: pack.message || 'No items were added to the box.',
+        });
       }
     } catch (err) {
-      addNotification({
-        type: 'error',
-        title: 'Add to box',
-        message: err?.response?.data?.message || err?.message || 'Failed to add items to box.',
-      });
+      const errData = err?.response?.data;
+      const errPack = normalizePackResponse(errData);
+      if (errPack.failedItems.length) {
+        setPackResult(errPack);
+        setPackStep('result');
+        const failedDetail = formatFailedItemsSummary(errPack.failedItems);
+        addNotification({
+          type: 'error',
+          title: 'Add to box failed',
+          message: failedDetail
+            ? `${errPack.message || 'Could not add items.'} ${failedDetail}`
+            : errPack.message || err?.message || 'Failed to add items to box.',
+        });
+      } else {
+        addNotification({
+          type: 'error',
+          title: 'Add to box',
+          message: errPack.message || err?.response?.data?.Message || err?.message || 'Failed to add items to box.',
+        });
+      }
     } finally {
       setPacking(false);
     }
@@ -683,6 +761,28 @@ const BoxRfid = () => {
                 marginLeft: isSmallScreen ? 0 : 'auto',
               }}
             >
+              <button
+                type="button"
+                onClick={() => navigate('/box-rfid/box-list')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #0f766e',
+                  background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 100%)',
+                  color: '#ffffff',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                }}
+              >
+                <FaList style={{ fontSize: 11 }} />
+                <span>Box list</span>
+              </button>
               <button
                 type="button"
                 onClick={openPackModal}
@@ -1217,11 +1317,29 @@ const BoxRfid = () => {
               ) : (
                 <>
                   {(() => {
-                    const ok = packResult?.success !== false;
-                    const box = packResult?.box || {};
-                    const summary = packResult?.summary || {};
-                    const added = packResult?.addedProducts || packResult?.AddedProducts || [];
-                    const failed = packResult?.failedItems || packResult?.FailedItems || [];
+                    const pack = normalizePackResponse(packResult);
+                    const outcome = getPackOutcome(pack);
+                    const box = pack.box;
+                    const summary = pack.summary;
+                    const added = pack.addedProducts;
+                    const failed = pack.failedItems;
+                    const bannerStyle =
+                      outcome === 'success'
+                        ? { bg: '#ecfdf5', border: '#6ee7b7', color: '#047857' }
+                        : outcome === 'partial'
+                          ? { bg: '#fffbeb', border: '#fcd34d', color: '#b45309' }
+                          : outcome === 'failed'
+                            ? { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' }
+                            : { bg: '#fffbeb', border: '#fcd34d', color: '#b45309' };
+                    const headline =
+                      pack.message ||
+                      (outcome === 'success'
+                        ? 'Products added successfully.'
+                        : outcome === 'partial'
+                          ? 'Some items were added; others could not be packed.'
+                          : outcome === 'failed'
+                            ? 'No items could be added to this box.'
+                            : 'No items were added.');
                     return (
                       <>
                         <div
@@ -1232,28 +1350,48 @@ const BoxRfid = () => {
                             padding: '10px 12px',
                             marginBottom: 14,
                             borderRadius: 8,
-                            background: ok ? '#ecfdf5' : '#fffbeb',
-                            border: `1px solid ${ok ? '#6ee7b7' : '#fcd34d'}`,
+                            background: bannerStyle.bg,
+                            border: `1px solid ${bannerStyle.border}`,
                           }}
                         >
-                          {ok ? (
-                            <FaCheckCircle style={{ color: '#047857', marginTop: 2, flexShrink: 0 }} />
+                          {outcome === 'success' ? (
+                            <FaCheckCircle style={{ color: bannerStyle.color, marginTop: 2, flexShrink: 0 }} />
                           ) : (
-                            <FaExclamationTriangle style={{ color: '#b45309', marginTop: 2, flexShrink: 0 }} />
+                            <FaExclamationTriangle style={{ color: bannerStyle.color, marginTop: 2, flexShrink: 0 }} />
                           )}
                           <div>
-                            <div style={{ fontSize: 13, fontWeight: 800, color: ok ? '#047857' : '#b45309' }}>
-                              {packResult?.message || (ok ? 'Products added successfully.' : 'Some items could not be added.')}
+                            <div style={{ fontSize: 13, fontWeight: 800, color: bannerStyle.color }}>
+                              {headline}
                             </div>
                             <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>
-                              Box: <strong>{box.boxName || box.BoxName || boxMasterName(selectedBoxRow)}</strong>
-                              {summary.totalProducts != null ? ` · ${summary.totalProducts} product(s)` : ''}
-                              {summary.totalGrossWt != null ? ` · Gross ${summary.totalGrossWt}g` : ''}
-                              {summary.totalNetWt != null ? ` · Net ${summary.totalNetWt}g` : ''}
-                              {summary.grandTotalWeight != null
-                                ? ` · Total with box ${summary.grandTotalWeight}g`
+                              Box: <strong>{pick(box, 'boxName', 'BoxName') || boxMasterName(selectedBoxRow)}</strong>
+                              {pick(summary, 'totalProducts', 'TotalProducts') !== ''
+                                ? ` · ${pick(summary, 'totalProducts', 'TotalProducts')} product(s) in box`
+                                : ''}
+                              {pick(summary, 'totalGrossWt', 'TotalGrossWt') !== ''
+                                ? ` · Gross ${pick(summary, 'totalGrossWt', 'TotalGrossWt')}g`
+                                : ''}
+                              {pick(summary, 'totalNetWt', 'TotalNetWt') !== ''
+                                ? ` · Net ${pick(summary, 'totalNetWt', 'TotalNetWt')}g`
+                                : ''}
+                              {pick(summary, 'grandTotalWeight', 'GrandTotalWeight') !== ''
+                                ? ` · Total with box ${pick(summary, 'grandTotalWeight', 'GrandTotalWeight')}g`
                                 : ''}
                             </div>
+                            {added.length > 0 || failed.length > 0 ? (
+                              <div style={{ fontSize: 10, color: '#64748b', marginTop: 6 }}>
+                                {added.length > 0 ? (
+                                  <span style={{ marginRight: 10 }}>
+                                    <strong style={{ color: '#047857' }}>{added.length} added</strong>
+                                  </span>
+                                ) : null}
+                                {failed.length > 0 ? (
+                                  <span>
+                                    <strong style={{ color: '#b91c1c' }}>{failed.length} failed</strong>
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
 
@@ -1306,16 +1444,49 @@ const BoxRfid = () => {
                         {failed.length > 0 ? (
                           <div>
                             <div style={{ fontSize: 11, fontWeight: 800, color: '#b91c1c', marginBottom: 8 }}>
-                              FAILED ITEMS
+                              FAILED ITEMS ({failed.length})
                             </div>
-                            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: '#64748b' }}>
-                              {failed.map((f, i) => (
-                                <li key={i}>
-                                  <strong>{f.itemCode || f.ItemCode}</strong> — {f.reason || f.message || 'Failed'}
-                                </li>
-                              ))}
-                            </ul>
+                            <div style={{ overflowX: 'auto', border: '1px solid #fecaca', borderRadius: 8, background: '#fffbfb' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                                <thead>
+                                  <tr style={{ background: '#fef2f2' }}>
+                                    {['Item Code', 'Reason'].map((h) => (
+                                      <th
+                                        key={h}
+                                        style={{
+                                          padding: '6px 8px',
+                                          textAlign: 'left',
+                                          fontWeight: 700,
+                                          borderBottom: '1px solid #fecaca',
+                                          color: '#991b1b',
+                                        }}
+                                      >
+                                        {h}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {failed.map((f, i) => (
+                                    <tr key={i}>
+                                      <td style={{ padding: '6px 8px', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                                        {pick(f, 'itemCode', 'ItemCode')}
+                                      </td>
+                                      <td style={{ padding: '6px 8px', color: '#64748b' }}>
+                                        {pick(f, 'reason', 'Reason', 'message', 'Message') || 'Could not add to box'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
+                        ) : null}
+
+                        {added.length === 0 && failed.length > 0 ? (
+                          <p style={{ margin: '10px 0 0', fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
+                            Remove these items from their current box first, or choose different stock lines, then try again.
+                          </p>
                         ) : null}
                       </>
                     );

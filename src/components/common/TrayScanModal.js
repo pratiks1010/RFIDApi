@@ -3,6 +3,11 @@ import axios from 'axios';
 import { FaPlay, FaPlug, FaSearch, FaStop } from 'react-icons/fa';
 import { toSoniApiUrl } from '../../services/apiBaseConfig';
 import {
+  buildTrayConnectCommands,
+  TRAY_CONNECTION_MODE_OPTIONS,
+  TRAY_CONNECTION_MODES,
+} from '../../services/trayBridgeConnect';
+import {
   getTrayReaderConfig,
   saveTrayReaderConfig,
   parsePowerAttDb10,
@@ -115,10 +120,12 @@ const TrayScanModal = ({
   compactLayout = false,
 }) => {
   const initialReaderConfig = useMemo(() => getTrayReaderConfig(), []);
+  const [connectionMode, setConnectionMode] = useState(initialReaderConfig.connectionMode);
   const [comPrimary, setComPrimary] = useState(initialReaderConfig.comPrimary);
   const [comSecondary, setComSecondary] = useState(initialReaderConfig.comSecondary);
   const [baudRate, setBaudRate] = useState(initialReaderConfig.baudRate);
   const [powerAttDb10, setPowerAttDb10] = useState(initialReaderConfig.powerAttDb10);
+  const isUsbMode = connectionMode === TRAY_CONNECTION_MODES.usb;
   const [busy, setBusy] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [autoLoading, setAutoLoading] = useState(false);
@@ -179,6 +186,7 @@ const TrayScanModal = ({
   useEffect(() => {
     if (!open) return;
     const saved = getTrayReaderConfig();
+    setConnectionMode(saved.connectionMode);
     setComPrimary(saved.comPrimary);
     setComSecondary(saved.comSecondary);
     setBaudRate(saved.baudRate);
@@ -278,9 +286,19 @@ const TrayScanModal = ({
     setBusy(true);
     setFetchMessage('');
     try {
-      await run('disconnect');
-      await run(`connect-serial ${comPrimary} ${baudRate}`);
-      await run(`connect-serial ${comSecondary} ${baudRate}`);
+      const { commands, errors } = buildTrayConnectCommands({
+        connectionMode,
+        comPrimary,
+        comSecondary,
+        baudRate,
+      });
+      if (errors.length) {
+        setFetchMessage(errors.join(' '));
+        return;
+      }
+      for (const cmd of commands) {
+        await run(cmd);
+      }
       const pwr = parsePowerAttDb10(powerAttDb10);
       if (pwr !== null) {
         try {
@@ -326,12 +344,13 @@ const TrayScanModal = ({
       setFetchMessage('Select a transmit power level from the list.');
       return;
     }
-    const saved = saveTrayReaderConfig({ comPrimary, comSecondary, baudRate, powerAttDb10 });
+    const saved = saveTrayReaderConfig({ connectionMode, comPrimary, comSecondary, baudRate, powerAttDb10 });
+    setConnectionMode(saved.connectionMode);
     setComPrimary(saved.comPrimary);
     setComSecondary(saved.comSecondary);
     setBaudRate(saved.baudRate);
     setPowerAttDb10(saved.powerAttDb10);
-    setFetchMessage('Reader settings (ports, baud, power) saved. All tray scan popups use this.');
+    setFetchMessage('Reader settings saved. All tray scan popups use this.');
   };
 
   useEffect(() => {
@@ -445,18 +464,43 @@ const TrayScanModal = ({
                 Reader setup
               </div>
               <div className="row g-2 g-md-3 align-items-end">
-                <div className="col-6 col-md-auto">
-                  <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-com-primary">Primary COM</label>
-                  <input id="tray-com-primary" className="form-control" value={comPrimary} onChange={(e) => setComPrimary(e.target.value)} placeholder="e.g. COM3" style={{ ...inputStyle, minWidth: 120, maxWidth: 160 }} autoComplete="off" />
-                </div>
-                <div className="col-6 col-md-auto">
-                  <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-com-secondary">Secondary COM</label>
-                  <input id="tray-com-secondary" className="form-control" value={comSecondary} onChange={(e) => setComSecondary(e.target.value)} placeholder="e.g. COM4" style={{ ...inputStyle, minWidth: 120, maxWidth: 160 }} autoComplete="off" />
-                </div>
                 <div className="col-12 col-md-auto">
-                  <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-baud">Baud rate</label>
-                  <input id="tray-baud" className="form-control" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} placeholder="e.g. 115200" style={{ ...inputStyle, minWidth: 130, maxWidth: 180 }} autoComplete="off" />
+                  <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-connection-mode">Connection</label>
+                  <select
+                    id="tray-connection-mode"
+                    className="form-select"
+                    value={connectionMode}
+                    onChange={(e) => setConnectionMode(e.target.value)}
+                    disabled={busy || !hasBridge}
+                    style={{ ...inputStyle, minWidth: 200, maxWidth: 260, fontSize: 12 }}
+                  >
+                    {TRAY_CONNECTION_MODE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
+                {!isUsbMode ? (
+                  <>
+                    <div className="col-6 col-md-auto">
+                      <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-com-primary">Primary COM</label>
+                      <input id="tray-com-primary" className="form-control" value={comPrimary} onChange={(e) => setComPrimary(e.target.value)} placeholder="e.g. 7" style={{ ...inputStyle, minWidth: 120, maxWidth: 160 }} autoComplete="off" />
+                    </div>
+                    <div className="col-6 col-md-auto">
+                      <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-com-secondary">Secondary COM</label>
+                      <input id="tray-com-secondary" className="form-control" value={comSecondary} onChange={(e) => setComSecondary(e.target.value)} placeholder="e.g. 8" style={{ ...inputStyle, minWidth: 120, maxWidth: 160 }} autoComplete="off" />
+                    </div>
+                    <div className="col-12 col-md-auto">
+                      <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-baud">Baud rate</label>
+                      <input id="tray-baud" className="form-control" value={baudRate} onChange={(e) => setBaudRate(e.target.value)} placeholder="e.g. 115200" style={{ ...inputStyle, minWidth: 130, maxWidth: 180 }} autoComplete="off" />
+                    </div>
+                  </>
+                ) : (
+                  <div className="col-12 col-md">
+                    <div className="small" style={{ color: '#64748b', padding: '6px 0' }}>
+                      USB mode uses <code>connect-usb</code> via UHFAPI.dll — no COM ports. Ensure <strong>libusb-1.0.dll</strong> is next to the bridge.
+                    </div>
+                  </div>
+                )}
                 <div className="col-12 col-md">
                   <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-power-select-modal">
                     Transmit power (0 = strongest, {TRAY_POWER_ATT_MAX} = weakest)

@@ -364,6 +364,12 @@ const formatDiamondCt = (value) => {
   return `${n.toFixed(2)} Ct`;
 };
 
+const formatDiamondCtLower = (value) => {
+  const n = parseFloat(value);
+  if (Number.isNaN(n)) return '0.00 ct';
+  return `${n.toFixed(2)} ct`;
+};
+
 /** Design label for LS000533 bottom field — matches grid "Design" column (e.g. 1pt, 1.5pt, 3pt) */
 const resolveLS000533DesignLabel = (item) => {
   const designName = String(
@@ -387,6 +393,27 @@ const resolveLS000533Purity = (item) =>
 const resolveLS000533Description = (item) =>
   String(item.Description || item.description || item.ProductName || '').trim();
 
+/** Stone weight line on LS000533 stone label (e.g. "1.25pt") */
+const resolveLS000533StoneWeightLabel = (item) => {
+  const raw = item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? item.StoneWeight ?? '';
+  const n = parseFloat(raw);
+  if (Number.isNaN(n) || n <= 0) return '';
+  const value = Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+  return `${value}pt`;
+};
+
+/** Stone weight value for LS000533 stone QR (e.g. "1.25") */
+const resolveLS000533StoneWeightQr = (item) => {
+  const raw = item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? item.StoneWeight ?? '';
+  const n = parseFloat(raw);
+  if (Number.isNaN(n) || n <= 0) return '0';
+  return String(parseFloat(n.toFixed(2)));
+};
+
+/** PWY line on LS000533 stone label */
+const resolveLS000533Pwy = (item) =>
+  String(item.PWY || item.pwy || item.YWP || item.ywp || '').trim();
+
 /** ASCII EPC memory for LS000533 — dynamic PC + EPC bank, no leading zeros */
 const calculateAsciiEpcMemory = (text) => {
   const rawHex = stringToHex(String(text || '').trim());
@@ -397,6 +424,56 @@ const calculateAsciiEpcMemory = (text) => {
 const formatLS000533C128BPayload = (itemCode) => {
   const v = String(itemCode || '').trim();
   return `${String.fromCharCode(14)}&${v}`;
+};
+
+/** Code128C payload: FNC1 (0x0E) + apostrophe + RFID suffix (matches client sample `'1722`) */
+const formatLS000533C128CPayload = (barcodeValue) => {
+  const v = String(barcodeValue || '').trim();
+  if (!v) return `${String.fromCharCode(14)}'0`;
+  if (v.length > 3) {
+    return `${String.fromCharCode(14)}'${v.substring(3)}`;
+  }
+  return `${String.fromCharCode(14)}'${v}`;
+};
+
+/** QR payload for LS000533 stone label — pipe-separated with spaces */
+const formatLS000533StoneQrPayload = (item) => {
+  const qrItemCode = String(item.RFIDCode || item.ItemCode || '').trim();
+  const designCode = String(item.DesignName || item.Design || item.design || '').trim();
+  const productCode = String(
+    item.PacketName || item.packet_name || item.ProductName || item.CategoryName || ''
+  ).trim();
+  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
+  const stoneWt = resolveLS000533StoneWeightQr(item);
+  const purity = resolveLS000533Purity(item).toUpperCase();
+  return [qrItemCode, designCode, productCode, grossWt, stoneWt, purity]
+    .map((part) => String(part ?? '').trim())
+    .join(' | ');
+};
+
+const resolveLS000533PrnVariant = (item) => {
+  const stoneWt = parseFloat(
+    item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? item.StoneWeight ?? 0
+  );
+  if (!Number.isNaN(stoneWt) && stoneWt > 0) return 'stone';
+  return 'standard';
+};
+
+/** QR payload: item code + all remaining dynamic label fields (pipe-separated) */
+const formatLS000533QrPayload = (item) => {
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
+  const diamondWt = formatDiamondCt(
+    item.TotalDiamondWeight ?? item.DiamondWt ?? item.DiamondWeight ?? item.diamondweight
+  );
+  return [
+    itemCode,
+    grossWt,
+    diamondWt,
+    resolveLS000533Purity(item),
+    resolveLS000533Description(item),
+    resolveLS000533DesignLabel(item),
+  ].join('|');
 };
 
 // LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128B)
@@ -411,6 +488,7 @@ const generateLS000533Prn = (item) => {
   const description = prnQuote(resolveLS000533Description(item));
   const designLabel = prnQuote(resolveLS000533DesignLabel(item));
   const displayCode = prnQuote(itemCode);
+  const qrPayload = prnQuote(formatLS000533QrPayload(item));
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode || barcodeValue);
   const c128Payload = formatLS000533C128BPayload(itemCode);
 
@@ -454,8 +532,8 @@ INV;POINT;24;693;7;7;"${purity}"
 INV;POINT;24;780;7;7;"${description}"
 STOP
 BARCODE
-QRCODE;INV;XD4;T2;E0;M0;I0;23;558
-"${displayCode}"
+QRCODE;INV;XD3;T2;E0;M0;I0;23;558
+"${qrPayload}"
 STOP
 ALPHA
 INV;POINT;119;615;7;7;"${designLabel}"
@@ -463,6 +541,86 @@ STOP
 BARCODE
 C128B;INV;XRD1:1:2:2:3:3:4:4;H4.8;49;326
 "${c128Payload}"
+STOP
+END
+~EXECUTE;FORM-0;1
+
+~NORMAL
+~DELETE FORM;FORM-0
+`;
+};
+
+// LS000533 — stone-weight label (QR + C128C, RFID at bottom, 80-bit EPC)
+const generateLS000533StonePrn = (item) => {
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  const barcodeValue = String(item.RFIDCode || item.Barcode || item.BarcodeValue || itemCode).trim();
+  const epcSource = String(item.RFIDCode || item.ItemCode || '').trim();
+  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
+  const diamondWt = formatDiamondCtLower(
+    item.TotalDiamondWeight ?? item.DiamondWt ?? item.DiamondWeight ?? item.diamondweight
+  );
+  const purity = prnQuote(resolveLS000533Purity(item));
+  const description = prnQuote(resolveLS000533Description(item));
+  const stoneWeightLabel = prnQuote(resolveLS000533StoneWeightLabel(item));
+  const pwy = prnQuote(resolveLS000533Pwy(item));
+  const displayCode = prnQuote(itemCode);
+  const qrPayload = prnQuote(formatLS000533StoneQrPayload(item));
+  const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(epcSource);
+  const c128Payload = formatLS000533C128CPayload(barcodeValue);
+
+  return `!PTX_SETUP
+ENGINE-WIDTH;3941:LENGTH;710:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
+~CONFIG
+CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
+END
+~CREATE;FORM-0;51
+SCALE;DOT;203;203
+ISET;'UTF8'
+FONT;FACE 92250;BOLD 1;SLANT 0
+ALPHA
+INV;POINT;116;788;7;8;"${displayCode}"
+INV;POINT;87;792;7;8;"Wt :"
+INV;POINT;87;744;7;7;"${grossWt}"
+STOP
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+INV;POINT;53;792;7;7;"Dwt :"
+INV;POINT;53;741;7;7;"${diamondWt}"
+INV;POINT;19;685;6;6;"${purity}"
+INV;POINT;19;792;6;6;"${description}"
+STOP
+BARCODE
+QRCODE;INV;XD3;T2;E0;M0;I0;20;555
+"${qrPayload}"
+STOP
+FONT;FACE 92250;BOLD 1;SLANT 0
+ALPHA
+INV;POINT;116;608;7;8;"${stoneWeightLabel}"
+STOP
+BARCODE
+C128C;INV;XRD2:2:4:4:6:6:8:8;H4.8;49;368
+"${c128Payload}"
+STOP
+ALPHA
+INV;POINT;117;657;7;8;"${pwy}"
+STOP
+RFWTAG;16;PC
+16;H;${pcValue}
+STOP
+RFWTAG;${epcBits};EPC
+${epcBits};H;*${epcHex}*
 STOP
 END
 ~EXECUTE;FORM-0;1
@@ -636,7 +794,9 @@ export const generateClientPrn = (item, clientCode) => {
     case 'LS000431':
       return generateLS000431Prn(item);
     case 'LS000533':
-      return generateLS000533Prn(item);
+      return resolveLS000533PrnVariant(item) === 'stone'
+        ? generateLS000533StonePrn(item)
+        : generateLS000533Prn(item);
     case 'LS000544':
       return generateLS000544Prn(item);
     case 'LS000443':

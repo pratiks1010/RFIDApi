@@ -5,6 +5,8 @@ const SONI_HOSTS = ['https://soni.loyalstring.co.in'];
 const RRGOLD_HOSTS = ['https://rrgold.loyalstring.co.in'];
 /** Legacy online auth host — offline RRGOLD APIs (ProductMaster, BoxRfid, etc.) use RRGOLD base */
 const LOCAL_RRGOLD_AUTH_HOSTS = ['https://localhost:7095', 'http://localhost:7095'];
+/** Default offline RRGOLD host — remap to active base when mode or user settings change */
+const OFFLINE_RRGOLD_HOSTS = ['http://localhost:8081'];
 
 const safeParseUrl = (value) => {
   try {
@@ -20,6 +22,7 @@ const mapKnownHost = (host) => {
   if (SONI_HOSTS.includes(host)) return getSoniApiBaseUrl();
   if (RRGOLD_HOSTS.includes(host)) return getRrgoldApiBaseUrl();
   if (LOCAL_RRGOLD_AUTH_HOSTS.includes(host)) return getRrgoldApiBaseUrl();
+  if (OFFLINE_RRGOLD_HOSTS.includes(host)) return getRrgoldApiBaseUrl();
   return '';
 };
 
@@ -36,7 +39,6 @@ export const remapApiUrl = (rawUrl) => {
   // These paths keep the request host as built (e.g. Sample on dedicated host).
   if (parsed.pathname.includes('/api/Sample/')) return rawUrl;
   if (parsed.pathname.includes('/api/RFIDDashboard/')) return rawUrl;
-  if (parsed.pathname.includes('/api/BoxRfid/')) return rawUrl;
 
   const mappedBase = mapKnownHost(parsed.origin);
   if (!mappedBase) return rawUrl;

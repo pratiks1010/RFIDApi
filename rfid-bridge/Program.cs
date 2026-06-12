@@ -129,6 +129,19 @@ internal static class Program
         }
     }
 
+    private static string DescribeUsbOpenError(int code) => code switch
+    {
+        0 => "OK",
+        1 => "Generic failure",
+        2 => "Invalid parameter",
+        3 => "Device busy / already open in another app",
+        4 => "Permission denied",
+        5 => "Device not found (reader unplugged or wrong driver)",
+        6 => "ERR_OPEN_USB_FAILURE — no compatible USB reader found (tray may be a virtual COM port; try connect-serial)",
+        7 => "Driver or libusb not ready",
+        _ => "See vendor UHFAPI.dll documentation for this return code"
+    };
+
     private static void ConnectUsb()
     {
         lock (Sync)
@@ -137,7 +150,17 @@ internal static class Program
             var result = NativeMethods.UsbOpen();
             _connected = result == 0;
             _connectionMode = _connected ? "usb" : "none";
-            Console.WriteLine(_connected ? "Connected via USB." : $"USB connect failed (code={result}).");
+            if (_connected)
+            {
+                Console.WriteLine("Connected via USB.");
+                var devices = GetConnectedDevices();
+                Console.WriteLine($"Connected devices detected by SDK: {devices.Count}");
+            }
+            else
+            {
+                Console.WriteLine($"USB connect failed (code={result}). {DescribeUsbOpenError(result)}");
+                Console.WriteLine("Hint: If Windows shows the tray as COM3/COM7 in Device Manager, use connect-serial instead of connect-usb.");
+            }
         }
     }
 

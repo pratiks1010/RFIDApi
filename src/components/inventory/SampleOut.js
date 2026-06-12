@@ -55,6 +55,7 @@ import {
 } from '../../services/rfidSampleApi';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
 import { getAuthState } from '../../utils/authState';
+import { buildDesignAwarePages, sortProductsByDesign } from '../../utils/designSort';
 import { authHeaders as rfidUserAuthHeaders, rfidUserUrls } from '../../services/rfidUserManagementApi';
 
 const EMPLOYEE_MASTER_LINK_HELP =
@@ -3140,30 +3141,38 @@ const formatScannedTime = (date) => {
 
   const filteredTableItems = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
-    if (!q) return sampleOutItems;
-    return sampleOutItems.filter((item) =>
-      [
-        rowItemCode(item),
-        item.Itemcode,
-        item.ItemCode,
-        item.RFIDNumber,
-        item.category_id,
-        item.CategoryName,
-        item.Category,
-        item.product_id,
-        item.ProductName,
-        item.Product,
-        item.design_id,
-        item.DesignName,
-        item.Design,
-      ].some((v) => String(v || '').toLowerCase().includes(q))
-    );
+    let list = sampleOutItems;
+    if (q) {
+      list = sampleOutItems.filter((item) =>
+        [
+          rowItemCode(item),
+          item.Itemcode,
+          item.ItemCode,
+          item.RFIDNumber,
+          item.category_id,
+          item.CategoryName,
+          item.Category,
+          item.product_id,
+          item.ProductName,
+          item.Product,
+          item.design_id,
+          item.DesignName,
+          item.Design,
+        ].some((v) => String(v || '').toLowerCase().includes(q))
+      );
+    }
+    return sortProductsByDesign(list);
   }, [sampleOutItems, tableSearch]);
   const activePageSize = ITEMS_GRID_PAGE_SIZE;
-  const totalPages = Math.max(1, Math.ceil(filteredTableItems.length / activePageSize));
-  const startIndex = (currentPage - 1) * activePageSize;
-  const endIndex = startIndex + activePageSize;
-  const currentItems = filteredTableItems.slice(startIndex, endIndex);
+  const tableItemPages = useMemo(
+    () => buildDesignAwarePages(filteredTableItems, activePageSize),
+    [filteredTableItems, activePageSize]
+  );
+  const totalPages = Math.max(1, tableItemPages.length);
+  const currentItems = tableItemPages[currentPage - 1] || [];
+  const startIndex = tableItemPages
+    .slice(0, Math.max(0, currentPage - 1))
+    .reduce((sum, page) => sum + page.length, 0);
   const itemsSummary = useMemo(() => {
     const totalProducts = filteredTableItems.length;
     const totalGrossWt = filteredTableItems.reduce(

@@ -196,9 +196,24 @@ const formatLotStatusLabel = (status) => {
   const known = {
     PendingAcceptance: 'Pending acceptance',
     Open: 'Open',
-    PartialReturned: 'Partial returned',
-    PartiallyReturned: 'Partially returned',
+    PartialReturned: 'Partial return',
+    PartiallyReturned: 'Partial return',
+    PartialReturn: 'Partial return',
     Closed: 'Closed',
+  };
+  return known[s] || s.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+};
+
+const formatItemStatusLabel = (status) => {
+  const s = String(status || '').trim();
+  if (!s || s === '—') return '—';
+  const known = {
+    Out: 'Out',
+    SampleOut: 'Out',
+    Returned: 'Returned',
+    In: 'Returned',
+    SampleIn: 'Returned',
+    Pending: 'Pending',
   };
   return known[s] || s.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
 };
@@ -246,15 +261,13 @@ const StatusBadge = ({ status, size = 'md' }) => {
   return (
     <span
       style={{
-        fontSize: isXl ? 16 : isLarge ? 14 : 12,
-        fontWeight: 800,
-        padding: isXl ? '8px 18px' : isLarge ? '6px 14px' : '4px 10px',
-        borderRadius: isXl ? 12 : isLarge ? 10 : 8,
+        fontSize: isXl ? 13 : isLarge ? 12 : 11,
+        fontWeight: 700,
+        padding: isXl ? '6px 14px' : isLarge ? '5px 12px' : '4px 10px',
+        borderRadius: 999,
         background: st.bg,
         color: st.fg,
-        border: `1px solid ${st.bd}`,
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
+        letterSpacing: '0.04em',
         lineHeight: 1.2,
         whiteSpace: 'nowrap',
         display: 'inline-block',
@@ -265,40 +278,31 @@ const StatusBadge = ({ status, size = 'md' }) => {
   );
 };
 
-const DetailStatChip = ({ icon: Icon, label, value, accent = '#0f172a' }) => (
-  <div
-    style={{
-      padding: '14px 16px',
-      borderRadius: 14,
-      background: '#fff',
-      border: '1px solid #e2e8f0',
-      boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
-      minWidth: 0,
-    }}
-  >
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      {Icon ? <Icon size={13} style={{ color: '#64748b', flexShrink: 0 }} /> : null}
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          color: '#64748b',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-        }}
-      >
-        {label}
-      </span>
+const DetailStatChip = ({ label, value, accent = '#0f172a' }) => (
+  <div style={{ minWidth: 0 }}>
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: '#94a3b8',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        marginBottom: 4,
+        lineHeight: 1.2,
+      }}
+    >
+      {label}
     </div>
     <div
       style={{
-        fontSize: 18,
-        fontWeight: 800,
+        fontSize: 17,
+        fontWeight: 700,
         color: accent,
-        letterSpacing: '-0.02em',
+        fontVariantNumeric: 'tabular-nums',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
+        lineHeight: 1.3,
       }}
       title={String(value)}
     >
@@ -582,87 +586,102 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
   });
   const dot = <span style={{ color: '#cbd5e1', margin: '0 4px' }}>·</span>;
 
-  // Status Badge style helper
   const getLineStatusStyle = (s) => {
     const statusLower = String(s || '').toLowerCase();
     if (statusLower === 'pending' || statusLower.includes('pending')) {
-      return { background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' };
+      return { bar: '#f59e0b', bg: '#fffbeb', fg: '#b45309' };
     }
     if (statusLower === 'out' || statusLower === 'sampleout') {
-      return { background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd' };
+      return { bar: '#0284c7', bg: '#f0f9ff', fg: '#0369a1' };
     }
     if (statusLower === 'returned' || statusLower === 'in' || statusLower.includes('return')) {
-      return { background: '#ecfdf5', color: '#047857', border: '1px solid #bbf7d0' };
+      return { bar: '#059669', bg: '#ecfdf5', fg: '#047857' };
     }
-    return { background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' };
+    return { bar: '#94a3b8', bg: '#f8fafc', fg: '#475569' };
   };
 
   const statusStyle = getLineStatusStyle(status);
+  const statusLabel = formatItemStatusLabel(status);
 
   return (
     <article
       style={{
-        border: `2px solid ${selected ? '#0f4c81' : '#e2e8f0'}`,
-        borderRadius: 16,
-        background: selected ? '#f0f7ff' : '#fff',
+        border: selected ? '2px solid #0f4c81' : '1px solid #eef2f7',
+        borderRadius: 12,
+        background: selected ? '#f8fbff' : '#fff',
         overflow: 'hidden',
-        boxShadow: selected ? '0 8px 24px rgba(15,76,129,0.15)' : '0 4px 16px rgba(15,23,42,0.06)',
         display: 'flex',
         flexDirection: 'column',
         cursor: selectable ? 'pointer' : 'default',
-        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+        transition: 'border-color 0.15s ease, background 0.15s ease',
       }}
       onClick={() => selectable && onToggle?.()}
     >
       <div
         style={{
           display: 'flex',
+          alignItems: 'stretch',
+          minHeight: 4,
+          background: statusStyle.bar,
+        }}
+      />
+      <div
+        style={{
+          display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 14px',
-          borderBottom: '1px solid #f1f5f9',
-          background: 'linear-gradient(180deg, #fafbfc 0%, #ffffff 100%)',
+          gap: 10,
+          padding: '11px 14px 10px',
+          background: statusStyle.bg,
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 800, color: '#0f4c81', letterSpacing: '-0.01em' }}>
-          {itemCode}
-        </span>
+        <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: statusStyle.fg,
+              textTransform: 'uppercase',
+              letterSpacing: '0.07em',
+              marginBottom: 3,
+            }}
+          >
+            {statusLabel}
+          </div>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 700,
+              color: '#0f172a',
+              letterSpacing: '-0.01em',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {itemCode}
+          </div>
+        </div>
         {selectable ? (
           <input
             type="checkbox"
             checked={selected}
             onChange={() => onToggle?.()}
             onClick={(e) => e.stopPropagation()}
-            style={{ width: 18, height: 18, accentColor: '#0f4c81', cursor: 'pointer' }}
+            style={{ width: 18, height: 18, accentColor: '#0f4c81', cursor: 'pointer', flexShrink: 0 }}
+            aria-label={`Select ${itemCode}`}
           />
-        ) : (
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              padding: '4px 10px',
-              borderRadius: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-              background: statusStyle.background,
-              color: statusStyle.color,
-              border: statusStyle.border,
-            }}
-          >
-            {status}
-          </span>
-        )}
+        ) : null}
       </div>
       <div
         style={{
           width: '100%',
-          height: 360,
-          background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
-          borderBottom: '1px solid #edf2f7',
+          height: 320,
+          background: '#fafbfc',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '12px 16px',
+          padding: '12px 14px',
           boxSizing: 'border-box',
           position: 'relative',
         }}
@@ -684,71 +703,55 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
             height: '100%',
             objectFit: 'contain',
             objectPosition: 'center',
-            background: '#fff',
-            borderRadius: 8,
+            background: 'transparent',
           }}
           placeholder={
             <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700 }}>No image</div>
           }
         />
       </div>
-      <div style={{ padding: '12px 14px 14px', fontSize: 12, lineHeight: 1.55, color: '#0f172a' }}>
+      <div
+        style={{
+          padding: '12px 14px 14px',
+          fontSize: 12,
+          lineHeight: 1.55,
+          color: '#334155',
+          borderTop: '1px solid #f1f5f9',
+        }}
+      >
         <div
           style={{
-            fontWeight: 800,
+            fontWeight: 600,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            marginBottom: 4,
+            marginBottom: 6,
           }}
           title={`Category: ${category} | Product: ${product} | RFID: ${rfid} | Design: ${design}`}
         >
-          <span style={{ color: '#475569' }}>Category:</span> {category}
+          <span style={{ color: '#64748b' }}>Category:</span> {category}
           {dot}
-          <span style={{ color: '#475569' }}>Product:</span> {product}
-          {dot}
-          <span style={{ color: '#475569' }}>RFID:</span> {rfid}
-          {dot}
-          <span style={{ color: '#475569' }}>Design:</span> {design}
+          <span style={{ color: '#64748b' }}>Product:</span> {product}
         </div>
         <div
           style={{
-            fontWeight: 800,
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 6,
-            alignItems: 'center',
+            fontWeight: 600,
             overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            marginBottom: 6,
           }}
         >
-          <span>
-            <strong>Gross Wt:</strong> {lineGrossWt(line)}
-          </span>
-          <span style={{ color: '#cbd5e1' }}>·</span>
-          <span>
-            <strong>Net Wt:</strong> {lineNetWt(line)}
-          </span>
-          <span style={{ color: '#cbd5e1' }}>·</span>
-          <span>
-            <strong>Pieces:</strong> {pieces}
-          </span>
-          <span style={{ color: '#cbd5e1' }}>·</span>
-          <span style={{ color: '#64748b', fontWeight: 700 }}>Status:</span>
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              padding: '4px 10px',
-              borderRadius: 8,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-              background: statusStyle.background,
-              color: statusStyle.color,
-              border: statusStyle.border,
-            }}
-          >
-            {status}
-          </span>
+          <span style={{ color: '#64748b' }}>RFID:</span> {rfid}
+          {dot}
+          <span style={{ color: '#64748b' }}>Design:</span> {design}
+        </div>
+        <div style={{ fontWeight: 600, color: '#0f172a' }}>
+          <span style={{ color: '#64748b' }}>Gross:</span> {lineGrossWt(line)}
+          {dot}
+          <span style={{ color: '#64748b' }}>Net:</span> {lineNetWt(line)}
+          {dot}
+          <span style={{ color: '#64748b' }}>Pieces:</span> {pieces}
         </div>
       </div>
     </article>
@@ -1402,16 +1405,14 @@ const MyAssignedSamples = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 6,
-                    padding: '8px 14px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.35)',
-                    background: 'rgba(255,255,255,0.12)',
-                    color: '#fff',
-                    fontWeight: 700,
-                    fontSize: 13,
+                    padding: '4px 2px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'rgba(255,255,255,0.9)',
+                    fontWeight: 600,
+                    fontSize: 14,
                     cursor: 'pointer',
                     flexShrink: 0,
-                    backdropFilter: 'blur(4px)',
                   }}
                 >
                   <FaArrowLeft /> Back
@@ -1505,45 +1506,32 @@ const MyAssignedSamples = () => {
               />
             ) : (
               <>
-                {/* Stats grid */}
+                {/* Stats row — flat, no boxed chips */}
                 <div
                   style={{
                     display: 'grid',
                     gridTemplateColumns: isSmallScreen
                       ? 'repeat(2, minmax(0, 1fr))'
-                      : 'repeat(auto-fit, minmax(150px, 1fr))',
-                    gap: 12,
-                    marginBottom: 20,
+                      : 'repeat(auto-fill, minmax(108px, 1fr))',
+                    gap: '16px 24px',
+                    padding: '4px 0 20px',
+                    marginBottom: 8,
+                    borderBottom: '1px solid #eef2f7',
                   }}
                 >
                   <DetailStatChip
-                    icon={FaBox}
                     label="Products"
                     value={detailSummary.count || pick(detailLot, 'TotalItems', 'totalItems') || 0}
                     accent="#0f4c81"
                   />
+                  <DetailStatChip label="Gross Wt" value={formatWeight3(detailSummary.gross)} />
+                  <DetailStatChip label="Net Wt" value={formatWeight3(detailSummary.net)} />
+                  <DetailStatChip label="Pieces" value={formatPiecesValue(detailSummary.pieces)} />
                   <DetailStatChip
-                    icon={FaWeight}
-                    label="Gross Wt"
-                    value={formatWeight3(detailSummary.gross)}
-                  />
-                  <DetailStatChip
-                    icon={FaWeight}
-                    label="Net Wt"
-                    value={formatWeight3(detailSummary.net)}
-                  />
-                  <DetailStatChip
-                    icon={FaBox}
-                    label="Pieces"
-                    value={formatPiecesValue(detailSummary.pieces)}
-                  />
-                  <DetailStatChip
-                    icon={FaCalendarAlt}
                     label="Out Date"
                     value={formatDate(pick(detailLot, 'SampleOutDate', 'sampleOutDate'))}
                   />
                   <DetailStatChip
-                    icon={FaUser}
                     label="Employee"
                     value={
                       pick(detailLot, 'AssignedToUserName', 'assignedToUserName') ||
@@ -1554,13 +1542,11 @@ const MyAssignedSamples = () => {
                   {(lotPendingItems(detailLot) != null || lotReturnedItems(detailLot) != null) && (
                     <>
                       <DetailStatChip
-                        icon={FaBox}
                         label="Pending Out"
                         value={lotPendingItems(detailLot) ?? '—'}
                         accent={isPartialOutLot(detailLot) ? '#b45309' : '#0f172a'}
                       />
                       <DetailStatChip
-                        icon={FaBox}
                         label="Returned"
                         value={lotReturnedItems(detailLot) ?? '—'}
                         accent="#047857"
@@ -1571,27 +1557,18 @@ const MyAssignedSamples = () => {
 
                 {/* Remark card */}
                 {canAcceptLot && detailItems.length > 0 ? (
-                  <div
-                    style={{
-                      marginBottom: 24,
-                      padding: '18px 20px',
-                      borderRadius: 16,
-                      background: '#fff',
-                      border: '1px solid #e2e8f0',
-                      boxShadow: '0 2px 10px rgba(15, 23, 42, 0.04)',
-                    }}
-                  >
+                  <div style={{ marginBottom: 22 }}>
                     <label
                       htmlFor="lot-accept-remark"
                       style={{
                         display: 'block',
-                        fontSize: 14,
-                        fontWeight: 800,
-                        color: '#0f172a',
-                        marginBottom: 10,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: '#475569',
+                        marginBottom: 8,
                       }}
                     >
-                      Description / Remark
+                      Description / remark
                     </label>
                     <textarea
                       id="lot-accept-remark"
@@ -1601,34 +1578,26 @@ const MyAssignedSamples = () => {
                       rows={3}
                       style={{
                         width: '100%',
-                        padding: '14px 16px',
-                        borderRadius: 12,
-                        border: '1px solid #cbd5e1',
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        border: '1px solid #e2e8f0',
                         fontSize: 14,
                         fontWeight: 500,
                         lineHeight: 1.55,
                         color: '#0f172a',
                         resize: 'vertical',
-                        minHeight: 96,
+                        minHeight: 88,
                         boxSizing: 'border-box',
                         fontFamily: 'inherit',
-                        background: '#f8fafc',
+                        background: '#fff',
                         outline: 'none',
                       }}
                     />
                   </div>
                 ) : null}
 
-                {/* Items section */}
-                <div
-                  style={{
-                    background: '#fff',
-                    borderRadius: 16,
-                    border: '1px solid #e2e8f0',
-                    padding: '18px 20px 22px',
-                    boxShadow: '0 2px 10px rgba(15, 23, 42, 0.04)',
-                  }}
-                >
+                {/* Items section — open layout, no outer box */}
+                <div>
                   <div
                     style={{
                       display: 'flex',
@@ -1636,66 +1605,64 @@ const MyAssignedSamples = () => {
                       alignItems: 'center',
                       marginBottom: 16,
                       flexWrap: 'wrap',
-                      gap: 12,
-                      paddingBottom: 14,
-                      borderBottom: '1px solid #f1f5f9',
+                      gap: '12px 20px',
+                      paddingBottom: 12,
+                      borderBottom: '1px solid #eef2f7',
                     }}
                   >
                     <div>
-                      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
-                        Lot Items
+                      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                        Lot items
                       </h3>
-                      <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                      <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
                         {detailItems.length} product{detailItems.length === 1 ? '' : 's'} in this lot
                       </p>
                     </div>
                     {canAcceptLot && detailItems.length > 0 && (
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: 12,
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          fontSize: 13,
+                        }}
+                      >
                         <button
                           type="button"
                           onClick={selectAllLines}
                           disabled={allSelected}
                           style={{
-                            padding: '8px 14px',
-                            borderRadius: 10,
-                            border: '1px solid #cbd5e1',
-                            background: '#fff',
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: '#475569',
+                            border: 'none',
+                            background: 'transparent',
+                            padding: '4px 2px',
+                            fontWeight: 600,
+                            color: allSelected ? '#cbd5e1' : '#0f4c81',
                             cursor: allSelected ? 'not-allowed' : 'pointer',
                           }}
                         >
                           Select all ({detailItems.length})
                         </button>
+                        <span style={{ color: '#e2e8f0' }}>|</span>
                         <button
                           type="button"
                           onClick={clearLineSelection}
                           disabled={selectedCount === 0}
                           style={{
-                            padding: '8px 14px',
-                            borderRadius: 10,
-                            border: '1px solid #cbd5e1',
-                            background: '#fff',
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: '#475569',
+                            border: 'none',
+                            background: 'transparent',
+                            padding: '4px 2px',
+                            fontWeight: 600,
+                            color: selectedCount === 0 ? '#cbd5e1' : '#0f4c81',
                             cursor: selectedCount === 0 ? 'not-allowed' : 'pointer',
                           }}
                         >
                           Clear
                         </button>
-                        <span
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 800,
-                            color: '#0f4c81',
-                            padding: '8px 12px',
-                            background: '#eff6ff',
-                            borderRadius: 10,
-                          }}
-                        >
-                          {selectedCount} / {detailItems.length} selected
+                        <span style={{ color: '#64748b', fontWeight: 500 }}>
+                          <strong style={{ color: '#0f4c81', fontWeight: 700 }}>{selectedCount}</strong>
+                          {' / '}
+                          {detailItems.length} selected
                         </span>
                       </div>
                     )}
@@ -1739,11 +1706,9 @@ const MyAssignedSamples = () => {
                       {canAcceptLot && detailItems.length > 0 && (
                         <div
                           style={{
-                            marginTop: 24,
-                            padding: '16px 18px',
-                            borderRadius: 14,
-                            background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
-                            border: '1px solid #dbeafe',
+                            marginTop: 22,
+                            paddingTop: 18,
+                            borderTop: '1px solid #eef2f7',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
@@ -1752,14 +1717,11 @@ const MyAssignedSamples = () => {
                           }}
                         >
                           <div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#64748b' }}>
-                              Ready to accept selected items
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                              Ready to accept
                             </div>
-                            <div style={{ fontSize: 22, fontWeight: 800, color: '#0f4c81', marginTop: 2 }}>
-                              {selectedCount}{' '}
-                              <span style={{ fontSize: 15, fontWeight: 700, color: '#64748b' }}>
-                                of {detailItems.length}
-                              </span>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>
+                              {selectedCount} of {detailItems.length} selected
                             </div>
                           </div>
                           <button
@@ -1767,20 +1729,19 @@ const MyAssignedSamples = () => {
                             disabled={accepting || selectedCount === 0}
                             onClick={() => acceptLot('selected')}
                             style={{
-                              height: 46,
-                              padding: '0 22px',
-                              borderRadius: 12,
-                              border: '2px solid #0f4c81',
-                              background: '#fff',
-                              color: '#0f4c81',
-                              fontWeight: 800,
-                              fontSize: 15,
+                              height: 42,
+                              padding: '0 20px',
+                              borderRadius: 10,
+                              border: 'none',
+                              background: '#0f4c81',
+                              color: '#fff',
+                              fontWeight: 700,
+                              fontSize: 14,
                               cursor: accepting || selectedCount === 0 ? 'not-allowed' : 'pointer',
-                              opacity: accepting || selectedCount === 0 ? 0.55 : 1,
-                              boxShadow: '0 2px 8px rgba(15, 76, 129, 0.12)',
+                              opacity: accepting || selectedCount === 0 ? 0.5 : 1,
                             }}
                           >
-                            Accept Selected ({selectedCount})
+                            Accept selected ({selectedCount})
                           </button>
                         </div>
                       )}

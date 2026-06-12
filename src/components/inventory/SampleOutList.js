@@ -22,6 +22,7 @@ import {
   FaTable,
   FaInbox,
   FaUndo,
+  FaCheckCircle,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -59,103 +60,136 @@ const LOT_DETAIL_BLUE = '#0f4c81';
 const LOT_DETAIL_GOLD = '#c9a227';
 const LOT_DETAIL_FONT = "'Inter', 'Poppins', system-ui, -apple-system, sans-serif";
 
-const lotDetailMetricSx = {
-  display: 'inline-flex',
-  alignItems: 'baseline',
-  gap: 8,
-  whiteSpace: 'nowrap',
-  fontSize: 16,
-  lineHeight: 1.35,
+const humanizeLotStatus = (status) => {
+  const raw = String(status || '').trim();
+  if (!raw || raw === '—') return '—';
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
 };
 
 const LotDetailSummaryMetric = ({ label, value, valueColor = '#0f172a' }) => (
-  <div style={lotDetailMetricSx} title={`${label}: ${value}`}>
-    <span style={{ color: '#64748b', fontWeight: 600, fontSize: 15 }}>{label}:</span>
-    <strong style={{ color: valueColor, fontWeight: 800, fontSize: 17 }}>{value}</strong>
+  <div title={`${label}: ${value}`} style={{ minWidth: 0 }}>
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: '#94a3b8',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        marginBottom: 3,
+        lineHeight: 1.2,
+      }}
+    >
+      {label}
+    </div>
+    <div
+      style={{
+        fontSize: 15,
+        fontWeight: 700,
+        color: valueColor,
+        fontVariantNumeric: 'tabular-nums',
+        lineHeight: 1.3,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {value}
+    </div>
   </div>
 );
 
-const LotDetailSummaryBar = ({ itemsCount, pending, grossWt, netWt, pieces, outDate, dueDate, employee }) => (
-  <div
-    style={{
-      display: 'flex',
-      flexWrap: 'wrap',
-      alignItems: 'center',
-      gap: '14px 24px',
-      padding: '14px 18px',
-      marginBottom: 14,
-      borderRadius: 12,
-      border: '1px solid #e8ecf4',
-      background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
-      fontFamily: LOT_DETAIL_FONT,
-    }}
-  >
-    <LotDetailSummaryMetric label="Items" value={itemsCount} valueColor={LOT_DETAIL_BLUE} />
-    <LotDetailSummaryMetric label="Pending" value={pending} />
-    <LotDetailSummaryMetric label="Gross Wt" value={grossWt} />
-    <LotDetailSummaryMetric label="Net Wt" value={netWt} />
-    <LotDetailSummaryMetric label="Pieces" value={pieces} />
-    <LotDetailSummaryMetric label="Out" value={outDate} />
-    <LotDetailSummaryMetric label="Due" value={dueDate} />
-    <LotDetailSummaryMetric label="Employee" value={employee} />
-  </div>
-);
+const LotDetailSummaryBar = ({ itemsCount, pending, grossWt, netWt, pieces, outDate, dueDate, employee }) => {
+  const metrics = [
+    { label: 'Items', value: itemsCount, valueColor: LOT_DETAIL_BLUE },
+    { label: 'Pending', value: pending },
+    { label: 'Gross Wt', value: grossWt },
+    { label: 'Net Wt', value: netWt },
+    { label: 'Pieces', value: pieces },
+    { label: 'Out', value: outDate },
+    { label: 'Due', value: dueDate },
+    { label: 'Employee', value: employee },
+  ];
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+        gap: '14px 20px',
+        padding: '14px 0 16px',
+        marginBottom: 4,
+        borderBottom: '1px solid #eef2f7',
+        fontFamily: LOT_DETAIL_FONT,
+      }}
+    >
+      {metrics.map((metric) => (
+        <LotDetailSummaryMetric
+          key={metric.label}
+          label={metric.label}
+          value={metric.value}
+          valueColor={metric.valueColor}
+        />
+      ))}
+    </div>
+  );
+};
+
+const lotDetailToolbarBtn = (disabled = false) => ({
+  border: 'none',
+  background: 'transparent',
+  padding: '6px 2px',
+  fontSize: 13,
+  fontWeight: 600,
+  color: disabled ? '#cbd5e1' : LOT_DETAIL_BLUE,
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  fontFamily: LOT_DETAIL_FONT,
+  whiteSpace: 'nowrap',
+});
 
 const LotDetailViewToggle = ({ mode, onGrid, onTable }) => (
   <div
     style={{
       display: 'inline-flex',
       alignItems: 'center',
-      border: '1px solid #dbe4f0',
-      borderRadius: 8,
-      overflow: 'hidden',
-      background: '#fff',
-      boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+      padding: 3,
+      borderRadius: 9,
+      background: '#f1f5f9',
+      gap: 2,
     }}
   >
-    <button
-      type="button"
-      onClick={onGrid}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        border: 'none',
-        borderRight: '1px solid #dbe4f0',
-        background: mode === 'grid' ? LOT_DETAIL_BLUE : '#fff',
-        color: mode === 'grid' ? '#fff' : '#475569',
-        height: 34,
-        padding: '0 14px',
-        fontSize: 13,
-        fontWeight: 700,
-        cursor: 'pointer',
-        fontFamily: LOT_DETAIL_FONT,
-        transition: 'background 0.15s ease, color 0.15s ease',
-      }}
-    >
-      Grid
-    </button>
-    <button
-      type="button"
-      onClick={onTable}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        border: 'none',
-        background: mode === 'table' ? LOT_DETAIL_BLUE : '#fff',
-        color: mode === 'table' ? '#fff' : '#475569',
-        height: 34,
-        padding: '0 14px',
-        fontSize: 13,
-        fontWeight: 700,
-        cursor: 'pointer',
-        fontFamily: LOT_DETAIL_FONT,
-        transition: 'background 0.15s ease, color 0.15s ease',
-      }}
-    >
-      Table
-    </button>
+    {[
+      { id: 'grid', label: 'Grid', onClick: onGrid },
+      { id: 'table', label: 'Table', onClick: onTable },
+    ].map((opt) => {
+      const active = mode === opt.id;
+      return (
+        <button
+          key={opt.id}
+          type="button"
+          onClick={opt.onClick}
+          style={{
+            border: 'none',
+            borderRadius: 7,
+            background: active ? '#fff' : 'transparent',
+            color: active ? '#0f172a' : '#64748b',
+            height: 30,
+            padding: '0 14px',
+            fontSize: 12,
+            fontWeight: active ? 700 : 600,
+            cursor: 'pointer',
+            fontFamily: LOT_DETAIL_FONT,
+            boxShadow: active ? '0 1px 2px rgba(15, 23, 42, 0.08)' : 'none',
+            transition: 'background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
+          }}
+        >
+          {opt.label}
+        </button>
+      );
+    })}
   </div>
 );
 
@@ -427,18 +461,17 @@ const LotCardStatRow = ({ children, title, withDivider = true }) => (
 
 const LotStatusPill = ({ status }) => {
   const sx = lotListStatusSx(status);
-  const t = String(status || '—').trim() || '—';
+  const t = humanizeLotStatus(status);
   return (
     <span
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        padding: '1px 7px',
-        borderRadius: 6,
+        padding: '3px 10px',
+        borderRadius: 999,
         fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: '0.03em',
-        border: `1px solid ${sx.bd}`,
+        fontWeight: 600,
+        letterSpacing: '0.02em',
         background: sx.bg,
         color: sx.fg,
         whiteSpace: 'nowrap',
@@ -1382,6 +1415,8 @@ const SampleOutList = ({
     'Products received back at counter — employee did not scan return'
   );
   const [adminReturning, setAdminReturning] = useState(false);
+  const [showAdminReturnModal, setShowAdminReturnModal] = useState(false);
+  const [adminReturnSuccess, setAdminReturnSuccess] = useState(null);
   const detailCacheRef = useRef(new Map());
   const lineItemLocalImageUrlsRef = useRef({});
   const isAdminUser = isSuperAdmin();
@@ -1476,7 +1511,16 @@ const SampleOutList = ({
     setDetailModalPage(1);
     setAdminReturnSelectedIds(new Set());
     setAdminReturnRemark('Products received back at counter — employee did not scan return');
+    setShowAdminReturnModal(false);
+    setAdminReturnSuccess(null);
   }, [detailModal?.header?.Id, detailModal?.header?.SampleLotNo, detailModal?.header?.SampleOutNo]);
+
+  useEffect(() => {
+    if (!detailModal) {
+      setShowAdminReturnModal(false);
+      setAdminReturnSuccess(null);
+    }
+  }, [detailModal]);
 
   useEffect(() => {
     lineItemLocalImageUrlsRef.current = lineItemLocalImageUrls;
@@ -1763,13 +1807,15 @@ const SampleOutList = ({
       }
       applyAdminReturnResponse(data);
       await fetchSampleOutList();
+      const successMsg =
+        data?.message ||
+        data?.Message ||
+        `${ids.length} product(s) returned successfully.`;
+      setAdminReturnSuccess(successMsg);
       addNotification({
         type: 'success',
         title: 'Admin return',
-        message:
-          data?.message ||
-          data?.Message ||
-          `${ids.length} product(s) returned by admin.`,
+        message: successMsg,
       });
     } catch (error) {
       const msg =
@@ -3076,7 +3122,7 @@ const SampleOutList = ({
               maxWidth: 'min(1280px, 98vw)',
               width: '100%',
               maxHeight: '92vh',
-              overflow: 'auto',
+              overflow: 'hidden',
               padding: '16px 18px 18px',
               position: 'relative',
               boxShadow: '0 24px 64px rgba(15, 23, 42, 0.18), 0 8px 24px rgba(15, 76, 129, 0.08)',
@@ -3098,17 +3144,32 @@ const SampleOutList = ({
             <div
               style={{
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                gap: 12,
-                marginBottom: 12,
+                gap: 16,
+                marginBottom: 4,
+                flexShrink: 0,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
-                  Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
-                </h3>
-                <LotStatusPill status={detailModal.header?.Status} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: 22,
+                      fontWeight: 700,
+                      color: '#0f172a',
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.25,
+                    }}
+                  >
+                    Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
+                  </h3>
+                  <LotStatusPill status={detailModal.header?.Status} />
+                </div>
+                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', fontWeight: 500, lineHeight: 1.4 }}>
+                  Sample lot details and item return
+                </p>
               </div>
               <button
                 type="button"
@@ -3116,15 +3177,16 @@ const SampleOutList = ({
                 aria-label="Close lot details"
                 style={{
                   border: 'none',
-                  background: '#f8fafc',
+                  background: 'transparent',
                   cursor: 'pointer',
-                  padding: '8px',
-                  borderRadius: 8,
-                  color: '#64748b',
+                  padding: 4,
+                  marginTop: 2,
+                  color: '#94a3b8',
                   flexShrink: 0,
+                  lineHeight: 0,
                 }}
               >
-                <FaTimes size={16} />
+                <FaTimes size={18} />
               </button>
             </div>
 
@@ -3151,6 +3213,15 @@ const SampleOutList = ({
               </div>
             ) : (
               <>
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    paddingRight: 2,
+                  }}
+                >
                 <LotDetailSummaryBar
                   itemsCount={detailModal.header?.TotalItems ?? detailModalItems.length}
                   pending={detailModal.header?.PendingItems ?? '—'}
@@ -3170,63 +3241,64 @@ const SampleOutList = ({
                         justifyContent: 'space-between',
                         alignItems: 'center',
                         flexWrap: 'wrap',
-                        gap: 10,
-                        marginBottom: 12,
+                        gap: '12px 20px',
+                        marginBottom: 14,
+                        paddingBottom: 12,
+                        borderBottom: '1px solid #eef2f7',
                       }}
                     >
-                      <span style={{ fontSize: 16, fontWeight: 800, color: '#1e293b', letterSpacing: '-0.01em' }}>
-                        Lot Items ({detailModalItems.length})
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                          Lot items
+                        </div>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 3, fontWeight: 500 }}>
+                          {detailModalItems.length} product{detailModalItems.length === 1 ? '' : 's'}
+                          {isAdminUser && adminReturnableItems.length > 0
+                            ? ` · ${adminReturnableItems.length} returnable`
+                            : ''}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 14,
+                          flexWrap: 'wrap',
+                          marginLeft: 'auto',
+                        }}
+                      >
                         {isAdminUser && adminReturnableItems.length > 0 ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              flexWrap: 'wrap',
+                              fontSize: 13,
+                            }}
+                          >
                             <button
                               type="button"
                               onClick={selectAllAdminReturnable}
                               disabled={allAdminReturnableSelected}
-                              style={{
-                                padding: '7px 12px',
-                                borderRadius: 8,
-                                border: '1px solid #cbd5e1',
-                                background: '#fff',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: '#475569',
-                                cursor: allAdminReturnableSelected ? 'not-allowed' : 'pointer',
-                                fontFamily: LOT_DETAIL_FONT,
-                              }}
+                              style={lotDetailToolbarBtn(allAdminReturnableSelected)}
                             >
                               Select returnable ({adminReturnableItems.length})
                             </button>
+                            <span style={{ color: '#e2e8f0', userSelect: 'none' }}>|</span>
                             <button
                               type="button"
                               onClick={clearAdminReturnSelection}
                               disabled={adminReturnSelectedCount === 0}
-                              style={{
-                                padding: '7px 12px',
-                                borderRadius: 8,
-                                border: '1px solid #cbd5e1',
-                                background: '#fff',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                color: '#475569',
-                                cursor: adminReturnSelectedCount === 0 ? 'not-allowed' : 'pointer',
-                                fontFamily: LOT_DETAIL_FONT,
-                              }}
+                              style={lotDetailToolbarBtn(adminReturnSelectedCount === 0)}
                             >
                               Clear
                             </button>
-                            <span
-                              style={{
-                                fontSize: 12,
-                                fontWeight: 800,
-                                color: LOT_DETAIL_BLUE,
-                                padding: '7px 10px',
-                                background: '#eff6ff',
-                                borderRadius: 8,
-                              }}
-                            >
-                              {adminReturnSelectedCount} selected for return
+                            <span style={{ color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                              <strong style={{ color: LOT_DETAIL_BLUE, fontWeight: 700 }}>
+                                {adminReturnSelectedCount}
+                              </strong>{' '}
+                              selected
                             </span>
                           </div>
                         ) : null}
@@ -3391,111 +3463,20 @@ const SampleOutList = ({
                   </p>
                 )}
 
-                {isAdminUser && adminReturnableItems.length > 0 ? (
-                  <div
-                    style={{
-                      marginTop: 18,
-                      padding: '16px 18px',
-                      borderRadius: 14,
-                      border: '1px solid #fde68a',
-                      background: 'linear-gradient(135deg, #fffbeb 0%, #fff7ed 100%)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        flexWrap: 'wrap',
-                        marginBottom: 12,
-                      }}
-                    >
-                      <div>
-                        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#92400e' }}>
-                          Admin bulk sample return
-                        </h4>
-                        <p style={{ margin: '4px 0 0', fontSize: 12, color: '#b45309', fontWeight: 600 }}>
-                          Select Out items and return them without employee scan. Sub-users cannot use this action.
-                        </p>
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: LOT_DETAIL_BLUE }}>
-                        {adminReturnSelectedCount} of {adminReturnableItems.length} returnable selected
-                      </span>
-                    </div>
-                    <label
-                      htmlFor="admin-return-remark"
-                      style={{
-                        display: 'block',
-                        fontSize: 13,
-                        fontWeight: 800,
-                        color: '#78350f',
-                        marginBottom: 8,
-                      }}
-                    >
-                      Admin return remark
-                    </label>
-                    <textarea
-                      id="admin-return-remark"
-                      value={adminReturnRemark}
-                      onChange={(e) => setAdminReturnRemark(e.target.value)}
-                      placeholder="e.g. Products received back at counter — employee did not scan return"
-                      rows={2}
-                      style={{
-                        width: '100%',
-                        padding: '12px 14px',
-                        borderRadius: 10,
-                        border: '1px solid #fcd34d',
-                        fontSize: 13,
-                        fontWeight: 500,
-                        lineHeight: 1.5,
-                        color: '#0f172a',
-                        resize: 'vertical',
-                        minHeight: 72,
-                        boxSizing: 'border-box',
-                        fontFamily: 'inherit',
-                        background: '#fff',
-                        marginBottom: 12,
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={adminReturning || adminReturnSelectedCount === 0}
-                      onClick={handleAdminBulkReturn}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        height: 44,
-                        padding: '0 20px',
-                        borderRadius: 10,
-                        border: 'none',
-                        background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
-                        color: '#fff',
-                        fontWeight: 800,
-                        fontSize: 14,
-                        cursor: adminReturning || adminReturnSelectedCount === 0 ? 'not-allowed' : 'pointer',
-                        opacity: adminReturning || adminReturnSelectedCount === 0 ? 0.6 : 1,
-                        boxShadow: '0 4px 14px rgba(180, 83, 9, 0.28)',
-                        fontFamily: LOT_DETAIL_FONT,
-                      }}
-                    >
-                      {adminReturning ? <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} /> : <FaUndo />}
-                      Return Selected ({adminReturnSelectedCount})
-                    </button>
-                  </div>
-                ) : null}
+                </div>
 
                 <div
                   style={{
+                    flexShrink: 0,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    gap: 12,
-                    marginTop: 16,
+                    gap: 16,
+                    marginTop: 12,
                     paddingTop: 14,
-                    borderTop: '1px solid #f1f5f9',
+                    borderTop: '1px solid #eef2f7',
                     flexWrap: 'wrap',
+                    background: '#fff',
                   }}
                 >
                   <button
@@ -3505,44 +3486,289 @@ const SampleOutList = ({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 8,
-                      padding: '10px 16px',
-                      fontWeight: 700,
-                      borderRadius: '10px',
-                      border: '1px solid #dbe4f0',
-                      background: '#fff',
+                      padding: '8px 4px',
+                      fontWeight: 600,
+                      border: 'none',
+                      background: 'transparent',
                       cursor: 'pointer',
-                      fontSize: '13px',
-                      color: '#334155',
+                      fontSize: 13,
+                      color: '#475569',
                       fontFamily: LOT_DETAIL_FONT,
                     }}
                   >
-                    <FaPrint size={13} />
+                    <FaPrint size={14} style={{ color: '#64748b' }} />
                     Print summary
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setDetailModal(null)}
-                    style={{
-                      padding: '10px 22px',
-                      fontWeight: 700,
-                      borderRadius: '10px',
-                      border: 'none',
-                      background: `linear-gradient(135deg, ${LOT_DETAIL_BLUE} 0%, #1e40af 100%)`,
-                      color: '#fff',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      boxShadow: '0 4px 14px rgba(15, 76, 129, 0.28)',
-                      fontFamily: LOT_DETAIL_FONT,
-                    }}
-                  >
-                    Close
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    {isAdminUser && adminReturnableItems.length > 0 ? (
+                      <button
+                        type="button"
+                        disabled={adminReturnSelectedCount === 0}
+                        onClick={() => {
+                          setAdminReturnSuccess(null);
+                          setShowAdminReturnModal(true);
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          height: 40,
+                          padding: '0 18px',
+                          borderRadius: 10,
+                          border: 'none',
+                          background: adminReturnSelectedCount === 0 ? '#f1f5f9' : '#ea580c',
+                          color: adminReturnSelectedCount === 0 ? '#94a3b8' : '#fff',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: adminReturnSelectedCount === 0 ? 'not-allowed' : 'pointer',
+                          fontFamily: LOT_DETAIL_FONT,
+                        }}
+                      >
+                        <FaUndo size={13} />
+                        Return selected ({adminReturnSelectedCount})
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setDetailModal(null)}
+                      style={{
+                        height: 40,
+                        padding: '0 20px',
+                        fontWeight: 600,
+                        borderRadius: 10,
+                        border: 'none',
+                        background: LOT_DETAIL_BLUE,
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: 13,
+                        fontFamily: LOT_DETAIL_FONT,
+                      }}
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
               </>
             )}
           </div>
         </div>
       )}
+
+      {showAdminReturnModal && detailModal ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15,23,42,0.55)',
+            zIndex: 10055,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => !adminReturning && setShowAdminReturnModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="admin-return-modal-title"
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              maxWidth: 480,
+              width: '100%',
+              padding: '20px 22px',
+              boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+              fontFamily: LOT_DETAIL_FONT,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {adminReturnSuccess ? (
+              <div style={{ textAlign: 'center', padding: '8px 4px 4px' }}>
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: '50%',
+                    background: '#ecfdf5',
+                    border: '1px solid #bbf7d0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 14px',
+                    color: '#059669',
+                  }}
+                >
+                  <FaCheckCircle size={28} />
+                </div>
+                <h3
+                  id="admin-return-modal-title"
+                  style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: '#0f172a' }}
+                >
+                  Return successful
+                </h3>
+                <p style={{ margin: '0 0 20px', fontSize: 14, color: '#475569', lineHeight: 1.55 }}>
+                  {adminReturnSuccess}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminReturnModal(false)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 18px',
+                    borderRadius: 10,
+                    border: 'none',
+                    background: `linear-gradient(135deg, ${LOT_DETAIL_BLUE} 0%, #1e40af 100%)`,
+                    color: '#fff',
+                    fontWeight: 800,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    fontFamily: LOT_DETAIL_FONT,
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: '#fff7ed',
+                        border: '1px solid #fed7aa',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#c2410c',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <FaUndo size={15} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <h3
+                        id="admin-return-modal-title"
+                        style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0f172a' }}
+                      >
+                        Admin bulk sample return
+                      </h3>
+                      <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', lineHeight: 1.45 }}>
+                        Returning {adminReturnSelectedCount} of {adminReturnableItems.length} selected item(s).
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminReturnModal(false)}
+                    disabled={adminReturning}
+                    aria-label="Close admin return dialog"
+                    style={{
+                      border: 'none',
+                      background: '#f8fafc',
+                      cursor: adminReturning ? 'not-allowed' : 'pointer',
+                      padding: 8,
+                      borderRadius: 8,
+                      color: '#64748b',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FaTimes size={14} />
+                  </button>
+                </div>
+                <label
+                  htmlFor="admin-return-remark-modal"
+                  style={{
+                    display: 'block',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#475569',
+                    marginTop: 18,
+                    marginBottom: 8,
+                  }}
+                >
+                  Return remark
+                </label>
+                <textarea
+                  id="admin-return-remark-modal"
+                  value={adminReturnRemark}
+                  onChange={(e) => setAdminReturnRemark(e.target.value)}
+                  placeholder="e.g. Products received back at counter — employee did not scan return"
+                  rows={3}
+                  disabled={adminReturning}
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    border: '1px solid #cbd5e1',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                    color: '#0f172a',
+                    resize: 'vertical',
+                    minHeight: 80,
+                    boxSizing: 'border-box',
+                    fontFamily: 'inherit',
+                    background: '#fff',
+                    marginBottom: 18,
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminReturnModal(false)}
+                    disabled={adminReturning}
+                    style={{
+                      flex: 1,
+                      padding: '12px 16px',
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      background: '#fff',
+                      color: '#475569',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: adminReturning ? 'not-allowed' : 'pointer',
+                      fontFamily: LOT_DETAIL_FONT,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAdminBulkReturn}
+                    disabled={adminReturning || adminReturnSelectedCount === 0}
+                    style={{
+                      flex: 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      padding: '12px 16px',
+                      borderRadius: 10,
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
+                      color: '#fff',
+                      fontWeight: 800,
+                      fontSize: 13,
+                      cursor: adminReturning ? 'wait' : 'pointer',
+                      opacity: adminReturning ? 0.85 : 1,
+                      fontFamily: LOT_DETAIL_FONT,
+                    }}
+                  >
+                    {adminReturning ? (
+                      <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} />
+                    ) : (
+                      <FaUndo size={13} />
+                    )}
+                    Confirm return
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {itemDetailModal && (
         <div

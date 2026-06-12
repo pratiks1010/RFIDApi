@@ -9,6 +9,11 @@ import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../service
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
 import { useNotifications } from '../../context/NotificationContext';
 import { formatWeight3 } from '../../utils/weightFormat';
+import {
+  buildDesignAwarePages,
+  designNoFromItem,
+  sortProductsByDesign,
+} from '../../utils/designSort';
 
 const ITEMS_PER_PAGE = 6;
 const GRID_COLUMNS = 3;
@@ -191,93 +196,7 @@ const buildImageSrc = (item) => {
   return `${getRrgoldApiBaseUrl().replace(/\/$/, '')}/${apiImg.replace(/^\/+/, '')}`;
 };
 
-const designNoOf = (item) =>
-  field(item, 'DesignNo', 'DesignNO', 'design_no', 'DesignCode') ||
-  field(item, 'DesignId', 'design_id', 'DesignName', 'Design') ||
-  '';
-
-/** e.g. 245D245-1 → family 245D245, variant 1 (siblings sort together). */
-const parseDesignSortKey = (designNo) => {
-  const full = String(designNo || '').trim();
-  if (!full) return { family: '', variant: 0, full: '' };
-  const variantMatch = full.match(/^(.+)-(\d+)$/);
-  if (variantMatch) {
-    return {
-      family: variantMatch[1],
-      variant: parseInt(variantMatch[2], 10) || 0,
-      full,
-    };
-  }
-  return { family: full, variant: 0, full };
-};
-
-const localeDesign = (a, b) =>
-  String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
-
-const compareByDesign = (a, b) => {
-  const ka = parseDesignSortKey(designNoOf(a));
-  const kb = parseDesignSortKey(designNoOf(b));
-  const byFamily = localeDesign(ka.family, kb.family);
-  if (byFamily !== 0) return byFamily;
-  if (ka.variant !== kb.variant) return ka.variant - kb.variant;
-  return localeDesign(ka.full, kb.full);
-};
-
-/** Group by design family, sort families and variants; keeps 245D245-1 next to 245D245-2. */
-const sortProductsByDesign = (items) => {
-  if (!items?.length) return [];
-  const groups = new Map();
-  items.forEach((item) => {
-    const { family } = parseDesignSortKey(designNoOf(item));
-    const key = family || '\uffff';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(item);
-  });
-  const sortedFamilies = [...groups.keys()].sort(localeDesign);
-  const out = [];
-  sortedFamilies.forEach((key) => {
-    const batch = groups.get(key).slice().sort(compareByDesign);
-    out.push(...batch);
-  });
-  return out;
-};
-
-/** Paginate without splitting a design family when it fits on one page. */
-const buildDesignAwarePages = (items, pageSize) => {
-  if (!items?.length) return [];
-  const pages = [];
-  let current = [];
-  const flush = () => {
-    if (current.length) {
-      pages.push(current);
-      current = [];
-    }
-  };
-  let idx = 0;
-  while (idx < items.length) {
-    const startFamily = parseDesignSortKey(designNoOf(items[idx])).family;
-    let end = idx + 1;
-    while (end < items.length) {
-      const fam = parseDesignSortKey(designNoOf(items[end])).family;
-      if (fam !== startFamily) break;
-      end += 1;
-    }
-    const group = items.slice(idx, end);
-    if (current.length > 0 && current.length + group.length > pageSize) flush();
-    if (group.length > pageSize) {
-      flush();
-      for (let g = 0; g < group.length; g += pageSize) {
-        pages.push(group.slice(g, g + pageSize));
-      }
-    } else {
-      current.push(...group);
-      if (current.length >= pageSize) flush();
-    }
-    idx = end;
-  }
-  flush();
-  return pages;
-};
+const designNoOf = (item) => designNoFromItem(item);
 
 const StockTracking = () => {
   const { setLoading } = useLoading();

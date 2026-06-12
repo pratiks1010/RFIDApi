@@ -79,7 +79,7 @@ const SidebarLayout = ({ children }) => {
   // Section 1: Inventory Management
   const inventorySession = [
     { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
-     { path: '/create-masters', icon: FaLayerGroup, label: 'Create Masters', color: '#7c3aed', section: 'Inventory Management' },
+    { path: '/create-masters', icon: FaLayerGroup, label: 'Create Masters', color: '#7c3aed', section: 'Inventory Management' },
     { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management' },
     { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
     { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management' },
@@ -113,9 +113,11 @@ const SidebarLayout = ({ children }) => {
   const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
   const FERONIA_ALLOWED_CLIENT = 'LS000512';
   const KUMAR916_ALLOWED_CLIENT = 'LS000456';
+  const VRAKRUPA_ALLOWED_CLIENT = 'LS000563';
   const showThirdPartyMenu = (clientCode || '').trim().toUpperCase() === THIRD_PARTY_ALLOWED_CLIENT;
   const showFeroniaMenu = (clientCode || '').trim().toUpperCase() === FERONIA_ALLOWED_CLIENT;
   const showKumar916Menu = (clientCode || '').trim().toUpperCase() === KUMAR916_ALLOWED_CLIENT;
+  const showVarakrupaMenu = (clientCode || '').trim().toUpperCase() === VRAKRUPA_ALLOWED_CLIENT;
   const navigationSection5 = [
     { path: '/third-party-integration', icon: FaPlug, label: 'Third Party Software Integration', color: '#0d9488' },
   ];
@@ -124,6 +126,14 @@ const SidebarLayout = ({ children }) => {
   ];
   const navigationSectionKumar916 = [
     { path: '/kumar916-stock-master', icon: FaPlug, label: `Third Party (${KUMAR916_ALLOWED_CLIENT})`, color: '#0d9488' },
+  ];
+  const navigationSectionVarakrupa = [
+    {
+      path: '/varakrupa-integration',
+      icon: FaPlug,
+      label: `Third Party (${VRAKRUPA_ALLOWED_CLIENT})`,
+      color: '#0d9488'
+    },
   ];
 
   // Effects
@@ -185,7 +195,7 @@ const SidebarLayout = ({ children }) => {
   useEffect(() => {
     try {
       localStorage.setItem('sidebarCollapsed', JSON.stringify(sidebarCollapsed));
-    } catch (_) {}
+    } catch (_) { }
   }, [sidebarCollapsed]);
 
   useEffect(() => {
@@ -578,10 +588,10 @@ const SidebarLayout = ({ children }) => {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
-                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
-                      borderRadius: '9px',
+                        gap: sidebarCollapsed ? '0' : '8px',
+                        padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
+                        margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
+                        borderRadius: '9px',
                         color: '#64748b',
                         background: 'transparent',
                         fontWeight: 500,
@@ -656,9 +666,9 @@ const SidebarLayout = ({ children }) => {
                       padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
                       margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
                       borderRadius: '9px',
-                        textDecoration: 'none',
-                        color: '#e2e8f0',
-                        background: isActive
+                      textDecoration: 'none',
+                      color: '#e2e8f0',
+                      background: isActive
                         ? `linear-gradient(90deg, rgba(250, 204, 21, 0.22) 0%, rgba(59, 130, 246, 0.34) 55%, rgba(15, 23, 42, 0.86) 100%)`
                         : 'transparent',
                       fontWeight: isActive ? 600 : 500,
@@ -783,8 +793,8 @@ const SidebarLayout = ({ children }) => {
                     <>
                       {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
                       {navigationSection5.map(renderMenuItem)}
-                      
-                       {!sidebarCollapsed && (
+
+                      {!sidebarCollapsed && (
                         <div style={{
                           height: '1px',
                           background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
@@ -814,6 +824,20 @@ const SidebarLayout = ({ children }) => {
                     <>
                       {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
                       {navigationSectionKumar916.map(renderMenuItem)}
+                      {!sidebarCollapsed && (
+                        <div style={{
+                          height: '1px',
+                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
+                          margin: '2px 10px',
+                          opacity: 0.4
+                        }} />
+                      )}
+                    </>
+                  )}
+                  {showVarakrupaMenu && (
+                    <>
+                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
+                      {navigationSectionVarakrupa.map(renderMenuItem)}
                       {!sidebarCollapsed && (
                         <div style={{
                           height: '1px',

@@ -33,6 +33,40 @@ module.exports = function setupProxy(app) {
       logLevel: 'warn',
     })
   );
+  const varakrupaTarget =
+    process.env.REACT_APP_VARAKRUPA_PROXY_TARGET ||
+    'https://varakrupa.jewelmarts.com';
+
+  app.use(
+    '/api/Varakrupa',
+    createProxyMiddleware({
+      target: varakrupaTarget,
+      changeOrigin: true,
+      secure: false,
+      pathRewrite: (path) => {
+        const newPath = path.replace(/^\/api\/Varakrupa/, '/callback');
+        console.log(`[Varakrupa Proxy] ${path} -> ${newPath}`);
+        return newPath;
+      },
+      logLevel: 'debug',
+      onProxyReq: (proxyReq) => {
+        // Make request closer to Postman request
+        proxyReq.removeHeader('origin');
+        proxyReq.removeHeader('referer');
+      },
+      onError: (err, req, res) => {
+        console.error('[Varakrupa Proxy Error]', err.message);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            success: false,
+            message: 'Varakrupa proxy failed',
+            error: err.message,
+          })
+        );
+      },
+    })
+  );
 
   app.use('/rd-local/bridge', express.json({ limit: '2mb' }));
 

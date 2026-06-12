@@ -47,6 +47,7 @@ import SingleUseTags from './components/SingleUseTags';
 import ThirdPartySoftwareIntegration from './integrations/third-party/clients/tamannaah/ThirdPartySoftwareIntegration';
 import FeroniaIntegration from './integrations/third-party/clients/feronia/FeroniaIntegration';
 import Kumar916StockMasterIntegration from './integrations/third-party/clients/kumar916/Kumar916StockMasterIntegration';
+import VarakrupaIntegration from './integrations/third-party/clients/varakrupa/VarakrupaIntegration';
 import CreateMasters from './components/CreateMasters';
 import DownloadApiDoc from './components/DownloadApiDoc';
 import DownloadResources from './components/DownloadResources';
@@ -205,6 +206,7 @@ const useAuthProtection = () => {
         '/third-party-integration',
         '/feronia-integration',
         '/kumar916-stock-master',
+        '/varakrupa-integration',
         '/download-api-doc',
         '/download-resources',
         '/single-use-tags',
@@ -282,6 +284,7 @@ const useAuthProtection = () => {
         '/third-party-integration',
         '/feronia-integration',
         '/kumar916-stock-master',
+        '/varakrupa-integration',
         '/download-api-doc',
         '/download-resources',
         '/single-use-tags',
@@ -1058,6 +1061,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <Kumar916StockMasterIntegration />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/varakrupa-integration"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <VarakrupaIntegration />
                 </PageWrapper>
               </AuthGuard>
             }

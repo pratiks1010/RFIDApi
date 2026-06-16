@@ -385,13 +385,30 @@ const resolveLS000533DesignLabel = (item) => {
   return '';
 };
 
-/** Purity line on LS000533 label (e.g. "14Kt") */
+/** Purity line on LS000533 label (e.g. "14kt") */
 const resolveLS000533Purity = (item) =>
   String(item.PurityName || item.Purity || item.purity || '').trim();
 
-/** Description line on LS000533 label (e.g. "7.25inch") */
-const resolveLS000533Description = (item) =>
-  String(item.Description || item.description || item.ProductName || '').trim();
+/** Description line on LS000533 label (e.g. "7.25in 155pc") */
+const resolveLS000533Description = (item) => {
+  const base = String(
+    item.Description || item.description || item.Size || item.size || item.ProductName || ''
+  ).trim();
+  const pcsRaw =
+    item.TotalStonePieces ??
+    item.StonePcs ??
+    item.StonePieces ??
+    item.TotalDiamondPieces ??
+    item.DiamondPcs ??
+    item.Pieces ??
+    item.pieces ??
+    '';
+  const pcsNum = parseInt(pcsRaw, 10);
+  if (!Number.isNaN(pcsNum) && pcsNum > 0 && !/\bpc\b/i.test(base)) {
+    return base ? `${base} ${pcsNum}pc` : `${pcsNum}pc`;
+  }
+  return base;
+};
 
 /** Stone weight line on LS000533 stone label (e.g. "1.25pt") */
 const resolveLS000533StoneWeightLabel = (item) => {
@@ -410,9 +427,34 @@ const resolveLS000533StoneWeightQr = (item) => {
   return String(parseFloat(n.toFixed(2)));
 };
 
-/** PWY line on LS000533 stone label */
+/** Diamond weight value for LS000533 QR (e.g. "15.00") */
+const resolveLS000533DiamondWeightQr = (item) => {
+  const raw =
+    item.TotalDiamondWeight ?? item.DiamondWt ?? item.DiamondWeight ?? item.diamondweight ?? '';
+  const n = parseFloat(raw);
+  if (Number.isNaN(n) || n <= 0) return '0';
+  return String(parseFloat(n.toFixed(2)));
+};
+
+const resolveLS000533ProductCode = (item) =>
+  String(
+    item.ProductCode ||
+    item.productCode ||
+    item.PacketName ||
+    item.packet_name ||
+    item.ProductName ||
+    item.CategoryName ||
+    ''
+  ).trim();
+
+const resolveLS000533DesignCode = (item) =>
+  String(item.DesignName || item.Design || item.design || item.design_name || '').trim();
+
+/** PWY line on LS000533 stone label — uses Design Name */
 const resolveLS000533Pwy = (item) =>
-  String(item.PWY || item.pwy || item.YWP || item.ywp || '').trim();
+  String(
+    item.DesignName || item.Design || item.design || item.design_name || item.DesignId || ''
+  ).trim();
 
 /** ASCII EPC memory for LS000533 — dynamic PC + EPC bank, no leading zeros */
 const calculateAsciiEpcMemory = (text) => {
@@ -426,27 +468,56 @@ const formatLS000533C128BPayload = (itemCode) => {
   return `${String.fromCharCode(14)}&${v}`;
 };
 
-/** Code128C payload: FNC1 (0x0E) + apostrophe + RFID suffix (matches client sample `'1722`) */
-const formatLS000533C128CPayload = (barcodeValue) => {
-  const v = String(barcodeValue || '').trim();
-  if (!v) return `${String.fromCharCode(14)}'0`;
-  if (v.length > 3) {
-    return `${String.fromCharCode(14)}'${v.substring(3)}`;
+/** Hallmark amount for LS000533 Code128C barcode */
+const resolveLS000533HallmarkAmount = (item) =>
+  String(
+    item?.HallmarkAmount ??
+      item?.hallmarkAmount ??
+      item?.HallmarkAmt ??
+      item?.hallmarkAmt ??
+      ''
+  ).trim();
+
+/** Code128C payload: FNC1 (0x0E) + apostrophe + HallmarkAmount digits (e.g. `'1722`) — legacy */
+const formatLS000533C128CPayload = (item) => {
+  const raw = resolveLS000533HallmarkAmount(item);
+  let digits = '';
+  if (raw) {
+    const amount = parseFloat(raw);
+    if (!Number.isNaN(amount)) {
+      digits = Number.isInteger(amount)
+        ? String(amount)
+        : raw.replace(/\D/g, '');
+    } else {
+      digits = raw.replace(/\D/g, '');
+    }
   }
-  return `${String.fromCharCode(14)}'${v}`;
+  if (!digits) digits = '0';
+  if (digits.length % 2 === 1) digits = `0${digits}`;
+  return `${String.fromCharCode(14)}'${digits}`;
 };
 
-/** QR payload for LS000533 stone label — pipe-separated with spaces */
+/** Hallmark amount for LS000533 QR text */
+const resolveLS000533HallmarkAmountQr = (item) => {
+  const raw = resolveLS000533HallmarkAmount(item);
+  if (!raw) return '0';
+  const amount = parseFloat(raw);
+  if (!Number.isNaN(amount)) {
+    return Number.isInteger(amount) ? String(amount) : String(parseFloat(amount.toFixed(2)));
+  }
+  return raw;
+};
+
+/** QR payload for LS000533 stone label (matches client sequence) */
 const formatLS000533StoneQrPayload = (item) => {
-  const qrItemCode = String(item.RFIDCode || item.ItemCode || '').trim();
-  const designCode = String(item.DesignName || item.Design || item.design || '').trim();
-  const productCode = String(
-    item.PacketName || item.packet_name || item.ProductName || item.CategoryName || ''
-  ).trim();
-  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
-  const stoneWt = resolveLS000533StoneWeightQr(item);
-  const purity = resolveLS000533Purity(item).toUpperCase();
-  return [qrItemCode, designCode, productCode, grossWt, stoneWt, purity]
+  return [
+    String(item.RFIDCode || item.ItemCode || '').trim(),
+    resolveLS000533DesignCode(item),
+    resolveLS000533ProductCode(item),
+    formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt),
+    resolveLS000533StoneWeightQr(item),
+    resolveLS000533Purity(item).toUpperCase(),
+  ]
     .map((part) => String(part ?? '').trim())
     .join(' | ');
 };
@@ -455,26 +526,18 @@ const resolveLS000533PrnVariant = (item) => {
   const stoneWt = parseFloat(
     item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? item.StoneWeight ?? 0
   );
-  if (!Number.isNaN(stoneWt) && stoneWt > 0) return 'stone';
+  const stonePcs = parseInt(
+    item.TotalStonePieces ?? item.StonePcs ?? item.StonePieces ?? 0,
+    10
+  );
+  if ((!Number.isNaN(stoneWt) && stoneWt > 0) || (!Number.isNaN(stonePcs) && stonePcs > 0)) {
+    return 'stone';
+  }
   return 'standard';
 };
 
-/** QR payload: item code + all remaining dynamic label fields (pipe-separated) */
-const formatLS000533QrPayload = (item) => {
-  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
-  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
-  const diamondWt = formatDiamondCt(
-    item.TotalDiamondWeight ?? item.DiamondWt ?? item.DiamondWeight ?? item.diamondweight
-  );
-  return [
-    itemCode,
-    grossWt,
-    diamondWt,
-    resolveLS000533Purity(item),
-    resolveLS000533Description(item),
-    resolveLS000533DesignLabel(item),
-  ].join('|');
-};
+/** QR payload for LS000533 standard label — same field order as stone QR */
+const formatLS000533QrPayload = (item) => formatLS000533StoneQrPayload(item);
 
 // LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128B)
 const generateLS000533Prn = (item) => {
@@ -487,7 +550,7 @@ const generateLS000533Prn = (item) => {
   const purity = prnQuote(resolveLS000533Purity(item));
   const description = prnQuote(resolveLS000533Description(item));
   const designLabel = prnQuote(resolveLS000533DesignLabel(item));
-  const displayCode = prnQuote(itemCode);
+  const hallmarkDisplay = prnQuote(resolveLS000533HallmarkAmountQr(item));
   const qrPayload = prnQuote(formatLS000533QrPayload(item));
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode || barcodeValue);
   const c128Payload = formatLS000533C128BPayload(itemCode);
@@ -520,7 +583,7 @@ ${epcBits};H;*${epcHex}*
 STOP
 FONT;FACE 92250;BOLD 1;SLANT 0
 ALPHA
-INV;POINT;116;778;9;10;"${displayCode}"
+INV;POINT;116;778;8;9;"${hallmarkDisplay}"
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
@@ -532,7 +595,7 @@ INV;POINT;24;693;7;7;"${purity}"
 INV;POINT;24;780;7;7;"${description}"
 STOP
 BARCODE
-QRCODE;INV;XD3;T2;E0;M0;I0;23;558
+QRCODE;INV;XD2;T2;E0;M0;I0;24;558
 "${qrPayload}"
 STOP
 ALPHA
@@ -550,10 +613,9 @@ END
 `;
 };
 
-// LS000533 — stone-weight label (QR + C128C, RFID at bottom, 80-bit EPC)
+// LS000533 — stone label (client sample: QR + C128C + PWY, RFID PC/EPC at bottom)
 const generateLS000533StonePrn = (item) => {
-  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
-  const barcodeValue = String(item.RFIDCode || item.Barcode || item.BarcodeValue || itemCode).trim();
+  const itemCode = String(item.ItemCode || '').trim() || String(item.RFIDCode || '').trim();
   const epcSource = String(item.RFIDCode || item.ItemCode || '').trim();
   const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
   const diamondWt = formatDiamondCtLower(
@@ -566,9 +628,9 @@ const generateLS000533StonePrn = (item) => {
   const displayCode = prnQuote(itemCode);
   const qrPayload = prnQuote(formatLS000533StoneQrPayload(item));
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(epcSource);
-  const c128Payload = formatLS000533C128CPayload(barcodeValue);
+  const c128Payload = formatLS000533C128CPayload(item);
 
-  return `!PTX_SETUP
+  return `<xpml><page quantity='0' pitch='18.0 mm'></xpml>!PTX_SETUP
 ENGINE-WIDTH;3941:LENGTH;710:MIRROR;0.
 PTX_END
 ~PAPER;ROTATE 0
@@ -585,19 +647,13 @@ UPPERCASE;0
 AUTO WRAP;0
 HOST FORM LENGTH;1
 END
-~CREATE;FORM-0;51
+<xpml></page></xpml><xpml><page quantity='1' pitch='18.0 mm'></xpml>~CREATE;FORM-0;51
 SCALE;DOT;203;203
 ISET;'UTF8'
-FONT;FACE 92250;BOLD 1;SLANT 0
-ALPHA
-INV;POINT;116;788;7;8;"${displayCode}"
-INV;POINT;87;792;7;8;"Wt :"
-INV;POINT;87;744;7;7;"${grossWt}"
-STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
-INV;POINT;53;792;7;7;"Dwt :"
-INV;POINT;53;741;7;7;"${diamondWt}"
+INV;POINT;47;792;7;7;"Dwt :"
+INV;POINT;47;741;7;7;"${diamondWt}"
 INV;POINT;19;685;6;6;"${purity}"
 INV;POINT;19;792;6;6;"${description}"
 STOP
@@ -605,16 +661,16 @@ BARCODE
 QRCODE;INV;XD3;T2;E0;M0;I0;20;555
 "${qrPayload}"
 STOP
-FONT;FACE 92250;BOLD 1;SLANT 0
-ALPHA
-INV;POINT;116;608;7;8;"${stoneWeightLabel}"
-STOP
 BARCODE
 C128C;INV;XRD2:2:4:4:6:6:8:8;H4.8;49;368
 "${c128Payload}"
 STOP
 ALPHA
-INV;POINT;117;657;7;8;"${pwy}"
+INV;POINT;80;788;8;9;"Wt :"
+INV;POINT;80;748;8;8;"${grossWt}"
+INV;POINT;115;788;8;8;"${displayCode}"
+INV;POINT;115;660;8;8;"${pwy}"
+INV;POINT;117;608;8;8;"${stoneWeightLabel}"
 STOP
 RFWTAG;16;PC
 16;H;${pcValue}
@@ -624,6 +680,7 @@ ${epcBits};H;*${epcHex}*
 STOP
 END
 ~EXECUTE;FORM-0;1
+<xpml></page></xpml>
 
 ~NORMAL
 ~DELETE FORM;FORM-0

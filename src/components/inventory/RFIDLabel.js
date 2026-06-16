@@ -517,6 +517,10 @@ const RFIDLabel = () => {
           DiamondAmount: item.TotalDiamondAmount !== undefined && item.TotalDiamondAmount !== null ? item.TotalDiamondAmount : (item.DiamondAmount || ''),
           MakingFixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.MakingFixedAmt || ''),
           FixedAmt: item.MakingFixedAmt !== undefined && item.MakingFixedAmt !== null ? item.MakingFixedAmt : (item.FixedAmt || ''),
+          HallmarkAmount:
+            item.HallmarkAmount !== undefined && item.HallmarkAmount !== null
+              ? item.HallmarkAmount
+              : item.HallmarkAmt || item.hallmarkAmount || '',
           CounterName: item.CounterName || '',
           BoxName: item.BoxName || '',
           Vendor: item.VendorName || item.Vendor || '',
@@ -961,7 +965,7 @@ const RFIDLabel = () => {
   // Columns definition matching LabelStockList
   const columns = [
     { key: 'srNo', label: 'Sr No', width: '60px' },
-    { key: 'CounterName', label: 'Counter Name', width: '150px' },
+    { key: 'HallmarkAmount', label: 'Hallmark Amt', width: '110px' },
     { key: 'ItemCode', label: 'Item Code', width: '120px' },
     { key: 'RFIDCode', label: 'RFID Code', width: '120px' },
     { key: 'ProductName', label: 'Product Name', width: '150px' },
@@ -975,7 +979,6 @@ const RFIDLabel = () => {
     { key: 'Description', label: 'Description', width: '180px' },
     { key: 'StoneAmt', label: 'Stone Amt', width: '120px' },
     { key: 'FixedAmt', label: 'Fixed Amt', width: '120px' },
-    { key: 'Vendor', label: 'Vendor', width: '120px' },
     { key: 'Branch', label: 'Branch', width: '120px' },
     { key: 'CreatedDate', label: 'Created Date', width: '150px' },
     { key: 'PackingWeight', label: 'Packing Weight', width: '120px' },
@@ -2090,6 +2093,10 @@ const RFIDLabel = () => {
                                   if (['StoneAmt', 'FixedAmt'].includes(column.key)) {
                                     const numValue = parseFloat(value);
                                     return isNaN(numValue) ? value : numValue.toString();
+                                  }
+                                  if (column.key === 'HallmarkAmount') {
+                                    const numValue = parseFloat(value);
+                                    return isNaN(numValue) ? value : numValue.toFixed(2);
                                   }
                                   // Format date fields
                                   if (column.key === 'CreatedDate' && value) {

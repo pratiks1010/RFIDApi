@@ -1,8 +1,8 @@
-version: 0.1.64
+version: 0.1.68
 files:
-  - url: Sparkle-RFID-Dashboard-Online-0.1.64-Setup.exe
-    sha512: li5NqCTX0LwVRCuYde1RQ+rCMZAUsQOmC2CTSNmBamiFyei+Yuw/SBVQPrbvxxRWeLOPQ+LfJDeRHq2SldCdUg==
-    size: 261387955
-path: Sparkle-RFID-Dashboard-Online-0.1.64-Setup.exe
-sha512: li5NqCTX0LwVRCuYde1RQ+rCMZAUsQOmC2CTSNmBamiFyei+Yuw/SBVQPrbvxxRWeLOPQ+LfJDeRHq2SldCdUg==
-releaseDate: '2026-05-29T11:13:00.521Z'
+  - url: Sparkle-RFID-Dashboard-Online-0.1.68-Setup.exe
+    sha512: 8RpoEPyAIPqRytNdDfGM6q1ktjvoMMBbJF15ZC/5n5iy81+KdZwIV/yJ2jaVI1CXbGZ0ACmSjwwD8STD+C2KlQ==
+    size: 265165393
+path: Sparkle-RFID-Dashboard-Online-0.1.68-Setup.exe
+sha512: 8RpoEPyAIPqRytNdDfGM6q1ktjvoMMBbJF15ZC/5n5iy81+KdZwIV/yJ2jaVI1CXbGZ0ACmSjwwD8STD+C2KlQ==
+releaseDate: '2026-06-11T11:57:10.654Z'

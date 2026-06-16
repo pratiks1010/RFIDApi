@@ -102,10 +102,25 @@ const LotDetailSummaryMetric = ({ label, value, valueColor = '#0f172a' }) => (
   </div>
 );
 
-const LotDetailSummaryBar = ({ itemsCount, pending, grossWt, netWt, pieces, outDate, dueDate, employee }) => {
+const LotDetailSummaryBar = ({
+  itemsCount,
+  pending,
+  outItems,
+  employeeReturnedItems,
+  adminReturnedItems,
+  grossWt,
+  netWt,
+  pieces,
+  outDate,
+  dueDate,
+  employee,
+}) => {
   const metrics = [
     { label: 'Items', value: itemsCount, valueColor: LOT_DETAIL_BLUE },
     { label: 'Pending', value: pending },
+    { label: 'Out', value: outItems },
+    { label: 'Emp Returned', value: employeeReturnedItems, valueColor: '#0369a1' },
+    { label: 'Admin Returned', value: adminReturnedItems, valueColor: '#047857' },
     { label: 'Gross Wt', value: grossWt },
     { label: 'Net Wt', value: netWt },
     { label: 'Pieces', value: pieces },
@@ -322,9 +337,24 @@ const lineLotItemId = (line) => {
 const lineCanAdminReturn = (line, lotHeader) => {
   if (line?.canAdminReturn === true || line?.CanAdminReturn === true) return true;
   if (line?.canAdminReturn === false || line?.CanAdminReturn === false) return false;
+  if (line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true) {
+    return true;
+  }
   const lotStatus =
     lotHeader?.Status ?? lotHeader?.LotStatus ?? lotHeader?.lotStatus ?? lotHeader?.status;
   return isAdminReturnableLotStatus(lotStatus) && isOutItemStatus(line?.ItemStatus);
+};
+
+const getReturnedByTypeMeta = (line) => {
+  const raw = String(line?.ReturnedByType ?? line?.returnedByType ?? '').trim().toLowerCase();
+  if (!raw) return null;
+  if (raw.includes('admin')) {
+    return { label: 'Returned by Admin', color: '#047857', bg: '#ecfdf5', bd: '#bbf7d0' };
+  }
+  if (raw.includes('employee') || raw.includes('user')) {
+    return { label: 'Returned by Employee', color: '#0c4a6e', bg: '#e0f2fe', bd: '#bae6fd' };
+  }
+  return { label: `Returned by ${raw}`, color: '#475569', bg: '#f1f5f9', bd: '#cbd5e1' };
 };
 
 const getLineItemStatusHeaderStyle = (status) => {
@@ -898,6 +928,8 @@ const LotDetailItemCard = ({
   const pieces = formatPiecesDisplay(linePiecesFromMrp(line));
   const status = String(line?.ItemStatus || '—').trim() || '—';
   const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
+  const returnedByMeta = getReturnedByTypeMeta(line);
+  const pendingWithEmployee = line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true;
   const sampleOutDate = formatListDate(lineSampleOutDateRaw(line, lotHeader));
   const sampleInDate = formatListDate(lineSampleInDateRaw(line));
   const employeeName = lineEmployeeNameRaw(line, lotHeader) || '—';
@@ -1097,6 +1129,44 @@ const LotDetailItemCard = ({
           {dot}
           <span style={{ color: '#64748b' }}>Employee:</span> {employeeName}
         </div>
+        {(pendingWithEmployee || returnedByMeta) && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {pendingWithEmployee ? (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  color: '#92400e',
+                  background: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.03em',
+                }}
+              >
+                With Employee
+              </span>
+            ) : null}
+            {returnedByMeta ? (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  color: returnedByMeta.color,
+                  background: returnedByMeta.bg,
+                  border: `1px solid ${returnedByMeta.bd}`,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.03em',
+                }}
+              >
+                {returnedByMeta.label}
+              </span>
+            ) : null}
+          </div>
+        )}
       </div>
     </article>
   );
@@ -1147,6 +1217,12 @@ const mapRfidSampleLine = (line) => {
       line.assignToName,
     CanAdminReturn: line.canAdminReturn ?? line.CanAdminReturn,
     canAdminReturn: line.canAdminReturn ?? line.CanAdminReturn,
+    ReturnedByUserId: line.returnedByUserId ?? line.ReturnedByUserId,
+    returnedByUserId: line.returnedByUserId ?? line.ReturnedByUserId,
+    ReturnedByType: line.returnedByType ?? line.ReturnedByType,
+    returnedByType: line.returnedByType ?? line.ReturnedByType,
+    IsPendingWithEmployee: line.isPendingWithEmployee ?? line.IsPendingWithEmployee,
+    isPendingWithEmployee: line.isPendingWithEmployee ?? line.IsPendingWithEmployee,
   };
 };
 
@@ -1268,8 +1344,11 @@ const mapRfidSampleLotRow = (entry) => {
   const assignee = entry.AssignedToUserName ?? entry.assignedToUserName ?? '';
   const apiTotal = Number(entry.TotalItems ?? entry.totalItems) || 0;
   const apiPending = Number(entry.PendingItems ?? entry.pendingItems) || 0;
+  const apiOutItems = Number(entry.OutItems ?? entry.outItems) || 0;
   const totalItems = apiTotal > 0 ? apiTotal : lineItems.length;
   const pendingItems = apiPending > 0 ? apiPending : countPendingLines(lineItems);
+  const returnedItems = Number(entry.ReturnedItems ?? entry.returnedItems) || 0;
+  const outItems = apiOutItems > 0 ? apiOutItems : Math.max(totalItems - returnedItems, 0);
   const partyNameRaw = entry.PartyName ?? entry.partyName;
   const partyName =
     partyNameRaw != null && String(partyNameRaw).trim() !== ''
@@ -1293,7 +1372,10 @@ const mapRfidSampleLotRow = (entry) => {
     SampleOutDate: sampleOutDate,
     ExpectedReturnDate: entry.ExpectedReturnDate ?? entry.expectedReturnDate,
     TotalItems: totalItems,
-    ReturnedItems: Number(entry.ReturnedItems ?? entry.returnedItems) || 0,
+    ReturnedItems: returnedItems,
+    OutItems: outItems,
+    EmployeeReturnedItems: Number(entry.EmployeeReturnedItems ?? entry.employeeReturnedItems) || 0,
+    AdminReturnedItems: Number(entry.AdminReturnedItems ?? entry.adminReturnedItems) || 0,
     PendingItems: pendingItems,
     IsOverdue: entry.IsOverdue ?? entry.isOverdue,
     Remarks: entry.AdminRemark ?? entry.adminRemark ?? entry.Remarks ?? '',
@@ -1759,6 +1841,15 @@ const SampleOutList = ({
           data?.pendingItems ?? data?.PendingItems ?? prev.header?.PendingItems,
         ReturnedItems:
           data?.returnedItems ?? data?.ReturnedItems ?? prev.header?.ReturnedItems,
+        OutItems: data?.outItems ?? data?.OutItems ?? prev.header?.OutItems,
+        EmployeeReturnedItems:
+          data?.employeeReturnedItems ??
+          data?.EmployeeReturnedItems ??
+          prev.header?.EmployeeReturnedItems,
+        AdminReturnedItems:
+          data?.adminReturnedItems ??
+          data?.AdminReturnedItems ??
+          prev.header?.AdminReturnedItems,
       };
       const payload = { header: nextHeader, items: nextItems };
       const cacheKey = String(nextHeader.Id ?? nextHeader.LotId ?? '');
@@ -1811,7 +1902,11 @@ const SampleOutList = ({
         data?.message ||
         data?.Message ||
         `${ids.length} product(s) returned successfully.`;
-      setAdminReturnSuccess(successMsg);
+      setAdminReturnSuccess({
+        message: successMsg,
+        outItems: data?.outItems ?? data?.OutItems,
+        remainingOutItems: data?.remainingOutItems ?? data?.RemainingOutItems ?? [],
+      });
       addNotification({
         type: 'success',
         title: 'Admin return',
@@ -3225,6 +3320,9 @@ const SampleOutList = ({
                 <LotDetailSummaryBar
                   itemsCount={detailModal.header?.TotalItems ?? detailModalItems.length}
                   pending={detailModal.header?.PendingItems ?? '—'}
+                  outItems={detailModal.header?.OutItems ?? detailModal.header?.RemainingOutItems ?? '—'}
+                  employeeReturnedItems={detailModal.header?.EmployeeReturnedItems ?? '—'}
+                  adminReturnedItems={detailModal.header?.AdminReturnedItems ?? '—'}
                   grossWt={detailModalWeights.gross > 0 ? detailModalWeights.gross.toFixed(3) : '—'}
                   netWt={detailModalWeights.net > 0 ? detailModalWeights.net.toFixed(3) : '—'}
                   pieces={detailModalPieces}
@@ -3606,9 +3704,31 @@ const SampleOutList = ({
                 >
                   Return successful
                 </h3>
-                <p style={{ margin: '0 0 20px', fontSize: 14, color: '#475569', lineHeight: 1.55 }}>
-                  {adminReturnSuccess}
+                <p style={{ margin: '0 0 10px', fontSize: 14, color: '#475569', lineHeight: 1.55 }}>
+                  {adminReturnSuccess?.message || ''}
                 </p>
+                {Array.isArray(adminReturnSuccess?.remainingOutItems) &&
+                adminReturnSuccess.remainingOutItems.length > 0 ? (
+                  <div
+                    style={{
+                      textAlign: 'left',
+                      marginBottom: 16,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      background: '#f8fafc',
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
+                      Remaining out items ({adminReturnSuccess.remainingOutItems.length})
+                    </div>
+                    <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>
+                      {adminReturnSuccess.remainingOutItems
+                        .map((x) => x?.itemCode ?? x?.ItemCode ?? x?.rfidCode ?? x?.RfidCode ?? '—')
+                        .join(', ')}
+                    </div>
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setShowAdminReturnModal(false)}

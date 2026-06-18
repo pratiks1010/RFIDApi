@@ -1007,8 +1007,11 @@ const SampleOut = () => {
     });
   };
 
-  const handleTrayFetchData = async (epcs) => {
-    if (!userInfo?.ClientCode || !epcs?.length) return false;
+  const handleTrayFetchData = async (scanned) => {
+    const epcs = (Array.isArray(scanned) ? scanned : [])
+      .map((item) => (typeof item === 'string' ? item : String(item?.epc || item?.EPC || '')).trim().toUpperCase())
+      .filter(Boolean);
+    if (!userInfo?.ClientCode || !epcs.length) return false;
     try {
       const headers = {
         Authorization: `Bearer ${localStorage.getItem('token')}`,

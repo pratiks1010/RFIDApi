@@ -34,6 +34,7 @@ export const snapPowerAttDb10ToPreset = (raw) => {
 };
 
 const DEFAULT_TRAY_READER_CONFIG = {
+  connectionMode: 'serial',
   comPrimary: '7',
   comSecondary: '8',
   baudRate: '115200',
@@ -59,10 +60,17 @@ export const parsePowerAttDb10 = (value) => {
   return snapPowerAttDb10ToPreset(n);
 };
 
+const normalizeConnectionMode = (value, fallback) => {
+  const next = String(value ?? '').trim().toLowerCase();
+  if (next === 'usb' || next === 'serial') return next;
+  return fallback;
+};
+
 export const getTrayReaderConfig = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem(TRAY_READER_CONFIG_KEY) || '{}');
     return {
+      connectionMode: normalizeConnectionMode(parsed?.connectionMode, DEFAULT_TRAY_READER_CONFIG.connectionMode),
       comPrimary: normalize(parsed?.comPrimary, DEFAULT_TRAY_READER_CONFIG.comPrimary),
       comSecondary: normalize(parsed?.comSecondary, DEFAULT_TRAY_READER_CONFIG.comSecondary),
       baudRate: normalize(parsed?.baudRate, DEFAULT_TRAY_READER_CONFIG.baudRate),
@@ -76,6 +84,10 @@ export const getTrayReaderConfig = () => {
 export const saveTrayReaderConfig = (partial) => {
   const current = getTrayReaderConfig();
   const payload = {
+    connectionMode: normalizeConnectionMode(
+      partial?.connectionMode ?? current.connectionMode,
+      DEFAULT_TRAY_READER_CONFIG.connectionMode
+    ),
     comPrimary: normalize(partial?.comPrimary ?? current.comPrimary, DEFAULT_TRAY_READER_CONFIG.comPrimary),
     comSecondary: normalize(partial?.comSecondary ?? current.comSecondary, DEFAULT_TRAY_READER_CONFIG.comSecondary),
     baudRate: normalize(partial?.baudRate ?? current.baudRate, DEFAULT_TRAY_READER_CONFIG.baudRate),

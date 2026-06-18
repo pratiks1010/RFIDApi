@@ -1151,9 +1151,6 @@ const CreateMasters = () => {
           srNo,
           { key: 'CategoryName', label: 'Category Name' },
           { key: 'ShortName', label: 'Short Name', width: '90px' },
-          { key: 'Slug', label: 'Slug', width: '100px' },
-          { key: 'HSNCode', label: 'HSN Code', width: '80px' },
-          { key: 'Status', label: 'Status', width: '70px' },
         ]);
       case 'product':
         return cols([
@@ -1238,7 +1235,7 @@ const CreateMasters = () => {
         String(row?.IsRfidTagged).toLowerCase() === 'true' ||
         Boolean(
           String(row?.RFIDCode ?? row?.rfidCode ?? '').trim() ||
-            String(row?.HexCode ?? row?.hexCode ?? '').trim()
+          String(row?.HexCode ?? row?.hexCode ?? '').trim()
         );
       return tagged ? 'Tagged' : 'Not tagged';
     }
@@ -1718,10 +1715,10 @@ const CreateMasters = () => {
     const boxRfidDraft =
       activeOption === 'box' && !editingId
         ? {
-            rfidCode: str(formData.rfidCode),
-            hexCode: str(formData.hexCode),
-            tidNumber: str(formData.tidNumber) || str(formData.hexCode),
-          }
+          rfidCode: str(formData.rfidCode),
+          hexCode: str(formData.hexCode),
+          tidNumber: str(formData.tidNumber) || str(formData.hexCode),
+        }
         : null;
     try {
       const payload = buildPayload();
@@ -1763,15 +1760,15 @@ const CreateMasters = () => {
           } catch (tagErr) {
             toast.warning(
               tagErr?.response?.data?.message ||
-                tagErr?.message ||
-                'Box created but RFID tag could not be assigned. Use Assign Box RFID Tag later.'
+              tagErr?.message ||
+              'Box created but RFID tag could not be assigned. Use Assign Box RFID Tag later.'
             );
           }
         }
         const boxRfidNote = activeOption === 'box' && boxRfidTagged ? ' Box RFID tag saved.' : '';
         toast.success(
           serverMsg ||
-            (isEdit ? 'Updated successfully.' : successMessages[activeOption] || 'Saved successfully.') + boxRfidNote
+          (isEdit ? 'Updated successfully.' : successMessages[activeOption] || 'Saved successfully.') + boxRfidNote
         );
         setFormData({});
         setEditingId(null);
@@ -2020,6 +2017,7 @@ const CreateMasters = () => {
       borderBottom: '1px solid #f1f5f9',
       color: '#1e293b',
       fontSize: 12,
+      verticalAlign: 'middle',
     },
     listPagination: {
       display: 'flex',
@@ -2444,367 +2442,367 @@ const CreateMasters = () => {
             </>
           ) : activeOption === 'vendor' ? (
             <>
-            <div
-              style={{
-                ...baseStyles.card,
-                padding: '10px 12px 12px',
-                flex: '0 0 55%',
-                height: '75%',
-                minHeight: 380,
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-              }}
-              className="create-masters-vendor-form"
-            >
-              <h2
+              <div
                 style={{
-                  margin: '0 0 8px',
-                  fontSize: 13,
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  letterSpacing: '0.04em',
+                  ...baseStyles.card,
+                  padding: '10px 12px 12px',
+                  flex: '0 0 55%',
+                  height: '75%',
+                  minHeight: 380,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
                 }}
+                className="create-masters-vendor-form"
               >
-                ADD VENDOR
-              </h2>
-              <form onSubmit={handleVendorSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                {/* Vendor Details */}
-                <div style={{ paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Vendor Details</div>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                      gap: '6px 8px',
-                    }}
-                  >
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Vendor Name <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="text"
-                        value={vendorForm.vendorName}
-                        onChange={(e) => updateVendorField('vendorName', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Vendor name"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Company Name <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="text"
-                        value={vendorForm.companyName}
-                        onChange={(e) => updateVendorField('companyName', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Company name"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Email</label>
-                      <input
-                        type="email"
-                        value={vendorForm.email}
-                        onChange={(e) => updateVendorField('email', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Email"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Contact Number <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="text"
-                        value={vendorForm.contactNumber}
-                        onChange={(e) => updateVendorField('contactNumber', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Contact number"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Aadhar Number</label>
-                      <input
-                        type="text"
-                        value={vendorForm.aadharNumber}
-                        onChange={(e) => updateVendorField('aadharNumber', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Pan Number</label>
-                      <input
-                        type="text"
-                        value={vendorForm.panNumber}
-                        onChange={(e) => updateVendorField('panNumber', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="PAN"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Remarks</label>
-                      <input
-                        type="text"
-                        value={vendorForm.remarks}
-                        onChange={(e) => updateVendorField('remarks', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Remarks"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Address Details */}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Address Details</div>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                      gap: '6px 8px',
-                    }}
-                  >
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Street</label>
-                      <input
-                        type="text"
-                        value={vendorForm.street}
-                        onChange={(e) => updateVendorField('street', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Street"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Area</label>
-                      <input
-                        type="text"
-                        value={vendorForm.area}
-                        onChange={(e) => updateVendorField('area', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Area"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Town</label>
-                      <input
-                        type="text"
-                        value={vendorForm.town}
-                        onChange={(e) => updateVendorField('town', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="Town"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>City</label>
-                      <input
-                        type="text"
-                        value={vendorForm.city}
-                        onChange={(e) => updateVendorField('city', e.target.value)}
-                        style={baseStyles.input}
-                        placeholder="City"
-                      />
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Country <span style={{ color: '#dc2626' }}>*</span></label>
-                      <select
-                        value={vendorForm.country}
-                        onChange={(e) => updateVendorField('country', e.target.value)}
-                        style={baseStyles.select}
-                      >
-                        {COUNTRY_OPTIONS.map((c) => (
-                          <option key={c.id} value={c.name}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>State <span style={{ color: '#dc2626' }}>*</span></label>
-                      <select
-                        value={vendorForm.state}
-                        onChange={(e) => updateVendorField('state', e.target.value)}
-                        style={baseStyles.select}
-                      >
-                        <option value="">Select a state</option>
-                        {INDIAN_STATES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={baseStyles.fieldGroup}>
-                      <label style={baseStyles.label}>Pincode</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={vendorForm.pincode}
-                        onChange={(e) => updateVendorField('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        style={baseStyles.input}
-                        placeholder="Enter 6 digit pincode"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div
+                <h2
                   style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    justifyContent: 'flex-end',
-                    gap: 8,
-                    paddingTop: 6,
-                    borderTop: '1px solid #e5e7eb',
+                    margin: '0 0 8px',
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    letterSpacing: '0.04em',
                   }}
                 >
-                  <button type="button" onClick={handleVendorReset} style={baseStyles.btnSecondary}>
-                    <FaRedoAlt size={12} />
-                    Reset
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={vendorSubmitting}
-                    style={{ ...baseStyles.btnPrimary('#2563eb'), background: vendorSubmitting ? '#94a3b8' : '#2563eb' }}
-                  >
-                    {vendorSubmitting ? (
-                      <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} />
-                    ) : (
-                      <FaCheck size={12} />
-                    )}
-                    Submit
-                  </button>
-                </div>
-              </form>
-            </div>
+                  ADD VENDOR
+                </h2>
+                <form onSubmit={handleVendorSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                  {/* Vendor Details */}
+                  <div style={{ paddingBottom: 8, borderBottom: '1px solid #e5e7eb' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Vendor Details</div>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                        gap: '6px 8px',
+                      }}
+                    >
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Vendor Name <span style={{ color: '#dc2626' }}>*</span></label>
+                        <input
+                          type="text"
+                          value={vendorForm.vendorName}
+                          onChange={(e) => updateVendorField('vendorName', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Vendor name"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Company Name <span style={{ color: '#dc2626' }}>*</span></label>
+                        <input
+                          type="text"
+                          value={vendorForm.companyName}
+                          onChange={(e) => updateVendorField('companyName', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Company name"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Email</label>
+                        <input
+                          type="email"
+                          value={vendorForm.email}
+                          onChange={(e) => updateVendorField('email', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Email"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Contact Number <span style={{ color: '#dc2626' }}>*</span></label>
+                        <input
+                          type="text"
+                          value={vendorForm.contactNumber}
+                          onChange={(e) => updateVendorField('contactNumber', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Contact number"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Aadhar Number</label>
+                        <input
+                          type="text"
+                          value={vendorForm.aadharNumber}
+                          onChange={(e) => updateVendorField('aadharNumber', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Pan Number</label>
+                        <input
+                          type="text"
+                          value={vendorForm.panNumber}
+                          onChange={(e) => updateVendorField('panNumber', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="PAN"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Remarks</label>
+                        <input
+                          type="text"
+                          value={vendorForm.remarks}
+                          onChange={(e) => updateVendorField('remarks', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Remarks"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-            <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
-              <div style={baseStyles.listCardTitle}>List of Vendors</div>
-              <div style={baseStyles.listHeader} className="create-masters-list-header">
-                <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
-                  <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
-                  <input
-                    type="text"
-                    placeholder="Search vendor list..."
-                    value={vendorListSearch}
+                  {/* Address Details */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Address Details</div>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                        gap: '6px 8px',
+                      }}
+                    >
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Street</label>
+                        <input
+                          type="text"
+                          value={vendorForm.street}
+                          onChange={(e) => updateVendorField('street', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Street"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Area</label>
+                        <input
+                          type="text"
+                          value={vendorForm.area}
+                          onChange={(e) => updateVendorField('area', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Area"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Town</label>
+                        <input
+                          type="text"
+                          value={vendorForm.town}
+                          onChange={(e) => updateVendorField('town', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="Town"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>City</label>
+                        <input
+                          type="text"
+                          value={vendorForm.city}
+                          onChange={(e) => updateVendorField('city', e.target.value)}
+                          style={baseStyles.input}
+                          placeholder="City"
+                        />
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Country <span style={{ color: '#dc2626' }}>*</span></label>
+                        <select
+                          value={vendorForm.country}
+                          onChange={(e) => updateVendorField('country', e.target.value)}
+                          style={baseStyles.select}
+                        >
+                          {COUNTRY_OPTIONS.map((c) => (
+                            <option key={c.id} value={c.name}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>State <span style={{ color: '#dc2626' }}>*</span></label>
+                        <select
+                          value={vendorForm.state}
+                          onChange={(e) => updateVendorField('state', e.target.value)}
+                          style={baseStyles.select}
+                        >
+                          <option value="">Select a state</option>
+                          {INDIAN_STATES.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={baseStyles.fieldGroup}>
+                        <label style={baseStyles.label}>Pincode</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={vendorForm.pincode}
+                          onChange={(e) => updateVendorField('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          style={baseStyles.input}
+                          placeholder="Enter 6 digit pincode"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      justifyContent: 'flex-end',
+                      gap: 8,
+                      paddingTop: 6,
+                      borderTop: '1px solid #e5e7eb',
+                    }}
+                  >
+                    <button type="button" onClick={handleVendorReset} style={baseStyles.btnSecondary}>
+                      <FaRedoAlt size={12} />
+                      Reset
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={vendorSubmitting}
+                      style={{ ...baseStyles.btnPrimary('#2563eb'), background: vendorSubmitting ? '#94a3b8' : '#2563eb' }}
+                    >
+                      {vendorSubmitting ? (
+                        <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} />
+                      ) : (
+                        <FaCheck size={12} />
+                      )}
+                      Submit
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
+                <div style={baseStyles.listCardTitle}>List of Vendors</div>
+                <div style={baseStyles.listHeader} className="create-masters-list-header">
+                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
+                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+                    <input
+                      type="text"
+                      placeholder="Search vendor list..."
+                      value={vendorListSearch}
+                      onChange={(e) => {
+                        setVendorListSearch(e.target.value);
+                        setVendorListPage(1);
+                      }}
+                      style={baseStyles.listSearchInput}
+                      aria-label="Search vendor list"
+                    />
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
+                    Total: {filteredVendorRows.length} record{filteredVendorRows.length !== 1 ? 's' : ''}
+                  </span>
+                  <select
+                    value={vendorListPageSize}
                     onChange={(e) => {
-                      setVendorListSearch(e.target.value);
+                      setVendorListPageSize(Number(e.target.value));
                       setVendorListPage(1);
                     }}
-                    style={baseStyles.listSearchInput}
-                    aria-label="Search vendor list"
-                  />
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
-                  Total: {filteredVendorRows.length} record{filteredVendorRows.length !== 1 ? 's' : ''}
-                </span>
-                <select
-                  value={vendorListPageSize}
-                  onChange={(e) => {
-                    setVendorListPageSize(Number(e.target.value));
-                    setVendorListPage(1);
-                  }}
-                  style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
-                  aria-label="Rows per page"
-                >
-                  {[5, 10, 20, 50].map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={baseStyles.listTableWrap}>
-                <table style={baseStyles.listTable} className="create-masters-list-table">
-                  <thead>
-                    <tr>
-                      <th style={baseStyles.listTh}>Sr. No.</th>
-                      <th style={baseStyles.listTh}>Vendor Name</th>
-                      <th style={baseStyles.listTh}>Company Name</th>
-                      <th style={baseStyles.listTh}>Contact</th>
-                      <th style={baseStyles.listTh}>City</th>
-                      <th style={baseStyles.listTh}>State</th>
-                      <th style={baseStyles.listTh}>Vendor Type</th>
-                      <th style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vendorListLoading ? (
-                      <tr>
-                        <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}>
-                          <FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />
-                          Loading vendors…
-                        </td>
-                      </tr>
-                    ) : paginatedVendorRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
-                          {vendorRows.length === 0 ? 'No vendor data. Add one above.' : 'No matches for search.'}
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedVendorRows.map((row, idx) => {
-                        const rowId = row.Id ?? row.id ?? idx;
-                        const sr = (vendorSafePage - 1) * vendorListPageSize + idx + 1;
-                        return (
-                          <tr key={String(rowId)} className="create-masters-list-row">
-                            <td style={baseStyles.listTd}>{sr}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'PartyName', 'VendorName', 'vendorName', 'Name')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'CompanyName', 'companyName')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'City', 'city')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'State', 'state')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'VendorType', 'vendorType')}</td>
-                            <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
-                              <span className="create-masters-action-cell">
-                                <button
-                                  type="button"
-                                  title="Edit"
-                                  onClick={() => toast.info('Vendor edit will use the same form when the update API is connected.')}
-                                  style={baseStyles.actionBtnEdit}
-                                  className="create-masters-btn-icon create-masters-btn-edit"
-                                >
-                                  <FaEdit size={12} />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Delete"
-                                  onClick={() => toast.info('Vendor delete can be wired when the delete API is available.')}
-                                  style={baseStyles.actionBtnDelete}
-                                  className="create-masters-btn-icon create-masters-btn-delete"
-                                >
-                                  <FaTrashAlt size={12} />
-                                </button>
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div style={baseStyles.listPagination} className="create-masters-list-pagination">
-                <span>
-                  Showing {filteredVendorRows.length === 0 ? 0 : (vendorSafePage - 1) * vendorListPageSize + 1}–{Math.min(vendorSafePage * vendorListPageSize, filteredVendorRows.length)} of {filteredVendorRows.length}
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <button
-                    type="button"
-                    onClick={() => setVendorListPage((p) => Math.max(1, p - 1))}
-                    disabled={vendorSafePage <= 1}
-                    style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                    style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
+                    aria-label="Rows per page"
                   >
-                    Prev
-                  </button>
-                  <span style={{ padding: '0 6px' }}>Page {vendorSafePage} of {vendorTotalPages}</span>
-                  <button
-                    type="button"
-                    onClick={() => setVendorListPage((p) => Math.min(vendorTotalPages, p + 1))}
-                    disabled={vendorSafePage >= vendorTotalPages}
-                    style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
-                  >
-                    Next
-                  </button>
-                </span>
+                    {[5, 10, 20, 50].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={baseStyles.listTableWrap}>
+                  <table style={baseStyles.listTable} className="create-masters-list-table">
+                    <thead>
+                      <tr>
+                        <th style={baseStyles.listTh}>Sr. No.</th>
+                        <th style={baseStyles.listTh}>Vendor Name</th>
+                        <th style={baseStyles.listTh}>Company Name</th>
+                        <th style={baseStyles.listTh}>Contact</th>
+                        <th style={baseStyles.listTh}>City</th>
+                        <th style={baseStyles.listTh}>State</th>
+                        <th style={baseStyles.listTh}>Vendor Type</th>
+                        <th style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vendorListLoading ? (
+                        <tr>
+                          <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}>
+                            <FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />
+                            Loading vendors…
+                          </td>
+                        </tr>
+                      ) : paginatedVendorRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
+                            {vendorRows.length === 0 ? 'No vendor data. Add one above.' : 'No matches for search.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedVendorRows.map((row, idx) => {
+                          const rowId = row.Id ?? row.id ?? idx;
+                          const sr = (vendorSafePage - 1) * vendorListPageSize + idx + 1;
+                          return (
+                            <tr key={String(rowId)} className="create-masters-list-row">
+                              <td style={baseStyles.listTd}>{sr}</td>
+                              <td style={baseStyles.listTd}>{vendorDisplay(row, 'PartyName', 'VendorName', 'vendorName', 'Name')}</td>
+                              <td style={baseStyles.listTd}>{vendorDisplay(row, 'CompanyName', 'companyName')}</td>
+                              <td style={baseStyles.listTd}>{vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone')}</td>
+                              <td style={baseStyles.listTd}>{vendorDisplay(row, 'City', 'city')}</td>
+                              <td style={baseStyles.listTd}>{vendorDisplay(row, 'State', 'state')}</td>
+                              <td style={baseStyles.listTd}>{vendorDisplay(row, 'VendorType', 'vendorType')}</td>
+                              <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
+                                <span className="create-masters-action-cell">
+                                  <button
+                                    type="button"
+                                    title="Edit"
+                                    onClick={() => toast.info('Vendor edit will use the same form when the update API is connected.')}
+                                    style={baseStyles.actionBtnEdit}
+                                    className="create-masters-btn-icon create-masters-btn-edit"
+                                  >
+                                    <FaEdit size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Delete"
+                                    onClick={() => toast.info('Vendor delete can be wired when the delete API is available.')}
+                                    style={baseStyles.actionBtnDelete}
+                                    className="create-masters-btn-icon create-masters-btn-delete"
+                                  >
+                                    <FaTrashAlt size={12} />
+                                  </button>
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
+                  <span>
+                    Showing {filteredVendorRows.length === 0 ? 0 : (vendorSafePage - 1) * vendorListPageSize + 1}–{Math.min(vendorSafePage * vendorListPageSize, filteredVendorRows.length)} of {filteredVendorRows.length}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setVendorListPage((p) => Math.max(1, p - 1))}
+                      disabled={vendorSafePage <= 1}
+                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                    >
+                      Prev
+                    </button>
+                    <span style={{ padding: '0 6px' }}>Page {vendorSafePage} of {vendorTotalPages}</span>
+                    <button
+                      type="button"
+                      onClick={() => setVendorListPage((p) => Math.min(vendorTotalPages, p + 1))}
+                      disabled={vendorSafePage >= vendorTotalPages}
+                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                    >
+                      Next
+                    </button>
+                  </span>
+                </div>
               </div>
-            </div>
             </>
           ) : activeOption === 'customer' ? (
             <>
@@ -2924,101 +2922,102 @@ const CreateMasters = () => {
             </>
           ) : (
             <>
-              <div ref={formCardRef} style={{ ...baseStyles.card, ['--create-masters-accent']: current.color }} className="create-masters-form-card">
-                <h2 style={baseStyles.cardTitle}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 6,
-                      background: `${current.color}14`,
-                      color: current.color,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <CurrentIcon size={14} />
+              <div className="create-masters-split-layout" style={{ display: 'flex', flexDirection: 'row', gap: 16, alignItems: 'stretch', width: '100%', flex: '1 1 auto', minHeight: 0, marginBottom: 30 }}>
+                <div ref={formCardRef} style={{ ...baseStyles.card, flex: '1.4 1 0', minWidth: 0, width: '100%', ['--create-masters-accent']: current.color }} className="create-masters-form-card">
+                  <h2 style={baseStyles.cardTitle}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        background: `${current.color}14`,
+                        color: current.color,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        <CurrentIcon size={14} />
+                      </span>
+                      {editingId ? `Edit ${current.label}` : `Add ${current.label}`}
                     </span>
-                    {editingId ? `Edit ${current.label}` : `Add ${current.label}`}
-                  </span>
-                </h2>
-                {activeOption === 'box' && (
-                  <p style={{ margin: '0 0 10px', fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
-                    Set box RFID here in one step (RFID Code + Hex). Then use{' '}
-                    <strong style={{ color: '#0f766e' }}>Box RFID Pack</strong> to add labelled items and scan the tray.
-                  </p>
-                )}
-                <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'auto' }}>
-                  <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px', alignContent: 'start' }} className="create-masters-fields-grid">
-                    {fields.map((f) => {
-                      if (activeOption === 'box' && f.key === 'hexCode') return null;
-                      if (activeOption === 'box' && f.key === 'tidNumber' && boxRfidTagMode === 'reuse') return null;
+                  </h2>
+                  {activeOption === 'box' && (
+                    <p style={{ margin: '0 0 10px', fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
+                      Set box RFID here in one step (RFID Code + Hex). Then use{' '}
+                      <strong style={{ color: '#0f766e' }}>Box RFID Pack</strong> to add labelled items and scan the tray.
+                    </p>
+                  )}
+                  <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                    <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'grid', gap: '8px 12px', alignContent: 'start', paddingRight: 4 }} className="create-masters-fields-grid">
+                      {fields.map((f) => {
+                        if (activeOption === 'box' && f.key === 'hexCode') return null;
+                        if (activeOption === 'box' && f.key === 'tidNumber' && boxRfidTagMode === 'reuse') return null;
 
-                      if (activeOption === 'box' && f.key === 'rfidCode') {
-                        const isReuse = boxRfidTagMode === 'reuse';
-                        const rfidTrim = String(formData.rfidCode || '').trim();
-                        const hasRfidMoreThan4 = rfidTrim.length > 4;
-                        const showTidPresent = hasRfidMoreThan4 && Boolean(formData.hexCode || formData.tidNumber);
-                        const showTidMissing = hasRfidMoreThan4 && !boxRfidLookupLoading && !showTidPresent && !boxRfidLookupError;
-                        const rfidInputOk = showTidPresent && !boxRfidLookupError;
-                        const rfidInputBad = Boolean(boxRfidLookupError) || showTidMissing;
-                        return (
-                          <React.Fragment key="box-rfid-fields">
-                            <div style={{ ...baseStyles.fieldGroup, gridColumn: '1 / -1' }}>
-                              <label style={baseStyles.label}>RFID Tag Type</label>
-                              <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#f8fafc' }}>
-                                {[
-                                  { id: 'reuse', label: 'Reuse' },
-                                  { id: 'singleUse', label: 'Single Use' },
-                                ].map((opt) => {
-                                  const active = boxRfidTagMode === opt.id;
-                                  return (
-                                    <button
-                                      key={opt.id}
-                                      type="button"
-                                      onClick={() => handleBoxRfidModeChange(opt.id)}
-                                      style={{
-                                        padding: '6px 14px',
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        background: active ? '#dc2626' : 'transparent',
-                                        color: active ? '#ffffff' : '#64748b',
-                                        transition: 'all 0.15s',
-                                      }}
-                                    >
-                                      {opt.label}
-                                    </button>
-                                  );
-                                })}
+                        if (activeOption === 'box' && f.key === 'rfidCode') {
+                          const isReuse = boxRfidTagMode === 'reuse';
+                          const rfidTrim = String(formData.rfidCode || '').trim();
+                          const hasRfidMoreThan4 = rfidTrim.length > 4;
+                          const showTidPresent = hasRfidMoreThan4 && Boolean(formData.hexCode || formData.tidNumber);
+                          const showTidMissing = hasRfidMoreThan4 && !boxRfidLookupLoading && !showTidPresent && !boxRfidLookupError;
+                          const rfidInputOk = showTidPresent && !boxRfidLookupError;
+                          const rfidInputBad = Boolean(boxRfidLookupError) || showTidMissing;
+                          return (
+                            <React.Fragment key="box-rfid-fields">
+                              <div style={{ ...baseStyles.fieldGroup, gridColumn: '1 / -1' }}>
+                                <label style={baseStyles.label}>RFID Tag Type</label>
+                                <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#f8fafc' }}>
+                                  {[
+                                    { id: 'reuse', label: 'Reuse' },
+                                    { id: 'singleUse', label: 'Single Use' },
+                                  ].map((opt) => {
+                                    const active = boxRfidTagMode === opt.id;
+                                    return (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => handleBoxRfidModeChange(opt.id)}
+                                        style={{
+                                          padding: '6px 14px',
+                                          fontSize: 11,
+                                          fontWeight: 700,
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                          background: active ? '#dc2626' : 'transparent',
+                                          color: active ? '#ffffff' : '#64748b',
+                                          transition: 'all 0.15s',
+                                        }}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <p style={{ margin: '6px 0 0', fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>
+                                  {isReuse
+                                    ? 'Enter RFID Number — TID and Hex are fetched from the server (same as Add Stock).'
+                                    : 'Enter Box RFID Code — hex is generated automatically from the code.'}
+                                </p>
                               </div>
-                              <p style={{ margin: '6px 0 0', fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>
-                                {isReuse
-                                  ? 'Enter RFID Number — TID and Hex are fetched from the server (same as Add Stock).'
-                                  : 'Enter Box RFID Code — hex is generated automatically from the code.'}
-                              </p>
-                            </div>
-                            <div style={{ ...baseStyles.fieldGroup }}>
-                              <label style={baseStyles.label}>
-                                {isReuse ? 'RFID Number' : 'Box RFID Code'}
-                                {isReuse && boxRfidLookupLoading ? (
-                                  <FaSpinner size={10} style={{ marginLeft: 6, animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
-                                ) : null}
-                              </label>
-                              <input
-                                type="text"
-                                value={formData.rfidCode ?? ''}
-                                readOnly={false}
-                                onChange={(e) => updateField('rfidCode', e.target.value)}
-                                onBlur={() => {
-                                  if (isReuse && rfidTrim.length > 4) fetchBoxTidForRfid(rfidTrim);
-                                }}
-                                placeholder={isReuse ? 'e.g. SJ0260' : 'e.g. SJ0260'}
-                                style={{
-                                  ...baseStyles.input,
-                                  ...(isReuse
-                                    ? {
+                              <div style={{ ...baseStyles.fieldGroup }}>
+                                <label style={baseStyles.label}>
+                                  {isReuse ? 'RFID Number' : 'Box RFID Code'}
+                                  {isReuse && boxRfidLookupLoading ? (
+                                    <FaSpinner size={10} style={{ marginLeft: 6, animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
+                                  ) : null}
+                                </label>
+                                <input
+                                  type="text"
+                                  value={formData.rfidCode ?? ''}
+                                  readOnly={false}
+                                  onChange={(e) => updateField('rfidCode', e.target.value)}
+                                  onBlur={() => {
+                                    if (isReuse && rfidTrim.length > 4) fetchBoxTidForRfid(rfidTrim);
+                                  }}
+                                  placeholder={isReuse ? 'e.g. SJ0260' : 'e.g. SJ0260'}
+                                  style={{
+                                    ...baseStyles.input,
+                                    ...(isReuse
+                                      ? {
                                         border: rfidInputBad
                                           ? '2px solid #dc2626'
                                           : rfidInputOk
@@ -3026,223 +3025,223 @@ const CreateMasters = () => {
                                             : '2px solid #6366f1',
                                         background: rfidInputBad ? '#fef2f2' : rfidInputOk ? '#f0fdf4' : baseStyles.input.background,
                                       }
-                                    : {}),
-                                }}
-                              />
-                              {isReuse && boxRfidLookupError ? (
-                                <span style={{ fontSize: 10, color: '#dc2626', marginTop: 4, display: 'block' }}>{boxRfidLookupError}</span>
+                                      : {}),
+                                  }}
+                                />
+                                {isReuse && boxRfidLookupError ? (
+                                  <span style={{ fontSize: 10, color: '#dc2626', marginTop: 4, display: 'block' }}>{boxRfidLookupError}</span>
+                                ) : null}
+                              </div>
+                              {isReuse ? (
+                                <div style={{ ...baseStyles.fieldGroup }}>
+                                  <label style={baseStyles.label}>TID</label>
+                                  <div
+                                    title={formData.tidNumber || formData.hexCode || ''}
+                                    style={{
+                                      ...baseStyles.input,
+                                      background: '#f8fafc',
+                                      color: '#475569',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      height: 34,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                      cursor: 'default',
+                                    }}
+                                  >
+                                    {boxRfidLookupLoading ? '...' : formData.tidNumber || formData.hexCode || '—'}
+                                  </div>
+                                </div>
                               ) : null}
-                            </div>
-                            {isReuse ? (
                               <div style={{ ...baseStyles.fieldGroup }}>
-                                <label style={baseStyles.label}>TID</label>
-                                <div
-                                  title={formData.tidNumber || formData.hexCode || ''}
+                                <label style={baseStyles.label}>Hex Code</label>
+                                <input
+                                  type="text"
+                                  value={formData.hexCode ?? ''}
+                                  readOnly={isReuse}
+                                  onChange={(e) => !isReuse && updateField('hexCode', e.target.value)}
+                                  placeholder={isReuse ? 'Auto from RFID lookup' : 'Auto from RFID code'}
                                   style={{
                                     ...baseStyles.input,
-                                    background: '#f8fafc',
-                                    color: '#475569',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    height: 34,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    cursor: 'default',
+                                    background: isReuse ? '#f1f5f9' : baseStyles.input.background,
+                                    cursor: isReuse ? 'default' : 'text',
                                   }}
-                                >
-                                  {boxRfidLookupLoading ? '...' : formData.tidNumber || formData.hexCode || '—'}
-                                </div>
+                                />
                               </div>
-                            ) : null}
-                            <div style={{ ...baseStyles.fieldGroup }}>
-                              <label style={baseStyles.label}>Hex Code</label>
-                              <input
-                                type="text"
-                                value={formData.hexCode ?? ''}
-                                readOnly={isReuse}
-                                onChange={(e) => !isReuse && updateField('hexCode', e.target.value)}
-                                placeholder={isReuse ? 'Auto from RFID lookup' : 'Auto from RFID code'}
-                                style={{
-                                  ...baseStyles.input,
-                                  background: isReuse ? '#f1f5f9' : baseStyles.input.background,
-                                  cursor: isReuse ? 'default' : 'text',
-                                }}
-                              />
-                            </div>
-                          </React.Fragment>
-                        );
-                      }
-
-                      return (
-                        <div key={f.key} data-colspan={f.colSpan || 1} style={{ ...baseStyles.fieldGroup }}>
-                          <label style={baseStyles.label}>
-                            {f.label} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
-                          </label>
-                          {f.type === 'select' ? (
-                            <select
-                              value={formData[f.key] ?? ''}
-                              onChange={(e) => updateField(f.key, e.target.value)}
-                              style={baseStyles.select}
-                            >
-                              <option value="">{f.placeholder || `Select ${f.label}`}</option>
-                              {(f.options || []).map((opt, i) => (
-                                <option key={i} value={opt[f.optionValue] ?? opt.Id ?? opt.id ?? ''}>
-                                  {opt[f.optionLabel] ?? opt.Name ?? opt.CategoryName ?? opt.ProductName ?? opt.DesignName ?? opt.PurityName ?? opt.BranchName ?? opt.CounterName ?? ''}
-                                </option>
-                              ))}
-                            </select>
-                          ) : f.type === 'textarea' ? (
-                            <textarea
-                              value={formData[f.key] ?? ''}
-                              onChange={(e) => updateField(f.key, e.target.value)}
-                              placeholder={f.placeholder}
-                              style={{ ...baseStyles.textarea, minHeight: f.colSpan === 3 ? 56 : 48 }}
-                            />
-                          ) : (
-                            <input
-                              type={f.type || 'text'}
-                              value={formData[f.key] ?? ''}
-                              onChange={(e) => updateField(f.key, e.target.value)}
-                              placeholder={f.placeholder}
-                              style={baseStyles.input}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="create-masters-form-actions" style={{ flexShrink: 0, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
-                    <div className="create-masters-form-actions-inner">
-                      <button type="button" onClick={handleCancel} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-cancel">
-                        <FaTimes size={12} />
-                        Cancel
-                      </button>
-                      <button type="button" onClick={handleResetForm} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-reset">
-                        <FaRedoAlt size={12} />
-                        Reset
-                      </button>
-                      <button type="submit" disabled={loading} style={baseStyles.btnPrimary(current.color)} className="create-masters-btn create-masters-btn-save">
-                        {loading ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
-                        {loading ? (editingId ? 'Updating…' : 'Saving…') : (editingId ? 'Update' : 'Save')}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-
-              <div style={baseStyles.listCard} className="create-masters-list-card">
-                <div style={baseStyles.listCardTitle}>List of {LIST_PLURAL[activeOption] ?? `${current.label}s`}</div>
-                <div style={baseStyles.listHeader} className="create-masters-list-header">
-                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
-                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
-                    <input
-                      type="text"
-                      placeholder={`Search ${current.label} list...`}
-                      value={listSearch}
-                      onChange={(e) => { setListSearch(e.target.value); setListPage(1); }}
-                      style={baseStyles.listSearchInput}
-                      aria-label={`Search ${current.label} list`}
-                    />
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
-                    Total: {filteredList.length} record{filteredList.length !== 1 ? 's' : ''}
-                  </span>
-                  <select
-                    value={listPageSize}
-                    onChange={(e) => { setListPageSize(Number(e.target.value)); setListPage(1); }}
-                    style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
-                    aria-label="Rows per page"
-                  >
-                    {[5, 10, 20, 50].map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={baseStyles.listTableWrap}>
-                  <table style={baseStyles.listTable} className="create-masters-list-table">
-                    <thead>
-                      <tr>
-                        {listColumns.map((col) => (
-                          <th key={col.key} style={{ ...baseStyles.listTh, width: col.width }}>{col.label}</th>
-                        ))}
-                        <th key="_action" style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedList.length === 0 ? (
-                        <tr>
-                          <td colSpan={listColumns.length + 1} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
-                            {rawList.length === 0 ? `No ${current.label} data. Add one above.` : 'No matches for search.'}
-                          </td>
-                        </tr>
-                      ) : (
-                        paginatedList.map((row, idx) => {
-                          const rowId = row.Id ?? row.id ?? idx;
-                          const isDeleting = deletingId === rowId;
-                          const srNoVal = (safeListPage - 1) * listPageSize + idx + 1;
-                          return (
-                            <tr key={rowId} className="create-masters-list-row">
-                              {listColumns.map((col) => (
-                                <td key={col.key} style={baseStyles.listTd} title={col.key === 'srNo' ? undefined : getCellDisplay(row, col.key)}>
-                                  {col.key === 'srNo' ? srNoVal : getCellDisplay(row, col.key)}
-                                </td>
-                              ))}
-                              <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
-                                <span className="create-masters-action-cell">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleEdit(row)}
-                                    title="Edit"
-                                    aria-label={`Edit ${current.label}`}
-                                    style={baseStyles.actionBtnEdit}
-                                    className="create-masters-btn-icon create-masters-btn-edit"
-                                  >
-                                    <FaEdit size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteClick(row)}
-                                    disabled={isDeleting}
-                                    title="Delete"
-                                    aria-label={`Delete ${current.label}`}
-                                    style={{ ...baseStyles.actionBtnDelete, opacity: isDeleting ? 0.6 : 1 }}
-                                    className="create-masters-btn-icon create-masters-btn-delete"
-                                  >
-                                    {isDeleting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaTrashAlt size={12} />}
-                                  </button>
-                                </span>
-                              </td>
-                            </tr>
+                            </React.Fragment>
                           );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                        }
+
+                        return (
+                          <div key={f.key} data-colspan={f.colSpan || 1} style={{ ...baseStyles.fieldGroup }}>
+                            <label style={baseStyles.label}>
+                              {f.label} {f.required && <span style={{ color: '#dc2626' }}>*</span>}
+                            </label>
+                            {f.type === 'select' ? (
+                              <select
+                                value={formData[f.key] ?? ''}
+                                onChange={(e) => updateField(f.key, e.target.value)}
+                                style={baseStyles.select}
+                              >
+                                <option value="">{f.placeholder || `Select ${f.label}`}</option>
+                                {(f.options || []).map((opt, i) => (
+                                  <option key={i} value={opt[f.optionValue] ?? opt.Id ?? opt.id ?? ''}>
+                                    {opt[f.optionLabel] ?? opt.Name ?? opt.CategoryName ?? opt.ProductName ?? opt.DesignName ?? opt.PurityName ?? opt.BranchName ?? opt.CounterName ?? ''}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : f.type === 'textarea' ? (
+                              <textarea
+                                value={formData[f.key] ?? ''}
+                                onChange={(e) => updateField(f.key, e.target.value)}
+                                placeholder={f.placeholder}
+                                style={{ ...baseStyles.textarea, minHeight: f.colSpan === 3 ? 56 : 48 }}
+                              />
+                            ) : (
+                              <input
+                                type={f.type || 'text'}
+                                value={formData[f.key] ?? ''}
+                                onChange={(e) => updateField(f.key, e.target.value)}
+                                placeholder={f.placeholder}
+                                style={baseStyles.input}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="create-masters-form-actions" style={{ flexShrink: 0, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+                      <div className="create-masters-form-actions-inner">
+                        <button type="button" onClick={handleCancel} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-cancel">
+                          <FaTimes size={12} />
+                          Cancel
+                        </button>
+                        <button type="button" onClick={handleResetForm} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-reset">
+                          <FaRedoAlt size={12} />
+                          Reset
+                        </button>
+                        <button type="submit" disabled={loading} style={baseStyles.btnPrimary(current.color)} className="create-masters-btn create-masters-btn-save">
+                          {loading ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
+                          {loading ? (editingId ? 'Updating…' : 'Saving…') : (editingId ? 'Update' : 'Save')}
+                        </button>
+                      </div>
+                    </div>
+                  </form>
                 </div>
-                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
-                  <span>
-                    Showing {(safeListPage - 1) * listPageSize + 1}–{Math.min(safeListPage * listPageSize, filteredList.length)} of {filteredList.length}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button
-                      type="button"
-                      onClick={() => setListPage((p) => Math.max(1, p - 1))}
-                      disabled={safeListPage <= 1}
-                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                <div style={{ ...baseStyles.listCard, marginTop: 0, flex: '1 1 0', minWidth: 0, width: '100%' }} className="create-masters-list-card">
+                  <div style={baseStyles.listCardTitle}>List of {LIST_PLURAL[activeOption] ?? `${current.label}s`}</div>
+                  <div style={baseStyles.listHeader} className="create-masters-list-header">
+                    <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
+                      <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+                      <input
+                        type="text"
+                        placeholder={`Search ${current.label} list...`}
+                        value={listSearch}
+                        onChange={(e) => { setListSearch(e.target.value); setListPage(1); }}
+                        style={baseStyles.listSearchInput}
+                        aria-label={`Search ${current.label} list`}
+                      />
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
+                      Total: {filteredList.length} record{filteredList.length !== 1 ? 's' : ''}
+                    </span>
+                    <select
+                      value={listPageSize}
+                      onChange={(e) => { setListPageSize(Number(e.target.value)); setListPage(1); }}
+                      style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
+                      aria-label="Rows per page"
                     >
-                      Prev
-                    </button>
-                    <span style={{ padding: '0 6px' }}>Page {safeListPage} of {totalListPages}</span>
-                    <button
-                      type="button"
-                      onClick={() => setListPage((p) => Math.min(totalListPages, p + 1))}
-                      disabled={safeListPage >= totalListPages}
-                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
-                    >
-                      Next
-                    </button>
-                  </span>
+                      {[5, 10, 20, 50].map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={baseStyles.listTableWrap}>
+                    <table style={baseStyles.listTable} className="create-masters-list-table">
+                      <thead>
+                        <tr>
+                          {listColumns.map((col) => (
+                            <th key={col.key} style={{ ...baseStyles.listTh, width: col.width }}>{col.label}</th>
+                          ))}
+                          <th key="_action" style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedList.length === 0 ? (
+                          <tr>
+                            <td colSpan={listColumns.length + 1} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
+                              {rawList.length === 0 ? `No ${current.label} data. Add one above.` : 'No matches for search.'}
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedList.map((row, idx) => {
+                            const rowId = row.Id ?? row.id ?? idx;
+                            const isDeleting = deletingId === rowId;
+                            const srNoVal = (safeListPage - 1) * listPageSize + idx + 1;
+                            return (
+                              <tr key={rowId} className="create-masters-list-row">
+                                {listColumns.map((col) => (
+                                  <td key={col.key} style={baseStyles.listTd} title={col.key === 'srNo' ? undefined : getCellDisplay(row, col.key)}>
+                                    {col.key === 'srNo' ? srNoVal : getCellDisplay(row, col.key)}
+                                  </td>
+                                ))}
+                                <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
+                                  <span className="create-masters-action-cell">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEdit(row)}
+                                      title="Edit"
+                                      aria-label={`Edit ${current.label}`}
+                                      style={baseStyles.actionBtnEdit}
+                                      className="create-masters-btn-icon create-masters-btn-edit"
+                                    >
+                                      <FaEdit size={12} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteClick(row)}
+                                      disabled={isDeleting}
+                                      title="Delete"
+                                      aria-label={`Delete ${current.label}`}
+                                      style={{ ...baseStyles.actionBtnDelete, opacity: isDeleting ? 0.6 : 1 }}
+                                      className="create-masters-btn-icon create-masters-btn-delete"
+                                    >
+                                      {isDeleting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaTrashAlt size={12} />}
+                                    </button>
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={baseStyles.listPagination} className="create-masters-list-pagination">
+                    <span>
+                      Showing {(safeListPage - 1) * listPageSize + 1}–{Math.min(safeListPage * listPageSize, filteredList.length)} of {filteredList.length}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                        disabled={safeListPage <= 1}
+                        style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                      >
+                        Prev
+                      </button>
+                      <span style={{ padding: '0 6px' }}>Page {safeListPage} of {totalListPages}</span>
+                      <button
+                        type="button"
+                        onClick={() => setListPage((p) => Math.min(totalListPages, p + 1))}
+                        disabled={safeListPage >= totalListPages}
+                        style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
+                      >
+                        Next
+                      </button>
+                    </span>
+                  </div>
                 </div>
               </div>
             </>
@@ -3277,23 +3276,28 @@ const CreateMasters = () => {
           }
         }
         .create-masters-zoho .create-masters-fields-grid {
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(2, 1fr);
         }
-        .create-masters-zoho .create-masters-fields-grid > [data-colspan="2"] { grid-column: span 2; }
-        .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: span 3; }
-        @media (max-width: 1024px) {
-          .create-masters-zoho .create-masters-fields-grid { grid-template-columns: repeat(3, 1fr); }
-          .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: 1 / -1; }
-        }
-        @media (max-width: 640px) {
-          .create-masters-zoho .create-masters-fields-grid { grid-template-columns: 1fr 1fr; }
-          .create-masters-zoho .create-masters-fields-grid > [data-colspan="2"],
-          .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: 1 / -1; }
+        .create-masters-zoho .create-masters-fields-grid > [data-colspan="2"],
+        .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: 1 / -1; }
+        .create-masters-split-layout { gap: 16px; }
+        @media (max-width: 900px) {
+          .create-masters-split-layout {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            flex: 0 0 auto !important;
+          }
+          .create-masters-split-layout .create-masters-form-card,
+          .create-masters-split-layout .create-masters-list-card {
+            flex: 0 0 auto !important;
+            width: 100% !important;
+          }
+          .create-masters-split-layout .create-masters-list-card {
+            min-height: 360px;
+          }
         }
         @media (max-width: 480px) {
           .create-masters-zoho .create-masters-fields-grid { grid-template-columns: 1fr; }
-          .create-masters-zoho .create-masters-fields-grid > [data-colspan="2"],
-          .create-masters-zoho .create-masters-fields-grid > [data-colspan="3"] { grid-column: span 1; }
         }
         @media (max-width: 768px) {
           .create-masters-zoho .create-masters-nav {
@@ -3346,13 +3350,24 @@ const CreateMasters = () => {
         }
         @media (max-width: 640px) {
           .create-masters-list-header {
-            flex-direction: column;
-            align-items: stretch;
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 10px;
+          }
+          .create-masters-list-header > span:first-child {
+            flex: 1 1 100% !important;
+            max-width: none !important;
           }
           .create-masters-list-header input { max-width: none; }
+          .create-masters-list-header > span:nth-child(2) { flex: 1 1 auto; }
+          .create-masters-list-header > select { flex: 0 0 auto; margin-left: auto; }
           .create-masters-list-pagination {
-            flex-direction: column;
-            align-items: flex-start;
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
           }
           .create-masters-btn-icon { min-width: 32px; min-height: 32px; }
         }

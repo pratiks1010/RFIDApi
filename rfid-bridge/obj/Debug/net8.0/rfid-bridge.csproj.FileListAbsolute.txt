@@ -16,3 +16,21 @@ C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API R
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Debug\net8.0\libusb-1.0.dll
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Debug\net8.0\UHFControl.dll
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Debug\net8.0\UHFAPI.dll
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\UHFAPI.dll
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\UHFControl.dll
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\libusb-1.0.dll
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\rfid-bridge.exe
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\rfid-bridge.deps.json
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\rfid-bridge.runtimeconfig.json
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\rfid-bridge.dll
+E:\RFIDApi\rfid-bridge\bin\Debug\net8.0\rfid-bridge.pdb
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.GeneratedMSBuildEditorConfig.editorconfig
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.AssemblyInfoInputs.cache
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.AssemblyInfo.cs
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.csproj.CoreCompileInputs.cache
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.sourcelink.json
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.dll
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\refint\rfid-bridge.dll
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.pdb
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\rfid-bridge.genruntimeconfig.cache
+E:\RFIDApi\rfid-bridge\obj\Debug\net8.0\ref\rfid-bridge.dll

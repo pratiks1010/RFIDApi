@@ -330,13 +330,22 @@ const checkForAppUpdates = async () => {
   }
 };
 
+const isTagOutputLine = (line) => {
+  const normalized = String(line || "").replace(/^rfid>\s*/i, "").trim();
+  // Must be bridge TAG output (TAG dev= / epc=), not inventory text like "each tag prints".
+  return /^TAG\b/i.test(normalized) && /\b(dev|epc|tid)=/i.test(normalized);
+};
+
 const parseTagLine = (line) => {
+  if (!isTagOutputLine(line)) return null;
+
   const raw = String(line || "").trim();
   const tagStart = raw.search(/\bTAG\b/i);
   if (tagStart < 0) return null;
-  const normalized = raw.slice(tagStart);
-  const body = normalized.replace(/^TAG\s+/i, "").trim();
+
+  const body = raw.slice(tagStart).replace(/^TAG[:\s]+/i, "").trim();
   if (!body) return null;
+
   const fields = {};
   body.split(/\s+/).forEach((token) => {
     const eqIndex = token.indexOf("=");
@@ -347,16 +356,34 @@ const parseTagLine = (line) => {
     fields[key] = value;
   });
 
-  const epc = String(fields.epc || "").trim();
-  if (!epc) return null;
+  const epcRegex = /\bEPC\b\s*[:=]\s*([0-9A-Fa-f]+)/i;
+  const tidRegex = /\bTID\b\s*[:=]\s*([0-9A-Fa-f]+)/i;
+  const devRegex = /\b(?:DEV(?:ICE)?|DEVICEID|DEVICE_ID)\b\s*[:=]\s*([^\s]+)/i;
+  const rssiRegex = /\bRSSI\b\s*[:=]\s*([-0-9.]+)/i;
+  const antRegex = /\b(?:ANT(?:ENNA)?)\b\s*[:=]\s*([^\s]+)/i;
+
+  const epcMatch = epcRegex.exec(raw);
+  const tidMatch = tidRegex.exec(raw);
+  const devMatch = devRegex.exec(raw);
+  const rssiMatch = rssiRegex.exec(raw);
+  const antMatch = antRegex.exec(raw);
+
+  let epc = String(fields.epc || "").trim().toUpperCase();
+  let tid = String(fields.tid || "").trim().toUpperCase();
+
+  if (!epc && epcMatch?.[1]) epc = epcMatch[1].trim().toUpperCase();
+  if (!tid && tidMatch?.[1]) tid = tidMatch[1].trim().toUpperCase();
+
+  if (!epc && !tid) return null;
+
   return {
-    deviceId: fields.dev || fields.device || fields.deviceid || "",
+    deviceId: String(fields.dev || fields.device || fields.deviceid || devMatch?.[1] || "").trim(),
     epc,
-    tid: fields.tid || "",
-    rssi: fields.rssi || "",
-    antenna: fields.ant || fields.antenna || "",
-    phase: fields.phase || "",
-    user: fields.user || "",
+    tid,
+    rssi: String(fields.rssi || rssiMatch?.[1] || "").trim(),
+    antenna: String(fields.ant || fields.antenna || antMatch?.[1] || "").trim(),
+    phase: String(fields.phase || "").trim(),
+    user: String(fields.user || "").trim(),
     raw: line
   };
 };
@@ -364,11 +391,9 @@ const parseTagLine = (line) => {
 const handleBridgeOutputLine = (line) => {
   if (!line) return;
   sendBridgeEvent("rfid-bridge-line", line);
-  if (/\bTAG\b/i.test(line)) {
-    const tag = parseTagLine(line);
-    if (tag) sendBridgeEvent("rfid-bridge-tag", tag);
-    else sendBridgeEvent("rfid-bridge-error", `Unable to parse TAG line: ${line}`);
-  }
+  if (!isTagOutputLine(line)) return;
+  const tag = parseTagLine(line);
+  if (tag) sendBridgeEvent("rfid-bridge-tag", tag);
 };
 
 const getBridgeStartConfig = () => {

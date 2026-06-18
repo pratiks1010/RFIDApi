@@ -12,6 +12,9 @@ internal static class Program
     private static bool _inventoryRunning;
     private static Thread? _readerThread;
     private static readonly HashSet<string> SeenTags = new(StringComparer.OrdinalIgnoreCase);
+    private static int _unparsedTagFrameLogs;
+    private static DateTime _readLoopStartedAt = DateTime.MinValue;
+    private static bool _readLoopHintPrinted;
 
     /// <summary>Last successful TX attenuation (attDb10); re-applied right before inventory so scans match UI.</summary>
     private static uint? _lastPowerAttDb10;
@@ -108,6 +111,7 @@ internal static class Program
             return;
         }
 
+        StopInventory();
         lock (Sync)
         {
             if (_connected && _connectionMode != "tcp")
@@ -144,6 +148,7 @@ internal static class Program
 
     private static void ConnectUsb()
     {
+        StopInventory();
         lock (Sync)
         {
             EnsureDisconnected();
@@ -152,6 +157,7 @@ internal static class Program
             _connectionMode = _connected ? "usb" : "none";
             if (_connected)
             {
+                ApplyReaderScanDefaults();
                 Console.WriteLine("Connected via USB.");
                 var devices = GetConnectedDevices();
                 Console.WriteLine($"Connected devices detected by SDK: {devices.Count}");
@@ -185,6 +191,7 @@ internal static class Program
             return;
         }
 
+        StopInventory();
         lock (Sync)
         {
             if (_connected && _connectionMode != "serial")
@@ -204,6 +211,7 @@ internal static class Program
             {
                 _connected = true;
                 _connectionMode = "serial";
+                ApplyReaderScanDefaults();
                 Console.WriteLine($"Connected via Serial COM{comNumber}.");
                 var devices = GetConnectedDevices();
                 Console.WriteLine($"Connected devices detected by SDK: {devices.Count}");
@@ -240,6 +248,38 @@ internal static class Program
         Console.WriteLine($"INFO: TX power attDb10={att} applied immediately before inventory.");
     }
 
+    private static void ApplyReaderScanDefaults()
+    {
+        try
+        {
+            // Enable EPC + TID in inventory responses (non-fatal if unsupported).
+            NativeMethods.UHFSetEPCTIDMode(0, 1);
+        }
+        catch
+        {
+            // optional
+        }
+
+        if (_lastPowerAttDb10 is null)
+        {
+            _lastPowerAttDb10 = 0;
+        }
+
+        try
+        {
+            var att = _lastPowerAttDb10.Value;
+            if (UhfPowerInterop.TrySetPower(att, out var rc, out _) && UhfPowerInterop.IsPowerReturnOk(rc))
+            {
+                Console.WriteLine(
+                    $"INFO: TX power attDb10={att} ({UhfPowerInterop.AttDb10ToDbm(att)} dBm) applied on connect.");
+            }
+        }
+        catch
+        {
+            // optional
+        }
+    }
+
     private static void StartInventory()
     {
         lock (Sync)
@@ -260,20 +300,55 @@ internal static class Program
 
             var startedDevices = 0;
             var ids = GetConnectedDeviceIds();
-            if (ids.Count > 0)
+
+            // USB trays often need UHFInventory(); multi-COM setups use UHFInventoryById per link.
+            if (string.Equals(_connectionMode, "usb", StringComparison.OrdinalIgnoreCase))
+            {
+                var usbResult = NativeMethods.UHFInventory();
+                Console.WriteLine($"INFO: UHFInventory() returned {usbResult}");
+                if (usbResult == 0)
+                {
+                    startedDevices = 1;
+                }
+                else if (ids.Count > 0)
+                {
+                    foreach (var id in ids)
+                    {
+                        var idResult = NativeMethods.UHFInventoryById(id);
+                        Console.WriteLine($"INFO: UHFInventoryById({id}) returned {idResult}");
+                        if (idResult == 0)
+                        {
+                            startedDevices++;
+                        }
+                    }
+                }
+            }
+            else if (ids.Count > 0)
             {
                 foreach (var id in ids)
                 {
                     var idResult = NativeMethods.UHFInventoryById(id);
+                    Console.WriteLine($"INFO: UHFInventoryById({id}) returned {idResult}");
                     if (idResult == 0)
                     {
                         startedDevices++;
+                    }
+                }
+
+                if (startedDevices == 0)
+                {
+                    var fallback = NativeMethods.UHFInventory();
+                    Console.WriteLine($"INFO: UHFInventory() fallback returned {fallback}");
+                    if (fallback == 0)
+                    {
+                        startedDevices = 1;
                     }
                 }
             }
             else
             {
                 var result = NativeMethods.UHFInventory();
+                Console.WriteLine($"INFO: UHFInventory() returned {result}");
                 if (result == 0)
                 {
                     startedDevices = 1;
@@ -287,10 +362,13 @@ internal static class Program
             }
 
             SeenTags.Clear();
+            _unparsedTagFrameLogs = 0;
+            _readLoopHintPrinted = false;
+            _readLoopStartedAt = DateTime.UtcNow;
             _inventoryRunning = true;
             _readerThread = new Thread(ReadLoop) { IsBackground = true };
             _readerThread.Start();
-            Console.WriteLine($"Inventory started on {startedDevices} device(s) (dedupe enabled: each tag prints once per session).");
+            Console.WriteLine($"Inventory started on {startedDevices} device(s) (continuous fast scan — all valid tags reported).");
         }
     }
 
@@ -330,6 +408,17 @@ internal static class Program
 
         _readerThread?.Join(500);
         _readerThread = null;
+
+        var totalTags = 0;
+        lock (Sync)
+        {
+            totalTags = SeenTags.Count;
+        }
+
+        if (totalTags > 0)
+        {
+            Console.WriteLine($"INFO: scan finished — {totalTags} unique tags collected.");
+        }
     }
 
     private static void Disconnect()
@@ -426,11 +515,11 @@ internal static class Program
                 if (UhfPowerInterop.IsPowerReturnOk(rc))
                 {
                     _lastPowerAttDb10 = att;
-                    Console.WriteLine($"POWER attDb10={att}");
+                    Console.WriteLine($"POWER attDb10={att} ({UhfPowerInterop.AttDb10ToDbm(att)} dBm)");
                 }
                 else
                 {
-                    Console.WriteLine($"ERROR: set-power returned code={rc}.");
+                    Console.WriteLine($"WARN: set-power returned code={rc}. Inventory can still run on the reader's default RF level.");
                 }
             }
             catch (DllNotFoundException ex)
@@ -461,7 +550,7 @@ internal static class Program
                 if (UhfPowerInterop.IsPowerReturnOk(rc))
                 {
                     _lastPowerAttDb10 = att;
-                    Console.WriteLine($"POWER attDb10={att}");
+                    Console.WriteLine($"POWER attDb10={att} ({UhfPowerInterop.AttDb10ToDbm(att)} dBm)");
                 }
                 else
                 {
@@ -487,18 +576,28 @@ internal static class Program
                 }
             }
 
-            var buffer = new byte[256];
-            var result = NativeMethods.UHFGetTagData(buffer, buffer.Length);
-            if (result <= 0)
+            var tag = TryPollTag(out var source, out var rawLen, out _);
+            if (tag is null)
             {
-                Thread.Sleep(10);
+                if (!_readLoopHintPrinted
+                    && _readLoopStartedAt != DateTime.MinValue
+                    && (DateTime.UtcNow - _readLoopStartedAt).TotalSeconds >= 8)
+                {
+                    _readLoopHintPrinted = true;
+                    Console.WriteLine(
+                        "INFO: scanning active but no tags yet — set power to 300 (maximum) on the slider, "
+                        + "spread tags flat on the tray, and use COM/Serial mode if USB is slow.");
+                }
+                Thread.Sleep(1);
                 continue;
             }
 
-            var tag = ParseTag(buffer, result);
-            if (tag is null)
+            _readLoopHintPrinted = true;
+
+            if (_unparsedTagFrameLogs < 1 && !string.IsNullOrWhiteSpace(source))
             {
-                continue;
+                _unparsedTagFrameLogs++;
+                Console.WriteLine($"INFO: first tag via {source} ({rawLen} bytes)");
             }
 
             var tagKey = BuildTagKey(tag);
@@ -510,8 +609,217 @@ internal static class Program
                 }
             }
 
+            if (SeenTags.Count % 10 == 0)
+            {
+                Console.WriteLine($"INFO: {SeenTags.Count} unique tags collected so far...");
+            }
+
             Console.WriteLine($"TAG dev={tag.ConnectId} epc={tag.Epc} tid={tag.Tid} rssi={tag.Rssi} ant={tag.Antenna} phase={tag.Phase} user={tag.User}");
         }
+    }
+
+    private static bool IsValidTag(TagData tag)
+    {
+        var epc = (tag.Epc ?? "").Trim().ToUpperInvariant();
+        var tid = (tag.Tid ?? "").Trim().ToUpperInvariant();
+        if (tid.Length >= 16)
+        {
+            return true;
+        }
+
+        if (epc.Length >= 12 && epc != "0000" && !epc.StartsWith("0000", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static TagData? TryPollTag(out string source, out int rawLen, out byte[] rawBytes)
+    {
+        source = string.Empty;
+        rawLen = 0;
+        rawBytes = Array.Empty<byte>();
+        var buffer = new byte[512];
+        TagData? best = null;
+
+        var len = NativeMethods.UHFGetTagData(buffer, buffer.Length);
+        if (len > 0)
+        {
+            rawLen = len;
+            rawBytes = new byte[len];
+            Array.Copy(buffer, rawBytes, len);
+            var parsed = ParseTagFrame(buffer, len);
+            if (parsed is not null && IsValidTag(parsed))
+            {
+                source = "UHFGetTagData";
+                return parsed;
+            }
+
+            best = parsed;
+        }
+
+        var uLen = 0;
+        if (NativeMethods.UHF_GetReceived_EX(ref uLen, buffer) == 0 && uLen > 0)
+        {
+            rawLen = uLen;
+            rawBytes = new byte[uLen];
+            Array.Copy(buffer, rawBytes, uLen);
+            var parsed = ParseTagReceivedEx(buffer, uLen);
+            if (parsed is not null && IsValidTag(parsed))
+            {
+                source = "UHF_GetReceived_EX";
+                return parsed;
+            }
+
+            if (best is null)
+            {
+                best = parsed;
+            }
+        }
+
+        if (best is not null && IsValidTag(best))
+        {
+            source = string.IsNullOrWhiteSpace(source) ? "UHFGetTagData" : source;
+            return best;
+        }
+
+        return null;
+    }
+
+    /// <summary>Parse UHFGetTagData frame (CONTENT_TYPE: 1=EPC, 2=TID, 4=RSSI, 5=ANT, 6=ID) or legacy CELL layout.</summary>
+    private static TagData? ParseTagFrame(byte[] data, int length)
+    {
+        if (length > 0 && data[0] <= 8)
+        {
+            var contentTypeTag = ParseTagContentType(data, length);
+            if (contentTypeTag is not null)
+            {
+                return contentTypeTag;
+            }
+        }
+
+        return ParseTagCell(data, length);
+    }
+
+    private static TagData? ParseTagContentType(byte[] data, int length)
+    {
+        var tag = new TagData();
+        var index = 0;
+        while (index < length)
+        {
+            if (index + 1 >= length)
+            {
+                break;
+            }
+
+            var type = data[index++];
+            var len = data[index++];
+            if (len < 0 || index + len > length)
+            {
+                break;
+            }
+
+            var field = new byte[len];
+            Array.Copy(data, index, field, 0, len);
+            index += len;
+
+            switch (type)
+            {
+                case 1:
+                    tag.Epc = field.Length > 2
+                        ? ToHex(field, 2, field.Length - 2)
+                        : ToHex(field);
+                    break;
+                case 2:
+                    tag.Tid = ToHex(field);
+                    break;
+                case 3:
+                    tag.User = ToHex(field);
+                    break;
+                case 4 when field.Length >= 2:
+                {
+                    var rssiTemp = (field[1] | (field[0] << 8)) - 65535;
+                    tag.Rssi = ((float)rssiTemp / 10.0).ToString("0.0");
+                    break;
+                }
+                case 5 when field.Length > 0:
+                    tag.Antenna = field[0].ToString();
+                    break;
+                case 6 when field.Length > 0:
+                    tag.ConnectId = field.Length > 1 ? field[1].ToString() : field[0].ToString();
+                    break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(tag.Epc) && string.IsNullOrWhiteSpace(tag.Tid))
+        {
+            return null;
+        }
+
+        return tag;
+    }
+
+    private static TagData? ParseTagReceivedEx(byte[] bufData, int uLen)
+    {
+        if (uLen <= 1 || bufData.Length < uLen)
+        {
+            return null;
+        }
+
+        var uiiLen = bufData[0];
+        if (uiiLen <= 0 || uiiLen + 1 >= uLen)
+        {
+            return null;
+        }
+
+        var tidLen = bufData[uiiLen + 1];
+        var tidIndex = uiiLen + 2;
+        var rssiIndex = 1 + uiiLen + 1 + tidLen;
+        var antIndex = rssiIndex + 2;
+        if (antIndex >= uLen)
+        {
+            return null;
+        }
+
+        var hex = ToHex(bufData, 0, uLen);
+        var tag = new TagData();
+
+        if (uiiLen * 2 >= 4 && hex.Length >= 6 + uiiLen * 2 - 4)
+        {
+            tag.Epc = hex.Substring(6, uiiLen * 2 - 4);
+        }
+
+        if (tidLen > 0 && tidIndex * 2 + tidLen * 2 <= hex.Length)
+        {
+            tag.Tid = hex.Substring(tidIndex * 2, tidLen * 2);
+        }
+
+        if (rssiIndex * 2 + 4 <= hex.Length)
+        {
+            var temp = hex.Substring(rssiIndex * 2, 4);
+            if (int.TryParse(temp, System.Globalization.NumberStyles.HexNumber, null, out var rssiRaw))
+            {
+                var rssiTemp = rssiRaw - 65535;
+                tag.Rssi = ((float)rssiTemp / 10.0).ToString("0.0");
+            }
+        }
+
+        if (antIndex * 2 + 2 <= hex.Length)
+        {
+            var antHex = hex.Substring(antIndex * 2, 2);
+            if (int.TryParse(antHex, System.Globalization.NumberStyles.HexNumber, null, out var ant))
+            {
+                tag.Antenna = ant.ToString();
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(tag.Epc) && string.IsNullOrWhiteSpace(tag.Tid))
+        {
+            return null;
+        }
+
+        return tag;
     }
 
     private static string BuildTagKey(TagData tag)
@@ -525,7 +833,7 @@ internal static class Program
         return $"{devicePrefix}|epc:{tag.Epc}";
     }
 
-    private static TagData? ParseTag(byte[] data, int length)
+    private static TagData? ParseTagCell(byte[] data, int length)
     {
         var tag = new TagData();
         var index = 0;
@@ -568,12 +876,22 @@ internal static class Program
             }
         }
 
-        return string.IsNullOrWhiteSpace(tag.Epc) ? null : tag;
+        if (string.IsNullOrWhiteSpace(tag.Epc) && string.IsNullOrWhiteSpace(tag.Tid))
+        {
+            return null;
+        }
+
+        return tag;
     }
 
     private static string ToHex(byte[] bytes)
     {
         return BitConverter.ToString(bytes).Replace("-", string.Empty);
+    }
+
+    private static string ToHex(byte[] bytes, int offset, int count)
+    {
+        return BitConverter.ToString(bytes, offset, count).Replace("-", string.Empty);
     }
 
     private static List<int> GetConnectedDeviceIds()
@@ -648,8 +966,8 @@ internal static class UhfPowerInterop
     private static nint _handle;
     private static bool _loadAttempted;
 
-    private enum SetBinding { None, BoolCdecl, BoolStd, IntCdecl, IntStd }
-    private enum GetBinding { None, BoolCdecl, BoolStd, IntCdecl, IntStd }
+    private enum SetBinding { None, SaveDbmCdecl, SaveDbmStd, BoolCdecl, BoolStd, IntCdecl, IntStd }
+    private enum GetBinding { None, SaveDbmCdecl, SaveDbmStd, BoolCdecl, BoolStd, IntCdecl, IntStd }
 
     private static SetBinding _setBinding;
     private static GetBinding _getBinding;
@@ -658,27 +976,39 @@ internal static class UhfPowerInterop
 
     private static readonly string[] SetExportCandidates =
     {
+        "UHFSetPower",
+        "SetPower",
         "UHFAPI_SET_PowerControl",
         "UHFAPI_SetPowerControl",
         "UHF_SetPowerControl",
         "SetPowerControl",
-        "UHFSetPower",
-        "SetPower",
         "UHFPowerSet",
         "RFID_SetPower",
     };
 
     private static readonly string[] GetExportCandidates =
     {
+        "UHFGetPower",
+        "GetPower",
         "UHFAPI_GET_PowerControl",
         "UHFAPI_GetPowerControl",
         "UHF_GetPowerControl",
         "GetPowerControl",
-        "UHFGetPower",
-        "GetPower",
         "UHFPowerGet",
         "RFID_GetPower",
     };
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SetPowerSaveDbmCdecl(byte save, byte uPower);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate int SetPowerSaveDbmStd(byte save, byte uPower);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int GetPowerSaveDbmCdecl(ref byte uPower);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate int GetPowerSaveDbmStd(ref byte uPower);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate bool SetPowerBoolCdecl(uint attDb10);
@@ -741,6 +1071,130 @@ internal static class UhfPowerInterop
         }
     }
 
+    public static byte AttDb10ToDbm(uint attDb10)
+    {
+        var clamped = Math.Clamp(attDb10, 0u, 300u);
+        return (byte)Math.Clamp(30 - (clamped * 25.0 / 300.0), 5, 30);
+    }
+
+    public static uint DbmToAttDb10(byte dbm)
+    {
+        var clamped = Math.Clamp(dbm, (byte)5, (byte)30);
+        return (uint)Math.Clamp((int)Math.Round((30 - clamped) * 300.0 / 25.0), 0, 300);
+    }
+
+    private static bool TryBindSetExport(string name, nint addr)
+    {
+        if (name is "UHFSetPower" or "SetPower")
+        {
+            if (TryBindDelegate<SetPowerSaveDbmCdecl>(addr, out var saveDbm))
+            {
+                _setDel = saveDbm;
+                _setBinding = SetBinding.SaveDbmCdecl;
+                Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (save+dBm, cdecl).");
+                return true;
+            }
+
+            if (TryBindDelegate<SetPowerSaveDbmStd>(addr, out saveDbm))
+            {
+                _setDel = saveDbm;
+                _setBinding = SetBinding.SaveDbmStd;
+                Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (save+dBm, stdcall).");
+                return true;
+            }
+        }
+
+        if (TryBindDelegate<SetPowerBoolCdecl>(addr, out var d))
+        {
+            _setDel = d;
+            _setBinding = SetBinding.BoolCdecl;
+            Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (BOOL, cdecl).");
+            return true;
+        }
+
+        if (TryBindDelegate<SetPowerBoolStd>(addr, out d))
+        {
+            _setDel = d;
+            _setBinding = SetBinding.BoolStd;
+            Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (BOOL, stdcall).");
+            return true;
+        }
+
+        if (TryBindDelegate<SetPowerIntCdecl>(addr, out d))
+        {
+            _setDel = d;
+            _setBinding = SetBinding.IntCdecl;
+            Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (int, cdecl).");
+            return true;
+        }
+
+        if (TryBindDelegate<SetPowerIntStd>(addr, out d))
+        {
+            _setDel = d;
+            _setBinding = SetBinding.IntStd;
+            Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (int, stdcall).");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryBindGetExport(string name, nint addr)
+    {
+        if (name is "UHFGetPower" or "GetPower")
+        {
+            if (TryBindDelegate<GetPowerSaveDbmCdecl>(addr, out var saveDbm))
+            {
+                _getDel = saveDbm;
+                _getBinding = GetBinding.SaveDbmCdecl;
+                Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (dBm ref, cdecl).");
+                return true;
+            }
+
+            if (TryBindDelegate<GetPowerSaveDbmStd>(addr, out saveDbm))
+            {
+                _getDel = saveDbm;
+                _getBinding = GetBinding.SaveDbmStd;
+                Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (dBm ref, stdcall).");
+                return true;
+            }
+        }
+
+        if (TryBindDelegate<GetPowerBoolCdecl>(addr, out var d))
+        {
+            _getDel = d;
+            _getBinding = GetBinding.BoolCdecl;
+            Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (BOOL, cdecl).");
+            return true;
+        }
+
+        if (TryBindDelegate<GetPowerBoolStd>(addr, out d))
+        {
+            _getDel = d;
+            _getBinding = GetBinding.BoolStd;
+            Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (BOOL, stdcall).");
+            return true;
+        }
+
+        if (TryBindDelegate<GetPowerIntCdecl>(addr, out d))
+        {
+            _getDel = d;
+            _getBinding = GetBinding.IntCdecl;
+            Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (int, cdecl).");
+            return true;
+        }
+
+        if (TryBindDelegate<GetPowerIntStd>(addr, out d))
+        {
+            _getDel = d;
+            _getBinding = GetBinding.IntStd;
+            Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (int, stdcall).");
+            return true;
+        }
+
+        return false;
+    }
+
     private static bool BindSet()
     {
         if (_setBinding != SetBinding.None) return true;
@@ -750,38 +1204,7 @@ internal static class UhfPowerInterop
         foreach (var name in SetExportCandidates)
         {
             if (!NativeLibrary.TryGetExport(_handle, name, out var addr)) continue;
-
-            if (TryBindDelegate<SetPowerBoolCdecl>(addr, out var d))
-            {
-                _setDel = d;
-                _setBinding = SetBinding.BoolCdecl;
-                Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (BOOL, cdecl).");
-                return true;
-            }
-
-            if (TryBindDelegate<SetPowerBoolStd>(addr, out d))
-            {
-                _setDel = d;
-                _setBinding = SetBinding.BoolStd;
-                Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (BOOL, stdcall).");
-                return true;
-            }
-
-            if (TryBindDelegate<SetPowerIntCdecl>(addr, out d))
-            {
-                _setDel = d;
-                _setBinding = SetBinding.IntCdecl;
-                Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (int, cdecl).");
-                return true;
-            }
-
-            if (TryBindDelegate<SetPowerIntStd>(addr, out d))
-            {
-                _setDel = d;
-                _setBinding = SetBinding.IntStd;
-                Console.WriteLine($"INFO: TX power SET uses export \"{name}\" (int, stdcall).");
-                return true;
-            }
+            if (TryBindSetExport(name, addr)) return true;
         }
 
         return false;
@@ -796,38 +1219,7 @@ internal static class UhfPowerInterop
         foreach (var name in GetExportCandidates)
         {
             if (!NativeLibrary.TryGetExport(_handle, name, out var addr)) continue;
-
-            if (TryBindDelegate<GetPowerBoolCdecl>(addr, out var d))
-            {
-                _getDel = d;
-                _getBinding = GetBinding.BoolCdecl;
-                Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (BOOL, cdecl).");
-                return true;
-            }
-
-            if (TryBindDelegate<GetPowerBoolStd>(addr, out d))
-            {
-                _getDel = d;
-                _getBinding = GetBinding.BoolStd;
-                Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (BOOL, stdcall).");
-                return true;
-            }
-
-            if (TryBindDelegate<GetPowerIntCdecl>(addr, out d))
-            {
-                _getDel = d;
-                _getBinding = GetBinding.IntCdecl;
-                Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (int, cdecl).");
-                return true;
-            }
-
-            if (TryBindDelegate<GetPowerIntStd>(addr, out d))
-            {
-                _getDel = d;
-                _getBinding = GetBinding.IntStd;
-                Console.WriteLine($"INFO: TX power GET uses export \"{name}\" (int, stdcall).");
-                return true;
-            }
+            if (TryBindGetExport(name, addr)) return true;
         }
 
         return false;
@@ -848,6 +1240,18 @@ internal static class UhfPowerInterop
         {
             switch (_setBinding)
             {
+                case SetBinding.SaveDbmCdecl:
+                {
+                    var dbm = AttDb10ToDbm(attDb10);
+                    returnCode = ((SetPowerSaveDbmCdecl)_setDel!)(0, dbm);
+                    break;
+                }
+                case SetBinding.SaveDbmStd:
+                {
+                    var dbm = AttDb10ToDbm(attDb10);
+                    returnCode = ((SetPowerSaveDbmStd)_setDel!)(0, dbm);
+                    break;
+                }
                 case SetBinding.BoolCdecl:
                 {
                     var ok = ((SetPowerBoolCdecl)_setDel!)(attDb10);
@@ -896,6 +1300,20 @@ internal static class UhfPowerInterop
         {
             switch (_getBinding)
             {
+                case GetBinding.SaveDbmCdecl:
+                {
+                    byte dbm = 0;
+                    returnCode = ((GetPowerSaveDbmCdecl)_getDel!)(ref dbm);
+                    attDb10 = DbmToAttDb10(dbm);
+                    break;
+                }
+                case GetBinding.SaveDbmStd:
+                {
+                    byte dbm = 0;
+                    returnCode = ((GetPowerSaveDbmStd)_getDel!)(ref dbm);
+                    attDb10 = DbmToAttDb10(dbm);
+                    break;
+                }
                 case GetBinding.BoolCdecl:
                 {
                     var ok = ((GetPowerBoolCdecl)_getDel!)(out attDb10);
@@ -954,6 +1372,12 @@ internal static class NativeMethods
 
     [DllImport("UHFAPI.dll", CallingConvention = CallingConvention.Cdecl)]
     public static extern void UsbClose();
+
+    [DllImport("UHFAPI.dll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int UHFSetEPCTIDMode(byte saveflag, byte mode);
+
+    [DllImport("UHFAPI.dll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int UHF_GetReceived_EX(ref int uLenUii, byte[] uUii);
 
     [DllImport("UHFAPI.dll", CallingConvention = CallingConvention.Cdecl)]
     public static extern int UHFInventory();

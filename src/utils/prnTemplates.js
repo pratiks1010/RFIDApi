@@ -468,7 +468,7 @@ const formatLS000533C128BPayload = (itemCode) => {
   return `${String.fromCharCode(14)}&${v}`;
 };
 
-/** Hallmark amount for LS000533 Code128C barcode */
+/** Hallmark amount for LS000533 label display and QR */
 const resolveLS000533HallmarkAmount = (item) =>
   String(
     item?.HallmarkAmount ??
@@ -478,22 +478,11 @@ const resolveLS000533HallmarkAmount = (item) =>
       ''
   ).trim();
 
-/** Code128C payload: FNC1 (0x0E) + apostrophe + HallmarkAmount digits (e.g. `'1722`) — legacy */
+/** Code128C payload: FNC1 (0x0E) + apostrophe + ItemCode (e.g. `'3085`) */
 const formatLS000533C128CPayload = (item) => {
-  const raw = resolveLS000533HallmarkAmount(item);
-  let digits = '';
-  if (raw) {
-    const amount = parseFloat(raw);
-    if (!Number.isNaN(amount)) {
-      digits = Number.isInteger(amount)
-        ? String(amount)
-        : raw.replace(/\D/g, '');
-    } else {
-      digits = raw.replace(/\D/g, '');
-    }
-  }
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  let digits = /^\d+$/.test(itemCode) ? itemCode : itemCode.replace(/\D/g, '');
   if (!digits) digits = '0';
-  if (digits.length % 2 === 1) digits = `0${digits}`;
   return `${String.fromCharCode(14)}'${digits}`;
 };
 
@@ -512,10 +501,12 @@ const resolveLS000533HallmarkAmountQr = (item) => {
 const formatLS000533StoneQrPayload = (item) => {
   return [
     String(item.RFIDCode || item.ItemCode || '').trim(),
+    resolveLS000533HallmarkAmountQr(item),
     resolveLS000533DesignCode(item),
     resolveLS000533ProductCode(item),
-    formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt),
     resolveLS000533StoneWeightQr(item),
+    resolveLS000533DiamondWeightQr(item),
+    formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt),
     resolveLS000533Purity(item).toUpperCase(),
   ]
     .map((part) => String(part ?? '').trim())
@@ -538,6 +529,15 @@ const resolveLS000533PrnVariant = (item) => {
 
 /** QR payload for LS000533 standard label — same field order as stone QR */
 const formatLS000533QrPayload = (item) => formatLS000533StoneQrPayload(item);
+
+/** Fixed 80-bit EPC for LS000533 stone client template (matches sample *2C00* + RFWTAG;80;EPC) */
+const resolveLS000533StoneEpcHex = (item) => {
+  const epcSource = String(item.RFIDCode || item.ItemCode || '').trim();
+  let rawEpcHex = stringToHex(epcSource);
+  if (rawEpcHex.length < 20) rawEpcHex = rawEpcHex.padStart(20, '0');
+  if (rawEpcHex.length > 20) rawEpcHex = rawEpcHex.substring(0, 20);
+  return rawEpcHex;
+};
 
 // LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128B)
 const generateLS000533Prn = (item) => {
@@ -615,8 +615,6 @@ END
 
 // LS000533 — stone label (client sample: QR + C128C + PWY, RFID PC/EPC at bottom)
 const generateLS000533StonePrn = (item) => {
-  const itemCode = String(item.ItemCode || '').trim() || String(item.RFIDCode || '').trim();
-  const epcSource = String(item.RFIDCode || item.ItemCode || '').trim();
   const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
   const diamondWt = formatDiamondCtLower(
     item.TotalDiamondWeight ?? item.DiamondWt ?? item.DiamondWeight ?? item.diamondweight
@@ -625,9 +623,9 @@ const generateLS000533StonePrn = (item) => {
   const description = prnQuote(resolveLS000533Description(item));
   const stoneWeightLabel = prnQuote(resolveLS000533StoneWeightLabel(item));
   const pwy = prnQuote(resolveLS000533Pwy(item));
-  const displayCode = prnQuote(itemCode);
+  const hallmarkDisplay = prnQuote(resolveLS000533HallmarkAmountQr(item));
   const qrPayload = prnQuote(formatLS000533StoneQrPayload(item));
-  const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(epcSource);
+  const epcHex = resolveLS000533StoneEpcHex(item);
   const c128Payload = formatLS000533C128CPayload(item);
 
   return `<xpml><page quantity='0' pitch='18.0 mm'></xpml>!PTX_SETUP
@@ -658,7 +656,7 @@ INV;POINT;19;685;6;6;"${purity}"
 INV;POINT;19;792;6;6;"${description}"
 STOP
 BARCODE
-QRCODE;INV;XD3;T2;E0;M0;I0;20;555
+QRCODE;INV;XD2;T2;E0;M0;I0;20;555
 "${qrPayload}"
 STOP
 BARCODE
@@ -668,15 +666,15 @@ STOP
 ALPHA
 INV;POINT;80;788;8;9;"Wt :"
 INV;POINT;80;748;8;8;"${grossWt}"
-INV;POINT;115;788;8;8;"${displayCode}"
+INV;POINT;115;788;8;8;"${hallmarkDisplay}"
 INV;POINT;115;660;8;8;"${pwy}"
 INV;POINT;117;608;8;8;"${stoneWeightLabel}"
 STOP
 RFWTAG;16;PC
-16;H;${pcValue}
+16;H;*2C00*
 STOP
-RFWTAG;${epcBits};EPC
-${epcBits};H;*${epcHex}*
+RFWTAG;80;EPC
+80;H;*${epcHex}*
 STOP
 END
 ~EXECUTE;FORM-0;1
@@ -842,7 +840,8 @@ END
 
 // Main function to generate client-specific PRN
 export const generateClientPrn = (item, clientCode) => {
-  const code = (clientCode || '').trim();
+  const rawCode = (clientCode || '').trim().toUpperCase();
+  const code = rawCode === '533' ? 'LS000533' : rawCode;
   switch (code) {
     case 'LS000224':
       return generateLS000224Prn(item);

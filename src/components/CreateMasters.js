@@ -184,6 +184,19 @@ const rfidTextToHex = (str) =>
     .join('')
     .toUpperCase();
 
+const normalizeBoxSingleUseHex = (hexValue) => {
+  let hex = String(hexValue || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^0-9A-F]/g, '');
+
+  while (hex && hex.length % 4 !== 0) {
+    hex = `00${hex}`;
+  }
+
+  return hex;
+};
+
 const parseTidFromBarcodeResponse = (res) => {
   if (res == null) return null;
   if (typeof res === 'string') return res.trim();
@@ -981,7 +994,7 @@ const CreateMasters = () => {
 
     if (activeOption === 'box' && key === 'rfidCode' && boxRfidTagMode === 'singleUse') {
       const rfid = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const hex = rfid ? rfidTextToHex(rfid) : '';
+      const hex = rfid ? normalizeBoxSingleUseHex(rfidTextToHex(rfid)) : '';
       setFormData((prev) => {
         const tidWasSynced = !String(prev.tidNumber || '').trim() || prev.tidNumber === prev.hexCode;
         return {

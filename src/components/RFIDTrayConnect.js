@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   FaBoxOpen,
@@ -30,14 +30,18 @@ import {
   parseComNumber,
   TRAY_CONNECTION_MODE_OPTIONS,
   TRAY_CONNECTION_MODES,
+  waitForConnectBridgeResponse,
 } from '../services/trayBridgeConnect';
 import {
   getTrayReaderConfig,
   saveTrayReaderConfig,
   parsePowerAttDb10,
   snapPowerAttDb10ToPreset,
+  attToDisplayPower,
+  displayPowerToAtt,
   TRAY_POWER_ATT_MAX,
 } from '../services/trayReaderConfig';
+import { getTrayTagIdentity, parseTrayTagLine } from '../utils/trayTagParse';
 
 const RFID_CODE_LOOKUP_URL = process.env.REACT_APP_RFID_EPC_LOOKUP_URL
   || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
@@ -124,6 +128,7 @@ const RFIDTrayConnect = () => {
   const [comSecondary, setComSecondary] = useState(initialReaderConfig.comSecondary);
   const [baudRate, setBaudRate] = useState(initialReaderConfig.baudRate);
   const [powerAttDb10, setPowerAttDb10] = useState(initialReaderConfig.powerAttDb10);
+  const displayPower = useMemo(() => attToDisplayPower(powerAttDb10), [powerAttDb10]);
   const isUsbMode = connectionMode === TRAY_CONNECTION_MODES.usb;
   const [isScanning, setIsScanning] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
@@ -135,11 +140,46 @@ const RFIDTrayConnect = () => {
   const [deviceRows, setDeviceRows] = useState([]);
   const [activeAction, setActiveAction] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 12;
+  const pageSize = 20;
   const lastErrorToastRef = useRef('');
   const bridgeLineHistoryRef = useRef([]);
   const deviceRowsRef = useRef([]);
   const sdkConnectedCountRef = useRef(0);
+
+  const ingestTrayTag = useCallback((tag) => {
+    const normalizedEpc = String(tag?.epc || '').trim().toUpperCase();
+    const normalizedTid = String(tag?.tid || '').trim().toUpperCase();
+    const identity = getTrayTagIdentity(tag);
+    if (!identity) return;
+    const key = identity;
+    setTagMap((prev) => {
+      const current = prev[key] || {
+        ...tag,
+        epc: normalizedEpc || tag?.epc || '',
+        tid: normalizedTid || tag?.tid || '',
+        count: 0,
+        firstSeen: new Date().toISOString(),
+        deviceIds: [],
+      };
+      const nextDeviceId = String(tag?.deviceId || '').trim();
+      const mergedDeviceIds = Array.from(
+        new Set([...(Array.isArray(current.deviceIds) ? current.deviceIds : []), nextDeviceId].filter(Boolean))
+      );
+      return {
+        ...prev,
+        [key]: {
+          ...current,
+          ...tag,
+          epc: normalizedEpc || current.epc || '',
+          tid: normalizedTid || current.tid || '',
+          deviceIds: mergedDeviceIds,
+          deviceId: mergedDeviceIds[0] || nextDeviceId || current.deviceId || '',
+          count: current.count + 1,
+          lastSeen: new Date().toISOString(),
+        },
+      };
+    });
+  }, []);
 
   const hasBridge = typeof window !== 'undefined' && window.electronAPI?.rfidBridgeCommand;
 
@@ -213,24 +253,25 @@ const RFIDTrayConnect = () => {
     return message;
   };
 
-  const waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // The RFID bridge sometimes emits "Inventory started ..." on an error channel
+  // as "Unable to parse TAG line: ..." even though scanning is working.
+  // Suppress those to avoid false error popups.
+  const shouldSuppressBridgeError = (rawLine, mappedMessage) => {
+    const raw = String(rawLine || '').toLowerCase();
+    const mapped = String(mappedMessage || '').toLowerCase();
 
-  const getLinesSince = (startIndex) => bridgeLineHistoryRef.current.slice(startIndex);
+    const looksLikeTagParseError = mapped.includes('unable to parse tag line');
+    const looksLikeInventoryStarted = mapped.includes('inventory started') || raw.includes('inventory started');
 
-  const waitForBridgeResponse = async (startIndex, timeoutMs = 1400) => {
-    const startedAt = Date.now();
-    let lastCount = startIndex;
-    while (Date.now() - startedAt < timeoutMs) {
-      const currentCount = bridgeLineHistoryRef.current.length;
-      if (currentCount > lastCount) {
-        await waitMs(60);
-        return getLinesSince(startIndex);
-      }
-      lastCount = currentCount;
-      await waitMs(80);
-    }
-    return getLinesSince(startIndex);
+    if (looksLikeTagParseError && looksLikeInventoryStarted) return true;
+
+    // Some UHFAPI builds don't support TX power control; bridge replies code=-1.
+    // This is not fatal for scanning.
+    if (raw.includes('set-power returned code=-1') || mapped.includes('set-power returned code=-1')) return true;
+    return false;
   };
+
+  const waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   useEffect(() => {
     deviceRowsRef.current = deviceRows;
@@ -240,7 +281,13 @@ const RFIDTrayConnect = () => {
     if (!hasBridge) return undefined;
 
     const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
-      const entry = makeLogEntry(line);
+      const raw = String(line || '');
+      const rawLower = raw.toLowerCase();
+      const shouldSkipLog =
+        rawLower.includes('set-power returned code=-1') ||
+        (rawLower.includes('unable to parse tag line') && rawLower.includes('inventory started'));
+
+      const entry = shouldSkipLog ? null : makeLogEntry(line);
       if (entry) setLogs((prev) => [entry, ...prev].slice(0, 200));
       bridgeLineHistoryRef.current.push(String(line || ''));
       if (bridgeLineHistoryRef.current.length > 600) {
@@ -260,9 +307,14 @@ const RFIDTrayConnect = () => {
         setIsScanning(true);
         toast.success('Scan started successfully.');
       }
-      if (line.toLowerCase().includes('inventory stopped')) {
+      if (line.toLowerCase().includes('inventory stopped') || /scan finished/i.test(line)) {
         setIsScanning(false);
-        toast.info('Scan stopped.');
+        const finishedMatch = String(line || '').match(/scan finished\s*[—-]\s*(\d+)\s+unique tags/i);
+        if (finishedMatch) {
+          toast.success(`Scan complete: ${finishedMatch[1]} unique tags read.`);
+        } else if (line.toLowerCase().includes('inventory stopped')) {
+          toast.info('Scan stopped.');
+        }
       }
       const normalizedLine = line.replace(/^rfid>\s*/i, '').trim();
       if (normalizedLine.toLowerCase().startsWith('device id=')) {
@@ -294,51 +346,27 @@ const RFIDTrayConnect = () => {
       if (powerMatch) {
         setPowerAttDb10(String(snapPowerAttDb10ToPreset(powerMatch[1])));
       }
+
+      const parsedTag = parseTrayTagLine(raw);
+      if (parsedTag) ingestTrayTag(parsedTag);
     });
 
     const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
-      const normalizedTid = String(tag?.tid || '').trim().toUpperCase();
-      const normalizedEpc = String(tag?.epc || '').trim().toUpperCase();
-      const identity = normalizedTid || normalizedEpc;
-      if (!identity) return;
-      const key = identity;
-      setTagMap((prev) => {
-        const current = prev[key] || {
-          ...tag,
-          epc: normalizedEpc || tag?.epc || '',
-          tid: normalizedTid || tag?.tid || '',
-          count: 0,
-          firstSeen: new Date().toISOString(),
-          deviceIds: []
-        };
-        const nextDeviceId = String(tag?.deviceId || '').trim();
-        const mergedDeviceIds = Array.from(
-          new Set([...(Array.isArray(current.deviceIds) ? current.deviceIds : []), nextDeviceId].filter(Boolean))
-        );
-        return {
-          ...prev,
-          [key]: {
-            ...current,
-            ...tag,
-            epc: normalizedEpc || current.epc || '',
-            tid: normalizedTid || current.tid || '',
-            deviceIds: mergedDeviceIds,
-            deviceId: mergedDeviceIds[0] || nextDeviceId || current.deviceId || '',
-            count: current.count + 1,
-            lastSeen: new Date().toISOString()
-          }
-        };
-      });
+      ingestTrayTag(tag);
     });
 
     const unsubError = window.electronAPI.onRfidBridgeError((line) => {
       const mapped = getBridgeErrorMessage(line);
-      const entry = makeLogEntry(`ERROR: ${mapped}`);
-      if (entry) setLogs((prev) => [entry, ...prev].slice(0, 200));
       bridgeLineHistoryRef.current.push(`ERROR: ${mapped}`);
       if (bridgeLineHistoryRef.current.length > 600) {
         bridgeLineHistoryRef.current = bridgeLineHistoryRef.current.slice(-600);
       }
+      if (shouldSuppressBridgeError(line, mapped)) {
+        // Suppress from Activity Logs and avoid blocking toast.
+        return;
+      }
+      const entry = makeLogEntry(`ERROR: ${mapped}`);
+      if (entry) setLogs((prev) => [entry, ...prev].slice(0, 200));
       notifyError(mapped);
     });
 
@@ -354,7 +382,7 @@ const RFIDTrayConnect = () => {
       unsubTag?.();
       unsubError?.();
     };
-  }, [hasBridge]);
+  }, [hasBridge, ingestTrayTag]);
 
   const tagRows = useMemo(() => Object.values(tagMap), [tagMap]);
   const sortedTagRows = useMemo(
@@ -372,11 +400,15 @@ const RFIDTrayConnect = () => {
   );
 
   useEffect(() => {
-    const epcs = Array.from(new Set(
-      sortedTagRows.map((tag) => String(tag?.epc || '').trim().toUpperCase()).filter(Boolean)
+    const lookupKeys = Array.from(new Set(
+      sortedTagRows.flatMap((tag) => {
+        const epc = String(tag?.epc || '').trim().toUpperCase();
+        const tid = String(tag?.tid || '').trim().toUpperCase();
+        return [epc, tid].filter(Boolean);
+      })
     ));
-    const missingEpcs = epcs.filter((epc) => !rfidCodeMap[epc]);
-    if (!missingEpcs.length) return undefined;
+    const missingKeys = lookupKeys.filter((key) => !rfidCodeMap[key]);
+    if (!missingKeys.length) return undefined;
 
     const timer = setTimeout(async () => {
       setResolvingCodes(true);
@@ -385,7 +417,7 @@ const RFIDTrayConnect = () => {
           RFID_CODE_LOOKUP_URL,
           {
             ClientCode: getClientCode() || undefined,
-            EPCValues: missingEpcs
+            EPCValues: missingKeys
           },
           {
             headers: {
@@ -467,6 +499,18 @@ const RFIDTrayConnect = () => {
         : `INFO: Connect requested for COM${parseComNumber(comPrimary)}, COM${parseComNumber(comSecondary)} @ ${parseBaudRate(baudRate)}`
     );
     try {
+      try {
+        await runCommand('stop');
+      } catch (_) {
+        /* ignore */
+      }
+      try {
+        await runCommand('disconnect');
+      } catch (_) {
+        /* ignore */
+      }
+      setIsScanning(false);
+
       let primaryAttempt = { ok: null, message: '' };
       let secondaryAttempt = { ok: null, message: '' };
       let usbAttempt = { ok: null, message: '' };
@@ -475,7 +519,12 @@ const RFIDTrayConnect = () => {
         const cmd = commands[i];
         const start = bridgeLineHistoryRef.current.length;
         await runCommand(cmd);
-        const lines = await waitForBridgeResponse(start, mode === TRAY_CONNECTION_MODES.usb ? 2200 : 1400);
+        const lines = await waitForConnectBridgeResponse(
+          bridgeLineHistoryRef.current,
+          start,
+          cmd,
+          mode === TRAY_CONNECTION_MODES.usb ? 2800 : 1800
+        );
 
         if (cmd === 'connect-usb') {
           usbAttempt = evaluateUsbConnectAttempt(lines);
@@ -504,6 +553,12 @@ const RFIDTrayConnect = () => {
           await runCommand(`set-power ${parsedPower}`);
         } catch (_) {
           /* runCommand already surfaced */
+        }
+      } else if (effectiveDeviceCount > 0) {
+        try {
+          await runCommand('set-power 0');
+        } catch (_) {
+          /* optional */
         }
       }
 
@@ -568,16 +623,22 @@ const RFIDTrayConnect = () => {
     setIsBusy(true);
     try {
       setTagMap({});
+      setRfidCodeMap({});
+      setRfidLookupError('');
       setCurrentPage(1);
-      const pScan = parsePowerAttDb10(powerAttDb10);
-      if (pScan !== null) {
-        try {
-          await runCommand(`set-power ${pScan}`);
-        } catch (_) {
-          /* optional; reader may not support API */
-        }
+      try {
+        await runCommand('stop');
+      } catch (_) {
+        /* ignore */
+      }
+      const pScan = parsePowerAttDb10(powerAttDb10) ?? 0;
+      try {
+        await runCommand(`set-power ${pScan}`);
+      } catch (_) {
+        /* optional; reader may not support API */
       }
       await runCommand('start');
+      setIsScanning(true);
     } finally {
       setIsBusy(false);
       setActiveAction('');
@@ -800,10 +861,10 @@ const RFIDTrayConnect = () => {
                 min={0}
                 max={TRAY_POWER_ATT_MAX}
                 step={50}
-                value={powerAttDb10}
-                onChange={(e) => setPowerAttDb10(String(snapPowerAttDb10ToPreset(e.target.value)))}
+                value={displayPower}
+                onChange={(e) => setPowerAttDb10(String(displayPowerToAtt(e.target.value)))}
                 onMouseUp={async (e) => {
-                  const n = parsePowerAttDb10(snapPowerAttDb10ToPreset(e.target.value));
+                  const n = parsePowerAttDb10(displayPowerToAtt(e.target.value));
                   if (n !== null && hasBridge && !isBusy) {
                     try { await runCommand(`set-power ${n}`); } catch (_) { /* surfaced in runCommand */ }
                   }
@@ -811,7 +872,7 @@ const RFIDTrayConnect = () => {
                 disabled={!hasBridge || isBusy}
                 aria-label="Transmit power"
               />
-              <span className="tray-power-slider-value">{powerAttDb10}</span>
+              <span className="tray-power-slider-value">{displayPower}</span>
               <button
                 type="button"
                 className="tray-power-read-btn"
@@ -822,7 +883,7 @@ const RFIDTrayConnect = () => {
                 <FaSyncAlt /> Read Current
               </button>
             </div>
-            <p className="tray-power-hint">0 = strongest &bull; {TRAY_POWER_ATT_MAX} = weakest</p>
+            <p className="tray-power-hint">{TRAY_POWER_ATT_MAX} = strongest / fastest scan &bull; 0 = weakest</p>
           </div>
         </div>
       </div>
@@ -943,49 +1004,41 @@ const RFIDTrayConnect = () => {
                 <table className="tray-table">
                   <thead>
                     <tr>
-                      <th>Device</th>
                       <th>EPC</th>
                       <th>RFID Code</th>
-                      <th>TID</th>
-                      <th>RSSI</th>
-                      <th>Ant</th>
-                      <th>Count</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedTagRows.map((tag) => (
                       <tr key={`${String(tag.tid || '').trim().toUpperCase() || String(tag.epc || '').trim().toUpperCase()}`}>
-                        <td>{tag.deviceId}</td>
                         <td className="tray-mono tray-epc">{tag.epc}</td>
-                        <td className="tray-mono">{rfidCodeMap[String(tag.epc || '').trim().toUpperCase()] || '-'}</td>
-                        <td className="tray-mono">{tag.tid || '-'}</td>
-                        <td>{tag.rssi || '-'}</td>
-                        <td>{tag.antenna || '-'}</td>
-                        <td>{tag.count}</td>
+                        <td className="tray-mono">{rfidCodeMap[String(tag.epc || '').trim().toUpperCase()] || rfidCodeMap[String(tag.tid || '').trim().toUpperCase()] || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="tray-pagination">
-                <button
-                  type="button"
-                  className="tray-inline-btn"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage <= 1}
-                >
-                  Prev
-                </button>
-                <span className="tray-muted">Page {currentPage} / {totalPages}</span>
-                <button
-                  type="button"
-                  className="tray-inline-btn"
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage >= totalPages}
-                >
-                  Next
-                </button>
-              </div>
+              {totalPages > 1 && (
+                <div className="tray-pagination">
+                  <button
+                    type="button"
+                    className="tray-inline-btn"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                  >
+                    Prev
+                  </button>
+                  <span className="tray-muted">Page {currentPage} / {totalPages}</span>
+                  <button
+                    type="button"
+                    className="tray-inline-btn"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>

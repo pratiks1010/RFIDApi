@@ -5,7 +5,6 @@ import { HiChip, HiDocumentText, HiLightningBolt } from 'react-icons/hi';
 import { getTestService, getStockOnHand, hasGatiAuthToken } from './tamannaahBSGatiService';
 
 const LOYALSTRING_SAVE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails';
-const LOYALSTRING_DELETE_ALL_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient';
 const UPDATE_EXISTING_API = 'https://soni.loyalstring.co.in/api/ProductMaster/UpdateExistingProducts';
 const PUSH_CHUNK_SIZE = 50;
 
@@ -169,49 +168,12 @@ const ThirdPartySoftwareIntegration = () => {
     setPushLoading(true);
     setPushResult(null);
     setPushProgress(0);
-    let deleteOk = false;
     let successCount = 0;
     let errorCount = 0;
     const errors = [];
 
-    // Phase 1: Delete old stock first
-    try {
-      setPushProgress(1);
-      const deleteRes = await axios.delete(LOYALSTRING_DELETE_ALL_URL, {
-        params: { ClientCode: clientCode },
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      // If API uses `success` flag, respect it; otherwise treat 2xx as success.
-      const deleteBody = deleteRes?.data;
-      deleteOk = deleteBody?.success !== false;
-      setPushProgress(20);
-    } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.message ||
-        'DeleteAllStockForClient failed';
-      setPushLoading(false);
-      setPushProgress(0);
-      setPushResult({ success: false, message: msg });
-      return;
-    }
-
-    if (!deleteOk) {
-      setPushLoading(false);
-      setPushProgress(0);
-      setPushResult({ success: false, message: 'DeleteAllStockForClient returned failure.' });
-      return;
-    }
-
-    // Phase 2: Push fresh stock
-    // Include all rows for Save RFID API (with or without RFID).
     const payloads = stockData.map((row) => mapGatiToLoyalstringPayload(row, clientCode));
     const total = payloads.length;
-    const totalChunks = Math.ceil(total / PUSH_CHUNK_SIZE);
 
     for (let i = 0; i < payloads.length; i += PUSH_CHUNK_SIZE) {
       const chunk = payloads.slice(i, i + PUSH_CHUNK_SIZE);
@@ -238,10 +200,7 @@ const ThirdPartySoftwareIntegration = () => {
         errors.push(`Batch ${chunkNum}: ${msg}`);
       }
 
-      // Map [0..total] -> [20..100] so the bar shows delete + push phases
-      const pushedRatio = (i + chunk.length) / total;
-      const progress = 20 + Math.round(pushedRatio * 80);
-      setPushProgress(progress);
+      setPushProgress(Math.round(((i + chunk.length) / total) * 100));
     }
 
     setPushLoading(false);

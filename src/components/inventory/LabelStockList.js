@@ -38,6 +38,7 @@ import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
 import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
+import { normalizeTrayScanIdentities } from '../../services/trayBridgeConnect';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
 import { runAutoPushFolderSyncOnce, extractAutoPushUsername } from '../../services/autoPushStockSyncService';
@@ -1033,9 +1034,7 @@ const LabelStockList = () => {
   };
 
   const handleTrayFetchData = async (scannedTags = []) => {
-    const normalizedTags = Array.from(
-      new Set((scannedTags || []).map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean))
-    );
+    const normalizedTags = normalizeTrayScanIdentities(scannedTags);
     if (!normalizedTags.length) {
       addNotification({
         type: 'warning',

@@ -49,12 +49,18 @@ import {
   getLastNextSampleLotNumberUrl,
   getCheckScanStatusUrl,
   getScanSampleInUrl,
+  parseRfidSampleLotReturnMeta,
+  isRfidSampleLotClosed,
+  isRfidSampleLotCompleted,
+  isRfidSampleLotPartialReturn,
+  formatRfidSampleLotClosedMessage,
+  formatRfidSampleLotCompletedMessage,
   getLotByIdUrl,
   getLotAcceptanceStatusUrl,
   sampleAuthHeaders,
 } from '../../services/rfidSampleApi';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
-import { getAuthState } from '../../utils/authState';
+import { getAuthState, isSuperAdmin } from '../../utils/authState';
 import { buildDesignAwarePages, sortProductsByDesign } from '../../utils/designSort';
 import { authHeaders as rfidUserAuthHeaders, rfidUserUrls } from '../../services/rfidUserManagementApi';
 
@@ -190,9 +196,20 @@ const pageBtnStyleItems = (disabled) => ({
 const formatSampleApiDateTime = (value) => {
   if (value == null || value === '') return '—';
   try {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return String(value);
-    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    const raw = String(value).trim();
+    const naive = raw.replace(/Z$/i, '').replace(/([+-]\d{2}:\d{2})$/, '');
+    const d = new Date(naive);
+    if (Number.isNaN(d.getTime())) return raw;
+    const hasTime =
+      raw.includes('T') ||
+      /\d{1,2}:\d{2}/.test(raw) ||
+      d.getHours() > 0 ||
+      d.getMinutes() > 0 ||
+      d.getSeconds() > 0;
+    if (hasTime) {
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    }
+    return d.toLocaleDateString(undefined, { dateStyle: 'medium' });
   } catch {
     return String(value);
   }
@@ -208,7 +225,11 @@ const formatSampleLotStatusLabel = (raw) => {
     Accepted: 'Accepted',
     Returned: 'Returned',
     PartiallyReturned: 'Partially returned',
+    PartialReturn: 'Partial return',
+    PartialReturned: 'Partial return',
+    Open: 'Open',
     Closed: 'Closed',
+    Completed: 'Completed',
     Cancelled: 'Cancelled',
   };
   if (known[s]) return known[s];
@@ -219,8 +240,68 @@ const formatSampleLotStatusLabel = (raw) => {
     .trim();
 };
 
+const pickScanSampleInResult = (inData, item, rfid, lotId) => {
+  const itemCode =
+    inData?.itemCode ??
+    inData?.ItemCode ??
+    (rowItemCodeFromRaw(item) || rowItemCodeFromRaw(item?.fullItemData) || '—');
+  const lotMeta = parseRfidSampleLotReturnMeta(inData);
+  return {
+    itemCode,
+    rfid,
+    lotNumber: inData?.lotNumber ?? inData?.LotNumber ?? item.__lotNumber ?? '—',
+    lotId: inData?.lotId ?? inData?.LotId ?? lotId,
+    itemStatus: String(inData?.itemStatus ?? inData?.ItemStatus ?? 'Returned').trim(),
+    stockStatus: String(inData?.stockStatus ?? inData?.StockStatus ?? '').trim(),
+    sampleInOn: inData?.sampleInOn ?? inData?.SampleInOn ?? '',
+    apiMessage: lotMeta.message,
+    ...lotMeta,
+  };
+};
+
+const buildScanSampleInSuccessMessage = (result) => {
+  if (isRfidSampleLotClosed(result)) {
+    return formatRfidSampleLotClosedMessage(result.apiMessage);
+  }
+  if (isRfidSampleLotCompleted(result)) {
+    return formatRfidSampleLotCompletedMessage(result.apiMessage);
+  }
+  const parts = [`Returned ${result.itemCode} — Lot ${result.lotNumber}`];
+  const statusLabel = formatSampleLotStatusLabel(result.lotStatus);
+  if (statusLabel) parts.push(`Lot status: ${statusLabel}`);
+  if (result.totalItems != null) parts.push(`${result.totalItems} total`);
+  if (result.returnedItems != null && result.pendingItems != null) {
+    parts.push(`${result.returnedItems} returned, ${result.pendingItems} pending`);
+  }
+  if (result.stockStatus) parts.push(`Stock: ${result.stockStatus}`);
+  if (result.sampleInOn) parts.push(`In at ${formatSampleApiDateTime(result.sampleInOn)}`);
+  return parts.join(' · ');
+};
+
+const buildScanSampleInLotSummaryLine = (result) => {
+  const lotNo = result.lotNumber || '—';
+  if (isRfidSampleLotClosed(result)) {
+    return `Lot ${lotNo}: ${formatRfidSampleLotClosedMessage(result.apiMessage)}`;
+  }
+  if (isRfidSampleLotCompleted(result)) {
+    return `Lot ${lotNo}: ${formatRfidSampleLotCompletedMessage(result.apiMessage)}`;
+  }
+  if (isRfidSampleLotPartialReturn(result)) {
+    return `Lot ${lotNo}: Partial return — ${result.returnedItems ?? '—'} returned, ${result.pendingItems ?? '—'} still pending.`;
+  }
+  const status = String(result.lotStatus || '').toLowerCase();
+  if (status.includes('partial')) {
+    return `Lot ${lotNo}: Partial return — ${result.returnedItems ?? '—'} returned, ${result.pendingItems ?? '—'} still pending.`;
+  }
+  const label = formatSampleLotStatusLabel(result.lotStatus);
+  return label ? `Lot ${lotNo}: ${label}.` : `Lot ${lotNo} updated.`;
+};
+
 const getSampleOutStatusBadgeStyle = (rawStatus) => {
   const key = String(rawStatus ?? '').trim();
+  if (/^completed$/i.test(key)) {
+    return { bg: '#f5f3ff', border: '#ddd6fe', color: '#6d28d9' };
+  }
   if (/pending|accept/i.test(key)) {
     return { bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' };
   }
@@ -230,7 +311,7 @@ const getSampleOutStatusBadgeStyle = (rawStatus) => {
   if (/cancel|reject/i.test(key)) {
     return { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' };
   }
-  if (/accept|closed|complete/i.test(key)) {
+  if (/accept|closed/i.test(key)) {
     return { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8' };
   }
   return { bg: '#f1f5f9', border: '#e2e8f0', color: '#475569' };
@@ -263,6 +344,37 @@ const pickSampleOutSuccessMessage = (data) =>
       (data?.success ? 'Sample out created successfully.' : '')
   ).trim();
 
+const rowItemCodeFromRaw = (row) =>
+  String(
+    row?.Itemcode ??
+      row?.ItemCode ??
+      row?.itemcode ??
+      row?.ITEMCODE ??
+      row?.Item_Code ??
+      row?.ITMCode ??
+      ''
+  ).trim();
+
+/** Map UI scanSource → API ScanMode (RFID | Barcode | Tray | Manual). */
+const resolveScanMode = (item) => {
+  const src = String(item?.scanSource ?? item?.fullItemData?.scanSource ?? '')
+    .trim()
+    .toLowerCase();
+  if (src === 'tray') return 'Tray';
+  if (src === 'manual') return 'Manual';
+  if (src === 'search' || src === 'barcode' || src === 'direct') return 'Barcode';
+  if (src === 'device' || src === 'rfid' || src === 'desktop') return 'RFID';
+  const full = item?.fullItemData || {};
+  const tid = String(
+    item?.TIDValue ?? item?.tidValue ?? item?.epc ?? full.TIDValue ?? full.TIDNumber ?? ''
+  ).trim();
+  const rfid = String(item?.RFIDNumber ?? item?.RFID ?? item?.RFIDCode ?? full.RFIDCode ?? '').trim();
+  const itemCode = rowItemCodeFromRaw(item) || rowItemCodeFromRaw(full);
+  if (tid || rfid) return 'RFID';
+  if (itemCode) return 'Barcode';
+  return 'RFID';
+};
+
 /** Map grid row → SubmitSampleOut Items[] entry (at least one identifier). */
 const buildSubmitSampleOutItem = (item) => {
   const full = item.fullItemData || {};
@@ -288,19 +400,9 @@ const buildSubmitSampleOutItem = (item) => {
   if (rfid) line.RFIDCode = rfid;
   if (Number.isFinite(labelledStockId) && labelledStockId > 0) line.LabelledStockId = labelledStockId;
   if (itemCode) line.ItemCode = itemCode;
+  line.ScanMode = resolveScanMode(item);
   return line;
 };
-
-const rowItemCodeFromRaw = (row) =>
-  String(
-    row?.Itemcode ??
-      row?.ItemCode ??
-      row?.itemcode ??
-      row?.ITEMCODE ??
-      row?.Item_Code ??
-      row?.ITMCode ??
-      ''
-  ).trim();
 
 const pickSubmitSampleOutLotNo = (data) =>
   String(
@@ -552,6 +654,11 @@ const buildProductDataFromRaw = (item, extras = {}) => ({
 
 const enrichItemFromCheckStatus = (item, checkData) => {
   const p = checkData?.product ?? checkData?.Product ?? {};
+  const lotItemId =
+    pickScanApiField(p, 'lotItemId', 'LotItemId') ||
+    pickScanApiField(checkData, 'lotItemId', 'LotItemId') ||
+    item.LotItemId ||
+    item.lotItemId;
   const merged = {
     ...item,
     ItemCode: pickScanApiField(p, 'itemCode', 'ItemCode') || item.ItemCode,
@@ -573,6 +680,8 @@ const enrichItemFromCheckStatus = (item, checkData) => {
     __scanAction: 'SampleOut',
     __stockStatus: checkData?.stockStatus ?? checkData?.StockStatus ?? '',
     __scanPhase: checkData?.scanPhase ?? checkData?.ScanPhase ?? 'firstScan',
+    __lotItemId: lotItemId ?? null,
+    LotItemId: lotItemId ?? undefined,
   });
 };
 
@@ -663,73 +772,99 @@ const SampleInReturnConfirmBanner = ({ report }) => {
   const border = tone === 'partial' ? '#fde68a' : '#86efac';
   const titleColor = tone === 'partial' ? '#92400e' : '#15803d';
   const textColor = tone === 'partial' ? '#78350f' : '#14532d';
-  const chipBg = tone === 'partial' ? '#fef3c7' : '#dcfce7';
 
-  const statChip = (label, value, emphasize = false) => (
-    <span
-      key={label}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'baseline',
-        gap: 5,
-        padding: '4px 10px',
-        borderRadius: 8,
-        background: chipBg,
-        fontSize: 13,
-        fontWeight: 600,
-        color: textColor,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span style={{ color: tone === 'partial' ? '#a16207' : '#166534', fontWeight: 700 }}>{label}:</span>
-      <strong style={{ fontWeight: 800, fontSize: emphasize ? 15 : 13, color: '#0f172a' }}>{value}</strong>
-    </span>
+  const statCell = (label, value, emphasize = false) => (
+    <div key={label} style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: tone === 'partial' ? '#a16207' : '#166534', marginBottom: 2 }}>
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: emphasize ? 14 : 12,
+          fontWeight: 800,
+          color: '#0f172a',
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
+        }}
+      >
+        {value}
+      </div>
+    </div>
   );
 
   return (
     <div
       style={{
-        padding: '10px 12px',
+        padding: '12px 14px',
         borderRadius: 10,
         background: bg,
         border: `1px solid ${border}`,
         color: textColor,
         fontSize: 13,
-        lineHeight: 1.45,
+        lineHeight: 1.5,
+        overflow: 'hidden',
       }}
     >
+      <div style={{ fontWeight: 800, fontSize: 14, color: titleColor, marginBottom: 10 }}>
+        {isFullReturn ? 'Complete lot return' : report.isPartial ? 'Partial return' : 'Return confirmation'}
+      </div>
       <div
         style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          gap: '8px 10px',
-          marginBottom: 6,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: '10px 16px',
+          marginBottom: 10,
         }}
       >
-        <span style={{ fontWeight: 800, fontSize: 14, color: titleColor }}>
-          {isFullReturn ? 'Complete lot return' : report.isPartial ? 'Partial return' : 'Return confirmation'}
-        </span>
-        {statChip('Lot', report.lotNo, true)}
-        {report.assignedName && report.assignedName !== '—' ? statChip('Employee', report.assignedName) : null}
-        {statChip('Returning', `${report.returning} item${report.returning === 1 ? '' : 's'}`)}
-        {statChip('Gr.Wt', report.grossWt)}
-        {statChip('Net Wt', report.netWt, true)}
-        {statChip('Pieces', report.pieces)}
-        {report.outOnLot != null ? statChip('Out on lot', report.outOnLot) : null}
-        {report.returned > 0 ? statChip('Already returned', report.returned) : null}
+        {statCell('Lot', report.lotNo, true)}
+        {report.assignedName && report.assignedName !== '—' ? statCell('Employee', report.assignedName) : null}
+        {statCell('Returning', `${report.returning} item${report.returning === 1 ? '' : 's'}`)}
+        {statCell('Gr.Wt', report.grossWt)}
+        {statCell('Net Wt', report.netWt, true)}
+        {statCell('Pieces', report.pieces)}
+        {report.outOnLot != null ? statCell('Out on lot', report.outOnLot) : null}
+        {report.returned > 0 ? statCell('Already returned', report.returned) : null}
         {report.remainingAfter != null && report.remainingAfter > 0
-          ? statChip('Still out after', report.remainingAfter)
+          ? statCell('Still out after', report.remainingAfter)
           : null}
       </div>
-      <div style={{ fontWeight: 600, fontSize: 13, color: textColor }}>{report.confirmationMessage}</div>
+      <div
+        style={{
+          fontWeight: 600,
+          fontSize: 12,
+          color: textColor,
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
+          lineHeight: 1.55,
+        }}
+      >
+        {report.confirmationMessage}
+      </div>
       {!report.isAccepted ? (
-        <div style={{ marginTop: 6, fontWeight: 700, fontSize: 12, color: '#b45309' }}>
+        <div
+          style={{
+            marginTop: 8,
+            fontWeight: 700,
+            fontSize: 12,
+            color: '#b45309',
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+          }}
+        >
           Employee has not accepted this lot yet — return may be blocked until acceptance.
         </div>
       ) : null}
       {report.isAccepted && report.canReturn === false ? (
-        <div style={{ marginTop: 6, fontWeight: 700, fontSize: 12, color: '#b45309' }}>
+        <div
+          style={{
+            marginTop: 8,
+            fontWeight: 700,
+            fontSize: 12,
+            color: '#b45309',
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+          }}
+        >
           Lot is not open for returns right now.
         </div>
       ) : null}
@@ -854,6 +989,7 @@ const SampleOut = () => {
   const [showCustomerSidebar, setShowCustomerSidebar] = useState(false);
   const [showVendorSidebar, setShowVendorSidebar] = useState(false);
   const [showEmployeeSidebar, setShowEmployeeSidebar] = useState(false);
+  const isAdminUser = isSuperAdmin();
   
   const customerDropdownRef = useRef(null);
   const itemCodeSearchRef = useRef(null);
@@ -925,9 +1061,13 @@ const SampleOut = () => {
       ).trim() || '0'
     );
   };
-  const rowScanSource = (row) => {
-    const src = String(row?.scanSource ?? row?.fullItemData?.scanSource ?? 'desktop').trim().toLowerCase();
-    return src === 'tray' ? 'tray' : 'desktop';
+  const rowScanMode = (row) => resolveScanMode(row);
+  const scanModeBadgeStyle = (mode) => {
+    const m = String(mode || 'RFID');
+    if (m === 'Tray') return { color: '#0284c7', background: '#e0f2fe' };
+    if (m === 'Barcode') return { color: '#7c3aed', background: '#ede9fe' };
+    if (m === 'Manual') return { color: '#64748b', background: '#f1f5f9' };
+    return { color: '#059669', background: '#ecfdf5' };
   };
 const rowPieces = (row) => {
   const src = row?.fullItemData ?? row ?? {};
@@ -1906,6 +2046,17 @@ const formatScannedTime = (date) => {
     const lotNo = lotMeta.lotNumber;
     const lotId = lotMeta.lotId;
     const itemCode = rowItemCodeFromRaw(item) || item.Itemcode || item.ItemCode || '—';
+    const lotItemId =
+      item.__lotItemId ??
+      item.LotItemId ??
+      item.lotItemId ??
+      checkData?.lotItemId ??
+      checkData?.LotItemId ??
+      checkData?.product?.lotItemId ??
+      checkData?.product?.LotItemId ??
+      checkData?.Product?.lotItemId ??
+      checkData?.Product?.LotItemId ??
+      null;
     const key = rowDedupKey(item);
     let duplicate = false;
     const productData = stampScannedByUser(enrichItemFromCheckStatus(item, checkData));
@@ -1915,6 +2066,8 @@ const formatScannedTime = (date) => {
       __scanPhase: 'secondScan',
       __lotNumber: lotNo,
       __lotId: lotId,
+      __lotItemId: lotItemId,
+      LotItemId: lotItemId ?? undefined,
       __lotStatus: lotMeta.lotStatus,
       __lotAssignedToUserName: lotMeta.assignedToUserName,
       __lotAssignedToUserId: lotMeta.assignedToUserId,
@@ -2278,7 +2431,7 @@ const formatScannedTime = (date) => {
     try {
       await processScannedProduct(
         { ItemCode: t, RFIDCode: t, RFIDNumber: t, TIDValue: t },
-        { clearSearch: true, source: 'direct' }
+        { clearSearch: true, source: 'barcode' }
       );
     } finally {
       setScanChecking(false);
@@ -2754,6 +2907,9 @@ const formatScannedTime = (date) => {
   };
 
   const validateSampleOutForm = () => {
+    if (!isAdminUser) {
+      return 'Sample Out can only be created by an admin account. Use Sample In to return scanned items.';
+    }
     if (!hasAssignToSelection()) {
       return `Please ${assignToFieldLabel.toLowerCase()}.`;
     }
@@ -2804,6 +2960,13 @@ const formatScannedTime = (date) => {
       });
       return;
     }
+    if (sampleInBlockedReason) {
+      openScanReviewModal({
+        title: 'Cannot return yet',
+        sections: [{ type: 'warning', heading: 'Return blocked', rows: [{ itemCode: '—', message: sampleInBlockedReason }] }],
+      });
+      return;
+    }
     confirmSampleInLockRef.current = false;
     setConfirmSampleInPhase('summary');
     setShowConfirmSampleIn(true);
@@ -2815,13 +2978,18 @@ const formatScannedTime = (date) => {
     if (!clientCode || !rows.length) {
       throw new Error('No items to return.');
     }
+    if (sampleInBlockedReason) {
+      throw new Error(sampleInBlockedReason);
+    }
     const failures = [];
     const successes = [];
     for (let i = 0; i < rows.length; i += 1) {
       const item = rows[i];
       const tid = String(item.TIDValue || item.TIDNumber || '').trim();
       const rfid = String(item.RFIDNumber || item.RFIDCode || '').trim();
+      const itemCode = String(rowItemCode(item) || item.Itemcode || item.ItemCode || '').trim();
       const lotId = parseInt(item.__lotId, 10);
+      const lotItemId = parseInt(item.__lotItemId ?? item.LotItemId ?? item.lotItemId, 10);
       try {
         // eslint-disable-next-line no-await-in-loop
         const { data: inData } = await axios.post(
@@ -2829,19 +2997,22 @@ const formatScannedTime = (date) => {
           {
             ClientCode: clientCode,
             LotId: Number.isFinite(lotId) && lotId > 0 ? lotId : undefined,
+            LotItemId: Number.isFinite(lotItemId) && lotItemId > 0 ? lotItemId : undefined,
             TIDValue: tid || undefined,
             RFIDCode: rfid || undefined,
+            ItemCode: itemCode || undefined,
             ReturnRemark: 'Returned via unified sample screen',
+            ScanMode: resolveScanMode(item),
           },
           { headers: sampleAuthHeaders() }
         );
         if (inData?.success === false) {
           throw new Error(inData?.message || inData?.Message || 'Sample In failed');
         }
+        const result = pickScanSampleInResult(inData, item, rfid, lotId);
         successes.push({
-          itemCode: rowItemCode(item) || '—',
-          rfid,
-          message: `Returned — lot ${inData?.lotNumber ?? inData?.LotNumber ?? item.__lotNumber ?? '—'}`,
+          ...result,
+          message: buildScanSampleInSuccessMessage(result),
         });
       } catch (err) {
         failures.push({
@@ -2862,8 +3033,17 @@ const formatScannedTime = (date) => {
                 { ItemCode: s.itemCode, RFIDNumber: s.rfid },
                 {
                   __scanAction: 'SampleInDone',
-                  __lotNumber: s.message,
-                  __returnedOn: new Date().toISOString(),
+                  __lotNumber: s.lotNumber,
+                  __lotId: s.lotId,
+                  __lotStatus: s.lotStatus,
+                  __lotCompleted: s.lotCompleted,
+                  __itemStatus: s.itemStatus,
+                  __totalItems: s.totalItems,
+                  __pendingItems: s.pendingItems,
+                  __returnedItems: s.returnedItems,
+                  __stockStatus: s.stockStatus,
+                  __sampleInOn: s.sampleInOn,
+                  __returnedOn: s.sampleInOn || new Date().toISOString(),
                   id: Date.now() + idx,
                 }
               )
@@ -2879,15 +3059,32 @@ const formatScannedTime = (date) => {
     if (failures.length) {
       sections.push({ type: 'error', heading: `Failed (${failures.length})`, rows: failures });
     }
-    const partialLotNotes = sampleInReturnReports
-      .filter((r) => r.remainingAfter != null && r.remainingAfter > 0)
-      .map((r) => `Lot ${r.lotNo}: ${r.remainingAfter} item(s) still out with ${r.assignedName}.`);
+    const lotSummaryByKey = new Map();
+    successes.forEach((s) => {
+      const key = String(s.lotId || s.lotNumber || '');
+      if (key) lotSummaryByKey.set(key, s);
+    });
+    const lotStatusNotes = [...lotSummaryByKey.values()].map(buildScanSampleInLotSummaryLine);
     const subtitleParts = [`${successes.length} of ${rows.length} item(s) returned to stock.`];
-    if (partialLotNotes.length) {
-      subtitleParts.push(`Partial return — ${partialLotNotes.join(' ')}`);
+    if (lotStatusNotes.length) {
+      subtitleParts.push(lotStatusNotes.join(' '));
+    } else {
+      const partialLotNotes = sampleInReturnReports
+        .filter((r) => r.remainingAfter != null && r.remainingAfter > 0)
+        .map((r) => `Lot ${r.lotNo}: ${r.remainingAfter} item(s) still out with ${r.assignedName}.`);
+      if (partialLotNotes.length) {
+        subtitleParts.push(`Partial return — ${partialLotNotes.join(' ')}`);
+      }
     }
+    const allClosed = [...lotSummaryByKey.values()].every((s) =>
+      String(s.lotStatus || '').toLowerCase().includes('closed')
+    );
     openScanReviewModal({
-      title: failures.length ? 'Sample In — partial success' : 'Sample In complete',
+      title: failures.length
+        ? 'Sample In — partial success'
+        : allClosed && lotSummaryByKey.size
+          ? 'Sample In complete — lot closed'
+          : 'Sample In complete',
       subtitle: subtitleParts.join(' '),
       sections,
     });
@@ -2926,6 +3123,9 @@ const formatScannedTime = (date) => {
   };
 
   const executeSampleOutSubmit = async () => {
+    if (!isAdminUser) {
+      throw new Error('Sample Out can only be created by an admin account.');
+    }
     setLoading(true);
     try {
       const normalizeDateInput = (value) => {
@@ -3283,12 +3483,17 @@ const formatScannedTime = (date) => {
       const lotStatus = String(
         group.rows[0]?.__lotStatus || ctx?.lot?.LotStatus || ctx?.lot?.lotStatus || ''
       ).trim();
+      const acceptanceLoaded = !lotId || Boolean(sampleInLotDetails[lotId]);
       const isPartial =
         (remainingAfter != null && remainingAfter > 0) ||
         returned > 0 ||
         lotStatus.toLowerCase().includes('partial');
-      const canReturn = ctx?.acceptance?.canReturnItems ?? ctx?.acceptance?.CanReturnItems ?? true;
-      const isAccepted = ctx?.acceptance?.isEmployeeAccepted ?? ctx?.acceptance?.IsEmployeeAccepted ?? true;
+      const canReturn = acceptanceLoaded
+        ? (ctx?.acceptance?.canReturnItems ?? ctx?.acceptance?.CanReturnItems ?? true)
+        : false;
+      const isAccepted = acceptanceLoaded
+        ? (ctx?.acceptance?.isEmployeeAccepted ?? ctx?.acceptance?.IsEmployeeAccepted ?? true)
+        : false;
 
       const rowTotals = summarizeScanRows(group.rows);
       const grossWt = rowTotals.gross.toFixed(3);
@@ -3328,9 +3533,32 @@ const formatScannedTime = (date) => {
       };
     });
   }, [pendingInRows, sampleInLotDetails]);
+  const sampleInBlockedReason = useMemo(() => {
+    if (!pendingInRows.length) return '';
+    const lotIds = [
+      ...new Set(
+        pendingInRows
+          .map((row) => parseInt(row.__lotId, 10))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      ),
+    ];
+    if (lotIds.length && lotIds.some((id) => !sampleInLotDetails[id])) {
+      return 'Loading lot acceptance status — wait a moment before confirming return.';
+    }
+    for (const report of sampleInReturnReports) {
+      if (!report.isAccepted) {
+        return `Lot ${report.lotNo}: employee has not accepted this sample out yet.`;
+      }
+      if (report.canReturn === false) {
+        return `Lot ${report.lotNo}: not open for returns right now.`;
+      }
+    }
+    return '';
+  }, [pendingInRows, sampleInReturnReports, sampleInLotDetails]);
   const canSubmitSampleOut =
-    pendingOutRows.length > 0 && hasAssignToSelection() && !scanChecking && !loading;
-  const canSubmitSampleIn = pendingInRows.length > 0 && !scanChecking && !loading;
+    isAdminUser && pendingOutRows.length > 0 && hasAssignToSelection() && !scanChecking && !loading;
+  const canSubmitSampleIn =
+    pendingInRows.length > 0 && !sampleInBlockedReason && !scanChecking && !loading;
   const pageNumbers = useMemo(() => {
     const pages = [];
     const maxButtons = 7;
@@ -4206,7 +4434,9 @@ const formatScannedTime = (date) => {
                     onClick={openSampleOutConfirmModal}
                     disabled={!canSubmitSampleOut}
                     title={
-                      !pendingOutRows.length
+                      !isAdminUser
+                        ? 'Sample Out is admin-only — scan items for Sample In return instead'
+                        : !pendingOutRows.length
                         ? 'Scan items for Sample Out first'
                         : !hasAssignToSelection()
                           ? 'Select employee / party first'
@@ -4224,7 +4454,7 @@ const formatScannedTime = (date) => {
                         : '#e2e8f0',
                       color: canSubmitSampleOut ? '#ffffff' : '#94a3b8',
                       cursor: canSubmitSampleOut ? 'pointer' : 'not-allowed',
-                      display: pendingOutRows.length > 0 ? 'inline-flex' : 'none',
+                      display: isAdminUser && pendingOutRows.length > 0 ? 'inline-flex' : 'none',
                       alignItems: 'center',
                       gap: 6,
                       opacity: loading ? 0.7 : 1,
@@ -4238,7 +4468,9 @@ const formatScannedTime = (date) => {
                     onClick={openSampleInConfirmModal}
                     disabled={!canSubmitSampleIn}
                     title={
-                      !pendingInRows.length
+                      sampleInBlockedReason
+                        ? sampleInBlockedReason
+                        : !pendingInRows.length
                         ? 'Scan returned items (2nd scan) first'
                         : 'Review and confirm Sample In'
                     }
@@ -4492,7 +4724,8 @@ const formatScannedTime = (date) => {
                     const design = rowDesignOrDash(item);
                     const purity = rowPurityOrZero(item);
                     const pieces = rowPieces(item);
-                    const scanSource = rowScanSource(item);
+                    const scanMode = rowScanMode(item);
+                    const scanModeBadge = scanModeBadgeStyle(scanMode);
                     const isSampleInPending = item.__scanAction === 'SampleInPending';
                     const isSampleInDone = item.__scanAction === 'SampleInDone';
                     const isSampleIn = isSampleInPending || isSampleInDone;
@@ -4526,7 +4759,7 @@ const formatScannedTime = (date) => {
                           title={[
                             scannedAt ? `Scanned at ${formatScannedTime(scannedAt)}` : '',
                             scannedByUser ? `By ${scannedByUser}` : '',
-                            scanSource === 'tray' ? 'Tray' : 'Desktop',
+                            scanMode,
                           ]
                             .filter(Boolean)
                             .join(' · ')}
@@ -4574,39 +4807,21 @@ const formatScannedTime = (date) => {
                                 {scannedByUser}
                               </strong>
                             ) : null}
-                            {scanSource === 'tray' ? (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 800,
-                                  color: '#0284c7',
-                                  background: '#e0f2fe',
-                                  padding: '2px 6px',
-                                  borderRadius: 4,
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.03em',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                Tray
-                              </span>
-                            ) : (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 800,
-                                  color: '#059669',
-                                  background: '#ecfdf5',
-                                  padding: '2px 6px',
-                                  borderRadius: 4,
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.03em',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                Desktop
-                              </span>
-                            )}
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 800,
+                                color: scanModeBadge.color,
+                                background: scanModeBadge.background,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.03em',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {scanMode}
+                            </span>
                             <span
                               style={{
                                 fontSize: 10,
@@ -5355,21 +5570,32 @@ const formatScannedTime = (date) => {
             style={{
               background: '#fff',
               borderRadius: 16,
-              padding: isSmallScreen ? 22 : 28,
-              maxWidth: 520,
+              padding: isSmallScreen ? 20 : 24,
+              maxWidth: 560,
               width: '100%',
               maxHeight: '90vh',
-              overflow: 'auto',
+              overflowY: 'auto',
+              overflowX: 'hidden',
               boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box',
             }}
             onClick={(e) => e.stopPropagation()}
           >
             {confirmSampleInPhase === 'summary' ? (
               <>
-                <h2 style={{ margin: '0 0 12px', fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
+                <h2 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
                   Confirm Sample In (return)?
                 </h2>
-                <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
+                <p
+                  style={{
+                    margin: '0 0 14px',
+                    fontSize: 13,
+                    color: '#64748b',
+                    lineHeight: 1.55,
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
                   These items were scanned a 2nd time (RFID/TID). Employee was already assigned at Sample Out — no
                   re-selection needed.
                 </p>
@@ -5377,36 +5603,89 @@ const formatScannedTime = (date) => {
                   style={{
                     background: '#f0fdf4',
                     borderRadius: 10,
-                    padding: '14px 16px',
+                    padding: '12px 14px',
                     marginBottom: 12,
                     border: '1px solid #bbf7d0',
-                    fontSize: 13,
-                    lineHeight: 1.6,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: '10px 16px',
                   }}
                 >
-                  <div>
-                    <strong>Lot:</strong> {sampleInBatchLabel || '—'}
-                  </div>
-                  <div>
-                    <strong>Assigned employee:</strong> {sampleInAssignedEmployee || 'From original Sample Out'}
-                  </div>
-                  <div>
-                    <strong>Returning now:</strong> {pendingInRows.length} item(s) · <strong>Pieces:</strong>{' '}
-                    {pendingInSummary.pieces} · <strong>Gross wt:</strong>{' '}
-                    {pendingInSummary.gross.toFixed(3)}
-                  </div>
-                  <div>
-                    <strong>Scanned:</strong>{' '}
-                    {pendingInSummary.latest
-                      ? pendingInSummary.latest.toLocaleString(undefined, {
-                          dateStyle: 'medium',
-                          timeStyle: 'short',
-                        })
-                      : '—'}
-                  </div>
+                  {[
+                    ['Lot', sampleInBatchLabel || '—'],
+                    ['Employee', sampleInAssignedEmployee || 'From original Sample Out'],
+                    ['Returning', `${pendingInRows.length} item(s)`],
+                    ['Pieces', String(pendingInSummary.pieces)],
+                    ['Gross wt', pendingInSummary.gross.toFixed(3)],
+                    [
+                      'Scanned',
+                      pendingInSummary.latest
+                        ? pendingInSummary.latest.toLocaleString(undefined, {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })
+                        : '—',
+                    ],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#166534', marginBottom: 2 }}>{label}</div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 800,
+                          color: '#0f172a',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {value}
+                      </div>
+                    </div>
+                  ))}
                 </div>
+                {pendingInRows.length > 0 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                      marginBottom: 12,
+                    }}
+                  >
+                    {pendingInRows.slice(0, 12).map((row, i) => (
+                      <span
+                        key={row.id ?? i}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '5px 10px',
+                          borderRadius: 8,
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: '#334155',
+                          maxWidth: '100%',
+                        }}
+                      >
+                        <span style={{ color: '#64748b', fontWeight: 600 }}>{i + 1}.</span>
+                        <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                          {rowItemCode(row) || '—'}
+                        </span>
+                        <span style={{ color: '#94a3b8', fontWeight: 600 }}>· {rowGrossWtOrZero(row)}</span>
+                      </span>
+                    ))}
+                    {pendingInRows.length > 12 ? (
+                      <span style={{ fontSize: 11, color: '#64748b', alignSelf: 'center' }}>
+                        +{pendingInRows.length - 12} more
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 {sampleInReturnReports.length > 0 ? (
-                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {sampleInReturnReports.map((report) => (
                       <SampleInReturnConfirmBanner
                         key={`confirm-report-${report.lotId || report.lotNo}`}
@@ -5415,38 +5694,7 @@ const formatScannedTime = (date) => {
                     ))}
                   </div>
                 ) : null}
-                <div
-                  style={{
-                    maxHeight: 220,
-                    overflowY: 'auto',
-                    marginBottom: 16,
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 10,
-                    fontSize: 11,
-                  }}
-                >
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ background: '#fefce8', position: 'sticky', top: 0 }}>
-                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>#</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>Item</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>Lot</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Gr wt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pendingInRows.slice(0, 200).map((row, i) => (
-                        <tr key={row.id ?? i} style={{ borderTop: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '5px 8px' }}>{i + 1}</td>
-                          <td style={{ padding: '5px 8px', fontWeight: 700 }}>{rowItemCode(row) || '—'}</td>
-                          <td style={{ padding: '5px 8px' }}>{row.__lotNumber || '—'}</td>
-                          <td style={{ padding: '5px 8px', textAlign: 'right' }}>{rowGrossWtOrZero(row)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     onClick={() => setShowConfirmSampleIn(false)}
@@ -5465,16 +5713,20 @@ const formatScannedTime = (date) => {
                   <button
                     type="button"
                     onClick={handleConfirmSampleInProceed}
-                    disabled={loading}
+                    disabled={loading || Boolean(sampleInBlockedReason)}
+                    title={sampleInBlockedReason || undefined}
                     style={{
                       padding: '10px 18px',
                       fontSize: 13,
                       fontWeight: 700,
                       borderRadius: 10,
                       border: '1px solid #15803d',
-                      background: 'linear-gradient(135deg, #22c55e 0%, #15803d 100%)',
-                      color: '#fff',
-                      cursor: loading ? 'wait' : 'pointer',
+                      background:
+                        loading || sampleInBlockedReason
+                          ? '#e2e8f0'
+                          : 'linear-gradient(135deg, #22c55e 0%, #15803d 100%)',
+                      color: loading || sampleInBlockedReason ? '#94a3b8' : '#fff',
+                      cursor: loading || sampleInBlockedReason ? 'not-allowed' : 'pointer',
                     }}
                   >
                     Confirm Sample In

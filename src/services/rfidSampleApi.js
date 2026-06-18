@@ -67,6 +67,137 @@ export const getAcceptLotUrl = () => rfidSampleUrl('/AcceptLot');
 /** Admin-only: bulk return Out items without employee scan. */
 export const getAdminBulkSampleReturnUrl = () => rfidSampleUrl('/AdminBulkSampleReturn');
 
+/** ScanSampleIn / AdminBulkSampleReturn — lot closure and counts from API body. */
+export const parseRfidSampleLotReturnMeta = (data = {}) => {
+  const lotStatus = String(data?.lotStatus ?? data?.LotStatus ?? '').trim();
+  const lotCompleted = Boolean(data?.lotCompleted ?? data?.LotCompleted);
+  const totalItems = data?.totalItems ?? data?.TotalItems;
+  const returnedItems = data?.returnedItems ?? data?.ReturnedItems;
+  const pendingItems = data?.pendingItems ?? data?.PendingItems;
+  const message = String(data?.message ?? data?.Message ?? '').trim();
+  return { lotStatus, lotCompleted, totalItems, returnedItems, pendingItems, message };
+};
+
+export const normalizeRfidSampleLotStatus = (lotStatus) =>
+  String(lotStatus || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+
+/** Scan path — every product returned via RFID/TID/item scan. */
+export const isRfidSampleLotClosed = ({ lotStatus } = {}) =>
+  normalizeRfidSampleLotStatus(lotStatus) === 'closed';
+
+/** Admin manual finish — bulk select all Out items or CompleteLot force-close. */
+export const isRfidSampleLotCompleted = ({ lotStatus } = {}) =>
+  normalizeRfidSampleLotStatus(lotStatus) === 'completed';
+
+export const isRfidSampleLotPartialReturn = ({ lotStatus } = {}) => {
+  const status = normalizeRfidSampleLotStatus(lotStatus);
+  return status === 'partialreturn' || status === 'partialreturned' || status === 'partiallyreturned';
+};
+
+export const isRfidSampleLotFinalized = (meta = {}) =>
+  isRfidSampleLotClosed(meta) || isRfidSampleLotCompleted(meta);
+
+export const formatRfidSampleLotClosedMessage = (message) =>
+  message || 'All products returned. Sample lot is closed.';
+
+export const formatRfidSampleLotCompletedMessage = (message) =>
+  message || 'Sample lot marked complete by admin.';
+
+export const getRfidSampleLotFinishUi = (meta = {}, { fallbackMessage } = {}) => {
+  if (isRfidSampleLotClosed(meta)) {
+    return {
+      title: 'Lot closed',
+      message: formatRfidSampleLotClosedMessage(meta.message),
+      accent: '#1d4ed8',
+      bg: '#eff6ff',
+      border: '#bfdbfe',
+    };
+  }
+  if (isRfidSampleLotCompleted(meta)) {
+    return {
+      title: 'Lot completed',
+      message: formatRfidSampleLotCompletedMessage(meta.message),
+      accent: '#6d28d9',
+      bg: '#f5f3ff',
+      border: '#ddd6fe',
+    };
+  }
+  return {
+    title: 'Return successful',
+    message: fallbackMessage || meta.message || '',
+    accent: '#059669',
+    bg: '#ecfdf5',
+    border: '#bbf7d0',
+  };
+};
+
+/** Bulk/tray admin return vs accurate admin scan vs employee scan. */
+export const isForceReturnItem = (line) =>
+  line?.isForceReturn === true ||
+  line?.IsForceReturn === true ||
+  String(line?.returnedByType ?? line?.ReturnedByType ?? '').trim() === 'ForceReturn';
+
+export const getItemReturnedByTypeMeta = (line) => {
+  if (isForceReturnItem(line)) {
+    return { label: 'Force Returned by Admin', color: '#c2410c', bg: '#fff7ed', bd: '#fdba74' };
+  }
+  const raw = String(line?.returnedByType ?? line?.ReturnedByType ?? '').trim().toLowerCase();
+  if (raw === 'admin') {
+    return { label: 'Returned by Admin', color: '#047857', bg: '#ecfdf5', bd: '#bbf7d0' };
+  }
+  if (raw === 'employee') {
+    return { label: 'Returned by Employee', color: '#0c4a6e', bg: '#e0f2fe', bd: '#bae6fd' };
+  }
+  if (!raw) return null;
+  return { label: `Returned by ${raw}`, color: '#475569', bg: '#f1f5f9', bd: '#cbd5e1' };
+};
+
+/** Line still with customer / not yet returned. */
+export const isOutItemStatus = (status) => {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('return')) return false;
+  return s === 'out' || s.includes('sampleout');
+};
+
+export const countOutItemsFromLines = (lines) =>
+  (lines || []).filter((line) => isOutItemStatus(line?.ItemStatus ?? line?.itemStatus)).length;
+
+/**
+ * Align header lot status with line-level Out counts.
+ * Prevents Closed/Completed when items are still Out; keeps PartialReturn accurate.
+ */
+export const reconcileRfidSampleLotStatus = ({
+  lotStatus = '',
+  lineItems = [],
+  totalItems,
+  returnedItems,
+  outItems,
+} = {}) => {
+  const status = String(lotStatus || '').trim();
+  const outFromLines = countOutItemsFromLines(lineItems);
+  const outCount = Math.max(Number(outItems) || 0, outFromLines);
+  const returned = Number(returnedItems) || 0;
+
+  if (outCount > 0) {
+    if (returned > 0) return 'PartialReturn';
+    if (status) return status;
+    return 'Open';
+  }
+
+  if (isRfidSampleLotClosed({ lotStatus: status })) return 'Closed';
+  if (isRfidSampleLotCompleted({ lotStatus: status })) return 'Completed';
+  if (isRfidSampleLotPartialReturn({ lotStatus: status })) return 'PartialReturn';
+
+  const total = Number(totalItems) || 0;
+  if (total > 0 && returned >= total) return status || 'Closed';
+
+  return status || 'Open';
+};
+
 /** All sample-out lots with line items (admin list; sub-user sees assigned only). */
 export const getAllSampleOutListUrl = () => rfidSampleUrl('/GetAllSampleOutList');
 

@@ -35,6 +35,14 @@ import {
   getAllSampleOutListUrl,
   getLotByIdUrl,
   sampleAuthHeaders,
+  parseRfidSampleLotReturnMeta,
+  isRfidSampleLotFinalized,
+  getRfidSampleLotFinishUi,
+  getItemReturnedByTypeMeta,
+  isOutItemStatus,
+  isForceReturnItem,
+  countOutItemsFromLines,
+  reconcileRfidSampleLotStatus,
 } from '../../services/rfidSampleApi';
 import { isSuperAdmin } from '../../utils/authState';
 import { getRrgoldApiBaseUrl, getSoniApiBaseUrl } from '../../services/apiBaseConfig';
@@ -51,9 +59,9 @@ const LOT_LIST_PAGE_SIZE = 15;
 const LOT_GRID_PAGE_SIZE = 6;
 const LOT_GRID_COLUMNS = 3;
 const MODAL_GRID_COLUMNS = 3;
-const MODAL_ITEMS_PER_PAGE = 6;
-const MODAL_CARD_IMAGE_HEIGHT = 320;
-const MODAL_CARD_IMAGE_HEIGHT_SM = 240;
+const MODAL_ITEMS_PER_PAGE = 3;
+const MODAL_CARD_IMAGE_HEIGHT = 280;
+const MODAL_CARD_IMAGE_HEIGHT_SM = 220;
 const LINE_GRID_IMAGE_RESOLVE_LIMIT = 120;
 
 const LOT_DETAIL_BLUE = '#0f4c81';
@@ -70,36 +78,147 @@ const humanizeLotStatus = (status) => {
     .trim();
 };
 
-const LotDetailSummaryMetric = ({ label, value, valueColor = '#0f172a' }) => (
-  <div title={`${label}: ${value}`} style={{ minWidth: 0 }}>
-    <div
+const LotDetailInlineStat = ({ label, value, valueColor = '#0f172a' }) => (
+  <span
+    style={{
+      display: 'inline-flex',
+      alignItems: 'baseline',
+      gap: 5,
+      whiteSpace: 'nowrap',
+      fontFamily: LOT_DETAIL_FONT,
+    }}
+  >
+    <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', letterSpacing: '0.01em' }}>{label}:</span>
+    <strong
       style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: '#94a3b8',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-        marginBottom: 3,
-        lineHeight: 1.2,
-      }}
-    >
-      {label}
-    </div>
-    <div
-      style={{
-        fontSize: 15,
-        fontWeight: 700,
+        fontSize: 14,
+        fontWeight: 800,
         color: valueColor,
         fontVariantNumeric: 'tabular-nums',
-        lineHeight: 1.3,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
+        letterSpacing: '-0.01em',
       }}
     >
       {value}
+    </strong>
+  </span>
+);
+
+const LotDetailStatChip = ({ label, value, tone = 'neutral', compact = false }) => {
+  const tones = {
+    primary: { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', fg: '#1e40af', bd: '#93c5fd', shadow: '0 2px 8px rgba(37, 99, 235, 0.1)' },
+    warning: { bg: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)', fg: '#b45309', bd: '#fcd34d', shadow: '0 2px 8px rgba(180, 83, 9, 0.08)' },
+    info: { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', fg: '#0369a1', bd: '#7dd3fc', shadow: '0 2px 8px rgba(3, 105, 161, 0.1)' },
+    success: { bg: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)', fg: '#047857', bd: '#6ee7b7', shadow: '0 2px 8px rgba(4, 120, 87, 0.08)' },
+    accent: { bg: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', fg: '#15803d', bd: '#86efac', shadow: '0 2px 8px rgba(21, 128, 61, 0.08)' },
+    danger: { bg: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)', fg: '#c2410c', bd: '#fdba74', shadow: '0 2px 8px rgba(194, 65, 12, 0.1)' },
+    neutral: { bg: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', fg: '#334155', bd: '#e2e8f0', shadow: '0 1px 4px rgba(15, 23, 42, 0.05)' },
+  };
+  const t = tones[tone] || tones.neutral;
+  return (
+    <div
+      title={`${label}: ${value}`}
+      style={{
+        flex: compact ? '1 1 72px' : '1 1 88px',
+        minWidth: compact ? 72 : 88,
+        padding: compact ? '8px 10px' : '10px 12px',
+        borderRadius: compact ? 10 : 12,
+        background: t.bg,
+        border: `1px solid ${t.bd}`,
+        boxShadow: t.shadow,
+        fontFamily: LOT_DETAIL_FONT,
+      }}
+    >
+      <div
+        style={{
+          fontSize: compact ? 9 : 10,
+          fontWeight: 800,
+          color: t.fg,
+          opacity: 0.9,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 3,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: compact ? 17 : 20,
+          fontWeight: 900,
+          color: t.fg,
+          fontVariantNumeric: 'tabular-nums',
+          lineHeight: 1.1,
+        }}
+      >
+        {value}
+      </div>
     </div>
+  );
+};
+
+const LotDetailReturnBreakdown = ({ employeeReturnedItems, adminReturnedItems, forceReturnedItems }) => (
+  <div
+    style={{
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      gap: '8px 14px',
+      padding: '8px 12px',
+      borderRadius: 10,
+      background: '#fff',
+      border: '1px solid #e8ecf4',
+      marginBottom: 10,
+    }}
+  >
+    <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      Returns
+    </span>
+    {[
+      { label: 'Emp', value: employeeReturnedItems, color: '#047857', bg: '#ecfdf5' },
+      { label: 'Admin', value: adminReturnedItems, color: '#15803d', bg: '#f0fdf4' },
+      { label: 'Force', value: forceReturnedItems ?? 0, color: '#c2410c', bg: '#fff7ed' },
+    ].map((item) => (
+      <span
+        key={item.label}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 10px',
+          borderRadius: 8,
+          background: item.bg,
+          fontSize: 12,
+          fontWeight: 700,
+          color: item.color,
+        }}
+      >
+        <span style={{ fontWeight: 800, opacity: 0.85 }}>{item.label}</span>
+        <strong style={{ fontSize: 14, fontWeight: 900 }}>{item.value ?? 0}</strong>
+      </span>
+    ))}
   </div>
+);
+
+const LotDetailFilterPill = ({ active, label, onClick, count }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    style={{
+      border: active ? `1.5px solid ${LOT_DETAIL_BLUE}` : '1px solid #e2e8f0',
+      background: active ? '#eff6ff' : '#fff',
+      color: active ? LOT_DETAIL_BLUE : '#475569',
+      borderRadius: 999,
+      padding: '5px 12px',
+      fontSize: 11,
+      fontWeight: active ? 800 : 600,
+      cursor: 'pointer',
+      fontFamily: LOT_DETAIL_FONT,
+      whiteSpace: 'nowrap',
+    }}
+  >
+    {label}
+    {count != null ? ` (${count})` : ''}
+  </button>
 );
 
 const LotDetailSummaryBar = ({
@@ -108,47 +227,125 @@ const LotDetailSummaryBar = ({
   outItems,
   employeeReturnedItems,
   adminReturnedItems,
+  forceReturnedItems,
+  returnedItems,
   grossWt,
   netWt,
   pieces,
   outDate,
   dueDate,
   employee,
+  lotStatus,
 }) => {
-  const metrics = [
-    { label: 'Items', value: itemsCount, valueColor: LOT_DETAIL_BLUE },
-    { label: 'Pending', value: pending },
-    { label: 'Out', value: outItems },
-    { label: 'Emp Returned', value: employeeReturnedItems, valueColor: '#0369a1' },
-    { label: 'Admin Returned', value: adminReturnedItems, valueColor: '#047857' },
-    { label: 'Gross Wt', value: grossWt },
-    { label: 'Net Wt', value: netWt },
-    { label: 'Pieces', value: pieces },
-    { label: 'Out', value: outDate },
-    { label: 'Due', value: dueDate },
-    { label: 'Employee', value: employee },
-  ];
+  const statusKey = String(lotStatus || '').toLowerCase();
+  const statusTone = statusKey.includes('completed')
+    ? { bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' }
+    : statusKey.includes('closed')
+    ? { bg: '#f0fdf4', fg: '#166534', bd: '#bbf7d0' }
+    : statusKey.includes('open')
+      ? { bg: '#eff6ff', fg: '#1d4ed8', bd: '#bfdbfe' }
+      : statusKey.includes('partial')
+        ? { bg: '#fff7ed', fg: '#c2410c', bd: '#fed7aa' }
+        : statusKey.includes('pending')
+          ? { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' }
+          : { bg: '#f8fafc', fg: '#475569', bd: '#e2e8f0' };
 
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
-        gap: '14px 20px',
-        padding: '14px 0 16px',
-        marginBottom: 4,
-        borderBottom: '1px solid #eef2f7',
+        marginBottom: 16,
+        borderRadius: 14,
+        border: '1px solid #e8ecf4',
+        background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
+        overflow: 'hidden',
         fontFamily: LOT_DETAIL_FONT,
+        boxShadow: '0 4px 20px rgba(15, 76, 129, 0.06)',
       }}
     >
-      {metrics.map((metric) => (
-        <LotDetailSummaryMetric
-          key={metric.label}
-          label={metric.label}
-          value={metric.value}
-          valueColor={metric.valueColor}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          padding: '12px 16px',
+          borderBottom: '1px solid #eef2f7',
+          background: `linear-gradient(90deg, ${statusTone.bg} 0%, #ffffff 100%)`,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Lot status
+          </span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '5px 14px',
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: statusTone.fg,
+              background: '#fff',
+              border: `1px solid ${statusTone.bd}`,
+              boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+            }}
+          >
+            {humanizeLotStatus(lotStatus)}
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', alignItems: 'center' }}>
+          <LotDetailInlineStat label="Out date" value={outDate} valueColor={LOT_DETAIL_BLUE} />
+          <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
+          <LotDetailInlineStat label="Due" value={dueDate} valueColor="#b45309" />
+          <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
+          <LotDetailInlineStat label="Employee" value={employee} valueColor="#0f766e" />
+        </div>
+      </div>
+
+      <div style={{ padding: '10px 14px 12px' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
+            gap: 8,
+            marginBottom: 10,
+          }}
+        >
+          <LotDetailStatChip label="Items" value={itemsCount} tone="primary" compact />
+          <LotDetailStatChip label="Pending" value={pending} tone="warning" compact />
+          <LotDetailStatChip label="Out" value={outItems} tone="info" compact />
+          <LotDetailStatChip label="Returned" value={returnedItems ?? '—'} tone="success" compact />
+        </div>
+
+        <LotDetailReturnBreakdown
+          employeeReturnedItems={employeeReturnedItems}
+          adminReturnedItems={adminReturnedItems}
+          forceReturnedItems={forceReturnedItems}
         />
-      ))}
+
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '10px 16px',
+            alignItems: 'center',
+            padding: '8px 12px',
+            borderRadius: 10,
+            background: '#f8fafc',
+            border: '1px solid #eef2f7',
+          }}
+        >
+          <LotDetailInlineStat label="Gross Wt" value={grossWt} />
+          <span style={{ color: '#cbd5e1' }}>•</span>
+          <LotDetailInlineStat label="Net Wt" value={netWt} />
+          <span style={{ color: '#cbd5e1' }}>•</span>
+          <LotDetailInlineStat label="Pieces" value={pieces} />
+        </div>
+      </div>
     </div>
   );
 };
@@ -164,49 +361,6 @@ const lotDetailToolbarBtn = (disabled = false) => ({
   fontFamily: LOT_DETAIL_FONT,
   whiteSpace: 'nowrap',
 });
-
-const LotDetailViewToggle = ({ mode, onGrid, onTable }) => (
-  <div
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      padding: 3,
-      borderRadius: 9,
-      background: '#f1f5f9',
-      gap: 2,
-    }}
-  >
-    {[
-      { id: 'grid', label: 'Grid', onClick: onGrid },
-      { id: 'table', label: 'Table', onClick: onTable },
-    ].map((opt) => {
-      const active = mode === opt.id;
-      return (
-        <button
-          key={opt.id}
-          type="button"
-          onClick={opt.onClick}
-          style={{
-            border: 'none',
-            borderRadius: 7,
-            background: active ? '#fff' : 'transparent',
-            color: active ? '#0f172a' : '#64748b',
-            height: 30,
-            padding: '0 14px',
-            fontSize: 12,
-            fontWeight: active ? 700 : 600,
-            cursor: 'pointer',
-            fontFamily: LOT_DETAIL_FONT,
-            boxShadow: active ? '0 1px 2px rgba(15, 23, 42, 0.08)' : 'none',
-            transition: 'background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
-          }}
-        >
-          {opt.label}
-        </button>
-      );
-    })}
-  </div>
-);
 
 const ModalGridPagination = ({ currentPage, totalPages, onPrev, onNext, compact = false }) => {
   if (totalPages <= 1) return null;
@@ -320,13 +474,6 @@ const isAdminReturnableLotStatus = (status) => {
   return s.includes('open') || s.includes('partial');
 };
 
-const isOutItemStatus = (status) => {
-  const s = String(status || '').toLowerCase();
-  if (!s) return false;
-  if (s.includes('return')) return false;
-  return s === 'out' || s.includes('sampleout') || s.includes('out');
-};
-
 const lineLotItemId = (line) => {
   const raw = line?.Id ?? line?.id;
   if (raw === undefined || raw === null || raw === '') return null;
@@ -337,25 +484,50 @@ const lineLotItemId = (line) => {
 const lineCanAdminReturn = (line, lotHeader) => {
   if (line?.canAdminReturn === true || line?.CanAdminReturn === true) return true;
   if (line?.canAdminReturn === false || line?.CanAdminReturn === false) return false;
-  if (line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true) {
-    return true;
-  }
   const lotStatus =
     lotHeader?.Status ?? lotHeader?.LotStatus ?? lotHeader?.lotStatus ?? lotHeader?.status;
-  return isAdminReturnableLotStatus(lotStatus) && isOutItemStatus(line?.ItemStatus);
+  return isAdminReturnableLotStatus(lotStatus) && isOutItemStatus(line?.ItemStatus ?? line?.itemStatus);
 };
 
-const getReturnedByTypeMeta = (line) => {
-  const raw = String(line?.ReturnedByType ?? line?.returnedByType ?? '').trim().toLowerCase();
-  if (!raw) return null;
-  if (raw.includes('admin')) {
-    return { label: 'Returned by Admin', color: '#047857', bg: '#ecfdf5', bd: '#bbf7d0' };
+const pickLineScanMeta = (line) => ({
+  sampleOutMode: line?.sampleOutMode ?? line?.SampleOutMode ?? '',
+  sampleInMode: line?.sampleInMode ?? line?.SampleInMode ?? '',
+  lastActionType: line?.lastActionType ?? line?.LastActionType ?? '',
+  lastActionMode: line?.lastActionMode ?? line?.LastActionMode ?? '',
+  sampleOutOn: line?.sampleOutOn ?? line?.SampleOutOn ?? line?.OutDate ?? line?.outDate ?? '',
+  sampleInOn: line?.sampleInOn ?? line?.SampleInOn ?? line?.InDate ?? line?.inDate ?? '',
+});
+
+const formatActivityLogWhen = (entry) => {
+  const raw =
+    entry?.actionOn ??
+    entry?.ActionOn ??
+    entry?.createdOn ??
+    entry?.CreatedOn ??
+    entry?.timestamp ??
+    entry?.Timestamp ??
+    '';
+  if (!raw) return '—';
+  try {
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw);
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return String(raw);
   }
-  if (raw.includes('employee') || raw.includes('user')) {
-    return { label: 'Returned by Employee', color: '#0c4a6e', bg: '#e0f2fe', bd: '#bae6fd' };
-  }
-  return { label: `Returned by ${raw}`, color: '#475569', bg: '#f1f5f9', bd: '#cbd5e1' };
 };
+
+const formatActivityLogLine = (entry) => {
+  const action = String(entry?.actionType ?? entry?.ActionType ?? entry?.action ?? entry?.Action ?? '—').trim();
+  const mode = String(entry?.actionMode ?? entry?.ActionMode ?? entry?.scanMode ?? entry?.ScanMode ?? '').trim();
+  const remark = String(entry?.remark ?? entry?.Remark ?? entry?.message ?? entry?.Message ?? '').trim();
+  const parts = [action];
+  if (mode) parts.push(`[${mode}]`);
+  if (remark) parts.push(remark);
+  return parts.join(' ');
+};
+
+const getReturnedByTypeMeta = getItemReturnedByTypeMeta;
 
 const getLineItemStatusHeaderStyle = (status) => {
   const s = String(status || '').toLowerCase();
@@ -400,6 +572,7 @@ const pageBtnStyle = (disabled) => ({
 
 const lotListStatusSx = (status) => {
   const s = String(status ?? '—').toLowerCase();
+  if (s.includes('completed')) return { bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' };
   if (s.includes('closed')) return { bg: '#f1f5f9', fg: '#334155', bd: '#94a3b8' };
   if (s.includes('partial')) return { bg: '#fff7ed', fg: '#9a3412', bd: '#fdba74' };
   if (s.includes('pending')) return { bg: '#fef9e7', fg: '#92650a', bd: '#e8d48b' };
@@ -436,9 +609,10 @@ const lotSampleOutDateTimeRaw = (item) =>
 const formatLotDateTime = (dateString) => {
   if (!dateString) return '—';
   try {
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return String(dateString);
-    const raw = String(dateString);
+    const raw = String(dateString).trim();
+    const naive = raw.replace(/Z$/i, '').replace(/([+-]\d{2}:\d{2})$/, '');
+    const date = new Date(naive);
+    if (Number.isNaN(date.getTime())) return raw;
     const hasTime =
       raw.includes('T') ||
       /\d{1,2}:\d{2}/.test(raw) ||
@@ -904,6 +1078,171 @@ const LotGridCard = ({
   );
 };
 
+const LotDetailFieldCell = ({ label, value, valueColor = '#0f172a', span = 1, wrap = false }) => (
+  <div style={{ minWidth: 0, fontFamily: LOT_DETAIL_FONT, lineHeight: 1.35, gridColumn: span > 1 ? '1 / -1' : undefined }}>
+    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', marginBottom: 1 }}>{label}</div>
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 800,
+        color: valueColor,
+        overflow: wrap ? 'visible' : 'hidden',
+        textOverflow: wrap ? 'clip' : 'ellipsis',
+        whiteSpace: wrap ? 'normal' : 'nowrap',
+        wordBreak: wrap ? 'break-word' : 'normal',
+        overflowWrap: wrap ? 'anywhere' : 'normal',
+        lineHeight: wrap ? 1.4 : 1.35,
+      }}
+      title={String(value ?? '')}
+    >
+      {value}
+    </div>
+  </div>
+);
+
+const isReturnedLineStatus = (status) => {
+  const s = String(status || '').trim().toLowerCase();
+  return s.includes('return') || s === 'in' || s === 'returned';
+};
+
+const formatLineDateTimeField = (line, ...keys) => {
+  const raw = pickLineField(line, ...keys);
+  if (!raw) return '—';
+  return formatLotDateTime(raw);
+};
+
+const lineMatchesDetailUserFilter = (line, filter) => {
+  if (!filter || filter === 'all') return true;
+  if (filter === 'employee') {
+    return String(line?.returnedByType ?? line?.ReturnedByType ?? '').trim().toLowerCase() === 'employee';
+  }
+  if (filter === 'admin') {
+    return (
+      !isForceReturnItem(line) &&
+      String(line?.returnedByType ?? line?.ReturnedByType ?? '').trim().toLowerCase() === 'admin'
+    );
+  }
+  if (filter === 'force') return isForceReturnItem(line);
+  return true;
+};
+
+const AdminReturnFieldCell = ({ label, value, valueColor = '#0f172a', span = 1 }) => (
+  <div style={{ minWidth: 0, gridColumn: span > 1 ? '1 / -1' : undefined }}>
+    <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', marginBottom: 2 }}>{label}</div>
+    <div
+      style={{
+        fontSize: 12,
+        fontWeight: 800,
+        color: valueColor,
+        wordBreak: 'break-word',
+        overflowWrap: 'anywhere',
+        lineHeight: 1.4,
+      }}
+      title={String(value ?? '')}
+    >
+      {value}
+    </div>
+  </div>
+);
+
+const AdminReturnProductCard = ({
+  line,
+  img,
+  lineItemCode,
+  lineCategory,
+  lineProduct,
+  lineRfidValue,
+  lineGrossWt,
+  lineNetWt,
+  compact = false,
+}) => {
+  const code = lineItemCode(line);
+  const useRowLayout = !compact;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: useRowLayout ? 'row' : 'column',
+        alignItems: 'stretch',
+        borderRadius: 12,
+        border: '1px solid #eef2f7',
+        background: '#fff',
+        overflow: 'hidden',
+        boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)',
+      }}
+    >
+      <div
+        style={{
+          flexShrink: 0,
+          width: useRowLayout ? 190 : '100%',
+          minHeight: useRowLayout ? 190 : 150,
+          background: 'linear-gradient(180deg, #f1f5f9 0%, #ffffff 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRight: useRowLayout ? '1px solid #f1f5f9' : 'none',
+          borderBottom: useRowLayout ? 'none' : '1px solid #f1f5f9',
+          padding: 10,
+          boxSizing: 'border-box',
+        }}
+      >
+        {img ? (
+          <img
+            src={img}
+            alt={code}
+            style={{
+              width: '100%',
+              height: '100%',
+              maxHeight: useRowLayout ? 170 : 140,
+              objectFit: 'contain',
+              objectPosition: 'center',
+            }}
+          />
+        ) : (
+          <FaInbox size={32} style={{ color: '#cbd5e1' }} />
+        )}
+      </div>
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: useRowLayout ? '14px 16px' : '10px 12px 12px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+        }}
+      >
+        <div
+          style={{
+            fontSize: useRowLayout ? 16 : 14,
+            fontWeight: 800,
+            color: LOT_DETAIL_BLUE,
+            marginBottom: 10,
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+            lineHeight: 1.3,
+          }}
+        >
+          {code}
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: useRowLayout ? 'repeat(2, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))',
+            gap: '10px 16px',
+          }}
+        >
+          <AdminReturnFieldCell label="Category" value={lineCategory(line)} />
+          <AdminReturnFieldCell label="Product" value={lineProduct(line)} valueColor={LOT_DETAIL_BLUE} />
+          <AdminReturnFieldCell label="RFID" value={lineRfidValue(line)} />
+          <AdminReturnFieldCell label="Gross Wt" value={lineGrossWt(line)} />
+          <AdminReturnFieldCell label="Net Wt" value={lineNetWt(line)} span={useRowLayout ? 1 : 2} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const LotDetailItemCard = ({
   line,
   lotHeader,
@@ -931,9 +1270,29 @@ const LotDetailItemCard = ({
   const returnedByMeta = getReturnedByTypeMeta(line);
   const pendingWithEmployee = line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true;
   const sampleOutDate = formatListDate(lineSampleOutDateRaw(line, lotHeader));
-  const sampleInDate = formatListDate(lineSampleInDateRaw(line));
+  const sampleInDate = formatLineSampleInDate(line);
+  const sampleOutDateTime = formatLineDateTimeField(
+    line,
+    'SampleOutOn',
+    'sampleOutOn',
+    'OutDate',
+    'outDate',
+    'SampleOutDate',
+    'sampleOutDate'
+  );
+  const sampleInDateTime = formatLineDateTimeField(
+    line,
+    'SampleInOn',
+    'sampleInOn',
+    'InDate',
+    'inDate',
+    'SampleInDate',
+    'sampleInDate',
+    'ReturnDate',
+    'returnDate'
+  );
   const employeeName = lineEmployeeNameRaw(line, lotHeader) || '—';
-  const dot = <span style={{ color: LOT_DETAIL_GOLD, margin: '0 5px', opacity: 0.7, fontWeight: 700 }}>•</span>;
+  const scanMeta = pickLineScanMeta(line);
   const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
   const imageHeight = isSmallScreen ? MODAL_CARD_IMAGE_HEIGHT_SM : MODAL_CARD_IMAGE_HEIGHT;
 
@@ -948,195 +1307,185 @@ const LotDetailItemCard = ({
       style={{
         height: '100%',
         border: adminSelected ? `2px solid ${LOT_DETAIL_BLUE}` : undefined,
-        boxShadow: adminSelected ? '0 8px 24px rgba(15, 76, 129, 0.16)' : undefined,
+        boxShadow: adminSelected ? '0 12px 32px rgba(15, 76, 129, 0.18)' : undefined,
         cursor: adminSelectable ? 'pointer' : undefined,
       }}
       onClick={adminSelectable ? cardClick : undefined}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 12px',
-          borderBottom: '1px solid #f1f5f9',
-          background: adminSelected
-            ? 'linear-gradient(180deg, #eff6ff 0%, #ffffff 100%)'
-            : 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: '1 1 auto' }}>
-          {adminSelectable ? (
+      <div style={{ position: 'relative', flexShrink: 0, background: '#f1f5f9', overflow: 'hidden' }}>
+        {adminSelectable ? (
+          <label
+            style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              zIndex: 3,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              background: 'rgba(255,255,255,0.95)',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 8px rgba(15,23,42,0.1)',
+              cursor: 'pointer',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <input
               type="checkbox"
               checked={adminSelected}
               onChange={() => onAdminToggle?.(line)}
-              onClick={(e) => e.stopPropagation()}
-              style={{ width: 18, height: 18, accentColor: LOT_DETAIL_BLUE, flexShrink: 0, cursor: 'pointer' }}
+              style={{ width: 16, height: 16, accentColor: LOT_DETAIL_BLUE, cursor: 'pointer', margin: 0 }}
               aria-label={`Select ${itemCode} for admin return`}
             />
-          ) : null}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenItem?.(line);
-            }}
-            className="lot-detail-item-code"
-            style={{
-              border: 'none',
-              background: 'none',
-              padding: 0,
-              fontSize: 13,
-              fontWeight: 800,
-              color: LOT_DETAIL_BLUE,
-              cursor: 'pointer',
-              textAlign: 'left',
-              fontFamily: LOT_DETAIL_FONT,
-              minWidth: 0,
-              flex: '1 1 auto',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {itemCode}
-          </button>
-        </div>
+          </label>
+        ) : null}
         <span
           style={{
-            fontSize: 12,
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            zIndex: 3,
+            fontSize: 10,
             fontWeight: 900,
-            padding: '5px 12px',
-            borderRadius: 8,
+            padding: '5px 10px',
+            borderRadius: 999,
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
-            lineHeight: 1.2,
             background: statusHeaderStyle.background,
             color: statusHeaderStyle.color,
             border: statusHeaderStyle.border,
             boxShadow: statusHeaderStyle.shadow,
             fontFamily: LOT_DETAIL_FONT,
-            flexShrink: 0,
-            alignSelf: 'center',
           }}
         >
           {status}
         </span>
+        <GridItemImage
+          src={img}
+          itemCode={itemCode === '—' ? '' : itemCode}
+          lookupKeys={getLineImageLookupKeys(line)}
+          alt={itemCode}
+          eagerLoad
+          wrapperStyle={{
+            width: '100%',
+            height: imageHeight,
+            minHeight: imageHeight,
+            maxHeight: imageHeight,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '6px 8px',
+            overflow: 'hidden',
+            boxSizing: 'border-box',
+            background: 'linear-gradient(180deg, #f1f5f9 0%, #ffffff 100%)',
+          }}
+          imgStyle={{
+            width: '100%',
+            height: '100%',
+            maxHeight: imageHeight - 8,
+            objectFit: 'contain',
+            objectPosition: 'center',
+            display: 'block',
+          }}
+          placeholder={
+            <div
+              style={{
+                width: '100%',
+                height: imageHeight,
+                minHeight: imageHeight,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                color: '#94a3b8',
+                background: '#f1f5f9',
+              }}
+            >
+              <div
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 14,
+                  background: '#fff',
+                  border: '1px dashed #cbd5e1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FaInbox size={22} style={{ opacity: 0.4 }} />
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700 }}>No image</span>
+            </div>
+          }
+        />
       </div>
-      <GridItemImage
-        src={img}
-        itemCode={itemCode === '—' ? '' : itemCode}
-        lookupKeys={getLineImageLookupKeys(line)}
-        alt={itemCode}
-        eagerLoad
-        wrapperStyle={{
-          width: '100%',
-          height: imageHeight,
-          minHeight: imageHeight,
-          background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-          borderBottom: '1px solid #edf2f7',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '6px 8px',
-          boxSizing: 'border-box',
-          flexShrink: 0,
-        }}
-        imgStyle={{
-          width: '100%',
-          height: '100%',
-          maxHeight: imageHeight - 12,
-          objectFit: 'contain',
-          objectPosition: 'center',
-          background: 'transparent',
-        }}
-        placeholder={
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#94a3b8' }}>
-            <FaInbox size={22} style={{ opacity: 0.45 }} />
-            <span style={{ fontSize: 10, fontWeight: 700 }}>No image</span>
-          </div>
-        }
-      />
+
       <div
         style={{
-          padding: '10px 12px 12px',
-          fontSize: 11,
-          lineHeight: 1.45,
-          color: '#0f172a',
-          fontFamily: LOT_DETAIL_FONT,
-          flex: '1 1 auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
+          padding: '8px 10px 10px',
+          flexShrink: 0,
+          background: '#fff',
+          borderTop: '1px solid #f1f5f9',
         }}
       >
+        <button
+          type="button"
+          onClick={() => onOpenItem?.(line)}
+          className="lot-detail-item-code"
+          style={{
+            border: 'none',
+            background: 'none',
+            padding: '0 0 6px',
+            margin: 0,
+            fontSize: 15,
+            fontWeight: 800,
+            color: LOT_DETAIL_BLUE,
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontFamily: LOT_DETAIL_FONT,
+            letterSpacing: '-0.01em',
+            display: 'block',
+            width: '100%',
+          }}
+        >
+          {itemCode}
+        </button>
         <div
           style={{
-            fontWeight: 700,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '6px 10px',
           }}
-          title={`Category: ${category} · Product: ${product} · RFID: ${rfid}`}
         >
-          <span style={{ color: '#64748b' }}>Category:</span> {category}
-          {dot}
-          <span style={{ color: '#64748b' }}>Product:</span> {product}
-          {dot}
-          <span style={{ color: '#64748b' }}>RFID:</span> {rfid}
-        </div>
-        <div
-          style={{
-            fontWeight: 700,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={`Gross: ${lineGrossWt(line)} · Net: ${lineNetWt(line)} · Pieces: ${pieces}`}
-        >
-          <span>
-            <span style={{ color: '#64748b' }}>Gross:</span> {lineGrossWt(line)}
-          </span>
-          {dot}
-          <span>
-            <span style={{ color: '#64748b' }}>Net:</span> {lineNetWt(line)}
-          </span>
-          {dot}
-          <span>
-            <span style={{ color: '#64748b' }}>Pieces:</span> {pieces}
-          </span>
-        </div>
-        <div
-          style={{
-            marginTop: 'auto',
-            paddingTop: 8,
-            borderTop: '1px solid #f1f5f9',
-            fontSize: 10,
-            fontWeight: 700,
-            lineHeight: 1.5,
-            color: '#334155',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={`Sample out: ${sampleOutDate} · Sample in: ${sampleInDate} · Employee: ${employeeName}`}
-        >
-          <span style={{ color: '#64748b' }}>Sample out:</span> {sampleOutDate}
-          {dot}
-          <span style={{ color: '#64748b' }}>Sample in:</span> {sampleInDate}
-          {dot}
-          <span style={{ color: '#64748b' }}>Employee:</span> {employeeName}
+          <LotDetailFieldCell label="Category" value={category} />
+          <LotDetailFieldCell label="Product" value={product} valueColor={LOT_DETAIL_BLUE} />
+          <LotDetailFieldCell label="RFID" value={rfid} />
+          <LotDetailFieldCell label="Pieces" value={pieces} />
+          <LotDetailFieldCell label="Gross Wt" value={lineGrossWt(line)} />
+          <LotDetailFieldCell label="Net Wt" value={lineNetWt(line)} />
+          <LotDetailFieldCell label="Sample out" value={sampleOutDateTime !== '—' ? sampleOutDateTime : sampleOutDate} valueColor="#0369a1" wrap />
+          <LotDetailFieldCell label="Sample in" value={sampleInDateTime !== '—' ? sampleInDateTime : sampleInDate} valueColor="#047857" wrap />
+          <LotDetailFieldCell label="Employee" value={employeeName} valueColor="#0f766e" span={2} />
+          {scanMeta.sampleOutMode ? (
+            <LotDetailFieldCell label="Out mode" value={scanMeta.sampleOutMode} valueColor="#1d4ed8" />
+          ) : null}
+          {scanMeta.sampleInMode ? (
+            <LotDetailFieldCell label="In mode" value={scanMeta.sampleInMode} valueColor="#047857" />
+          ) : null}
         </div>
         {(pendingWithEmployee || returnedByMeta) && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
             {pendingWithEmployee ? (
               <span
                 style={{
                   fontSize: 10,
                   fontWeight: 800,
-                  padding: '2px 8px',
+                  padding: '3px 10px',
                   borderRadius: 999,
                   color: '#92400e',
                   background: '#fffbeb',
@@ -1153,13 +1502,12 @@ const LotDetailItemCard = ({
                 style={{
                   fontSize: 10,
                   fontWeight: 800,
-                  padding: '2px 8px',
+                  padding: '3px 10px',
                   borderRadius: 999,
                   color: returnedByMeta.color,
                   background: returnedByMeta.bg,
                   border: `1px solid ${returnedByMeta.bd}`,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.03em',
+                  letterSpacing: '0.02em',
                 }}
               >
                 {returnedByMeta.label}
@@ -1221,8 +1569,22 @@ const mapRfidSampleLine = (line) => {
     returnedByUserId: line.returnedByUserId ?? line.ReturnedByUserId,
     ReturnedByType: line.returnedByType ?? line.ReturnedByType,
     returnedByType: line.returnedByType ?? line.ReturnedByType,
+    IsForceReturn: line.isForceReturn ?? line.IsForceReturn ?? false,
+    isForceReturn: line.isForceReturn ?? line.IsForceReturn ?? false,
     IsPendingWithEmployee: line.isPendingWithEmployee ?? line.IsPendingWithEmployee,
     isPendingWithEmployee: line.isPendingWithEmployee ?? line.IsPendingWithEmployee,
+    SampleOutMode: line.sampleOutMode ?? line.SampleOutMode,
+    sampleOutMode: line.sampleOutMode ?? line.SampleOutMode,
+    SampleInMode: line.sampleInMode ?? line.SampleInMode,
+    sampleInMode: line.sampleInMode ?? line.SampleInMode,
+    LastActionType: line.lastActionType ?? line.LastActionType,
+    lastActionType: line.lastActionType ?? line.LastActionType,
+    LastActionMode: line.lastActionMode ?? line.LastActionMode,
+    lastActionMode: line.lastActionMode ?? line.LastActionMode,
+    SampleOutOn: line.sampleOutOn ?? line.SampleOutOn,
+    sampleOutOn: line.sampleOutOn ?? line.SampleOutOn,
+    SampleInOn: line.sampleInOn ?? line.SampleInOn,
+    sampleInOn: line.sampleInOn ?? line.SampleInOn,
   };
 };
 
@@ -1256,6 +1618,8 @@ const lineSampleOutDateRaw = (line, lotHeader) =>
 const lineSampleInDateRaw = (line) =>
   pickLineField(
     line,
+    'SampleInOn',
+    'sampleInOn',
     'InDate',
     'inDate',
     'SampleInDate',
@@ -1265,6 +1629,16 @@ const lineSampleInDateRaw = (line) =>
     'ReturnedDate',
     'returnedDate'
   );
+
+const formatLineSampleInDate = (line) => {
+  const raw = lineSampleInDateRaw(line);
+  if (!raw) return '—';
+  const rawStr = String(raw);
+  if (rawStr.includes('T') || /\d{1,2}:\d{2}/.test(rawStr)) {
+    return formatLotDateTime(raw);
+  }
+  return formatListDate(raw);
+};
 
 const lineEmployeeNameRaw = (line, lotHeader) =>
   pickLineField(
@@ -1348,7 +1722,20 @@ const mapRfidSampleLotRow = (entry) => {
   const totalItems = apiTotal > 0 ? apiTotal : lineItems.length;
   const pendingItems = apiPending > 0 ? apiPending : countPendingLines(lineItems);
   const returnedItems = Number(entry.ReturnedItems ?? entry.returnedItems) || 0;
-  const outItems = apiOutItems > 0 ? apiOutItems : Math.max(totalItems - returnedItems, 0);
+  const outFromLines = countOutItemsFromLines(lineItems);
+  const outItems =
+    outFromLines > 0
+      ? outFromLines
+      : apiOutItems > 0
+        ? apiOutItems
+        : Math.max(totalItems - returnedItems, 0);
+  const reconciledStatus = reconcileRfidSampleLotStatus({
+    lotStatus,
+    lineItems,
+    totalItems,
+    returnedItems,
+    outItems,
+  });
   const partyNameRaw = entry.PartyName ?? entry.partyName;
   const partyName =
     partyNameRaw != null && String(partyNameRaw).trim() !== ''
@@ -1362,7 +1749,8 @@ const mapRfidSampleLotRow = (entry) => {
     Id: entry.LotId ?? entry.lotId ?? entry.Id,
     SampleLotNo: lotNumber,
     SampleOutNo: lotNumber,
-    Status: lotStatus,
+    Status: reconciledStatus,
+    LotStatus: reconciledStatus,
     PartyType: partyType,
     PartyId: entry.PartyId ?? entry.partyId,
     PartyName: partyName,
@@ -1376,6 +1764,7 @@ const mapRfidSampleLotRow = (entry) => {
     OutItems: outItems,
     EmployeeReturnedItems: Number(entry.EmployeeReturnedItems ?? entry.employeeReturnedItems) || 0,
     AdminReturnedItems: Number(entry.AdminReturnedItems ?? entry.adminReturnedItems) || 0,
+    ForceReturnedItems: Number(entry.ForceReturnedItems ?? entry.forceReturnedItems) || 0,
     PendingItems: pendingItems,
     IsOverdue: entry.IsOverdue ?? entry.isOverdue,
     Remarks: entry.AdminRemark ?? entry.adminRemark ?? entry.Remarks ?? '',
@@ -1483,6 +1872,8 @@ const SampleOutList = ({
 
   const [detailModal, setDetailModal] = useState(null);
   const [detailModalPage, setDetailModalPage] = useState(1);
+  const [detailItemStatusFilter, setDetailItemStatusFilter] = useState('all');
+  const [detailItemUserFilter, setDetailItemUserFilter] = useState('all');
   const [detailLoading, setDetailLoading] = useState(false);
   const [expandedLotIds, setExpandedLotIds] = useState(() => new Set());
   const [itemDetailModal, setItemDetailModal] = useState(null);
@@ -1493,10 +1884,9 @@ const SampleOutList = ({
   const [lineItemLocalImageUrls, setLineItemLocalImageUrls] = useState({});
   const [imageFolderReady, setImageFolderReady] = useState(false);
   const [adminReturnSelectedIds, setAdminReturnSelectedIds] = useState(() => new Set());
-  const [adminReturnRemark, setAdminReturnRemark] = useState(
-    'Products received back at counter — employee did not scan return'
-  );
+  const [adminReturnRemark, setAdminReturnRemark] = useState('');
   const [adminReturning, setAdminReturning] = useState(false);
+  const [adminReturnAllMode, setAdminReturnAllMode] = useState(false);
   const [showAdminReturnModal, setShowAdminReturnModal] = useState(false);
   const [adminReturnSuccess, setAdminReturnSuccess] = useState(null);
   const detailCacheRef = useRef(new Map());
@@ -1591,8 +1981,11 @@ const SampleOutList = ({
 
   useEffect(() => {
     setDetailModalPage(1);
+    setDetailItemStatusFilter('all');
+    setDetailItemUserFilter('all');
     setAdminReturnSelectedIds(new Set());
-    setAdminReturnRemark('Products received back at counter — employee did not scan return');
+    setAdminReturnRemark('');
+    setAdminReturnAllMode(false);
     setShowAdminReturnModal(false);
     setAdminReturnSuccess(null);
   }, [detailModal?.header?.Id, detailModal?.header?.SampleLotNo, detailModal?.header?.SampleOutNo]);
@@ -1601,6 +1994,7 @@ const SampleOutList = ({
     if (!detailModal) {
       setShowAdminReturnModal(false);
       setAdminReturnSuccess(null);
+      setAdminReturnAllMode(false);
     }
   }, [detailModal]);
 
@@ -1703,21 +2097,67 @@ const SampleOutList = ({
   };
 
   const detailModalItems = detailModal?.items ?? [];
+
+  const detailModalFilterCounts = useMemo(() => {
+    const items = detailModalItems;
+    return {
+      all: items.length,
+      out: items.filter((l) => isOutItemStatus(l?.ItemStatus ?? l?.itemStatus)).length,
+      returned: items.filter((l) => isReturnedLineStatus(l?.ItemStatus ?? l?.itemStatus)).length,
+      employee: items.filter((l) => lineMatchesDetailUserFilter(l, 'employee')).length,
+      admin: items.filter((l) => lineMatchesDetailUserFilter(l, 'admin')).length,
+      force: items.filter((l) => lineMatchesDetailUserFilter(l, 'force')).length,
+    };
+  }, [detailModalItems]);
+
+  const filteredDetailModalItems = useMemo(() => {
+    return detailModalItems.filter((line) => {
+      const status = line?.ItemStatus ?? line?.itemStatus;
+      if (detailItemStatusFilter === 'out' && !isOutItemStatus(status)) return false;
+      if (detailItemStatusFilter === 'returned' && !isReturnedLineStatus(status)) return false;
+      if (!lineMatchesDetailUserFilter(line, detailItemUserFilter)) return false;
+      return true;
+    });
+  }, [detailModalItems, detailItemStatusFilter, detailItemUserFilter]);
+
+  useEffect(() => {
+    setDetailModalPage(1);
+  }, [detailItemStatusFilter, detailItemUserFilter]);
+
   const adminReturnableItems = useMemo(() => {
     if (!detailModal?.header) return [];
     return detailModalItems.filter((line) => lineCanAdminReturn(line, detailModal.header));
   }, [detailModal?.header, detailModalItems]);
   const adminReturnSelectedCount = adminReturnSelectedIds.size;
+  const adminReturnSelectedLines = useMemo(() => {
+    if (!adminReturnSelectedIds.size) return [];
+    return detailModalItems.filter((line) => {
+      const id = lineLotItemId(line);
+      return id != null && adminReturnSelectedIds.has(id);
+    });
+  }, [detailModalItems, adminReturnSelectedIds]);
+  const adminReturnPreviewDateTime = useMemo(
+    () =>
+      new Date().toLocaleString(undefined, {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    [showAdminReturnModal]
+  );
   const allAdminReturnableSelected =
     adminReturnableItems.length > 0 &&
     adminReturnableItems.every((line) => {
       const id = lineLotItemId(line);
       return id != null && adminReturnSelectedIds.has(id);
     });
-  const detailModalTotalPages = Math.max(1, Math.ceil(detailModalItems.length / MODAL_ITEMS_PER_PAGE));
+  const detailModalTotalPages = Math.max(1, Math.ceil(filteredDetailModalItems.length / MODAL_ITEMS_PER_PAGE));
   const detailModalStartIndex = (detailModalPage - 1) * MODAL_ITEMS_PER_PAGE;
   const detailModalEndIndex = detailModalStartIndex + MODAL_ITEMS_PER_PAGE;
-  const paginatedDetailModalItems = detailModalItems.slice(detailModalStartIndex, detailModalEndIndex);
+  const paginatedDetailModalItems = filteredDetailModalItems.slice(detailModalStartIndex, detailModalEndIndex);
   const detailModalWeights = sumLineWeights(detailModalItems);
   const detailModalPieces = formatPiecesDisplay(sumLinePieces(detailModalItems));
 
@@ -1814,6 +2254,7 @@ const SampleOutList = ({
   };
 
   const applyAdminReturnResponse = (data) => {
+    const lotMeta = parseRfidSampleLotReturnMeta(data);
     const returnedMap = new Map(
       (data?.returnedProducts || data?.ReturnedProducts || []).map((p) => [
         Number(p.lotItemId ?? p.LotItemId),
@@ -1825,22 +2266,48 @@ const SampleOutList = ({
       const nextItems = (prev.items || []).map((line) => {
         const id = lineLotItemId(line);
         const hit = id != null ? returnedMap.get(Number(id)) : null;
-        if (!hit) return line;
+        if (!hit && !isRfidSampleLotFinalized(lotMeta)) return line;
+        if (!hit) {
+          if (!isOutItemStatus(line?.ItemStatus ?? line?.itemStatus)) return line;
+          return {
+            ...line,
+            ItemStatus: 'Returned',
+            canAdminReturn: false,
+            CanAdminReturn: false,
+          };
+        }
+        const returnedByType = hit.returnedByType ?? hit.ReturnedByType ?? 'ForceReturn';
+        const isForceReturn =
+          hit.isForceReturn ?? hit.IsForceReturn ?? String(returnedByType).trim() === 'ForceReturn';
         return {
           ...line,
           ItemStatus: hit.itemStatus ?? hit.ItemStatus ?? 'Returned',
+          ReturnedByType: returnedByType,
+          returnedByType,
+          IsForceReturn: isForceReturn,
+          isForceReturn,
+          SampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.SampleInMode,
+          sampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.sampleInMode,
+          LastActionType: hit.lastActionType ?? hit.LastActionType ?? line.LastActionType,
+          lastActionType: hit.lastActionType ?? hit.LastActionType ?? line.lastActionType,
           canAdminReturn: false,
           CanAdminReturn: false,
         };
       });
+      const reconciledStatus = reconcileRfidSampleLotStatus({
+        lotStatus: lotMeta.lotStatus || prev.header?.Status,
+        lineItems: nextItems,
+        totalItems: lotMeta.totalItems ?? prev.header?.TotalItems,
+        returnedItems: lotMeta.returnedItems ?? prev.header?.ReturnedItems,
+        outItems: data?.outItems ?? data?.OutItems ?? prev.header?.OutItems,
+      });
       const nextHeader = {
         ...prev.header,
-        Status: data?.lotStatus ?? data?.LotStatus ?? prev.header?.Status,
-        LotStatus: data?.lotStatus ?? data?.LotStatus ?? prev.header?.LotStatus,
-        PendingItems:
-          data?.pendingItems ?? data?.PendingItems ?? prev.header?.PendingItems,
-        ReturnedItems:
-          data?.returnedItems ?? data?.ReturnedItems ?? prev.header?.ReturnedItems,
+        Status: reconciledStatus,
+        LotStatus: reconciledStatus,
+        TotalItems: lotMeta.totalItems ?? prev.header?.TotalItems,
+        PendingItems: lotMeta.pendingItems ?? prev.header?.PendingItems,
+        ReturnedItems: lotMeta.returnedItems ?? prev.header?.ReturnedItems,
         OutItems: data?.outItems ?? data?.OutItems ?? prev.header?.OutItems,
         EmployeeReturnedItems:
           data?.employeeReturnedItems ??
@@ -1850,19 +2317,27 @@ const SampleOutList = ({
           data?.adminReturnedItems ??
           data?.AdminReturnedItems ??
           prev.header?.AdminReturnedItems,
+        ForceReturnedItems:
+          data?.forceReturnedItems ??
+          data?.ForceReturnedItems ??
+          prev.header?.ForceReturnedItems,
+        lotCompleted: lotMeta.lotCompleted && reconciledStatus !== 'PartialReturn',
+        LotCompleted: lotMeta.lotCompleted && reconciledStatus !== 'PartialReturn',
       };
-      const payload = { header: nextHeader, items: nextItems };
+      const payload = { header: nextHeader, items: nextItems, activityLog: prev.activityLog ?? [] };
       const cacheKey = String(nextHeader.Id ?? nextHeader.LotId ?? '');
       if (cacheKey) detailCacheRef.current.set(cacheKey, payload);
       return payload;
     });
     setAdminReturnSelectedIds(new Set());
+    setAdminReturnAllMode(false);
   };
 
   const handleAdminBulkReturn = async () => {
     const lotId = detailModal?.header?.Id ?? detailModal?.header?.LotId ?? detailModal?.header?.lotId;
     const clientCode = resolveClientCode(userInfo);
     const ids = Array.from(adminReturnSelectedIds);
+    const returnAllOutItems = adminReturnAllMode;
     if (!isAdminUser) {
       addNotification({
         type: 'error',
@@ -1872,7 +2347,7 @@ const SampleOutList = ({
       return;
     }
     if (!lotId || !clientCode) return;
-    if (!ids.length) {
+    if (!returnAllOutItems && !ids.length) {
       addNotification({
         type: 'warning',
         title: 'Admin return',
@@ -1883,34 +2358,50 @@ const SampleOutList = ({
 
     setAdminReturning(true);
     try {
-      const { data } = await axios.post(
-        getAdminBulkSampleReturnUrl(),
-        {
-          ClientCode: clientCode,
-          LotId: Number(lotId),
-          LotItemIds: ids.map((id) => Number(id)),
-          AdminReturnRemark: String(adminReturnRemark || '').trim() || 'Returned by admin',
-        },
-        { headers: sampleAuthHeaders() }
-      );
+      const payload = {
+        ClientCode: clientCode,
+        LotId: Number(lotId),
+        AdminReturnRemark: String(adminReturnRemark || '').trim() || 'Returned by admin',
+      };
+      if (returnAllOutItems) {
+        payload.ReturnAllOutItems = true;
+      } else {
+        payload.LotItemIds = ids.map((id) => Number(id));
+      }
+      const { data } = await axios.post(getAdminBulkSampleReturnUrl(), payload, {
+        headers: sampleAuthHeaders(),
+      });
       if (data?.success === false) {
         throw new Error(data?.message || data?.Message || 'Admin bulk return failed');
       }
       applyAdminReturnResponse(data);
       await fetchSampleOutList();
-      const successMsg =
+      const lotMeta = parseRfidSampleLotReturnMeta(data);
+      const fallbackMsg =
         data?.message ||
         data?.Message ||
-        `${ids.length} product(s) returned successfully.`;
+        (returnAllOutItems
+          ? `${adminReturnableItems.length} product(s) returned successfully.`
+          : `${ids.length} product(s) returned successfully.`);
+      const finishUi = getRfidSampleLotFinishUi(lotMeta, { fallbackMessage: fallbackMsg });
       setAdminReturnSuccess({
-        message: successMsg,
+        message: finishUi.message,
+        lotCompleted: lotMeta.lotCompleted,
+        lotStatus: lotMeta.lotStatus,
+        totalItems: lotMeta.totalItems,
+        returnedItems: lotMeta.returnedItems,
+        pendingItems: lotMeta.pendingItems,
         outItems: data?.outItems ?? data?.OutItems,
         remainingOutItems: data?.remainingOutItems ?? data?.RemainingOutItems ?? [],
+        finishTitle: finishUi.title,
+        finishAccent: finishUi.accent,
+        finishBg: finishUi.bg,
+        finishBorder: finishUi.border,
       });
       addNotification({
         type: 'success',
-        title: 'Admin return',
-        message: successMsg,
+        title: finishUi.title,
+        message: finishUi.message,
       });
     } catch (error) {
       const msg =
@@ -1924,6 +2415,15 @@ const SampleOutList = ({
     }
   };
 
+  const openAdminReturnModal = ({ returnAll = false } = {}) => {
+    setAdminReturnSuccess(null);
+    setAdminReturnAllMode(returnAll);
+    if (returnAll) {
+      setAdminReturnSelectedIds(new Set());
+    }
+    setShowAdminReturnModal(true);
+  };
+
   const openDetail = async (row) => {
     const lotNo = row.SampleLotNo || row.SampleOutNo;
     const lotId = row.Id ?? row.lotId ?? row.LotId;
@@ -1933,16 +2433,23 @@ const SampleOutList = ({
 
     const cached = detailCacheRef.current.get(cacheKey);
     if (cached) {
-      setDetailLoading(false);
       setDetailModal(cached);
-      return;
     }
 
     const embedded = Array.isArray(row.LineItems) ? row.LineItems : [];
-    if (embedded.length > 0) {
+    if (!lotId && embedded.length > 0) {
       const header = mapRfidSampleLotRow(row);
       const items = enrichDetailLineItems(embedded.map(mapRfidSampleLine), header);
-      const payload = { header, items };
+      const payload = { header, items, activityLog: [] };
+      detailCacheRef.current.set(cacheKey, payload);
+      setDetailLoading(false);
+      setDetailModal(payload);
+      return;
+    }
+
+    if (!lotId) {
+      const header = mapRfidSampleLotRow(row);
+      const payload = { header, items: enrichDetailLineItems(embedded, header), activityLog: [] };
       detailCacheRef.current.set(cacheKey, payload);
       setDetailLoading(false);
       setDetailModal(payload);
@@ -1950,34 +2457,36 @@ const SampleOutList = ({
     }
 
     setDetailLoading(true);
-    setDetailModal({ header: row, items: [] });
+    if (!cached) {
+      setDetailModal({ header: row, items: [], activityLog: [] });
+    }
     try {
-      if (lotId) {
-        const { data } = await axios.get(getLotByIdUrl(clientCode, lotId), {
-          headers: sampleAuthHeaders(),
-        });
-        if (data?.success === false) {
-          throw new Error(data?.message || data?.Message || 'Could not load lot');
-        }
-        const lotBody =
-          data?.data ?? data?.Data ?? data?.lot ?? data?.Lot ?? data?.header ?? data?.Header ?? data;
-        const header = isRfidLotRow(lotBody)
-          ? mapRfidSampleLotRow(lotBody)
-          : mapRfidSampleLotRow({ ...row, LotId: lotId, LotNumber: lotNo });
-        const rawItems =
-          header.LineItems?.length > 0
-            ? header.LineItems
-            : normalizeArray(data?.items ?? data?.Items ?? lotBody?.items ?? lotBody?.Items ?? []).map(
-                mapRfidSampleLine
-              );
-        const items = enrichDetailLineItems(rawItems, header);
-        const payload = { header, items };
-        detailCacheRef.current.set(cacheKey, payload);
-        setDetailModal(payload);
-        return;
+      const { data } = await axios.get(getLotByIdUrl(clientCode, lotId), {
+        headers: sampleAuthHeaders(),
+      });
+      if (data?.success === false) {
+        throw new Error(data?.message || data?.Message || 'Could not load lot');
       }
-      const header = mapRfidSampleLotRow(row);
-      const payload = { header, items: enrichDetailLineItems(embedded, header) };
+      const lotBody =
+        data?.data ?? data?.Data ?? data?.lot ?? data?.Lot ?? data?.header ?? data?.Header ?? data;
+      const header = isRfidLotRow(lotBody)
+        ? mapRfidSampleLotRow(lotBody)
+        : mapRfidSampleLotRow({ ...row, LotId: lotId, LotNumber: lotNo });
+      const rawItems =
+        header.LineItems?.length > 0
+          ? header.LineItems
+          : normalizeArray(data?.items ?? data?.Items ?? lotBody?.items ?? lotBody?.Items ?? []).map(
+              mapRfidSampleLine
+            );
+      const items = enrichDetailLineItems(rawItems, header);
+      const activityLog = normalizeArray(
+        lotBody?.ActivityLog ??
+          lotBody?.activityLog ??
+          data?.ActivityLog ??
+          data?.activityLog ??
+          []
+      );
+      const payload = { header, items, activityLog };
       detailCacheRef.current.set(cacheKey, payload);
       setDetailModal(payload);
     } catch (e) {
@@ -1986,7 +2495,7 @@ const SampleOutList = ({
         title: 'Details',
         message: e.response?.data?.message || e.message || 'Could not load lot details',
       });
-      setDetailModal(null);
+      if (!cached) setDetailModal(null);
     } finally {
       setDetailLoading(false);
     }
@@ -2470,8 +2979,10 @@ const SampleOutList = ({
                     <option value="All">All statuses</option>
                     <option value="PendingAcceptance">Pending acceptance</option>
                     <option value="Open">Open</option>
-                    <option value="PartialReturned">Partial returned</option>
+                    <option value="PartialReturn">Partial return</option>
+                    <option value="PartialReturned">Partial returned (legacy)</option>
                     <option value="Closed">Closed</option>
+                    <option value="Completed">Completed</option>
                   </select>
                 </div>
                 <div style={{ minWidth: '108px', maxWidth: '140px' }}>
@@ -3213,14 +3724,14 @@ const SampleOutList = ({
             className="lot-detail-modal"
             style={{
               background: '#fff',
-              borderRadius: '16px',
+              borderRadius: '20px',
               maxWidth: 'min(1280px, 98vw)',
               width: '100%',
               maxHeight: '92vh',
               overflow: 'hidden',
-              padding: '16px 18px 18px',
+              padding: 0,
               position: 'relative',
-              boxShadow: '0 24px 64px rgba(15, 23, 42, 0.18), 0 8px 24px rgba(15, 76, 129, 0.08)',
+              boxShadow: '0 32px 80px rgba(15, 23, 42, 0.22), 0 12px 32px rgba(15, 76, 129, 0.1)',
               display: 'flex',
               flexDirection: 'column',
               fontFamily: LOT_DETAIL_FONT,
@@ -3229,60 +3740,74 @@ const SampleOutList = ({
           >
             <div
               style={{
-                height: 3,
-                background: `linear-gradient(90deg, ${LOT_DETAIL_BLUE} 0%, ${LOT_DETAIL_GOLD} 55%, #1e40af 100%)`,
-                borderRadius: '16px 16px 0 0',
-                margin: '-16px -18px 14px',
-              }}
-            />
-
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                gap: 16,
-                marginBottom: 4,
                 flexShrink: 0,
+                padding: '18px 22px 16px',
+                background: 'linear-gradient(135deg, #0f4c81 0%, #1e3a8a 55%, #1e40af 100%)',
+                color: '#fff',
+                position: 'relative',
+                overflow: 'hidden',
               }}
             >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontSize: 22,
-                      fontWeight: 700,
-                      color: '#0f172a',
-                      letterSpacing: '-0.02em',
-                      lineHeight: 1.25,
-                    }}
-                  >
-                    Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
-                  </h3>
-                  <LotStatusPill status={detailModal.header?.Status} />
-                </div>
-                <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', fontWeight: 500, lineHeight: 1.4 }}>
-                  Sample lot details and item return
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDetailModal(null)}
-                aria-label="Close lot details"
+              <div
                 style={{
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  padding: 4,
-                  marginTop: 2,
-                  color: '#94a3b8',
-                  flexShrink: 0,
-                  lineHeight: 0,
+                  position: 'absolute',
+                  top: -40,
+                  right: -20,
+                  width: 160,
+                  height: 160,
+                  borderRadius: '50%',
+                  background: 'rgba(201, 162, 39, 0.15)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: 16,
+                  position: 'relative',
+                  zIndex: 1,
                 }}
               >
-                <FaTimes size={18} />
-              </button>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <h3
+                      style={{
+                        margin: 0,
+                        fontSize: 24,
+                        fontWeight: 800,
+                        color: '#fff',
+                        letterSpacing: '-0.02em',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
+                    </h3>
+                    <LotStatusPill status={detailModal.header?.Status} />
+                  </div>
+                  <p style={{ margin: '8px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.78)', fontWeight: 500, lineHeight: 1.45 }}>
+                    Sample lot details · item return
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetailModal(null)}
+                  aria-label="Close lot details"
+                  style={{
+                    border: '1px solid rgba(255,255,255,0.25)',
+                    background: 'rgba(255,255,255,0.12)',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    padding: 8,
+                    color: '#fff',
+                    flexShrink: 0,
+                    lineHeight: 0,
+                  }}
+                >
+                  <FaTimes size={16} />
+                </button>
+              </div>
             </div>
 
             {detailLoading ? (
@@ -3291,6 +3816,7 @@ const SampleOutList = ({
                   padding: '56px 24px',
                   textAlign: 'center',
                   background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
+                  margin: 16,
                   borderRadius: 12,
                   border: '1px solid #e2e8f0',
                 }}
@@ -3314,21 +3840,24 @@ const SampleOutList = ({
                     minHeight: 0,
                     overflowY: 'auto',
                     overflowX: 'hidden',
-                    paddingRight: 2,
+                    padding: '16px 20px 8px',
                   }}
                 >
                 <LotDetailSummaryBar
                   itemsCount={detailModal.header?.TotalItems ?? detailModalItems.length}
                   pending={detailModal.header?.PendingItems ?? '—'}
                   outItems={detailModal.header?.OutItems ?? detailModal.header?.RemainingOutItems ?? '—'}
+                  returnedItems={detailModal.header?.ReturnedItems ?? '—'}
                   employeeReturnedItems={detailModal.header?.EmployeeReturnedItems ?? '—'}
                   adminReturnedItems={detailModal.header?.AdminReturnedItems ?? '—'}
+                  forceReturnedItems={detailModal.header?.ForceReturnedItems ?? 0}
                   grossWt={detailModalWeights.gross > 0 ? detailModalWeights.gross.toFixed(3) : '—'}
                   netWt={detailModalWeights.net > 0 ? detailModalWeights.net.toFixed(3) : '—'}
                   pieces={detailModalPieces}
                   outDate={formatDate(detailModal.header?.IssueDate || detailModal.header?.SampleOutDate)}
                   dueDate={formatDate(detailModal.header?.ExpectedReturnDate)}
                   employee={lotDisplayParty(detailModal.header)}
+                  lotStatus={detailModal.header?.Status}
                 />
 
                 {detailModalItems.length > 0 ? (
@@ -3336,224 +3865,166 @@ const SampleOutList = ({
                     <div
                       style={{
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
                         flexWrap: 'wrap',
-                        gap: '12px 20px',
-                        marginBottom: 14,
-                        paddingBottom: 12,
-                        borderBottom: '1px solid #eef2f7',
+                        alignItems: 'center',
+                        gap: '8px 10px',
+                        marginBottom: 12,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        background: '#fafcff',
+                        border: '1px solid #e8ecf4',
                       }}
                     >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>
-                          Lot items
-                        </div>
-                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 3, fontWeight: 500 }}>
-                          {detailModalItems.length} product{detailModalItems.length === 1 ? '' : 's'}
-                          {isAdminUser && adminReturnableItems.length > 0
-                            ? ` · ${adminReturnableItems.length} returnable`
-                            : ''}
-                        </div>
-                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: 4 }}>
+                        Status
+                      </span>
+                      <LotDetailFilterPill
+                        active={detailItemStatusFilter === 'all'}
+                        label="All"
+                        count={detailModalFilterCounts.all}
+                        onClick={() => setDetailItemStatusFilter('all')}
+                      />
+                      <LotDetailFilterPill
+                        active={detailItemStatusFilter === 'out'}
+                        label="Out"
+                        count={detailModalFilterCounts.out}
+                        onClick={() => setDetailItemStatusFilter('out')}
+                      />
+                      <LotDetailFilterPill
+                        active={detailItemStatusFilter === 'returned'}
+                        label="Returned"
+                        count={detailModalFilterCounts.returned}
+                        onClick={() => setDetailItemStatusFilter('returned')}
+                      />
+                      <span style={{ width: 1, height: 20, background: '#e2e8f0', margin: '0 4px' }} />
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: 4 }}>
+                        User
+                      </span>
+                      <LotDetailFilterPill
+                        active={detailItemUserFilter === 'all'}
+                        label="All"
+                        onClick={() => setDetailItemUserFilter('all')}
+                      />
+                      <LotDetailFilterPill
+                        active={detailItemUserFilter === 'employee'}
+                        label="Employee"
+                        count={detailModalFilterCounts.employee}
+                        onClick={() => setDetailItemUserFilter('employee')}
+                      />
+                      <LotDetailFilterPill
+                        active={detailItemUserFilter === 'admin'}
+                        label="Admin"
+                        count={detailModalFilterCounts.admin}
+                        onClick={() => setDetailItemUserFilter('admin')}
+                      />
+                      <LotDetailFilterPill
+                        active={detailItemUserFilter === 'force'}
+                        label="Force"
+                        count={detailModalFilterCounts.force}
+                        onClick={() => setDetailItemUserFilter('force')}
+                      />
+                    </div>
+
+                    {isAdminUser && adminReturnableItems.length > 0 ? (
                       <div
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 14,
+                          justifyContent: 'flex-end',
+                          gap: 12,
                           flexWrap: 'wrap',
-                          marginLeft: 'auto',
+                          marginBottom: 12,
+                          fontSize: 13,
                         }}
                       >
-                        {isAdminUser && adminReturnableItems.length > 0 ? (
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 12,
-                              flexWrap: 'wrap',
-                              fontSize: 13,
-                            }}
-                          >
-                            <button
-                              type="button"
-                              onClick={selectAllAdminReturnable}
-                              disabled={allAdminReturnableSelected}
-                              style={lotDetailToolbarBtn(allAdminReturnableSelected)}
-                            >
-                              Select returnable ({adminReturnableItems.length})
-                            </button>
-                            <span style={{ color: '#e2e8f0', userSelect: 'none' }}>|</span>
-                            <button
-                              type="button"
-                              onClick={clearAdminReturnSelection}
-                              disabled={adminReturnSelectedCount === 0}
-                              style={lotDetailToolbarBtn(adminReturnSelectedCount === 0)}
-                            >
-                              Clear
-                            </button>
-                            <span style={{ color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                              <strong style={{ color: LOT_DETAIL_BLUE, fontWeight: 700 }}>
-                                {adminReturnSelectedCount}
-                              </strong>{' '}
-                              selected
-                            </span>
-                          </div>
-                        ) : null}
-                        {lineItemsViewMode === 'grid' && detailModalTotalPages > 1 ? (
-                          <ModalGridPagination
-                            compact
-                            currentPage={detailModalPage}
-                            totalPages={detailModalTotalPages}
-                            onPrev={() => setDetailModalPage((p) => Math.max(1, p - 1))}
-                            onNext={() => setDetailModalPage((p) => Math.min(detailModalTotalPages, p + 1))}
-                          />
-                        ) : null}
-                        <LotDetailViewToggle
-                          mode={lineItemsViewMode}
-                          onGrid={() => setLineItemsViewMode('grid')}
-                          onTable={() => setLineItemsViewMode('table')}
-                        />
+                        <button
+                          type="button"
+                          onClick={selectAllAdminReturnable}
+                          disabled={allAdminReturnableSelected}
+                          style={lotDetailToolbarBtn(allAdminReturnableSelected)}
+                        >
+                          Select returnable ({adminReturnableItems.length})
+                        </button>
+                        <span style={{ color: '#e2e8f0', userSelect: 'none' }}>|</span>
+                        <button
+                          type="button"
+                          onClick={clearAdminReturnSelection}
+                          disabled={adminReturnSelectedCount === 0}
+                          style={lotDetailToolbarBtn(adminReturnSelectedCount === 0)}
+                        >
+                          Clear
+                        </button>
+                        <span style={{ color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                          <strong style={{ color: LOT_DETAIL_BLUE, fontWeight: 700 }}>
+                            {adminReturnSelectedCount}
+                          </strong>{' '}
+                          selected
+                        </span>
                       </div>
-                    </div>
+                    ) : null}
 
-                    {lineItemsViewMode === 'grid' ? (
-                      <>
-                        <div
-                          className="lot-detail-grid"
+                    <div
+                      className="lot-detail-grid"
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isSmallScreen
+                          ? 'repeat(1, minmax(0, 1fr))'
+                          : `repeat(${MODAL_GRID_COLUMNS}, minmax(0, 1fr))`,
+                        gap: 12,
+                        alignItems: 'stretch',
+                      }}
+                    >
+                      {paginatedDetailModalItems.length ? (
+                        paginatedDetailModalItems.map((line, idx) => {
+                          const lotItemId = lineLotItemId(line);
+                          const canReturn =
+                            isAdminUser && lineCanAdminReturn(line, detailModal.header);
+                          return (
+                            <LotDetailItemCard
+                              key={line.Id ?? `${lineItemCode(line)}-${detailModalStartIndex + idx}`}
+                              line={line}
+                              lotHeader={detailModal.header}
+                              isSmallScreen={isSmallScreen}
+                              lineItemCode={lineItemCode}
+                              lineCategory={lineCategory}
+                              lineProduct={lineProduct}
+                              lineGrossWt={lineGrossWt}
+                              lineNetWt={lineNetWt}
+                              lineImageUrl={lineImageUrl}
+                              lineItemKey={lineItemKey}
+                              lineItemLocalImageUrls={lineItemLocalImageUrls}
+                              onOpenItem={openDetailItemFromModal}
+                              adminSelectable={canReturn}
+                              adminSelected={
+                                lotItemId != null && adminReturnSelectedIds.has(lotItemId)
+                              }
+                              onAdminToggle={toggleAdminReturnLine}
+                            />
+                          );
+                        })
+                      ) : (
+                        <p
                           style={{
-                            display: 'grid',
-                            gridTemplateColumns: isSmallScreen
-                              ? 'repeat(1, minmax(0, 1fr))'
-                              : `repeat(${MODAL_GRID_COLUMNS}, minmax(0, 1fr))`,
-                            gap: 12,
-                            alignItems: 'stretch',
+                            gridColumn: '1 / -1',
+                            margin: 0,
+                            padding: 24,
+                            textAlign: 'center',
+                            fontSize: 13,
+                            color: '#94a3b8',
                           }}
                         >
-                          {paginatedDetailModalItems.map((line, idx) => {
-                            const lotItemId = lineLotItemId(line);
-                            const canReturn =
-                              isAdminUser && lineCanAdminReturn(line, detailModal.header);
-                            return (
-                              <LotDetailItemCard
-                                key={line.Id ?? `${lineItemCode(line)}-${detailModalStartIndex + idx}`}
-                                line={line}
-                                lotHeader={detailModal.header}
-                                isSmallScreen={isSmallScreen}
-                                lineItemCode={lineItemCode}
-                                lineCategory={lineCategory}
-                                lineProduct={lineProduct}
-                                lineGrossWt={lineGrossWt}
-                                lineNetWt={lineNetWt}
-                                lineImageUrl={lineImageUrl}
-                                lineItemKey={lineItemKey}
-                                lineItemLocalImageUrls={lineItemLocalImageUrls}
-                                onOpenItem={openDetailItemFromModal}
-                                adminSelectable={canReturn}
-                                adminSelected={
-                                  lotItemId != null && adminReturnSelectedIds.has(lotItemId)
-                                }
-                                onAdminToggle={toggleAdminReturnLine}
-                              />
-                            );
-                          })}
-                        </div>
-                        <ModalGridPagination
-                          currentPage={detailModalPage}
-                          totalPages={detailModalTotalPages}
-                          onPrev={() => setDetailModalPage((p) => Math.max(1, p - 1))}
-                          onNext={() => setDetailModalPage((p) => Math.min(detailModalTotalPages, p + 1))}
-                        />
-                      </>
-                    ) : (
-                      <div style={{ borderRadius: 12, border: '1px solid #e8ecf4', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                          <thead>
-                            <tr style={{ background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' }}>
-                              {isAdminUser && adminReturnableItems.length > 0 ? (
-                                <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: '#475569', width: 44 }}>
-                                  Return
-                                </th>
-                              ) : null}
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Item code</th>
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Category</th>
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Gross Wt</th>
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Net Wt</th>
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Employee</th>
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Sample out</th>
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Sample in</th>
-                              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#475569' }}>Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {detailModalItems.map((line, idx) => {
-                              const status = String(line?.ItemStatus || '—').trim() || '—';
-                              const statusStyle = getLineItemStatusStyle(status);
-                              const lotItemId = lineLotItemId(line);
-                              const canReturn =
-                                isAdminUser && lineCanAdminReturn(line, detailModal.header);
-                              return (
-                                <tr key={line.Id ?? `${line.ItemCode}-${idx}`} className="lot-detail-table-row">
-                                  {isAdminUser && adminReturnableItems.length > 0 ? (
-                                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                                      {canReturn ? (
-                                        <input
-                                          type="checkbox"
-                                          checked={lotItemId != null && adminReturnSelectedIds.has(lotItemId)}
-                                          onChange={() => toggleAdminReturnLine(line)}
-                                          style={{ width: 16, height: 16, accentColor: LOT_DETAIL_BLUE }}
-                                          aria-label={`Select ${line.ItemCode || 'item'} for admin return`}
-                                        />
-                                      ) : (
-                                        <span style={{ color: '#cbd5e1' }}>—</span>
-                                      )}
-                                    </td>
-                                  ) : null}
-                                  <td style={{ padding: '10px 12px' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => openDetailItemFromModal(line)}
-                                      style={{
-                                        border: 'none',
-                                        background: 'none',
-                                        padding: 0,
-                                        color: LOT_DETAIL_BLUE,
-                                        fontWeight: 800,
-                                        cursor: 'pointer',
-                                      }}
-                                    >
-                                      {line.ItemCode || line.Itemcode || '—'}
-                                    </button>
-                                  </td>
-                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineCategory(line)}</td>
-                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineGrossWt(line)}</td>
-                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineNetWt(line)}</td>
-                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{lineEmployeeNameRaw(line, detailModal.header) || '—'}</td>
-                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{formatListDate(lineSampleOutDateRaw(line, detailModal.header))}</td>
-                                  <td style={{ padding: '10px 12px', color: '#334155' }}>{formatListDate(lineSampleInDateRaw(line))}</td>
-                                  <td style={{ padding: '10px 12px' }}>
-                                    <span
-                                      style={{
-                                        fontSize: 10,
-                                        fontWeight: 800,
-                                        padding: '2px 8px',
-                                        borderRadius: 5,
-                                        textTransform: 'uppercase',
-                                        background: statusStyle.background,
-                                        color: statusStyle.color,
-                                        border: statusStyle.border,
-                                      }}
-                                    >
-                                      {status}
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                          No items match the selected filters.
+                        </p>
+                      )}
+                    </div>
+                    {detailModalTotalPages > 1 ? (
+                      <ModalGridPagination
+                        currentPage={detailModalPage}
+                        totalPages={detailModalTotalPages}
+                        onPrev={() => setDetailModalPage((p) => Math.max(1, p - 1))}
+                        onNext={() => setDetailModalPage((p) => Math.min(detailModalTotalPages, p + 1))}
+                      />
+                    ) : null}
                   </>
                 ) : (
                   <p style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: 24 }}>
@@ -3570,11 +4041,11 @@ const SampleOutList = ({
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: 16,
-                    marginTop: 12,
-                    paddingTop: 14,
+                    marginTop: 0,
+                    padding: '14px 20px 18px',
                     borderTop: '1px solid #eef2f7',
                     flexWrap: 'wrap',
-                    background: '#fff',
+                    background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
                   }}
                 >
                   <button
@@ -3601,11 +4072,32 @@ const SampleOutList = ({
                     {isAdminUser && adminReturnableItems.length > 0 ? (
                       <button
                         type="button"
-                        disabled={adminReturnSelectedCount === 0}
-                        onClick={() => {
-                          setAdminReturnSuccess(null);
-                          setShowAdminReturnModal(true);
+                        onClick={() => openAdminReturnModal({ returnAll: true })}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          height: 40,
+                          padding: '0 18px',
+                          borderRadius: 10,
+                          border: '1px solid #fdba74',
+                          background: '#fff7ed',
+                          color: '#c2410c',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          fontFamily: LOT_DETAIL_FONT,
                         }}
+                      >
+                        <FaUndo size={13} />
+                        Return all out ({adminReturnableItems.length})
+                      </button>
+                    ) : null}
+                    {isAdminUser && adminReturnableItems.length > 0 ? (
+                      <button
+                        type="button"
+                        disabled={adminReturnSelectedCount === 0}
+                        onClick={() => openAdminReturnModal({ returnAll: false })}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -3657,7 +4149,7 @@ const SampleOutList = ({
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(15,23,42,0.55)',
+            background: 'rgba(15,23,42,0.58)',
             zIndex: 10055,
             display: 'flex',
             alignItems: 'center',
@@ -3671,29 +4163,33 @@ const SampleOutList = ({
             aria-labelledby="admin-return-modal-title"
             style={{
               background: '#fff',
-              borderRadius: 14,
-              maxWidth: 480,
+              borderRadius: 18,
+              maxWidth: 680,
               width: '100%',
-              padding: '20px 22px',
-              boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+              maxHeight: '92vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 28px 64px rgba(15, 23, 42, 0.24)',
               fontFamily: LOT_DETAIL_FONT,
+              boxSizing: 'border-box',
             }}
             onClick={(e) => e.stopPropagation()}
           >
             {adminReturnSuccess ? (
-              <div style={{ textAlign: 'center', padding: '8px 4px 4px' }}>
+              <div style={{ textAlign: 'center', padding: '28px 24px 24px' }}>
                 <div
                   style={{
                     width: 56,
                     height: 56,
                     borderRadius: '50%',
-                    background: '#ecfdf5',
-                    border: '1px solid #bbf7d0',
+                    background: adminReturnSuccess.finishBg || '#ecfdf5',
+                    border: `1px solid ${adminReturnSuccess.finishBorder || '#bbf7d0'}`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     margin: '0 auto 14px',
-                    color: '#059669',
+                    color: adminReturnSuccess.finishAccent || '#059669',
                   }}
                 >
                   <FaCheckCircle size={28} />
@@ -3702,11 +4198,17 @@ const SampleOutList = ({
                   id="admin-return-modal-title"
                   style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: '#0f172a' }}
                 >
-                  Return successful
+                  {adminReturnSuccess.finishTitle || 'Return successful'}
                 </h3>
                 <p style={{ margin: '0 0 10px', fontSize: 14, color: '#475569', lineHeight: 1.55 }}>
                   {adminReturnSuccess?.message || ''}
                 </p>
+                {adminReturnSuccess?.returnedItems != null && adminReturnSuccess?.pendingItems != null ? (
+                  <p style={{ margin: '0 0 10px', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+                    {adminReturnSuccess.returnedItems} returned · {adminReturnSuccess.pendingItems} pending
+                    {adminReturnSuccess.totalItems != null ? ` · ${adminReturnSuccess.totalItems} total` : ''}
+                  </p>
+                ) : null}
                 {Array.isArray(adminReturnSuccess?.remainingOutItems) &&
                 adminReturnSuccess.remainingOutItems.length > 0 ? (
                   <div
@@ -3750,139 +4252,331 @@ const SampleOutList = ({
               </div>
             ) : (
               <>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 10,
-                        background: '#fff7ed',
-                        border: '1px solid #fed7aa',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#c2410c',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <FaUndo size={15} />
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <h3
-                        id="admin-return-modal-title"
-                        style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0f172a' }}
-                      >
-                        Admin bulk sample return
-                      </h3>
-                      <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', lineHeight: 1.45 }}>
-                        Returning {adminReturnSelectedCount} of {adminReturnableItems.length} selected item(s).
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowAdminReturnModal(false)}
-                    disabled={adminReturning}
-                    aria-label="Close admin return dialog"
-                    style={{
-                      border: 'none',
-                      background: '#f8fafc',
-                      cursor: adminReturning ? 'not-allowed' : 'pointer',
-                      padding: 8,
-                      borderRadius: 8,
-                      color: '#64748b',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <FaTimes size={14} />
-                  </button>
-                </div>
-                <label
-                  htmlFor="admin-return-remark-modal"
+                <div
                   style={{
-                    display: 'block',
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: '#475569',
-                    marginTop: 18,
-                    marginBottom: 8,
+                    padding: '16px 20px',
+                    background: 'linear-gradient(135deg, #c2410c 0%, #ea580c 55%, #d97706 100%)',
+                    color: '#fff',
                   }}
                 >
-                  Return remark
-                </label>
-                <textarea
-                  id="admin-return-remark-modal"
-                  value={adminReturnRemark}
-                  onChange={(e) => setAdminReturnRemark(e.target.value)}
-                  placeholder="e.g. Products received back at counter — employee did not scan return"
-                  rows={3}
-                  disabled={adminReturning}
-                  style={{
-                    width: '100%',
-                    padding: '12px 14px',
-                    borderRadius: 10,
-                    border: '1px solid #cbd5e1',
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    color: '#0f172a',
-                    resize: 'vertical',
-                    minHeight: 80,
-                    boxSizing: 'border-box',
-                    fontFamily: 'inherit',
-                    background: '#fff',
-                    marginBottom: 18,
-                  }}
-                />
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowAdminReturnModal(false)}
-                    disabled={adminReturning}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
+                      <div
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 11,
+                          background: 'rgba(255,255,255,0.18)',
+                          border: '1px solid rgba(255,255,255,0.28)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <FaUndo size={16} />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <h3 id="admin-return-modal-title" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#fff' }}>
+                          {adminReturnAllMode ? 'Return all out items' : 'Admin bulk sample return'}
+                        </h3>
+                        <p
+                          style={{
+                            margin: '6px 0 0',
+                            fontSize: 13,
+                            color: 'rgba(255,255,255,0.88)',
+                            lineHeight: 1.5,
+                            wordBreak: 'break-word',
+                            overflowWrap: 'anywhere',
+                          }}
+                        >
+                          Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'} ·{' '}
+                          {adminReturnAllMode ? (
+                            <>
+                              <strong style={{ fontWeight: 800 }}>{adminReturnableItems.length}</strong> remaining Out
+                              item{adminReturnableItems.length === 1 ? '' : 's'} — returns via scan path →{' '}
+                              <strong style={{ fontWeight: 800 }}>Closed</strong>
+                            </>
+                          ) : allAdminReturnableSelected ? (
+                            <>
+                              <strong style={{ fontWeight: 800 }}>{adminReturnSelectedCount}</strong> item
+                              {adminReturnSelectedCount === 1 ? '' : 's'} selected — admin manual finish →{' '}
+                              <strong style={{ fontWeight: 800 }}>Completed</strong>
+                            </>
+                          ) : (
+                            <>
+                              <strong style={{ fontWeight: 800 }}>{adminReturnSelectedCount}</strong> item
+                              {adminReturnSelectedCount === 1 ? '' : 's'} selected
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminReturnModal(false)}
+                      disabled={adminReturning}
+                      aria-label="Close admin return dialog"
+                      style={{
+                        border: '1px solid rgba(255,255,255,0.28)',
+                        background: 'rgba(255,255,255,0.14)',
+                        cursor: adminReturning ? 'not-allowed' : 'pointer',
+                        padding: 8,
+                        borderRadius: 9,
+                        color: '#fff',
+                        flexShrink: 0,
+                        lineHeight: 0,
+                      }}
+                    >
+                      <FaTimes size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ padding: '18px 20px 20px', overflowX: 'hidden', overflowY: 'auto', flex: 1, minHeight: 0 }}>
+                  {/* Selected products — full width */}
+                  <section
                     style={{
-                      flex: 1,
-                      padding: '12px 16px',
-                      borderRadius: 10,
-                      border: '1px solid #e2e8f0',
-                      background: '#fff',
-                      color: '#475569',
-                      fontWeight: 700,
-                      fontSize: 13,
-                      cursor: adminReturning ? 'not-allowed' : 'pointer',
-                      fontFamily: LOT_DETAIL_FONT,
+                      borderRadius: 14,
+                      border: '1px solid #e8ecf4',
+                      background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
+                      overflow: 'hidden',
+                      marginBottom: 14,
                     }}
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAdminBulkReturn}
-                    disabled={adminReturning || adminReturnSelectedCount === 0}
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        borderBottom: '1px solid #eef2f7',
+                        background: '#f8fafc',
+                      }}
+                    >
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>
+                        {adminReturnAllMode ? 'All remaining Out products' : 'Selected products'}
+                      </div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: windowWidth <= 520 ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+                          gap: '10px 16px',
+                        }}
+                      >
+                        <AdminReturnFieldCell
+                          label="Items"
+                          value={adminReturnAllMode ? adminReturnableItems.length : adminReturnSelectedCount}
+                          valueColor="#c2410c"
+                        />
+                        <AdminReturnFieldCell
+                          label="Return date & time"
+                          value={adminReturnPreviewDateTime}
+                          valueColor={LOT_DETAIL_BLUE}
+                        />
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        maxHeight: 320,
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        padding: '12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                      }}
+                    >
+                      {adminReturnAllMode ? (
+                        adminReturnableItems.length ? (
+                          adminReturnableItems.map((line, idx) => {
+                            const code = lineItemCode(line);
+                            const img =
+                              lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+                            return (
+                              <AdminReturnProductCard
+                                key={lineLotItemId(line) ?? `${code}-${idx}`}
+                                line={line}
+                                img={img}
+                                lineItemCode={lineItemCode}
+                                lineCategory={lineCategory}
+                                lineProduct={lineProduct}
+                                lineRfidValue={lineRfidValue}
+                                lineGrossWt={lineGrossWt}
+                                lineNetWt={lineNetWt}
+                                compact
+                              />
+                            );
+                          })
+                        ) : (
+                          <div style={{ padding: 16, fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>
+                            No Out items left to return.
+                          </div>
+                        )
+                      ) : adminReturnSelectedLines.length ? (
+                        adminReturnSelectedLines.map((line, idx) => {
+                          const code = lineItemCode(line);
+                          const img =
+                            lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+                          return (
+                            <AdminReturnProductCard
+                              key={lineLotItemId(line) ?? `${code}-${idx}`}
+                              line={line}
+                              img={img}
+                              lineItemCode={lineItemCode}
+                              lineCategory={lineCategory}
+                              lineProduct={lineProduct}
+                              lineRfidValue={lineRfidValue}
+                              lineGrossWt={lineGrossWt}
+                              lineNetWt={lineNetWt}
+                            />
+                          );
+                        })
+                      ) : (
+                        <p style={{ margin: 0, padding: 16, textAlign: 'center', fontSize: 13, color: '#94a3b8' }}>
+                          No items selected.
+                        </p>
+                      )}
+                    </div>
+                  </section>
+
+                  {/* Remark + complete lot */}
+                  <section
                     style={{
-                      flex: 1,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      padding: '12px 16px',
-                      borderRadius: 10,
-                      border: 'none',
-                      background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
-                      color: '#fff',
-                      fontWeight: 800,
-                      fontSize: 13,
-                      cursor: adminReturning ? 'wait' : 'pointer',
-                      opacity: adminReturning ? 0.85 : 1,
-                      fontFamily: LOT_DETAIL_FONT,
+                      borderRadius: 14,
+                      border: '1px solid #fde68a',
+                      background: 'linear-gradient(180deg, #fffbeb 0%, #ffffff 100%)',
+                      padding: '14px 16px',
                     }}
                   >
-                    {adminReturning ? (
-                      <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} />
-                    ) : (
-                      <FaUndo size={13} />
-                    )}
-                    Confirm return
-                  </button>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>
+                        Return remark
+                      </div>
+                      <p style={{ margin: '0 0 12px', fontSize: 12, color: '#a16207', lineHeight: 1.45 }}>
+                        Optional note recorded with this admin return.
+                      </p>
+                      <textarea
+                        id="admin-return-remark-modal"
+                        value={adminReturnRemark}
+                        onChange={(e) => setAdminReturnRemark(e.target.value)}
+                        placeholder="Type remark here…"
+                        rows={4}
+                        disabled={adminReturning}
+                        style={{
+                          width: '100%',
+                          padding: '12px 14px',
+                          borderRadius: 10,
+                          border: '1px solid #fcd34d',
+                          fontSize: 13,
+                          lineHeight: 1.55,
+                          color: '#0f172a',
+                          resize: 'vertical',
+                          minHeight: 96,
+                          maxHeight: 140,
+                          boxSizing: 'border-box',
+                          fontFamily: 'inherit',
+                          background: '#fff',
+                        }}
+                      />
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: '10px 12px',
+                          borderRadius: 9,
+                          background: '#fff',
+                          border: '1px solid #fde68a',
+                          fontSize: 11,
+                          color: '#78350f',
+                          lineHeight: 1.5,
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
+                        }}
+                      >
+                        <strong style={{ fontWeight: 800 }}>Note:</strong>{' '}
+                        {adminReturnAllMode
+                          ? 'Return all Out uses the scan-complete path (Closed) — only when every Out item is returned.'
+                          : 'Partial admin return keeps the lot Open or Partial return until every Out item is returned. Completed is set only when all items are back.'}
+                      </div>
+                    </section>
+
+                  <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminReturnModal(false)}
+                      disabled={adminReturning}
+                      style={{
+                        flex: 1,
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        border: '1px solid #e2e8f0',
+                        background: '#fff',
+                        color: '#475569',
+                        fontWeight: 700,
+                        fontSize: 13,
+                        cursor: adminReturning ? 'not-allowed' : 'pointer',
+                        fontFamily: LOT_DETAIL_FONT,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAdminBulkReturn}
+                      disabled={
+                        adminReturning ||
+                        (adminReturnAllMode ? adminReturnableItems.length === 0 : adminReturnSelectedCount === 0)
+                      }
+                      style={{
+                        flex: 1.2,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        padding: '12px 16px',
+                        borderRadius: 10,
+                        border: 'none',
+                        background:
+                          adminReturning ||
+                          (adminReturnAllMode
+                            ? adminReturnableItems.length === 0
+                            : adminReturnSelectedCount === 0)
+                            ? '#e2e8f0'
+                            : 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
+                        color:
+                          adminReturning ||
+                          (adminReturnAllMode
+                            ? adminReturnableItems.length === 0
+                            : adminReturnSelectedCount === 0)
+                            ? '#94a3b8'
+                            : '#fff',
+                        fontWeight: 800,
+                        fontSize: 13,
+                        cursor:
+                          adminReturning ||
+                          (adminReturnAllMode
+                            ? adminReturnableItems.length === 0
+                            : adminReturnSelectedCount === 0)
+                            ? 'not-allowed'
+                            : 'pointer',
+                        fontFamily: LOT_DETAIL_FONT,
+                        boxShadow:
+                          adminReturning ||
+                          (adminReturnAllMode
+                            ? adminReturnableItems.length === 0
+                            : adminReturnSelectedCount === 0)
+                            ? 'none'
+                            : '0 6px 20px rgba(234, 88, 12, 0.35)',
+                      }}
+                    >
+                      {adminReturning ? (
+                        <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} />
+                      ) : (
+                        <FaUndo size={13} />
+                      )}
+                      {adminReturnAllMode
+                        ? 'Return all & close lot'
+                        : allAdminReturnableSelected
+                          ? 'Return all selected (Completed)'
+                          : 'Confirm return'}
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -3968,19 +4662,22 @@ const SampleOutList = ({
           border-radius: 16px;
           background: #fff;
           overflow: hidden;
-          box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+          box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
           display: flex;
           flex-direction: column;
-          transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+          transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
         }
         .lot-detail-item-card:hover {
-          transform: translateY(-2px);
-          border-color: rgba(15, 76, 129, 0.22);
-          box-shadow: 0 8px 24px rgba(15, 76, 129, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+          transform: translateY(-3px);
+          border-color: rgba(15, 76, 129, 0.28);
+          box-shadow: 0 14px 36px rgba(15, 76, 129, 0.14), 0 4px 12px rgba(15, 23, 42, 0.08);
         }
         .lot-detail-item-code:hover {
-          color: #1e40af !important;
+          opacity: 0.92;
           text-decoration: underline;
+        }
+        .lot-detail-grid {
+          gap: 16px !important;
         }
         .lot-detail-table-row {
           border-top: 1px solid #f1f5f9;

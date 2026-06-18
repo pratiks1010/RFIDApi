@@ -9,7 +9,8 @@ import {
   FaTimes,
   FaFileExport,
   FaFileExcel,
-  FaFilePdf
+  FaFilePdf,
+  FaChartBar
 } from 'react-icons/fa';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import * as XLSX from 'xlsx';
@@ -351,6 +352,19 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const createDashboardQueryString = () => {
+    const params = new URLSearchParams();
+    params.set('branch', filterValues.branch || 'All');
+    params.set('counterName', filterValues.counterName || 'All');
+    params.set('categoryId', filterValues.categoryId || 'All');
+    params.set('productId', filterValues.productId || 'All');
+    params.set('designId', filterValues.designId || 'All');
+    params.set('purityId', filterValues.purityId || 'All');
+    params.set('dateFrom', filterValues.dateFrom || getCurrentDate());
+    params.set('dateTo', filterValues.dateTo || getCurrentDate());
+    return params.toString();
   };
 
   const handleRefresh = async () => {
@@ -1389,6 +1403,34 @@ const Reports = () => {
                   <FaSync />
                 )}
                 Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const query = createDashboardQueryString();
+                  navigate(`/stock-report-dashboard?${query}`);
+                }}
+                disabled={reportData.length === 0}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #d1d5db',
+                  background: reportData.length === 0 ? '#f8fafc' : 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 100%)',
+                  color: '#0f172a',
+                  cursor: reportData.length === 0 ? 'not-allowed' : 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                  opacity: reportData.length === 0 ? 0.45 : 1,
+                }}
+              >
+                <FaChartBar style={{ fontSize: 11, color: '#475569' }} />
+                <span>Dashboard View</span>
               </button>
 
               <button

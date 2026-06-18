@@ -36,6 +36,7 @@ import QuotationWithRFIDTray from './components/quotation/QuotationWithRFIDTray'
 import QuotationList from './components/quotation/QuotationList';
 import Reports from './components/Reports';
 import StockReportSummary from './components/StockReportSummary';
+import StockReportDashboard from './components/StockReportDashboard';
 import Footer from './components/Footer';
 import UploadRFID from './components/UploadRFID';
 import RFIDTransactions from './components/RFIDTransactions';
@@ -680,6 +681,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <StockReportSummary />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/stock-report-dashboard"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <StockReportDashboard />
                 </PageWrapper>
               </AuthGuard>
             }

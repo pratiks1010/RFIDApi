@@ -1,0 +1,69 @@
+{
+  "version": 2,
+  "clientId": "default",
+  "title": "Default Dashboard Layout",
+  "updatedAt": "2026-06-19T00:00:00.000Z",
+  "grid": { "columns": 12 },
+  "widgets": [
+    {
+      "id": "statusDistribution",
+      "type": "chart",
+      "chartType": "pie",
+      "title": "Status Distribution",
+      "visible": true,
+      "order": 1,
+      "size": { "colSpan": 3 }
+    },
+    {
+      "id": "categoryDistribution",
+      "type": "chart",
+      "chartType": "bar",
+      "title": "Category Distribution",
+      "visible": true,
+      "order": 2,
+      "size": { "colSpan": 3 }
+    },
+    {
+      "id": "branchDistribution",
+      "type": "chart",
+      "chartType": "horizontalBar",
+      "title": "Branch Distribution",
+      "visible": true,
+      "order": 3,
+      "size": { "colSpan": 3 }
+    },
+    {
+      "id": "tagUsageDistribution",
+      "type": "chart",
+      "chartType": "doughnut",
+      "title": "Tag Usage Distribution",
+      "visible": true,
+      "order": 4,
+      "size": { "colSpan": 3 }
+    },
+    {
+      "id": "topItems",
+      "type": "table",
+      "title": "Top Items",
+      "visible": true,
+      "order": 5,
+      "size": { "colSpan": 4 }
+    },
+    {
+      "id": "counterWiseStock",
+      "type": "table",
+      "title": "Counter Wise Stock",
+      "visible": true,
+      "order": 6,
+      "size": { "colSpan": 4 }
+    },
+    {
+      "id": "categoryBreakdown",
+      "type": "table",
+      "title": "Category Distribution",
+      "visible": true,
+      "order": 7,
+      "size": { "colSpan": 4 }
+    }
+  ]
+}

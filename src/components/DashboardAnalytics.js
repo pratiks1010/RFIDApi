@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { useTranslation } from '../hooks/useTranslation';
+import { getDashboardLayout, saveDashboardLayout, resetDashboardLayout, normalizeLayout } from '../services/dashboardLayoutService';
+import defaultDashboardLayout from '../data/dashboardLayout.json';
 import {
   FaChartLine,
   FaChartBar,
@@ -22,7 +24,12 @@ import {
   FaArrowUp,
   FaArrowDown,
   FaEye,
-  FaTags
+  FaEyeSlash,
+  FaTags,
+  FaThLarge,
+  FaTimes,
+  FaUndo,
+  FaGripVertical
 } from 'react-icons/fa';
 import {
   Chart as ChartJS,
@@ -90,6 +97,174 @@ const DashboardAnalytics = () => {
   /** Bottom grid tables (Top Items, Counter Wise, Category): fixed 7 visible rows per page */
   const bottomTableRowsPerPage = 7;
   const { addNotification } = useNotifications();
+
+  // --- Dynamic (per-client) dashboard layout -----------------------------
+  // Start from the bundled default so widgets are correctly sized on first paint,
+  // then the async loader applies any per-client (localStorage / API) overrides.
+  const [dashboardLayout, setDashboardLayout] = useState(() => normalizeLayout(defaultDashboardLayout));
+
+  useEffect(() => {
+    let mounted = true;
+    getDashboardLayout()
+      .then((cfg) => { if (mounted) setDashboardLayout(cfg); })
+      .catch(() => { /* fall back to default static rendering */ });
+    return () => { mounted = false; };
+  }, []);
+
+  // Configured widgets keyed by id for quick lookup.
+  const widgetLayoutMap = useMemo(() => {
+    const map = {};
+    (dashboardLayout?.widgets || []).forEach((w) => { map[w.id] = w; });
+    return map;
+  }, [dashboardLayout]);
+
+  const gridColumns = dashboardLayout?.grid?.columns || 12;
+
+  // Inline CSS-grid style (order / column-span / visibility) for a configured widget.
+  // Returns {} when the widget isn't in the config so the original layout is preserved.
+  const widgetStyle = useCallback((id) => {
+    const w = widgetLayoutMap[id];
+    if (!w) return {};
+    if (w.visible === false) return { display: 'none' };
+    const cols = gridColumns;
+    const minSpan = Math.max(1, Math.round(cols / 4)); // quarter = minimum width
+    const span = Math.min(Math.max(minSpan, w.size?.colSpan || minSpan), cols);
+    return {
+      order: Number.isFinite(w.order) ? w.order : undefined,
+      gridColumn: `span ${span}`,
+    };
+  }, [widgetLayoutMap, gridColumns]);
+
+  // --- Layout editor (customize widgets) ---------------------------------
+  const [layoutEditorOpen, setLayoutEditorOpen] = useState(false);
+  const [draftLayout, setDraftLayout] = useState(null);
+
+  const sortWidgetsByOrder = (layout) => {
+    if (layout && Array.isArray(layout.widgets)) {
+      layout.widgets = [...layout.widgets].sort((a, b) => (a.order || 0) - (b.order || 0));
+    }
+    return layout;
+  };
+
+  const openLayoutEditor = () => {
+    const base = dashboardLayout ? JSON.parse(JSON.stringify(dashboardLayout)) : null;
+    setDraftLayout(base ? sortWidgetsByOrder(base) : null);
+    setLayoutEditorOpen(true);
+  };
+
+  const closeLayoutEditor = () => setLayoutEditorOpen(false);
+
+  const updateDraftWidget = (widgetId, patch) => {
+    setDraftLayout((prev) => {
+      if (!prev) return prev;
+      const next = JSON.parse(JSON.stringify(prev));
+      next.widgets = (next.widgets || []).map((w) => (w.id === widgetId ? { ...w, ...patch } : w));
+      return next;
+    });
+  };
+
+  const moveDraftWidget = (index, dir) => {
+    setDraftLayout((prev) => {
+      if (!prev) return prev;
+      const next = JSON.parse(JSON.stringify(prev));
+      const arr = next.widgets || [];
+      const j = index + dir;
+      if (j < 0 || j >= arr.length) return prev;
+      [arr[index], arr[j]] = [arr[j], arr[index]];
+      arr.forEach((w, i) => { w.order = i + 1; });
+      return next;
+    });
+  };
+
+  // Drag-and-drop reordering in the editor.
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+
+  const reorderDraftWidget = (from, to) => {
+    setDraftLayout((prev) => {
+      if (!prev) return prev;
+      if (from == null || to == null || from === to) return prev;
+      const next = JSON.parse(JSON.stringify(prev));
+      const arr = next.widgets || [];
+      if (from < 0 || from >= arr.length || to < 0 || to >= arr.length) return prev;
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      arr.forEach((w, i) => { w.order = i + 1; });
+      return next;
+    });
+  };
+
+  const saveLayoutDraft = async () => {
+    if (!draftLayout) { setLayoutEditorOpen(false); return; }
+    const toSave = JSON.parse(JSON.stringify(draftLayout));
+    (toSave.widgets || []).forEach((w, i) => { w.order = i + 1; });
+    try {
+      const saved = await saveDashboardLayout(toSave);
+      setDashboardLayout(saved);
+    } catch {
+      setDashboardLayout(toSave);
+    }
+    setLayoutEditorOpen(false);
+  };
+
+  const resetLayoutDraft = async () => {
+    try {
+      const def = await resetDashboardLayout();
+      setDraftLayout(sortWidgetsByOrder(def));
+    } catch { /* ignore */ }
+  };
+
+  const layoutMoveBtnStyle = (disabled) => ({
+    border: '1px solid #e2e8f0',
+    background: '#fff',
+    color: disabled ? '#cbd5e1' : '#475569',
+    width: 22,
+    height: 16,
+    borderRadius: 4,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+  });
+  // -----------------------------------------------------------------------
+
+  // --- Metric cards drag-and-drop ordering -------------------------------
+  const METRIC_CARD_ORDER_KEY = 'dashboard_metric_card_order_v1';
+  const defaultMetricCardOrder = ['totalItems', 'totalWeight', 'newRfidTags', 'soldItems', 'activeItems', 'counterCount'];
+
+  const [metricCardOrder, setMetricCardOrder] = useState(() => {
+    try {
+      const raw = localStorage.getItem(METRIC_CARD_ORDER_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      }
+    } catch { /* ignore */ }
+    return defaultMetricCardOrder;
+  });
+
+  const [cardDragId, setCardDragId] = useState(null);
+  const [cardDragOverId, setCardDragOverId] = useState(null);
+
+  const persistMetricCardOrder = (order) => {
+    try { localStorage.setItem(METRIC_CARD_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
+  };
+
+  const reorderMetricCards = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    setMetricCardOrder((prev) => {
+      const arr = [...prev];
+      const from = arr.indexOf(fromId);
+      const to = arr.indexOf(toId);
+      if (from === -1 || to === -1) return prev;
+      arr.splice(from, 1);
+      arr.splice(to, 0, fromId);
+      persistMetricCardOrder(arr);
+      return arr;
+    });
+  };
+  // -----------------------------------------------------------------------
 
   const ratesCategoryColorPalette = [
     '#0d9488', // teal
@@ -2328,6 +2503,29 @@ const DashboardAnalytics = () => {
           </div>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, alignSelf: 'center' }}>
+        <button
+          type="button"
+          onClick={openLayoutEditor}
+          title="Customize dashboard layout"
+          style={{
+            padding: '9px 16px',
+            fontSize: 13,
+            fontWeight: 800,
+            color: '#fff',
+            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+            border: 'none',
+            borderRadius: 12,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            boxShadow: '0 4px 16px rgba(79, 70, 229, 0.28)',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+          }}
+        >
+          <FaThLarge /> Edit Layout
+        </button>
         <button
           type="button"
           onClick={handleOpenRates}
@@ -2354,7 +2552,124 @@ const DashboardAnalytics = () => {
           {ratesLoading ? <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> : <FaCoins />}
           Rates
         </button>
+        </div>
       </div>
+
+      {/* Layout Editor Modal */}
+      {layoutEditorOpen && draftLayout && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 3200, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={closeLayoutEditor}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 16, width: 'min(560px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(15,23,42,0.3)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 32, height: 32, borderRadius: 8, background: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaThLarge size={14} /></span>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Customize Dashboard</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Show, reorder and resize your widgets</div>
+                </div>
+              </div>
+              <button type="button" onClick={closeLayoutEditor} aria-label="Close" style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex' }}><FaTimes /></button>
+            </div>
+
+            <div style={{ padding: '12px 20px', overflowY: 'auto', flex: 1 }}>
+              <div style={{ fontSize: 11, color: '#64748b', margin: '0 0 10px', lineHeight: 1.4 }}>
+                Drag the order with the arrows — graphs and tables share one grid, so you can mix them (e.g. graph, table, graph). Set each widget's width and show/hide.
+              </div>
+              {(draftLayout.widgets || []).map((w, idx) => {
+                const isHidden = w.visible === false;
+                const widthPresets = [
+                  { value: 3, label: 'Quarter' },
+                  { value: 4, label: 'Third' },
+                  { value: 6, label: 'Half' },
+                  { value: 12, label: 'Full' },
+                ];
+                const currentSpan = w.size?.colSpan || 3;
+                const hasPreset = widthPresets.some((p) => p.value === currentSpan);
+                const isDragging = dragIndex === idx;
+                const isDragOver = dragOverIndex === idx && dragIndex !== null && dragIndex !== idx;
+                return (
+                  <div
+                    key={w.id}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverIndex !== idx) setDragOverIndex(idx); }}
+                    onDrop={(e) => { e.preventDefault(); reorderDraftWidget(dragIndex, idx); setDragIndex(null); setDragOverIndex(null); }}
+                    onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '10px 12px',
+                      border: `1px solid ${isDragOver ? '#4f46e5' : '#e2e8f0'}`,
+                      borderRadius: 10,
+                      marginBottom: 8,
+                      background: isHidden ? '#f8fafc' : '#fff',
+                      opacity: isDragging ? 0.45 : 1,
+                      boxShadow: isDragOver ? '0 0 0 2px rgba(79,70,229,0.15)' : 'none',
+                      transition: 'border-color 0.12s ease, box-shadow 0.12s ease',
+                    }}
+                  >
+                    <span
+                      draggable
+                      onDragStart={(e) => { setDragIndex(idx); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(idx)); } catch { /* noop */ } }}
+                      title="Drag to reorder"
+                      style={{ cursor: 'grab', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: '2px 1px' }}
+                      aria-label="Drag to reorder"
+                    >
+                      <FaGripVertical size={13} />
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <button type="button" onClick={() => moveDraftWidget(idx, -1)} disabled={idx === 0} style={layoutMoveBtnStyle(idx === 0)} aria-label="Move up"><FaArrowUp size={9} /></button>
+                      <button type="button" onClick={() => moveDraftWidget(idx, 1)} disabled={idx === draftLayout.widgets.length - 1} style={layoutMoveBtnStyle(idx === draftLayout.widgets.length - 1)} aria-label="Move down"><FaArrowDown size={9} /></button>
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: '#cbd5e1', width: 18, textAlign: 'center' }}>{idx + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: isHidden ? '#94a3b8' : '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.title || w.id}</div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'capitalize' }}>{w.type}{w.chartType ? ` · ${w.chartType}` : ''}</div>
+                    </div>
+                    <label style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      Width
+                      <select
+                        value={currentSpan}
+                        onChange={(e) => updateDraftWidget(w.id, { size: { colSpan: Number(e.target.value) } })}
+                        style={{ fontSize: 12, padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                      >
+                        {!hasPreset && <option value={currentSpan}>{`${currentSpan}/12`}</option>}
+                        {widthPresets.map((p) => (
+                          <option key={p.value} value={p.value}>{p.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => updateDraftWidget(w.id, { visible: isHidden })}
+                      title={isHidden ? 'Hidden — click to show' : 'Visible — click to hide'}
+                      style={{ border: 'none', background: isHidden ? '#f1f5f9' : '#eef2ff', color: isHidden ? '#94a3b8' : '#4f46e5', width: 34, height: 30, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      {isHidden ? <FaEyeSlash size={13} /> : <FaEye size={13} />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 20px', borderTop: '1px solid #e2e8f0' }}>
+              <button type="button" onClick={resetLayoutDraft} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 12, fontWeight: 700, color: '#64748b', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 10, cursor: 'pointer' }}>
+                <FaUndo size={11} /> Reset to default
+              </button>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button type="button" onClick={closeLayoutEditor} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, color: '#475569', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 10, cursor: 'pointer' }}>Cancel</button>
+                <button type="button" onClick={saveLayoutDraft} style={{ padding: '8px 18px', fontSize: 12, fontWeight: 800, color: '#fff', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FaCheck size={11} /> Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Rates Modal */}
       {ratesModalOpen && (
@@ -2650,6 +2965,7 @@ const DashboardAnalytics = () => {
       >
         {[
           {
+            id: 'totalItems',
             icon: FaGem,
             label: t('analytics.totalItems'),
             value: totalItems,
@@ -2664,6 +2980,7 @@ const DashboardAnalytics = () => {
             iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(239,246,255,0.85) 100%)',
           },
           {
+            id: 'totalWeight',
             icon: FaWeight,
             label: t('analytics.modal.totalWeight'),
             value: totalWeight,
@@ -2678,6 +2995,7 @@ const DashboardAnalytics = () => {
             iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(236,254,255,0.88) 100%)',
           },
           {
+            id: 'newRfidTags',
             icon: FaTags,
             label: t('analytics.newRfidTags'),
             value: totalRfidNew,
@@ -2692,6 +3010,7 @@ const DashboardAnalytics = () => {
             iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(254,252,232,0.9) 100%)',
           },
           {
+            id: 'soldItems',
             icon: FaShoppingCart,
             label: t('analytics.soldItems'),
             value: soldItemsCount,
@@ -2706,6 +3025,7 @@ const DashboardAnalytics = () => {
             iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(255,241,242,0.88) 100%)',
           },
           {
+            id: 'activeItems',
             icon: FaBoxes,
             label: t('analytics.activeItems'),
             value: availableItems,
@@ -2720,6 +3040,7 @@ const DashboardAnalytics = () => {
             iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(240,253,244,0.88) 100%)',
           },
           {
+            id: 'counterCount',
             icon: FaStore,
             label: t('analytics.counterCount'),
             value: uniqueCounters,
@@ -2733,14 +3054,26 @@ const DashboardAnalytics = () => {
             shadowHover: '0 14px 32px rgba(124, 58, 237, 0.17)',
             iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(245,243,255,0.88) 100%)',
           },
-        ].map((card, index) => (
+        ]
+          .slice()
+          .sort((a, b) => {
+            const ia = metricCardOrder.indexOf(a.id);
+            const ib = metricCardOrder.indexOf(b.id);
+            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+          })
+          .map((card) => {
+          const isCardDragging = cardDragId === card.id;
+          const isCardDragOver = cardDragOverId === card.id && cardDragId && cardDragId !== card.id;
+          return (
           <div
-            key={index}
+            key={card.id}
+            onDragOver={(e) => { if (cardDragId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (cardDragOverId !== card.id) setCardDragOverId(card.id); } }}
+            onDrop={(e) => { if (cardDragId) { e.preventDefault(); reorderMetricCards(cardDragId, card.id); setCardDragId(null); setCardDragOverId(null); } }}
             style={{
               background: card.gradient,
               borderRadius: '16px',
               padding: '12px 14px',
-              border: `1px solid ${card.border}`,
+              border: `1px solid ${isCardDragOver ? card.color : card.border}`,
               display: 'flex',
               alignItems: 'flex-start',
               gap: '11px',
@@ -2748,12 +3081,14 @@ const DashboardAnalytics = () => {
               overflow: 'hidden',
               minWidth: 0,
               width: '100%',
-              boxShadow: card.shadow,
+              boxShadow: isCardDragOver ? `0 0 0 2px ${card.color}55, ${card.shadow}` : card.shadow,
+              opacity: isCardDragging ? 0.45 : 1,
               transition:
                 'transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease',
               cursor: 'default',
             }}
             onMouseEnter={(e) => {
+              if (cardDragId) return;
               e.currentTarget.style.boxShadow = card.shadowHover;
               e.currentTarget.style.transform = 'translateY(-3px)';
               e.currentTarget.style.borderColor = `${card.color}44`;
@@ -2766,6 +3101,32 @@ const DashboardAnalytics = () => {
               e.currentTarget.style.background = card.gradient;
             }}
           >
+            <span
+              draggable
+              onDragStart={(e) => { setCardDragId(card.id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', card.id); } catch { /* noop */ } }}
+              onDragEnd={() => { setCardDragId(null); setCardDragOverId(null); }}
+              title="Drag to reorder"
+              aria-label="Drag to reorder"
+              className="metric-card-drag-handle"
+              style={{
+                position: 'absolute',
+                top: 7,
+                right: 7,
+                zIndex: 3,
+                cursor: 'grab',
+                color: `${card.color}99`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 18,
+                height: 18,
+                borderRadius: 5,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = card.color; e.currentTarget.style.background = `${card.color}1a`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = `${card.color}99`; e.currentTarget.style.background = 'transparent'; }}
+            >
+              <FaGripVertical size={11} />
+            </span>
             <div
               aria-hidden
               style={{
@@ -2847,19 +3208,20 @@ const DashboardAnalytics = () => {
               </p>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Compact Charts Grid - Status, Category, Branch, Tag Usage */}
+      {/* Unified dashboard widgets grid - charts + tables interleaved by config order */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
         gap: '16px',
         marginBottom: '16px',
         width: '100%',
-        minHeight: '300px'
+        alignItems: 'stretch'
       }}
-        className="charts-grid-responsive"
+        className="dashboard-widgets-grid"
       >
         {/* Status Distribution Chart */}
         <div style={{
@@ -2870,7 +3232,8 @@ const DashboardAnalytics = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
-          width: '100%'
+          width: '100%',
+          ...widgetStyle('statusDistribution')
         }}
           onMouseEnter={(e) => {
             e.currentTarget.style.boxShadow = '0 8px 20px rgba(37, 99, 235, 0.12)';
@@ -2932,7 +3295,8 @@ const DashboardAnalytics = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
-          width: '100%'
+          width: '100%',
+          ...widgetStyle('categoryDistribution')
         }}
           onMouseEnter={(e) => {
             e.currentTarget.style.boxShadow = '0 8px 20px rgba(14, 165, 233, 0.12)';
@@ -3063,7 +3427,8 @@ const DashboardAnalytics = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
-          width: '100%'
+          width: '100%',
+          ...widgetStyle('branchDistribution')
         }}
           onMouseEnter={(e) => {
             e.currentTarget.style.boxShadow = '0 8px 20px rgba(234, 179, 8, 0.14)';
@@ -3125,7 +3490,8 @@ const DashboardAnalytics = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
           transition: 'all 0.25s ease',
           minWidth: 0,
-          width: '100%'
+          width: '100%',
+          ...widgetStyle('tagUsageDistribution')
         }}
           onMouseEnter={(e) => {
             e.currentTarget.style.boxShadow = '0 8px 20px rgba(124, 58, 237, 0.14)';
@@ -3275,20 +3641,10 @@ const DashboardAnalytics = () => {
             />
           </div>
         </div>
-      </div>
 
-      {/* Compact Bottom Sections - Top Items, Counter Wise, Category */}
-      <div
-        className="bottom-tables-grid"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '16px',
-          marginBottom: '16px'
-        }}
-      >
+      {/* Detail tables share the same unified grid (interleavable with charts) */}
         {/* Top Products */}
-        <div className="analytics-bottom-panel">
+        <div className="analytics-bottom-panel" style={widgetStyle('topItems')}>
           <div className="analytics-bottom-panel-head">
             <h3 className="analytics-bottom-panel-title">{t('analytics.modal.topItems')}</h3>
             <div className="analytics-bottom-search">
@@ -3391,7 +3747,7 @@ const DashboardAnalytics = () => {
         </div>
 
         {/* Counter Wise Stock */}
-        <div className="analytics-bottom-panel">
+        <div className="analytics-bottom-panel" style={widgetStyle('counterWiseStock')}>
           <div className="analytics-bottom-panel-head">
             <h3 className="analytics-bottom-panel-title">Counter Wise Stock</h3>
             <div className="analytics-bottom-search">
@@ -3477,7 +3833,7 @@ const DashboardAnalytics = () => {
         </div>
 
         {/* Category Performance Analysis */}
-        <div className="analytics-bottom-panel analytics-bottom-panel--single-title">
+        <div className="analytics-bottom-panel analytics-bottom-panel--single-title" style={widgetStyle('categoryBreakdown')}>
           <div className="analytics-bottom-panel-head analytics-bottom-panel-head--solo">
             <h3 className="analytics-bottom-panel-title">{t('analytics.chart.categoryDistribution')}</h3>
           </div>
@@ -5678,6 +6034,39 @@ const DashboardAnalytics = () => {
           }
         }
         
+        /* Unified dashboard widgets grid (charts + tables) */
+        .dashboard-widgets-grid {
+          display: grid;
+          grid-template-columns: repeat(12, 1fr);
+          gap: 16px;
+          align-items: stretch;
+        }
+        /* Every widget is a uniform-height flex column so rows line up cleanly */
+        .dashboard-widgets-grid > div {
+          min-width: 0;
+          min-height: 380px;
+          display: flex;
+          flex-direction: column;
+        }
+        /* Chart canvas area fills the remaining card height */
+        .dashboard-widgets-grid > div > div[style*="height: 210px"] {
+          flex: 1 1 auto;
+        }
+        /* Table body fills the remaining panel height; keeps header + pagination pinned */
+        .dashboard-widgets-grid .analytics-bottom-table-wrap {
+          flex: 1 1 auto;
+          min-height: 0;
+        }
+        @media (max-width: 900px) {
+          .dashboard-widgets-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px;
+          }
+          .dashboard-widgets-grid > div {
+            grid-column: 1 / -1 !important;
+          }
+        }
+
         /* Charts Grid Responsive */
         .charts-grid-responsive {
           display: grid;

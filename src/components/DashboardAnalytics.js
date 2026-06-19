@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { useTranslation } from '../hooks/useTranslation';
-import { 
-  FaChartLine, 
-  FaChartBar, 
-  FaGem, 
-  FaWeight, 
-  FaStore, 
+import {
+  FaChartLine,
+  FaChartBar,
+  FaGem,
+  FaWeight,
+  FaStore,
   FaCalendarAlt,
   FaFilter,
   FaDownload,
@@ -24,7 +24,7 @@ import {
   FaEye,
   FaTags
 } from 'react-icons/fa';
-import { 
+import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
@@ -87,7 +87,6 @@ const DashboardAnalytics = () => {
   const [initialRatesByPurityId, setInitialRatesByPurityId] = useState({});
   const [basePurityIdByCategoryId, setBasePurityIdByCategoryId] = useState({});
   const [baseFineByCategoryId, setBaseFineByCategoryId] = useState({});
-  const [hoveredCategoryRing, setHoveredCategoryRing] = useState(null);
   /** Bottom grid tables (Top Items, Counter Wise, Category): fixed 7 visible rows per page */
   const bottomTableRowsPerPage = 7;
   const { addNotification } = useNotifications();
@@ -127,7 +126,7 @@ const DashboardAnalytics = () => {
     try {
       setLoading(true);
       const clientCode = getClientCode();
-      
+
       if (!clientCode) {
         throw new Error(t('analytics.errorLoadingData'));
       }
@@ -551,10 +550,10 @@ const DashboardAnalytics = () => {
     try {
       setTagUsageLoading(true);
       const clientCode = getClientCode();
-      
+
       console.log('Client Code for tag usage:', clientCode); // Debug log
       console.log('Full userInfo from localStorage:', localStorage.getItem('userInfo')); // Debug log
-      
+
       if (!clientCode) {
         throw new Error(t('analytics.errorLoadingData'));
       }
@@ -621,7 +620,7 @@ const DashboardAnalytics = () => {
         fetchSoldItemsCount();
       }, 500);
     };
-    
+
     initializeData();
   }, []);
 
@@ -644,7 +643,7 @@ const DashboardAnalytics = () => {
     const statuses = ['Active', 'Sold', 'Inactive', 'Pending'];
     const counters = ['Counter A', 'Counter B', 'Counter C', 'Counter D', 'Counter E'];
     const products = ['Ring', 'Necklace', 'Bracelet', 'Earring', 'Pendant', 'Chain', 'Bangle', 'Coin'];
-    
+
     for (let i = 0; i < 150; i++) {
       dummyItems.push({
         ProductName: products[Math.floor(Math.random() * products.length)],
@@ -672,34 +671,18 @@ const DashboardAnalytics = () => {
     const soldCount = soldItemsApiCount != null ? soldItemsApiCount : soldCountFromInventory;
     const labels = ['Active', 'Sold'];
     const values = [activeCount, soldCount];
-    const statusColors = {
-      Active: '#0d9488',
-      Sold: '#dc2626'
-    };
 
     return {
       labels,
       datasets: [{
         label: t('analytics.itemsCount'),
         data: values,
-        backgroundColor: labels.map((label) => statusColors[label]),
-        borderColor: labels.map((label) => statusColors[label]),
+        backgroundColor: ['#10b981', '#f43f5e'],
+        hoverBackgroundColor: ['#059669', '#e11d48'],
+        borderColor: '#ffffff',
         borderWidth: 2,
-        borderRadius: {
-          topLeft: 8,
-          topRight: 8,
-          bottomLeft: 4,
-          bottomRight: 4
-        },
-        borderSkipped: false,
-        hoverBackgroundColor: ['#0f766e', '#b91c1c'],
-        hoverBorderWidth: 2,
         hoverBorderColor: '#ffffff',
-        // Keep bars visually balanced, especially when only 1 status exists.
-        maxBarThickness: 56,
-        barThickness: 42,
-        categoryPercentage: 0.56,
-        barPercentage: 0.72,
+        hoverBorderWidth: 3,
       }]
     };
   };
@@ -759,14 +742,14 @@ const DashboardAnalytics = () => {
     }, {});
 
     const sortedProducts = Object.entries(productCounts)
-      .sort(([,a], [,b]) => b - a)
+      .sort(([, a], [, b]) => b - a)
       .slice(0, 8);
 
     return {
       labels: sortedProducts.map(([name]) => name.length > 15 ? name.substring(0, 15) + '...' : name),
       datasets: [{
         label: t('analytics.itemsCount'),
-        data: sortedProducts.map(([,count]) => count),
+        data: sortedProducts.map(([, count]) => count),
         backgroundColor: (context) => {
           const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
           const colors = [
@@ -819,8 +802,8 @@ const DashboardAnalytics = () => {
           gradient.addColorStop(1, colorPair[1]);
           return gradient;
         },
-                 hoverBorderWidth: 2,
-         hoverBorderColor: '#ffffff',
+        hoverBorderWidth: 2,
+        hoverBorderColor: '#ffffff',
       }]
     };
   };
@@ -833,14 +816,14 @@ const DashboardAnalytics = () => {
     }, {});
 
     const sortedCounters = Object.entries(counterCounts)
-      .sort(([,a], [,b]) => b - a)
+      .sort(([, a], [, b]) => b - a)
       .slice(0, 8);
 
     return {
       labels: sortedCounters.map(([name]) => name.length > 12 ? name.substring(0, 12) + '...' : name),
       datasets: [{
         label: t('analytics.itemsCount'),
-        data: sortedCounters.map(([,count]) => count),
+        data: sortedCounters.map(([, count]) => count),
         backgroundColor: (context) => {
           const gradient = context.chart.ctx.createLinearGradient(0, 0, 0, 300);
           const colors = [
@@ -893,8 +876,8 @@ const DashboardAnalytics = () => {
           gradient.addColorStop(1, colorPair[1]);
           return gradient;
         },
-                 hoverBorderWidth: 2,
-         hoverBorderColor: '#ffffff',
+        hoverBorderWidth: 2,
+        hoverBorderColor: '#ffffff',
       }]
     };
   };
@@ -944,18 +927,19 @@ const DashboardAnalytics = () => {
 
     const labels = sortedBranches.map(([branch]) => branch);
     const values = sortedBranches.map(([, count]) => count);
-    const colors = labels.map((_, index) => branchColorPalette[index % branchColorPalette.length]);
 
     return {
       labels,
       datasets: [{
         label: t('analytics.itemsCount'),
         data: values,
-        backgroundColor: colors,
-        borderColor: '#ffffff',
-        borderWidth: 3,
-        hoverOffset: 10,
-        cutout: '54%'
+        backgroundColor: '#f59e0b',
+        hoverBackgroundColor: '#d97706',
+        borderColor: 'transparent',
+        borderWidth: 0,
+        borderRadius: 6,
+        borderSkipped: false,
+        maxBarThickness: 26,
       }]
     };
   };
@@ -975,44 +959,24 @@ const DashboardAnalytics = () => {
 
   // Get tag usage distribution data - 3 bars: Total RFID Tags, Used Tags, Unused Tags
   const getTagUsageDistribution = () => {
-    if (!tagUsageData) {
-      const dummyUsed = loading ? dummyTagUsage.used : 0;
-      const dummyUnused = loading ? dummyTagUsage.unused : 0;
-      const dummyTotal = dummyUsed + dummyUnused;
-      return {
-        labels: ['Total RFID Tags', 'Used Tags', 'Unused Tags'],
-        datasets: [{
-          label: t('analytics.tagCount'),
-          data: [dummyTotal, dummyUsed, dummyUnused],
-          backgroundColor: ['#2563eb', '#eab308', '#16a34a'],
-          borderColor: ['#2563eb', '#eab308', '#16a34a'],
-          borderWidth: 1,
-          borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 4, bottomRight: 4 },
-          borderSkipped: false,
-          hoverBackgroundColor: ['#1e40af', '#ca8a04', '#15803d'],
-          hoverBorderWidth: 2,
-          hoverBorderColor: '#ffffff',
-        }]
-      };
-    }
-
-    const usedCount = tagUsageData.UsedCount || 0;
-    const unusedCount = tagUsageData.UnusedCount || 0;
-    const totalTags = usedCount + unusedCount;
+    const usedCount = !tagUsageData
+      ? (loading ? dummyTagUsage.used : 0)
+      : (tagUsageData.UsedCount || 0);
+    const unusedCount = !tagUsageData
+      ? (loading ? dummyTagUsage.unused : 0)
+      : (tagUsageData.UnusedCount || 0);
 
     return {
-      labels: ['Total RFID Tags', 'Used Tags', 'Unused Tags'],
+      labels: ['Used Tags', 'Unused Tags'],
       datasets: [{
         label: t('analytics.tagCount'),
-        data: [totalTags, usedCount, unusedCount],
-        backgroundColor: ['#2563eb', '#eab308', '#16a34a'],
-        borderColor: ['#2563eb', '#eab308', '#16a34a'],
-        borderWidth: 1,
-        borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 4, bottomRight: 4 },
-        borderSkipped: false,
-        hoverBackgroundColor: ['#1e40af', '#ca8a04', '#15803d'],
-        hoverBorderWidth: 2,
+        data: [usedCount, unusedCount],
+        backgroundColor: ['#7c3aed', '#fbbf24'],
+        hoverBackgroundColor: ['#6d28d9', '#f59e0b'],
+        borderColor: '#ffffff',
+        borderWidth: 2,
         hoverBorderColor: '#ffffff',
+        hoverBorderWidth: 3,
       }]
     };
   };
@@ -1120,7 +1084,7 @@ const DashboardAnalytics = () => {
       return new Promise((resolve) => {
         const img = new window.Image();
         img.crossOrigin = 'anonymous';
-        img.onload = function() {
+        img.onload = function () {
           const canvas = document.createElement('canvas');
           canvas.width = width;
           canvas.height = height;
@@ -1133,29 +1097,29 @@ const DashboardAnalytics = () => {
       });
     };
     const logoPng = await svgToPngDataUrl(logoUrl, 120, 40);
-    doc.addImage(logoPng, 'PNG', pageWidth/2 - 60, y, 120, 40);
+    doc.addImage(logoPng, 'PNG', pageWidth / 2 - 60, y, 120, 40);
     y += 60;
 
     // Title
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(26);
     doc.setTextColor('#232a36');
-    doc.text(t('analytics.title'), pageWidth/2, y, { align: 'center' });
+    doc.text(t('analytics.title'), pageWidth / 2, y, { align: 'center' });
     y += 32;
 
     // Date/time
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(12);
     doc.setTextColor('#64748b');
-    doc.text(`${t('common.export')}: ${new Date().toLocaleString()}`, pageWidth/2, y, { align: 'center' });
+    doc.text(`${t('common.export')}: ${new Date().toLocaleString()}`, pageWidth / 2, y, { align: 'center' });
     y += 30;
 
     // --- Status Distribution ---
     doc.setFillColor(230, 245, 233); // very light green
-    doc.roundedRect(40, y, pageWidth-80, 32, 8, 8, 'F');
+    doc.roundedRect(40, y, pageWidth - 80, 32, 8, 8, 'F');
     doc.setFontSize(16);
     doc.setTextColor('#22c55e');
-    doc.text(t('analytics.statusDistribution'), pageWidth/2, y+22, { align: 'center' });
+    doc.text(t('analytics.statusDistribution'), pageWidth / 2, y + 22, { align: 'center' });
     y += 48;
     // Table
     const statusCounts = filteredData.reduce((acc, item) => {
@@ -1166,16 +1130,16 @@ const DashboardAnalytics = () => {
     const statusTable = Object.entries(statusCounts).map(([label, count]) => [
       label,
       count,
-      `${((count/statusTotal)*100).toFixed(1)}%`
+      `${((count / statusTotal) * 100).toFixed(1)}%`
     ]);
     autoTable(doc, {
       startY: y,
       head: [[t('analytics.status'), t('analytics.count'), t('analytics.percentage')]],
       body: statusTable,
       theme: 'striped',
-      headStyles: { fillColor: [230,245,233], textColor: '#22c55e', fontStyle: 'bold', fontSize: 12 },
+      headStyles: { fillColor: [230, 245, 233], textColor: '#22c55e', fontStyle: 'bold', fontSize: 12 },
       bodyStyles: { fontSize: 11, font: 'helvetica', textColor: '#232a36' },
-      alternateRowStyles: { fillColor: [248,250,252] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: 40, right: 40 },
       styles: { cellPadding: 6, overflow: 'linebreak' },
     });
@@ -1189,10 +1153,10 @@ const DashboardAnalytics = () => {
 
     // --- Category Distribution ---
     doc.setFillColor(255, 249, 196); // very light gold
-    doc.roundedRect(40, y, pageWidth-80, 32, 8, 8, 'F');
+    doc.roundedRect(40, y, pageWidth - 80, 32, 8, 8, 'F');
     doc.setFontSize(16);
     doc.setTextColor('#bfa100');
-    doc.text(t('analytics.categoryDistribution'), pageWidth/2, y+22, { align: 'center' });
+    doc.text(t('analytics.categoryDistribution'), pageWidth / 2, y + 22, { align: 'center' });
     y += 48;
     // Table
     const categoryCounts = filteredData.reduce((acc, item) => {
@@ -1203,16 +1167,16 @@ const DashboardAnalytics = () => {
     const categoryTable = Object.entries(categoryCounts).map(([label, count]) => [
       label,
       count,
-      `${((count/categoryTotal)*100).toFixed(1)}%`
+      `${((count / categoryTotal) * 100).toFixed(1)}%`
     ]);
     autoTable(doc, {
       startY: y,
       head: [[t('analytics.categoryName'), t('analytics.count'), t('analytics.percentage')]],
       body: categoryTable,
       theme: 'striped',
-      headStyles: { fillColor: [255,249,196], textColor: '#bfa100', fontStyle: 'bold', fontSize: 12 },
+      headStyles: { fillColor: [255, 249, 196], textColor: '#bfa100', fontStyle: 'bold', fontSize: 12 },
       bodyStyles: { fontSize: 11, font: 'helvetica', textColor: '#232a36' },
-      alternateRowStyles: { fillColor: [248,250,252] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: 40, right: 40 },
       styles: { cellPadding: 6, overflow: 'linebreak' },
     });
@@ -1226,10 +1190,10 @@ const DashboardAnalytics = () => {
 
     // --- Branch Distribution ---
     doc.setFillColor(222, 235, 255); // very light blue
-    doc.roundedRect(40, y, pageWidth-80, 32, 8, 8, 'F');
+    doc.roundedRect(40, y, pageWidth - 80, 32, 8, 8, 'F');
     doc.setFontSize(16);
     doc.setTextColor('#2563eb');
-    doc.text(t('analytics.branchDistribution'), pageWidth/2, y+22, { align: 'center' });
+    doc.text(t('analytics.branchDistribution'), pageWidth / 2, y + 22, { align: 'center' });
     y += 48;
     // Table
     const branchCounts = filteredData.reduce((acc, item) => {
@@ -1240,16 +1204,16 @@ const DashboardAnalytics = () => {
     const branchTable = Object.entries(branchCounts).map(([label, count]) => [
       label,
       count,
-      `${((count/branchTotal)*100).toFixed(1)}%`
+      `${((count / branchTotal) * 100).toFixed(1)}%`
     ]);
     autoTable(doc, {
       startY: y,
       head: [[t('analytics.branchName'), t('analytics.count'), t('analytics.percentage')]],
       body: branchTable,
       theme: 'striped',
-      headStyles: { fillColor: [222,235,255], textColor: '#2563eb', fontStyle: 'bold', fontSize: 12 },
+      headStyles: { fillColor: [222, 235, 255], textColor: '#2563eb', fontStyle: 'bold', fontSize: 12 },
       bodyStyles: { fontSize: 11, font: 'helvetica', textColor: '#232a36' },
-      alternateRowStyles: { fillColor: [248,250,252] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: 40, right: 40 },
       styles: { cellPadding: 6, overflow: 'linebreak' },
     });
@@ -1264,10 +1228,10 @@ const DashboardAnalytics = () => {
     // --- Top Products, Top Vendors, Performance Metrics (as before, but lighter header colors) ---
     // Top Products
     doc.setFillColor(232, 240, 254); // very light blue
-    doc.roundedRect(40, y, pageWidth-80, 32, 8, 8, 'F');
+    doc.roundedRect(40, y, pageWidth - 80, 32, 8, 8, 'F');
     doc.setFontSize(16);
     doc.setTextColor('#0077d4');
-    doc.text(t('analytics.modal.topItems'), pageWidth/2, y+22, { align: 'center' });
+    doc.text(t('analytics.modal.topItems'), pageWidth / 2, y + 22, { align: 'center' });
     y += 48;
     autoTable(doc, {
       startY: y,
@@ -1278,20 +1242,20 @@ const DashboardAnalytics = () => {
           return acc;
         }, {});
         const sortedProducts = Object.entries(productCounts)
-          .sort(([,a], [,b]) => b - a)
+          .sort(([, a], [, b]) => b - a)
           .slice(0, 8);
         const total = Object.values(productCounts).reduce((a, b) => a + b, 0);
         return sortedProducts.map(([name, count], idx) => [
-          idx+1,
+          idx + 1,
           name,
           count,
-          `${((count/total)*100).toFixed(1)}%`
+          `${((count / total) * 100).toFixed(1)}%`
         ]);
       })(),
       theme: 'striped',
-      headStyles: { fillColor: [232,240,254], textColor: '#0077d4', fontStyle: 'bold', fontSize: 12 },
+      headStyles: { fillColor: [232, 240, 254], textColor: '#0077d4', fontStyle: 'bold', fontSize: 12 },
       bodyStyles: { fontSize: 11, font: 'helvetica', textColor: '#232a36' },
-      alternateRowStyles: { fillColor: [248,250,252] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: 40, right: 40 },
       styles: { cellPadding: 6, overflow: 'linebreak' },
     });
@@ -1299,10 +1263,10 @@ const DashboardAnalytics = () => {
 
     // Counter Wise Stock Check
     doc.setFillColor(232, 254, 240); // very light green
-    doc.roundedRect(40, y, pageWidth-80, 32, 8, 8, 'F');
+    doc.roundedRect(40, y, pageWidth - 80, 32, 8, 8, 'F');
     doc.setFontSize(16);
     doc.setTextColor('#22c55e');
-    doc.text('Counter Wise Stock Check', pageWidth/2, y+22, { align: 'center' });
+    doc.text('Counter Wise Stock Check', pageWidth / 2, y + 22, { align: 'center' });
     y += 48;
     autoTable(doc, {
       startY: y,
@@ -1314,20 +1278,20 @@ const DashboardAnalytics = () => {
           return acc;
         }, {});
         const sortedCounters = Object.entries(counterCounts)
-          .sort(([,a], [,b]) => b - a)
+          .sort(([, a], [, b]) => b - a)
           .slice(0, 8);
-        const maxCount = sortedCounters.length > 0 ? Math.max(...sortedCounters.map(([,count]) => count)) : 0;
+        const maxCount = sortedCounters.length > 0 ? Math.max(...sortedCounters.map(([, count]) => count)) : 0;
         return sortedCounters.map(([name, count], idx) => [
-          idx+1,
+          idx + 1,
           name,
           count,
-          maxCount > 0 ? `${((count/maxCount)*100).toFixed(0)}%` : '0%'
+          maxCount > 0 ? `${((count / maxCount) * 100).toFixed(0)}%` : '0%'
         ]);
       })(),
       theme: 'striped',
-      headStyles: { fillColor: [232,254,240], textColor: '#22c55e', fontStyle: 'bold', fontSize: 12 },
+      headStyles: { fillColor: [232, 254, 240], textColor: '#22c55e', fontStyle: 'bold', fontSize: 12 },
       bodyStyles: { fontSize: 11, font: 'helvetica', textColor: '#232a36' },
-      alternateRowStyles: { fillColor: [248,250,252] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: 40, right: 40 },
       styles: { cellPadding: 6, overflow: 'linebreak' },
     });
@@ -1335,10 +1299,10 @@ const DashboardAnalytics = () => {
 
     // Performance Metrics
     doc.setFillColor(255, 249, 196); // very light gold
-    doc.roundedRect(40, y, pageWidth-80, 32, 8, 8, 'F');
+    doc.roundedRect(40, y, pageWidth - 80, 32, 8, 8, 'F');
     doc.setFontSize(16);
     doc.setTextColor('#bfa100');
-    doc.text(t('analytics.performanceMetrics'), pageWidth/2, y+22, { align: 'center' });
+    doc.text(t('analytics.performanceMetrics'), pageWidth / 2, y + 22, { align: 'center' });
     y += 48;
     autoTable(doc, {
       startY: y,
@@ -1364,9 +1328,9 @@ const DashboardAnalytics = () => {
         ],
       ],
       theme: 'striped',
-      headStyles: { fillColor: [255,249,196], textColor: '#bfa100', fontStyle: 'bold', fontSize: 12 },
+      headStyles: { fillColor: [255, 249, 196], textColor: '#bfa100', fontStyle: 'bold', fontSize: 12 },
       bodyStyles: { fontSize: 11, font: 'helvetica', textColor: '#232a36' },
-      alternateRowStyles: { fillColor: [248,250,252] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: 40, right: 40 },
       styles: { cellPadding: 6, overflow: 'linebreak' },
     });
@@ -1401,8 +1365,8 @@ const DashboardAnalytics = () => {
     return (
       <div className="pagination-container">
         <div className="pagination-controls">
-          <button 
-            className="pagination-btn" 
+          <button
+            className="pagination-btn"
             onClick={() => onPageChange(currentPage - 1)}
             disabled={currentPage === 1}
           >
@@ -1421,8 +1385,8 @@ const DashboardAnalytics = () => {
               </button>
             </React.Fragment>
           ))}
-          <button 
-            className="pagination-btn" 
+          <button
+            className="pagination-btn"
             onClick={() => onPageChange(currentPage + 1)}
             disabled={currentPage === totalPages}
           >
@@ -1439,7 +1403,7 @@ const DashboardAnalytics = () => {
   // Category Performance Analysis function
   const getCategoryPerformanceAnalysis = () => {
     const categoryAnalysis = {};
-    
+
     filteredData.forEach(item => {
       const category = item.CategoryName;
       if (!categoryAnalysis[category]) {
@@ -1451,15 +1415,15 @@ const DashboardAnalytics = () => {
           soldItems: 0
         };
       }
-      
+
       categoryAnalysis[category].totalItems += 1;
       categoryAnalysis[category].totalWeight += parseFloat(item.GrossWt) || 0;
       categoryAnalysis[category].totalValue += (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt)) || 0;
-      
+
       if (item.Status === 'Sold') {
         categoryAnalysis[category].soldItems += 1;
       }
-      
+
       // Track products in this category
       if (!categoryAnalysis[category].products[item.ProductName]) {
         categoryAnalysis[category].products[item.ProductName] = 0;
@@ -1469,11 +1433,11 @@ const DashboardAnalytics = () => {
 
     return Object.entries(categoryAnalysis).map(([category, data]) => {
       const topProduct = Object.entries(data.products)
-        .sort(([,a], [,b]) => b - a)[0];
-      
+        .sort(([, a], [, b]) => b - a)[0];
+
       const conversionRate = ((data.soldItems / data.totalItems) * 100).toFixed(1);
       const avgValue = data.totalItems > 0 ? (data.totalValue / data.totalItems).toFixed(0) : 0;
-      
+
       return {
         category,
         totalItems: data.totalItems,
@@ -1491,7 +1455,7 @@ const DashboardAnalytics = () => {
     if (elements.length > 0) {
       const elementIndex = elements[0].index;
       let selectedData = {};
-      
+
       if (chartType === 'status') {
         const statusCounts = filteredData.reduce((acc, item) => {
           acc[item.Status] = (acc[item.Status] || 0) + 1;
@@ -1500,7 +1464,7 @@ const DashboardAnalytics = () => {
         const statusLabels = Object.keys(statusCounts);
         const selectedStatus = statusLabels[elementIndex];
         const statusItems = filteredData.filter(item => item.Status === selectedStatus);
-        
+
         selectedData = {
           type: 'status',
           title: selectedStatus,
@@ -1519,7 +1483,7 @@ const DashboardAnalytics = () => {
         const categoryLabels = Object.keys(categoryCounts);
         const selectedCategory = categoryLabels[elementIndex];
         const categoryItems = filteredData.filter(item => item.CategoryName === selectedCategory);
-        
+
         selectedData = {
           type: 'category',
           title: selectedCategory,
@@ -1538,7 +1502,7 @@ const DashboardAnalytics = () => {
         const branchLabels = Object.keys(branchCounts);
         const selectedBranch = event?.chart?.data?.labels?.[elementIndex] || branchLabels[elementIndex];
         const branchItems = filteredData.filter(item => item.BranchName === selectedBranch);
-        
+
         selectedData = {
           type: 'branch',
           title: selectedBranch,
@@ -1550,7 +1514,7 @@ const DashboardAnalytics = () => {
           breakdown: getBranchBreakdown(branchItems)
         };
       }
-      
+
       setSelectedAnalytics(selectedData);
       setShowAnalyticsModal(true);
     }
@@ -1578,7 +1542,7 @@ const DashboardAnalytics = () => {
 
   const getVendorAvatarColor = (vendorName, index) => {
     const vendorColors = [
-      '#0077d4', '#22c55e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444', 
+      '#0077d4', '#22c55e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444',
       '#f472b6', '#a3e635', '#fbbf24', '#6366f1', '#0ea5e9', '#b3b3cc'
     ];
     return vendorColors[index % vendorColors.length];
@@ -1598,15 +1562,15 @@ const DashboardAnalytics = () => {
       acc[item.CategoryName] = (acc[item.CategoryName] || 0) + 1;
       return acc;
     }, {});
-    
+
     const topProducts = items.reduce((acc, item) => {
       acc[item.ProductName] = (acc[item.ProductName] || 0) + 1;
       return acc;
     }, {});
-    
+
     return {
-      byCategory: Object.entries(categoryBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
-      topProducts: Object.entries(topProducts).sort(([,a], [,b]) => b - a).slice(0, 5),
+      byCategory: Object.entries(categoryBreakdown).sort(([, a], [, b]) => b - a).slice(0, 5),
+      topProducts: Object.entries(topProducts).sort(([, a], [, b]) => b - a).slice(0, 5),
       totalWeight: items.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0).toFixed(2),
       totalValue: items.reduce((sum, item) => sum + (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt) || 0), 0).toFixed(0)
     };
@@ -1617,16 +1581,16 @@ const DashboardAnalytics = () => {
       acc[item.Status] = (acc[item.Status] || 0) + 1;
       return acc;
     }, {});
-    
+
     const counterBreakdown = items.reduce((acc, item) => {
       const counterName = item.CounterName || item.Counter || 'Unassigned';
       acc[counterName] = (acc[counterName] || 0) + 1;
       return acc;
     }, {});
-    
+
     return {
-      byStatus: Object.entries(statusBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
-      topCounters: Object.entries(counterBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
+      byStatus: Object.entries(statusBreakdown).sort(([, a], [, b]) => b - a).slice(0, 5),
+      topCounters: Object.entries(counterBreakdown).sort(([, a], [, b]) => b - a).slice(0, 5),
       totalWeight: items.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0).toFixed(2),
       totalValue: items.reduce((sum, item) => sum + (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt) || 0), 0).toFixed(0)
     };
@@ -1637,15 +1601,15 @@ const DashboardAnalytics = () => {
       acc[item.CategoryName] = (acc[item.CategoryName] || 0) + 1;
       return acc;
     }, {});
-    
+
     const statusBreakdown = items.reduce((acc, item) => {
       acc[item.Status] = (acc[item.Status] || 0) + 1;
       return acc;
     }, {});
-    
+
     return {
-      byCategory: Object.entries(categoryBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
-      byStatus: Object.entries(statusBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5),
+      byCategory: Object.entries(categoryBreakdown).sort(([, a], [, b]) => b - a).slice(0, 5),
+      byStatus: Object.entries(statusBreakdown).sort(([, a], [, b]) => b - a).slice(0, 5),
       totalWeight: items.reduce((sum, item) => sum + (parseFloat(item.GrossWt) || 0), 0).toFixed(2),
       totalValue: items.reduce((sum, item) => sum + (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt) || 0), 0).toFixed(0)
     };
@@ -1654,7 +1618,7 @@ const DashboardAnalytics = () => {
   // Analytics Modal Component
   const AnalyticsModal = ({ data, onClose }) => {
     if (!data) return null;
-    
+
     return (
       <div className="analytics-modal-overlay" onClick={onClose}>
         <div className="analytics-modal-content" onClick={e => e.stopPropagation()}>
@@ -1670,7 +1634,7 @@ const DashboardAnalytics = () => {
             </div>
             <button className="analytics-modal-close" onClick={onClose}>×</button>
           </div>
-          
+
           <div className="analytics-modal-body">
             {/* Key Metrics */}
             <div className="analytics-metrics-grid">
@@ -1703,39 +1667,39 @@ const DashboardAnalytics = () => {
                 </div>
               </div>
             </div>
-            
+
             {/* Breakdown Tables */}
             <div className="analytics-breakdown-grid">
               <div className="breakdown-section">
                 <h4>{data.type === 'status' ? t('analytics.byCategory') : data.type === 'category' ? t('analytics.byStatus') : t('analytics.byCategory')}</h4>
                 <div className="breakdown-list">
-                  {(data.type === 'status' ? data.breakdown.byCategory : 
-                    data.type === 'category' ? data.breakdown.byStatus : 
-                    data.breakdown.byCategory).map(([name, count], idx) => (
-                    <div key={name} className="breakdown-item">
-                      <span className="breakdown-name">{name}</span>
-                      <span className="breakdown-count">{count}</span>
-                    </div>
-                  ))}
+                  {(data.type === 'status' ? data.breakdown.byCategory :
+                    data.type === 'category' ? data.breakdown.byStatus :
+                      data.breakdown.byCategory).map(([name, count], idx) => (
+                        <div key={name} className="breakdown-item">
+                          <span className="breakdown-name">{name}</span>
+                          <span className="breakdown-count">{count}</span>
+                        </div>
+                      ))}
                 </div>
               </div>
-              
+
               <div className="breakdown-section">
                 <h4>{data.type === 'status' ? t('analytics.modal.topItems') : data.type === 'category' ? 'Number of Counters' : t('analytics.byStatus')}</h4>
                 <div className="breakdown-list">
-                  {(data.type === 'status' ? data.breakdown.topProducts : 
-                    data.type === 'category' ? data.breakdown.topCounters : 
-                    data.breakdown.byStatus).map(([name, count], idx) => (
-                    <div key={name} className="breakdown-item">
-                      <span className="breakdown-name">{name.length > 20 ? name.substring(0, 20) + '...' : name}</span>
-                      <span className="breakdown-count">{count}</span>
-                    </div>
-                  ))}
+                  {(data.type === 'status' ? data.breakdown.topProducts :
+                    data.type === 'category' ? data.breakdown.topCounters :
+                      data.breakdown.byStatus).map(([name, count], idx) => (
+                        <div key={name} className="breakdown-item">
+                          <span className="breakdown-name">{name.length > 20 ? name.substring(0, 20) + '...' : name}</span>
+                          <span className="breakdown-count">{count}</span>
+                        </div>
+                      ))}
                 </div>
               </div>
             </div>
           </div>
-          
+
           <div className="analytics-modal-footer">
             <button className="analytics-export-btn">
               <FaDownload /> {t('analytics.modal.export')}
@@ -1751,48 +1715,40 @@ const DashboardAnalytics = () => {
 
   // Update chart options to include click handlers
   const chartOptionsWithClick = {
-    ...chartOptions,
+    responsive: true,
+    maintainAspectRatio: false,
     onClick: (event, elements) => handleChartClick(event, elements, 'status'),
     plugins: {
-      ...chartOptions.plugins,
+      legend: {
+        position: 'bottom',
+        labels: {
+          padding: 14,
+          usePointStyle: true,
+          pointStyle: 'circle',
+          font: { size: 11, family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }
+        }
+      },
       tooltip: {
-        ...chartOptions.plugins.tooltip,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        titleColor: '#ffffff',
+        bodyColor: '#ffffff',
+        borderColor: '#10b981',
+        borderWidth: 1,
+        cornerRadius: 6,
+        padding: 10,
         callbacks: {
           label: (context) => {
             const label = context.label || 'Status';
-            const count = context.parsed?.y ?? context.raw ?? 0;
-            return `${label}: ${count.toLocaleString()} items`;
+            const value = context.parsed ?? context.raw ?? 0;
+            const total = (context.dataset?.data || []).reduce((sum, n) => sum + (Number(n) || 0), 0);
+            const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+            return `${label}: ${value.toLocaleString()} (${pct}%)`;
           },
           afterLabel: () => 'Click to view details'
         }
       }
     },
-    elements: {
-      bar: {
-        hoverBorderWidth: 3,
-        hoverBorderColor: '#ffffff',
-        borderRadius: 10
-      }
-    },
-    scales: {
-      ...chartOptions.scales,
-      x: {
-        ...chartOptions.scales.x,
-        grid: { display: false },
-        ticks: {
-          ...chartOptions.scales.x.ticks,
-          padding: 8
-        }
-      },
-      y: {
-        ...chartOptions.scales.y,
-        grid: { color: 'rgba(148, 163, 184, 0.2)' },
-        ticks: {
-          ...chartOptions.scales.y.ticks,
-          padding: 6
-        }
-      }
-    }
+    elements: { arc: { borderRadius: 4 } }
   };
 
   const categoryChartOptions = {
@@ -1852,32 +1808,48 @@ const DashboardAnalytics = () => {
   };
 
   const branchChartOptions = {
-    ...pieChartOptions,
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
     onClick: (event, elements) => handleChartClick(event, elements, 'branch'),
     plugins: {
-      ...pieChartOptions.plugins,
       legend: {
         display: false
       },
       tooltip: {
-        ...pieChartOptions.plugins.tooltip,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        titleColor: '#ffffff',
+        bodyColor: '#ffffff',
+        borderColor: '#f59e0b',
+        borderWidth: 1,
+        cornerRadius: 6,
+        padding: 10,
         callbacks: {
           label: (context) => {
             const branch = context.label || 'Branch';
-            const value = context.parsed ?? context.raw ?? 0;
+            const value = context.parsed?.x ?? context.raw ?? 0;
             const total = (context.dataset?.data || []).reduce((sum, num) => sum + (Number(num) || 0), 0);
             const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
             return `${branch}: ${value.toLocaleString()} (${pct}%)`;
           },
-          afterLabel: () => 'Hover to view branch details'
+          afterLabel: () => 'Click to view branch details'
         }
       }
     },
-    elements: {
-      arc: {
-        borderRadius: 4,
-        hoverBorderWidth: 3,
-        hoverBorderColor: '#ffffff'
+    scales: {
+      x: {
+        beginAtZero: true,
+        grid: { color: 'rgba(15, 23, 42, 0.06)' },
+        ticks: {
+          precision: 0,
+          font: { size: 9, family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif' }
+        }
+      },
+      y: {
+        grid: { display: false },
+        ticks: {
+          font: { size: 10, family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif' }
+        }
       }
     }
   };
@@ -1890,18 +1862,18 @@ const DashboardAnalytics = () => {
     const hasAnimatedRef = React.useRef(false);
     const previousValueRef = React.useRef(null);
     const startValueRef = React.useRef(0);
-    
+
     useEffect(() => {
       const target = parseFloat(value) || 0;
       const prevValue = previousValueRef.current;
       const prevLoading = previousLoadingRef.current;
-      
+
       // Clear any existing animation first
       if (animationRef.current) {
         clearInterval(animationRef.current);
         animationRef.current = null;
       }
-      
+
       if (loading) {
         // During loading, show animated dummy values
         // Reset animation flag when loading starts
@@ -1910,7 +1882,7 @@ const DashboardAnalytics = () => {
         }
         previousLoadingRef.current = true;
         startValueRef.current = displayValue;
-        
+
         animationRef.current = setInterval(() => {
           setDisplayValue(prev => {
             const variation = target * 0.1; // 10% variation
@@ -1925,7 +1897,7 @@ const DashboardAnalytics = () => {
         // 3. The value has actually changed or is different from previous
         const wasLoading = prevLoading;
         const valueChanged = prevValue === null || prevValue !== target;
-        
+
         // Only animate once when loading completes and value has changed
         // Only animate if:
         // 1. We were loading before (transition from loading to not loading)
@@ -1937,22 +1909,22 @@ const DashboardAnalytics = () => {
           hasAnimatedRef.current = true;
           previousLoadingRef.current = false;
           previousValueRef.current = target;
-          
+
           const startValue = displayValue || 0;
           startValueRef.current = startValue;
           const duration = 1500;
           const steps = 60;
           const totalChange = target - startValue;
-          
+
           // Only animate if there's a significant change
           if (Math.abs(totalChange) > 0.01) {
             const increment = totalChange / steps;
             let step = 0;
-            
+
             animationRef.current = setInterval(() => {
               step++;
               const newCurrent = startValue + (increment * step);
-              
+
               if ((increment >= 0 && newCurrent >= target) || (increment < 0 && newCurrent <= target)) {
                 setDisplayValue(target);
                 if (animationRef.current) {
@@ -1977,7 +1949,7 @@ const DashboardAnalytics = () => {
           previousValueRef.current = 0;
         }
       }
-      
+
       return () => {
         if (animationRef.current) {
           clearInterval(animationRef.current);
@@ -1985,7 +1957,7 @@ const DashboardAnalytics = () => {
         }
       };
     }, [value, loading]);
-    
+
     return <span>{displayValue.toFixed(decimals).toLocaleString()}{suffix}</span>;
   };
 
@@ -2004,7 +1976,7 @@ const DashboardAnalytics = () => {
   }
 
   return (
-    <div 
+    <div
       className="dashboard-container dashboard-analytics-responsive"
       style={{
         padding: '12px',
@@ -2103,14 +2075,21 @@ const DashboardAnalytics = () => {
           font-family: 'Inter', 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
         }
         .analytics-bottom-table-modern thead th {
-          padding: 8px 9px;
+          padding: 9px 9px;
           text-align: left;
           font-weight: 700;
           font-size: 10px;
-          color: #e2e8f0;
-          letter-spacing: 0.03em;
-          background: #23364a;
-          border-bottom: 1px solid #1e2f42;
+          color: #3730a3;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          background: #e0e7ff;
+          border-bottom: 2px solid #c7d2fe;
+        }
+        .analytics-bottom-table-modern thead th:first-child {
+          border-top-left-radius: 8px;
+        }
+        .analytics-bottom-table-modern thead th:last-child {
+          border-top-right-radius: 8px;
         }
         .analytics-bottom-table-modern thead th.analytics-bottom-th-num {
           text-align: right;
@@ -2146,14 +2125,32 @@ const DashboardAnalytics = () => {
           white-space: nowrap;
           max-width: 100%;
         }
+        .analytics-bottom-table-modern tbody tr:nth-child(even):not(.analytics-table-row-empty) td {
+          background: #f8fafc;
+        }
         .analytics-bottom-table-modern tbody tr:not(.analytics-table-row-empty):hover td {
-          background: #f1f7ff;
+          background: #eef5ff;
         }
         .analytics-bottom-table-modern tbody tr.analytics-table-row-empty td {
           border-bottom: 1px solid #edf2f7;
-          height: 36px;
+          height: 34px;
           background: #fcfdff;
           color: transparent;
+        }
+        .analytics-bottom-table--top {
+          table-layout: fixed;
+        }
+        .analytics-bottom-table--top th,
+        .analytics-bottom-table--top td {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .analytics-bottom-table--top tbody td {
+          height: 34px;
+        }
+        .analytics-bottom-table--top .analytics-bottom-td-num {
+          font-variant-numeric: tabular-nums;
         }
       `}</style>
       {/* Loading Progress Indicator */}
@@ -2574,7 +2571,7 @@ const DashboardAnalytics = () => {
                                     type="text"
                                     value={value === '' || value == null ? '' : String(value)}
                                     onChange={(e) => handleRateChange(p, e.target.value)}
-                                  disabled={ratesSaving}
+                                    disabled={ratesSaving}
                                     style={{
                                       width: 145,
                                       height: 28,
@@ -2586,7 +2583,7 @@ const DashboardAnalytics = () => {
                                       textAlign: 'right',
                                       fontSize: 10.5,
                                       boxSizing: 'border-box',
-                                    background: ratesSaving ? '#f1f5f9' : '#fff',
+                                      background: ratesSaving ? '#f1f5f9' : '#fff',
                                     }}
                                   />
                                 </td>
@@ -2641,7 +2638,7 @@ const DashboardAnalytics = () => {
       )}
 
       {/* Compact Summary Cards - Responsive Grid */}
-      <div 
+      <div
         className="metrics-cards-grid"
         style={{
           display: 'grid',
@@ -2862,7 +2859,7 @@ const DashboardAnalytics = () => {
         width: '100%',
         minHeight: '300px'
       }}
-      className="charts-grid-responsive"
+        className="charts-grid-responsive"
       >
         {/* Status Distribution Chart */}
         <div style={{
@@ -2875,14 +2872,14 @@ const DashboardAnalytics = () => {
           minWidth: 0,
           width: '100%'
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(37, 99, 235, 0.12)';
-          e.currentTarget.style.transform = 'translateY(-2px)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-          e.currentTarget.style.transform = 'translateY(0)';
-        }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = '0 8px 20px rgba(37, 99, 235, 0.12)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
         >
           <div style={{
             display: 'flex',
@@ -2906,7 +2903,7 @@ const DashboardAnalytics = () => {
               }}>
                 Overview of item status across inventory
               </p>
-          </div>
+            </div>
             <div style={{
               width: '36px',
               height: '36px',
@@ -2919,12 +2916,12 @@ const DashboardAnalytics = () => {
               border: '1px solid #2563eb30'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
+            </div>
+          </div>
+          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
+            <Pie data={getStatusDistribution()} options={chartOptionsWithClick} />
           </div>
         </div>
-          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
-            <Bar data={getStatusDistribution()} options={chartOptionsWithClick} />
-          </div>
-          </div>
 
         {/* Category Distribution Chart */}
         <div style={{
@@ -2937,14 +2934,14 @@ const DashboardAnalytics = () => {
           minWidth: 0,
           width: '100%'
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(14, 165, 233, 0.12)';
-          e.currentTarget.style.transform = 'translateY(-2px)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-          e.currentTarget.style.transform = 'translateY(0)';
-        }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = '0 8px 20px rgba(14, 165, 233, 0.12)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
         >
           <div style={{
             display: 'flex',
@@ -2968,7 +2965,7 @@ const DashboardAnalytics = () => {
               }}>
                 {t('analytics.modal.breakdown')}
               </p>
-        </div>
+            </div>
             <div style={{
               width: '36px',
               height: '36px',
@@ -2981,110 +2978,81 @@ const DashboardAnalytics = () => {
               border: '1px solid #0ea5e930'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
-          </div>
+            </div>
           </div>
           <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
             {(() => {
               const { total, rings } = getCategoryRingBreakdown();
-              const baseRadius = 74;
-              const strokeStep = 12;
-              const strokeWidth = 9;
-              const circumference = (radius) => 2 * Math.PI * radius;
-
-              return (
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  {rings.length === 0 ? (
-                    <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center' }}>
-                      No category data available
-                    </div>
-                  ) : null}
-                  {hoveredCategoryRing ? (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 6,
-                        left: 8,
-                        zIndex: 6,
-                        background: '#ffffff',
-                        border: `1px solid ${hoveredCategoryRing.color}55`,
-                        borderRadius: 10,
-                        padding: '8px 10px',
-                        boxShadow: '0 8px 18px rgba(15,23,42,0.14)',
-                        minWidth: 170,
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                        <span
-                          style={{
-                            width: 9,
-                            height: 9,
-                            borderRadius: '50%',
-                            background: hoveredCategoryRing.color,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ fontSize: 11, fontWeight: 800, color: '#0f172a' }}>
-                          {hoveredCategoryRing.name}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 11, color: '#334155', fontWeight: 700 }}>
-                        Count: {hoveredCategoryRing.count}
-                      </div>
-                      <div style={{ fontSize: 11, color: hoveredCategoryRing.color, fontWeight: 800 }}>
-                        {hoveredCategoryRing.percentage.toFixed(1)}%
-                      </div>
-                    </div>
-                  ) : null}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="180" height="180" viewBox="0 0 180 180" aria-label="Category circular breakdown">
-                      {rings.map((ring, idx) => {
-                        const radius = baseRadius - idx * strokeStep;
-                        const c = circumference(radius);
-                        const dash = c * (ring.percentage / 100);
-                        const gap = c - dash;
-                        return (
-                          <g
-                            key={`ring-${ring.name}-${idx}`}
-                            transform="rotate(-90 90 90)"
-                            onMouseEnter={() => setHoveredCategoryRing(ring)}
-                            onMouseLeave={() => setHoveredCategoryRing(null)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <circle
-                              cx="90"
-                              cy="90"
-                              r={radius}
-                              fill="none"
-                              stroke="rgba(148,163,184,0.18)"
-                              strokeWidth={strokeWidth}
-                            />
-                            <circle
-                              cx="90"
-                              cy="90"
-                              r={radius}
-                              fill="none"
-                              stroke={ring.color}
-                              strokeWidth={strokeWidth}
-                              strokeLinecap="round"
-                              strokeDasharray={`${dash} ${gap}`}
-                            />
-                          </g>
-                        );
-                      })}
-                      <circle cx="90" cy="90" r="34" fill="#ffffff" />
-                      <text x="90" y="84" textAnchor="middle" style={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }}>
-                        Total
-                      </text>
-                      <text x="90" y="103" textAnchor="middle" style={{ fontSize: 17, fill: '#0f172a', fontWeight: 800 }}>
-                        {total}
-                      </text>
-                    </svg>
+              if (!rings.length) {
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 11, color: '#64748b' }}>
+                    No category data available
                   </div>
-                </div>
+                );
+              }
+              const palette = ['#6366f1', '#06b6d4', '#f59e0b', '#10b981', '#f43f5e', '#a855f7'];
+              const topSum = rings.reduce((sum, r) => sum + r.count, 0);
+              const othersCount = Math.max(0, total - topSum);
+              const labels = [...rings.map((r) => r.name), ...(othersCount > 0 ? ['Others'] : [])];
+              const counts = [...rings.map((r) => r.count), ...(othersCount > 0 ? [othersCount] : [])];
+              const colors = labels.map((_, i) => (i < rings.length ? palette[i % palette.length] : '#cbd5e1'));
+              const chartData = {
+                labels,
+                datasets: [{
+                  label: t('analytics.itemsCount'),
+                  data: counts,
+                  backgroundColor: colors,
+                  hoverBackgroundColor: colors,
+                  borderRadius: 6,
+                  borderSkipped: false,
+                  maxBarThickness: 44,
+                }],
+              };
+              return (
+                <Bar
+                  data={chartData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: 'white',
+                        bodyColor: 'white',
+                        borderColor: '#6366f1',
+                        borderWidth: 1,
+                        cornerRadius: 6,
+                        callbacks: {
+                          label: (ctx) => {
+                            const value = ctx.parsed?.y ?? ctx.raw ?? 0;
+                            const sum = (ctx.dataset?.data || []).reduce((s, n) => s + (Number(n) || 0), 0);
+                            const pct = sum > 0 ? ((value / sum) * 100).toFixed(1) : '0.0';
+                            return `${ctx.label}: ${value.toLocaleString()} (${pct}%)`;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 10, family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif' } }
+                      },
+                      y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(15, 23, 42, 0.06)' },
+                        ticks: {
+                          precision: 0,
+                          font: { size: 9, family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif' }
+                        }
+                      }
+                    }
+                  }}
+                />
               );
             })()}
           </div>
-      </div>
+        </div>
 
         {/* Branch Distribution Chart */}
         <div style={{
@@ -3097,14 +3065,14 @@ const DashboardAnalytics = () => {
           minWidth: 0,
           width: '100%'
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(234, 179, 8, 0.14)';
-          e.currentTarget.style.transform = 'translateY(-2px)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-          e.currentTarget.style.transform = 'translateY(0)';
-        }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = '0 8px 20px rgba(234, 179, 8, 0.14)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
         >
           <div style={{
             display: 'flex',
@@ -3128,7 +3096,7 @@ const DashboardAnalytics = () => {
               }}>
                 {t('analytics.chart.branchDistribution')}
               </p>
-              </div>
+            </div>
             <div style={{
               width: '36px',
               height: '36px',
@@ -3141,12 +3109,12 @@ const DashboardAnalytics = () => {
               border: '1px solid #eab30830'
             }}>
               <FaChartBar style={{ fontSize: '14px' }} />
-              </div>
-            </div>
-          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
-                <Doughnut data={getBranchDistribution()} options={branchChartOptions} />
             </div>
           </div>
+          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
+            <Bar data={getBranchDistribution()} options={branchChartOptions} />
+          </div>
+        </div>
 
         {/* Tag Usage Distribution Chart */}
         <div style={{
@@ -3159,14 +3127,14 @@ const DashboardAnalytics = () => {
           minWidth: 0,
           width: '100%'
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 20px rgba(124, 58, 237, 0.14)';
-          e.currentTarget.style.transform = 'translateY(-2px)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-          e.currentTarget.style.transform = 'translateY(0)';
-        }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = '0 8px 20px rgba(124, 58, 237, 0.14)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
         >
           <div style={{
             display: 'flex',
@@ -3190,7 +3158,7 @@ const DashboardAnalytics = () => {
               }}>
                 {t('analytics.chart.tagUsageDistribution')}
               </p>
-        </div>
+            </div>
             <div style={{
               width: '36px',
               height: '36px',
@@ -3206,7 +3174,7 @@ const DashboardAnalytics = () => {
             </div>
           </div>
           <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
-              {tagUsageLoading && !loading && (
+            {tagUsageLoading && !loading && (
               <div style={{
                 position: 'absolute',
                 top: 0,
@@ -3231,72 +3199,86 @@ const DashboardAnalytics = () => {
                   marginBottom: '8px'
                 }} />
                 <p style={{ fontSize: '12px', margin: 0 }}>Loading...</p>
-                </div>
-              )}
-                <Bar 
-                  data={getTagUsageDistribution()} 
-                  options={{
-                    ...chartOptions,
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                      ...chartOptions.plugins,
-                      legend: {
-                        position: 'bottom',
-                        labels: {
-                        padding: 12,
-                          font: {
-                          size: 10,
-                          family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                          }
-                        }
-                      },
-                      tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: 'white',
-                        bodyColor: 'white',
-                        borderColor: '#3b82f6',
-                        borderWidth: 1,
-                        cornerRadius: 6,
-                        titleFont: {
-                          size: 11,
-                          family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                        },
-                        bodyFont: {
-                          size: 10,
-                          family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                        },
-                        callbacks: {
-                          label: (ctx) => `${ctx.label}: ${(ctx.raw || 0).toLocaleString()}`
-                        }
-                      }
-                    },
-                    scales: {
-                      y: {
-                        beginAtZero: true,
-                        grid: { color: 'rgba(0, 0, 0, 0.1)' },
-                        ticks: {
-                          font: {
-                            size: 9,
-                            family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif'
-                          }
-                        }
-                      },
-                      x: {
-                        grid: { color: 'rgba(0, 0, 0, 0.1)' },
-                        ticks: {
-                          display: false
-                        }
+              </div>
+            )}
+            <Doughnut
+              data={getTagUsageDistribution()}
+              plugins={[{
+                id: 'tagUsageCenterText',
+                afterDraw(chart) {
+                  const { ctx, chartArea } = chart;
+                  if (!chartArea) return;
+                  const dataArr = chart.data?.datasets?.[0]?.data || [];
+                  const total = dataArr.reduce((sum, n) => sum + (Number(n) || 0), 0);
+                  const cx = (chartArea.left + chartArea.right) / 2;
+                  const cy = (chartArea.top + chartArea.bottom) / 2;
+                  ctx.save();
+                  ctx.textAlign = 'center';
+                  ctx.textBaseline = 'middle';
+                  ctx.fillStyle = '#0f172a';
+                  ctx.font = '700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                  ctx.fillText(total.toLocaleString(), cx, cy - 7);
+                  ctx.fillStyle = '#64748b';
+                  ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                  ctx.fillText('Total RFID Tags', cx, cy + 13);
+                  ctx.restore();
+                }
+              }]}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '62%',
+                plugins: {
+                  legend: {
+                    position: 'bottom',
+                    labels: {
+                      padding: 14,
+                      usePointStyle: true,
+                      pointStyle: 'circle',
+                      font: {
+                        size: 11,
+                        family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                       }
                     }
-                  }} 
-                />
-            </div>
+                  },
+                  tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    titleColor: 'white',
+                    bodyColor: 'white',
+                    borderColor: '#7c3aed',
+                    borderWidth: 1,
+                    cornerRadius: 6,
+                    titleFont: {
+                      size: 11,
+                      family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                    },
+                    bodyFont: {
+                      size: 10,
+                      family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                    },
+                    callbacks: {
+                      label: (ctx) => {
+                        const value = ctx.parsed ?? ctx.raw ?? 0;
+                        const total = (ctx.dataset?.data || []).reduce((sum, n) => sum + (Number(n) || 0), 0);
+                        const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                        return `${ctx.label}: ${value.toLocaleString()} (${pct}%)`;
+                      }
+                    }
+                  }
+                },
+                elements: {
+                  arc: {
+                    borderRadius: 4
+                  }
+                }
+              }}
+            />
           </div>
+        </div>
       </div>
 
       {/* Compact Bottom Sections - Top Items, Counter Wise, Category */}
-      <div 
+      <div
         className="bottom-tables-grid"
         style={{
           display: 'grid',
@@ -3320,8 +3302,16 @@ const DashboardAnalytics = () => {
           </div>
 
           <div className="analytics-bottom-table-wrap">
-            <table className="analytics-bottom-table-modern">
-                <thead>
+            <table className="analytics-bottom-table-modern analytics-bottom-table--top">
+              <colgroup>
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '28%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '12%' }} />
+              </colgroup>
+              <thead>
                 <tr>
                   <th>Sr.No</th>
                   <th>Product</th>
@@ -3329,67 +3319,67 @@ const DashboardAnalytics = () => {
                   <th>Design</th>
                   <th className="analytics-bottom-th-num">Qty</th>
                   <th className="analytics-bottom-th-num">Share %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
                   const groupedItems = data.reduce((acc, item) => {
-                      const product = item.ProductName || '-';
-                      const category = item.CategoryName || '-';
-                      const design = item.DesignName || item.DesignNo || item.Design || '-';
-                      const key = `${product}||${category}||${design}`;
-                      if (!acc[key]) {
-                        acc[key] = { product, category, design, qty: 0 };
-                      }
-                      acc[key].qty += 1;
-                      return acc;
-                    }, {});
-                    
-                    const filteredRows = Object.values(groupedItems).filter((row) =>
-                      row.product.toLowerCase().includes(productSearch.toLowerCase()) ||
-                      row.category.toLowerCase().includes(productSearch.toLowerCase()) ||
-                      row.design.toLowerCase().includes(productSearch.toLowerCase())
-                    );
-                    
-                    const sortedRows = filteredRows.sort((a, b) => b.qty - a.qty);
-                    const totalQty = filteredRows.reduce((sum, row) => sum + row.qty, 0);
-                    
-                    const startIndex = (productPage - 1) * bottomTableRowsPerPage;
-                    const paginatedRows = sortedRows.slice(startIndex, startIndex + bottomTableRowsPerPage);
-                    const rowSlots = Array.from(
-                      { length: bottomTableRowsPerPage },
-                      (_, i) => paginatedRows[i] ?? null
-                    );
-                    
-                    return (
-                      <>
-                        {rowSlots.map((row, index) => {
-                          const isEmpty = row == null;
-                          return (
-                            <tr
-                              key={isEmpty ? `top-empty-${index}` : `${row.product}-${row.category}-${row.design}-${index}`}
-                              className={isEmpty ? 'analytics-table-row-empty' : undefined}
-                            >
-                              <td className="analytics-bottom-td-index">
-                                {isEmpty ? '\u00a0' : startIndex + index + 1}
-                              </td>
-                              <td className="analytics-bottom-td-strong">{isEmpty ? '\u00a0' : row.product}</td>
-                              <td>{isEmpty ? '\u00a0' : row.category}</td>
-                              <td>{isEmpty ? '\u00a0' : row.design}</td>
-                              <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : row.qty.toLocaleString()}</td>
-                              <td className="analytics-bottom-td-num">
-                                {isEmpty
-                                  ? '\u00a0'
-                                  : `${totalQty > 0 ? ((row.qty / totalQty) * 100).toFixed(1) : '0.0'}%`}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-                </tbody>
-              </table>
+                    const product = item.ProductName || '-';
+                    const category = item.CategoryName || '-';
+                    const design = item.DesignName || item.DesignNo || item.Design || '-';
+                    const key = `${product}||${category}||${design}`;
+                    if (!acc[key]) {
+                      acc[key] = { product, category, design, qty: 0 };
+                    }
+                    acc[key].qty += 1;
+                    return acc;
+                  }, {});
+
+                  const filteredRows = Object.values(groupedItems).filter((row) =>
+                    row.product.toLowerCase().includes(productSearch.toLowerCase()) ||
+                    row.category.toLowerCase().includes(productSearch.toLowerCase()) ||
+                    row.design.toLowerCase().includes(productSearch.toLowerCase())
+                  );
+
+                  const sortedRows = filteredRows.sort((a, b) => b.qty - a.qty);
+                  const totalQty = filteredRows.reduce((sum, row) => sum + row.qty, 0);
+
+                  const startIndex = (productPage - 1) * bottomTableRowsPerPage;
+                  const paginatedRows = sortedRows.slice(startIndex, startIndex + bottomTableRowsPerPage);
+                  const rowSlots = Array.from(
+                    { length: bottomTableRowsPerPage },
+                    (_, i) => paginatedRows[i] ?? null
+                  );
+
+                  return (
+                    <>
+                      {rowSlots.map((row, index) => {
+                        const isEmpty = row == null;
+                        return (
+                          <tr
+                            key={isEmpty ? `top-empty-${index}` : `${row.product}-${row.category}-${row.design}-${index}`}
+                            className={isEmpty ? 'analytics-table-row-empty' : undefined}
+                          >
+                            <td className="analytics-bottom-td-index">
+                              {isEmpty ? '\u00a0' : startIndex + index + 1}
+                            </td>
+                            <td className="analytics-bottom-td-strong" title={isEmpty ? undefined : row.product}>{isEmpty ? '\u00a0' : row.product}</td>
+                            <td title={isEmpty ? undefined : row.category}>{isEmpty ? '\u00a0' : row.category}</td>
+                            <td title={isEmpty ? undefined : row.design}>{isEmpty ? '\u00a0' : row.design}</td>
+                            <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : row.qty.toLocaleString()}</td>
+                            <td className="analytics-bottom-td-num">
+                              {isEmpty
+                                ? '\u00a0'
+                                : `${totalQty > 0 ? ((row.qty / totalQty) * 100).toFixed(1) : '0.0'}%`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </tbody>
+            </table>
           </div>
           <PaginationControls
             currentPage={productPage}
@@ -3416,66 +3406,66 @@ const DashboardAnalytics = () => {
 
           <div className="analytics-bottom-table-wrap">
             <table className="analytics-bottom-table-modern">
-                <thead>
+              <thead>
                 <tr>
                   <th>Sr.No</th>
                   <th>{t('analytics.counterName')}</th>
                   <th className="analytics-bottom-th-num">Qty</th>
                   <th className="analytics-bottom-th-num">%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
                   const counterCounts = filteredData.reduce((acc, item) => {
                     const counterName = item.CounterName || item.Counter || 'Unassigned';
                     acc[counterName] = (acc[counterName] || 0) + 1;
-                      return acc;
-                    }, {});
-                    
-                    const filteredCounterCounts = Object.entries(counterCounts)
-                      .filter(([name]) => name && name.toLowerCase().includes(counterSearch.toLowerCase()));
-                    
-                    const sortedCounters = filteredCounterCounts
-                      .sort(([,a], [,b]) => b - a);
-                    const maxCount = filteredCounterCounts.length > 0 ? Math.max(...filteredCounterCounts.map(([,count]) => count)) : 0;
-                    
-                    const startIndex = (counterPage - 1) * bottomTableRowsPerPage;
-                    const paginatedCounters = sortedCounters.slice(startIndex, startIndex + bottomTableRowsPerPage);
-                    const counterSlots = Array.from(
-                      { length: bottomTableRowsPerPage },
-                      (_, i) => paginatedCounters[i] ?? null
-                    );
+                    return acc;
+                  }, {});
 
-                    return (
-                      <>
-                        {counterSlots.map((entry, index) => {
-                          const isEmpty = entry == null;
-                          const [name, count] = entry ?? [, ];
-                          return (
-                            <tr
-                              key={isEmpty ? `cnt-empty-${index}` : name}
-                              className={isEmpty ? 'analytics-table-row-empty' : undefined}
-                            >
-                              <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + index + 1}</td>
-                              <td>
-                                {isEmpty ? (
-                                  '\u00a0'
-                                ) : (
-                                  <div className="analytics-bottom-cell-ellipsis">{name || 'Unknown'}</div>
-                                )}
-                              </td>
-                              <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : count.toLocaleString()}</td>
-                              <td className="analytics-bottom-td-num">
-                                {isEmpty ? '\u00a0' : `${maxCount > 0 ? ((count / maxCount) * 100).toFixed(0) : 0}%`}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-                </tbody>
-              </table>
+                  const filteredCounterCounts = Object.entries(counterCounts)
+                    .filter(([name]) => name && name.toLowerCase().includes(counterSearch.toLowerCase()));
+
+                  const sortedCounters = filteredCounterCounts
+                    .sort(([, a], [, b]) => b - a);
+                  const maxCount = filteredCounterCounts.length > 0 ? Math.max(...filteredCounterCounts.map(([, count]) => count)) : 0;
+
+                  const startIndex = (counterPage - 1) * bottomTableRowsPerPage;
+                  const paginatedCounters = sortedCounters.slice(startIndex, startIndex + bottomTableRowsPerPage);
+                  const counterSlots = Array.from(
+                    { length: bottomTableRowsPerPage },
+                    (_, i) => paginatedCounters[i] ?? null
+                  );
+
+                  return (
+                    <>
+                      {counterSlots.map((entry, index) => {
+                        const isEmpty = entry == null;
+                        const [name, count] = entry ?? [,];
+                        return (
+                          <tr
+                            key={isEmpty ? `cnt-empty-${index}` : name}
+                            className={isEmpty ? 'analytics-table-row-empty' : undefined}
+                          >
+                            <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + index + 1}</td>
+                            <td>
+                              {isEmpty ? (
+                                '\u00a0'
+                              ) : (
+                                <div className="analytics-bottom-cell-ellipsis">{name || 'Unknown'}</div>
+                              )}
+                            </td>
+                            <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : count.toLocaleString()}</td>
+                            <td className="analytics-bottom-td-num">
+                              {isEmpty ? '\u00a0' : `${maxCount > 0 ? ((count / maxCount) * 100).toFixed(0) : 0}%`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </tbody>
+            </table>
           </div>
           <PaginationControls
             currentPage={counterPage}
@@ -3494,47 +3484,47 @@ const DashboardAnalytics = () => {
 
           <div className="analytics-bottom-table-wrap">
             <table className="analytics-bottom-table-modern">
-                <thead>
+              <thead>
                 <tr>
                   <th>Sr.No</th>
                   <th>Category</th>
                   <th className="analytics-bottom-th-num">Qty</th>
                   <th className="analytics-bottom-th-num">Total Weight</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const analysisData = getCategoryPerformanceAnalysis();
-                    const startIndex = (categoryPage - 1) * bottomTableRowsPerPage;
-                    const paginatedData = analysisData.slice(startIndex, startIndex + bottomTableRowsPerPage);
-                    const categorySlots = Array.from(
-                      { length: bottomTableRowsPerPage },
-                      (_, i) => paginatedData[i] ?? null
-                    );
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const analysisData = getCategoryPerformanceAnalysis();
+                  const startIndex = (categoryPage - 1) * bottomTableRowsPerPage;
+                  const paginatedData = analysisData.slice(startIndex, startIndex + bottomTableRowsPerPage);
+                  const categorySlots = Array.from(
+                    { length: bottomTableRowsPerPage },
+                    (_, i) => paginatedData[i] ?? null
+                  );
 
-                    return categorySlots.map((item, idx) => {
-                      const isEmpty = item == null;
-                      return (
-                        <tr
-                          key={isEmpty ? `cat-empty-${idx}` : item.category}
-                          className={isEmpty ? 'analytics-table-row-empty' : undefined}
-                        >
-                          <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + idx + 1}</td>
-                          <td>
-                            {isEmpty ? '\u00a0' : <div className="analytics-bottom-cell-ellipsis">{item.category}</div>}
-                          </td>
-                          <td className="analytics-bottom-td-num">
-                            {isEmpty ? '\u00a0' : item.totalItems.toLocaleString()}
-                          </td>
-                          <td className="analytics-bottom-td-num">
-                            {isEmpty ? '\u00a0' : `${item.totalWeight}g`}
-                          </td>
-                        </tr>
-                      );
-                    });
-                  })()}
-                </tbody>
-              </table>
+                  return categorySlots.map((item, idx) => {
+                    const isEmpty = item == null;
+                    return (
+                      <tr
+                        key={isEmpty ? `cat-empty-${idx}` : item.category}
+                        className={isEmpty ? 'analytics-table-row-empty' : undefined}
+                      >
+                        <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + idx + 1}</td>
+                        <td>
+                          {isEmpty ? '\u00a0' : <div className="analytics-bottom-cell-ellipsis">{item.category}</div>}
+                        </td>
+                        <td className="analytics-bottom-td-num">
+                          {isEmpty ? '\u00a0' : item.totalItems.toLocaleString()}
+                        </td>
+                        <td className="analytics-bottom-td-num">
+                          {isEmpty ? '\u00a0' : `${item.totalWeight}g`}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
           </div>
           <PaginationControls
             currentPage={categoryPage}
@@ -5270,9 +5260,9 @@ const DashboardAnalytics = () => {
       `}</style>
 
       {showAnalyticsModal && (
-        <AnalyticsModal 
-          data={selectedAnalytics} 
-          onClose={() => setShowAnalyticsModal(false)} 
+        <AnalyticsModal
+          data={selectedAnalytics}
+          onClose={() => setShowAnalyticsModal(false)}
         />
       )}
 
@@ -5528,7 +5518,7 @@ const DashboardAnalytics = () => {
           }
         }
       `}</style>
-      
+
       {/* CSS Animations & Responsive Styles */}
       <style>{`
         @keyframes spin {

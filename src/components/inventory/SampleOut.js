@@ -750,6 +750,25 @@ const scanReviewModalTone = (sections) => {
   return 'info';
 };
 
+// Pieces count is stored in the MRP field on labelled-stock rows (same as main scan grid).
+const scanRowPieces = (row) => {
+  const src = row?.fullItemData ?? row ?? {};
+  const v =
+    row?.MRP ??
+    row?.mrp ??
+    src?.MRP ??
+    src?.mrp ??
+    src?.MRPAmount ??
+    src?.Mrp ??
+    row?.Qty ??
+    row?.qty ??
+    row?.Pieces ??
+    row?.pieces ??
+    0;
+  const n = parseFloat(v);
+  return Number.isNaN(n) ? 0 : n;
+};
+
 const summarizeScanRows = (rows) => {
   let gross = 0;
   let net = 0;
@@ -758,7 +777,7 @@ const summarizeScanRows = (rows) => {
   (rows || []).forEach((row) => {
     gross += parseFloat(row?.grosswt ?? row?.GrossWt ?? 0) || 0;
     net += parseFloat(row?.netwt ?? row?.NetWt ?? 0) || 0;
-    pieces += parseFloat(row?.Qty ?? row?.Pieces ?? 1) || 1;
+    pieces += scanRowPieces(row);
     const dt = row?.__scannedAt ? new Date(row.__scannedAt) : null;
     if (dt && !Number.isNaN(dt.getTime()) && (!latest || dt > latest)) latest = dt;
   });
@@ -1069,23 +1088,7 @@ const SampleOut = () => {
     if (m === 'Manual') return { color: '#64748b', background: '#f1f5f9' };
     return { color: '#059669', background: '#ecfdf5' };
   };
-const rowPieces = (row) => {
-  const src = row?.fullItemData ?? row ?? {};
-  const v =
-    row?.MRP ??
-    row?.mrp ??
-    src?.MRP ??
-    src?.mrp ??
-    src?.MRPAmount ??
-    src?.Mrp ??
-    row?.Qty ??
-    row?.qty ??
-    row?.Pieces ??
-    row?.pieces ??
-    0;
-  const n = parseFloat(v);
-  return Number.isNaN(n) ? 0 : n;
-};
+const rowPieces = (row) => scanRowPieces(row);
 const rowScannedDateTime = (row) => {
   const src = row?.fullItemData ?? row ?? {};
   const values = [

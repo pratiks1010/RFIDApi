@@ -155,6 +155,35 @@ export const getItemReturnedByTypeMeta = (line) => {
   return { label: `Returned by ${raw}`, color: '#475569', bg: '#f1f5f9', bd: '#cbd5e1' };
 };
 
+const pickReturnRemark = (obj) => {
+  if (!obj || typeof obj !== 'object') return '';
+  const keys = [
+    'AdminReturnRemark',
+    'adminReturnRemark',
+    'ReturnRemark',
+    'returnRemark',
+    'AdminRemark',
+    'adminRemark',
+    'Remark',
+    'remark',
+    'Remarks',
+    'remarks',
+    'SampleInRemark',
+    'sampleInRemark',
+  ];
+  for (let i = 0; i < keys.length; i += 1) {
+    const v = obj[keys[i]];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+
+/** Remark entered when admin force-returns sample items (line first, then lot header). */
+export const getLineForceReturnRemark = (line, lotHeader) => {
+  if (!isForceReturnItem(line)) return '';
+  return pickReturnRemark(line) || pickReturnRemark(lotHeader);
+};
+
 /** Line still with customer / not yet returned. */
 export const isOutItemStatus = (status) => {
   const s = String(status || '').trim().toLowerCase();

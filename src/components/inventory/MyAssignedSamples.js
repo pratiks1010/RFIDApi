@@ -24,7 +24,11 @@ import {
   sampleAuthHeaders,
 } from '../../services/rfidSampleApi';
 import { getRrgoldApiBaseUrl } from '../../services/apiBaseConfig';
-import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
+import {
+  getItemImageLookupKeys,
+  resolveLocalItemImageBlobUrl,
+  warmupLocalItemImageIndex,
+} from '../../services/localItemImageService';
 import { getClientCode } from '../../utils/authState';
 import { normalizeList } from '../../services/rfidUserManagementApi';
 
@@ -136,13 +140,49 @@ const lotPreviewItemCode = (lot) =>
     ? pick(lot.Items[0], 'ItemCode', 'itemCode')
     : '');
 
-const lotPreviewItemCodes = (lot) => {
+const lotPreviewLinesFromLot = (lot) => {
   if (Array.isArray(lot?.Items) && lot.Items.length) {
-    const codes = lot.Items.map((line) => lineItemCode(line)).filter((c) => c && c !== '—');
-    if (codes.length) return codes;
+    return lot.Items.filter((line) => {
+      const code = lineItemCode(line);
+      return code && code !== '—';
+    });
   }
   const single = lotPreviewItemCode(lot);
-  return single && single !== '—' ? [single] : [];
+  return single && single !== '—' ? [{ ItemCode: single, itemCode: single }] : [];
+};
+
+const lineHasImageHints = (line) =>
+  Boolean(
+    lineImageUrl(line) ||
+      pick(
+        line,
+        'DesignId',
+        'design_id',
+        'DesignID',
+        'DesignCode',
+        'designCode',
+        'DesignName',
+        'designName',
+        'Design',
+        'design',
+        'ImageUrl',
+        'ImageURL',
+        'ImagePath'
+      )
+  );
+
+const getPreviewLineLookupKeys = (line) => {
+  const itemCode = lineItemCode(line);
+  const rfid = lineRfid(line);
+  const design = lineDesign(line);
+  return getItemImageLookupKeys({
+    ...line,
+    ItemCode: itemCode === '—' ? '' : itemCode,
+    Itemcode: itemCode === '—' ? '' : itemCode,
+    RFIDCode: rfid === '—' ? '' : rfid,
+    DesignName: design === '—' ? '' : design,
+    Design: design === '—' ? '' : design,
+  });
 };
 
 const lotListGrossWt = (lot) => {
@@ -382,32 +422,76 @@ const PaginationBar = ({ currentPage, totalPages, pageNumbers, onPrev, onNext, o
   );
 };
 
-const LotImageSlider = ({ itemCodes, alt, height = LOT_CARD_IMAGE_HEIGHT }) => {
-  const codes = Array.isArray(itemCodes) ? itemCodes.filter(Boolean) : [];
+const LOT_SLIDER_AUTO_MS = 4500;
+
+const LotImageSlider = ({ lines, alt, height = LOT_CARD_IMAGE_HEIGHT }) => {
+  const previewLines = Array.isArray(lines) ? lines.filter(Boolean) : [];
   const [index, setIndex] = useState(0);
-  const hasMultiple = codes.length > 1;
-  const safeIndex = codes.length ? index % codes.length : 0;
-  const currentCode = codes[safeIndex] || '';
-  const lookupKeys = currentCode
-    ? getItemImageLookupKeys({ ItemCode: currentCode, Itemcode: currentCode })
-    : [];
+  const [paused, setPaused] = useState(false);
+  const hasMultiple = previewLines.length > 1;
+  const safeIndex = previewLines.length ? index % previewLines.length : 0;
+  const currentLine = previewLines[safeIndex] || null;
+  const currentCode = currentLine ? lineItemCode(currentLine) : '';
+  const lookupKeys = currentLine ? getPreviewLineLookupKeys(currentLine) : [];
+  const imageSrc = currentLine ? lineImageUrl(currentLine) : '';
+  const linesKey = previewLines.map((line) => lineKey(line)).join('|');
 
   useEffect(() => {
     setIndex(0);
-  }, [codes.join('|')]);
+  }, [linesKey]);
+
+  useEffect(() => {
+    if (!hasMultiple || paused) return undefined;
+    const timer = window.setInterval(() => {
+      setIndex((i) => (i + 1) % previewLines.length);
+    }, LOT_SLIDER_AUTO_MS);
+    return () => window.clearInterval(timer);
+  }, [hasMultiple, paused, previewLines.length, linesKey]);
+
+  useEffect(() => {
+    if (!previewLines.length) return undefined;
+    let cancelled = false;
+    const preload = async () => {
+      const offsets = hasMultiple ? [0, 1, -1] : [0];
+      for (let o = 0; o < offsets.length; o += 1) {
+        if (cancelled) return;
+        const line = previewLines[(safeIndex + offsets[o] + previewLines.length) % previewLines.length];
+        if (!line) continue;
+        const apiSrc = lineImageUrl(line);
+        if (apiSrc) {
+          const img = new window.Image();
+          img.src = apiSrc;
+        }
+        const keys = getPreviewLineLookupKeys(line);
+        for (let k = 0; k < keys.length; k += 1) {
+          if (cancelled) return;
+          // eslint-disable-next-line no-await-in-loop
+          await resolveLocalItemImageBlobUrl(keys[k]);
+        }
+      }
+    };
+    preload().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [safeIndex, previewLines, hasMultiple, linesKey]);
 
   const goPrev = (e) => {
     e?.stopPropagation?.();
-    setIndex((i) => (i - 1 + codes.length) % codes.length);
+    setIndex((i) => (i - 1 + previewLines.length) % previewLines.length);
   };
 
   const goNext = (e) => {
     e?.stopPropagation?.();
-    setIndex((i) => (i + 1) % codes.length);
+    setIndex((i) => (i + 1) % previewLines.length);
   };
 
   return (
     <div
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
       style={{
         position: 'relative',
         width: '100%',
@@ -418,10 +502,11 @@ const LotImageSlider = ({ itemCodes, alt, height = LOT_CARD_IMAGE_HEIGHT }) => {
       }}
     >
       <GridItemImage
-        src=""
-        itemCode={currentCode}
+        key={`${linesKey}-${safeIndex}`}
+        src={imageSrc}
+        itemCode={currentCode === '—' ? '' : currentCode}
         lookupKeys={lookupKeys}
-        alt={alt}
+        alt={currentCode || alt}
         eagerLoad
         wrapperStyle={{
           width: '100%',
@@ -521,9 +606,9 @@ const LotImageSlider = ({ itemCodes, alt, height = LOT_CARD_IMAGE_HEIGHT }) => {
               backdropFilter: 'blur(6px)',
             }}
           >
-            {codes.map((code, dotIdx) => (
+            {previewLines.map((line, dotIdx) => (
               <button
-                key={`${code}-${dotIdx}`}
+                key={lineKey(line) || `preview-${dotIdx}`}
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -542,7 +627,7 @@ const LotImageSlider = ({ itemCodes, alt, height = LOT_CARD_IMAGE_HEIGHT }) => {
               />
             ))}
             <span style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginLeft: 4 }}>
-              {safeIndex + 1} / {codes.length}
+              {safeIndex + 1} / {previewLines.length}
             </span>
           </div>
           {currentCode ? (
@@ -578,12 +663,7 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
   const pieces = formatPiecesValue(linePieces(line));
   const status = pick(line, 'ItemStatus', 'itemStatus') || '—';
 
-  const lookupKeys = getItemImageLookupKeys({
-    ...line,
-    ItemCode: itemCode === '—' ? '' : itemCode,
-    RFIDCode: rfid === '—' ? '' : rfid,
-    DesignName: design === '—' ? '' : design,
-  });
+  const lookupKeys = getPreviewLineLookupKeys(line);
   const dot = <span style={{ color: '#cbd5e1', margin: '0 4px' }}>·</span>;
 
   const getLineStatusStyle = (s) => {
@@ -771,7 +851,7 @@ const MyAssignedSamples = () => {
   const [selectedLineKeys, setSelectedLineKeys] = useState(() => new Set());
   const [acceptRemark, setAcceptRemark] = useState('');
   const [accepting, setAccepting] = useState(false);
-  const [lotPreviewCodes, setLotPreviewCodes] = useState({});
+  const [lotPreviewLines, setLotPreviewLines] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemPage, setItemPage] = useState(1);
   const [isSmallScreen, setIsSmallScreen] = useState(
@@ -840,7 +920,7 @@ const MyAssignedSamples = () => {
 
     let cancelled = false;
     (async () => {
-      const next = { ...lotPreviewCodes };
+      const next = { ...lotPreviewLines };
       let changed = false;
       for (let i = 0; i < paginatedLots.length; i += 1) {
         const lot = paginatedLots[i];
@@ -848,9 +928,9 @@ const MyAssignedSamples = () => {
         const key = lotId || `idx-${i}`;
         if (Array.isArray(next[key]) && next[key].length) continue;
 
-        const inlineCodes = lotPreviewItemCodes(lot);
-        if (inlineCodes.length) {
-          next[key] = inlineCodes;
+        const inlineLines = lotPreviewLinesFromLot(lot);
+        if (inlineLines.length && inlineLines.every(lineHasImageHints)) {
+          next[key] = inlineLines;
           changed = true;
           continue;
         }
@@ -861,16 +941,19 @@ const MyAssignedSamples = () => {
             headers: sampleAuthHeaders(),
           });
           const { items } = parseLotDetailResponse(data);
-          const codes = items.map((line) => lineItemCode(line)).filter((c) => c && c !== '—');
-          if (codes.length) {
-            next[key] = codes;
+          const lines = items.filter((line) => {
+            const code = lineItemCode(line);
+            return code && code !== '—';
+          });
+          if (lines.length) {
+            next[key] = lines;
             changed = true;
           }
         } catch {
           /* preview optional */
         }
       }
-      if (!cancelled && changed) setLotPreviewCodes(next);
+      if (!cancelled && changed) setLotPreviewLines(next);
     })();
 
     return () => {
@@ -1194,10 +1277,10 @@ const MyAssignedSamples = () => {
                   const canAccept =
                     status === 'PendingAcceptance' || status === 'pendingAcceptance';
                   const no = lotNo(lot);
-                  const previewCodes =
-                    (Array.isArray(lotPreviewCodes[id]) && lotPreviewCodes[id].length
-                      ? lotPreviewCodes[id]
-                      : lotPreviewItemCodes(lot)) || [];
+                  const previewLines =
+                    (Array.isArray(lotPreviewLines[id]) && lotPreviewLines[id].length
+                      ? lotPreviewLines[id]
+                      : lotPreviewLinesFromLot(lot)) || [];
                   const itemCount =
                     lotTotalItems(lot) ??
                     (pick(lot, 'ItemCount', 'itemCount', 'TotalItems', 'totalItems') || '—');
@@ -1239,12 +1322,12 @@ const MyAssignedSamples = () => {
                         <StatusBadge status={status} size="lg" />
                       </div>
 
-                      <LotImageSlider itemCodes={previewCodes} alt={no} height={LOT_CARD_IMAGE_HEIGHT} />
+                      <LotImageSlider lines={previewLines} alt={no} height={LOT_CARD_IMAGE_HEIGHT} />
 
                       <div style={{ padding: '14px 16px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', lineHeight: 1.6, marginBottom: 12 }}>
                           <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginBottom: 2 }}>
-                            <span style={{ color: '#64748b' }}>Lot:</span> {no} · <span style={{ color: '#64748b' }}>Emp:</span> {assignee} · <span style={{ color: '#64748b' }}>Party:</span> {pick(lot, 'PartyName', 'partyName') || '—'}
+                            <span style={{ color: '#64748b' }}>Lot:</span> {no} · <span style={{ color: '#64748b' }}>Emp:</span> {assignee}
                           </div>
                           <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                             <span style={{ color: '#64748b' }}>Out:</span> {formatDate(pick(lot, 'SampleOutDate', 'sampleOutDate', 'OutDate'))} · <span style={{ color: '#64748b' }}>Items:</span> {itemCount} · <span style={{ color: '#64748b' }}>Gr:</span> {lotListGrossWt(lot)} · <span style={{ color: '#64748b' }}>Pcs:</span> {lotListPieces(lot)}

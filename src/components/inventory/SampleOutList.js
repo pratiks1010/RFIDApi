@@ -39,6 +39,7 @@ import {
   isRfidSampleLotFinalized,
   getRfidSampleLotFinishUi,
   getItemReturnedByTypeMeta,
+  getLineForceReturnRemark,
   isOutItemStatus,
   isForceReturnItem,
   countOutItemsFromLines,
@@ -1268,6 +1269,7 @@ const LotDetailItemCard = ({
   const status = String(line?.ItemStatus || '—').trim() || '—';
   const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
   const returnedByMeta = getReturnedByTypeMeta(line);
+  const forceReturnRemark = getLineForceReturnRemark(line, lotHeader);
   const pendingWithEmployee = line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true;
   const sampleOutDate = formatListDate(lineSampleOutDateRaw(line, lotHeader));
   const sampleInDate = formatLineSampleInDate(line);
@@ -1515,6 +1517,31 @@ const LotDetailItemCard = ({
             ) : null}
           </div>
         )}
+        {forceReturnRemark ? (
+          <div
+            style={{
+              marginTop: 6,
+              padding: '6px 8px',
+              borderRadius: 8,
+              background: '#fff7ed',
+              border: '1px solid #fed7aa',
+            }}
+          >
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>Remark</div>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: '#78350f',
+                lineHeight: 1.45,
+                wordBreak: 'break-word',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {forceReturnRemark}
+            </div>
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -1585,6 +1612,16 @@ const mapRfidSampleLine = (line) => {
     sampleOutOn: line.sampleOutOn ?? line.SampleOutOn,
     SampleInOn: line.sampleInOn ?? line.SampleInOn,
     sampleInOn: line.sampleInOn ?? line.SampleInOn,
+    AdminReturnRemark: line.adminReturnRemark ?? line.AdminReturnRemark,
+    adminReturnRemark: line.adminReturnRemark ?? line.AdminReturnRemark,
+    ReturnRemark: line.returnRemark ?? line.ReturnRemark,
+    returnRemark: line.returnRemark ?? line.ReturnRemark,
+    AdminRemark: line.adminRemark ?? line.AdminRemark,
+    adminRemark: line.adminRemark ?? line.AdminRemark,
+    Remark: line.remark ?? line.Remark,
+    remark: line.remark ?? line.Remark,
+    Remarks: line.remarks ?? line.Remarks,
+    remarks: line.remarks ?? line.Remarks,
   };
 };
 
@@ -2255,6 +2292,7 @@ const SampleOutList = ({
 
   const applyAdminReturnResponse = (data) => {
     const lotMeta = parseRfidSampleLotReturnMeta(data);
+    const bulkRemark = String(data?.adminReturnRemark ?? data?.AdminReturnRemark ?? '').trim();
     const returnedMap = new Map(
       (data?.returnedProducts || data?.ReturnedProducts || []).map((p) => [
         Number(p.lotItemId ?? p.LotItemId),
@@ -2279,6 +2317,16 @@ const SampleOutList = ({
         const returnedByType = hit.returnedByType ?? hit.ReturnedByType ?? 'ForceReturn';
         const isForceReturn =
           hit.isForceReturn ?? hit.IsForceReturn ?? String(returnedByType).trim() === 'ForceReturn';
+        const itemRemark =
+          hit.adminReturnRemark ??
+          hit.AdminReturnRemark ??
+          hit.returnRemark ??
+          hit.ReturnRemark ??
+          hit.adminRemark ??
+          hit.AdminRemark ??
+          bulkRemark ??
+          line.adminReturnRemark ??
+          line.AdminReturnRemark;
         return {
           ...line,
           ItemStatus: hit.itemStatus ?? hit.ItemStatus ?? 'Returned',
@@ -2286,6 +2334,8 @@ const SampleOutList = ({
           returnedByType,
           IsForceReturn: isForceReturn,
           isForceReturn,
+          AdminReturnRemark: itemRemark,
+          adminReturnRemark: itemRemark,
           SampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.SampleInMode,
           sampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.sampleInMode,
           LastActionType: hit.lastActionType ?? hit.LastActionType ?? line.LastActionType,
@@ -2321,6 +2371,9 @@ const SampleOutList = ({
           data?.forceReturnedItems ??
           data?.ForceReturnedItems ??
           prev.header?.ForceReturnedItems,
+        Remarks: bulkRemark || prev.header?.Remarks,
+        AdminRemark: bulkRemark || prev.header?.AdminRemark,
+        AdminReturnRemark: bulkRemark || prev.header?.AdminReturnRemark,
         lotCompleted: lotMeta.lotCompleted && reconciledStatus !== 'PartialReturn',
         LotCompleted: lotMeta.lotCompleted && reconciledStatus !== 'PartialReturn',
       };

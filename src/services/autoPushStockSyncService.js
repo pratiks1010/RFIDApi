@@ -244,6 +244,212 @@ export const parseReadExcelResult = (result) => {
 const SAMPLE_OUT_BLOCK_RE =
   /sample out|sample return|waiting for employee sample acceptance|sample acceptance|take sample return/i;
 
+const pickFirstNonEmpty = (obj, ...keys) => {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return String(value).trim();
+    }
+  }
+  return '';
+};
+
+const parseSampleInfoFromErrorText = (text) => {
+  const msg = String(text || '').trim();
+  if (!msg) return { sampleLotNo: '', sampleStatus: '' };
+
+  let sampleStatus = '';
+  if (/sample\s*out|on sample out|still on sample/i.test(msg)) sampleStatus = 'Sample Out';
+  else if (/sample\s*in|sample return|return scan/i.test(msg)) sampleStatus = 'Sample In / Return';
+  else if (/waiting for employee sample acceptance|sample acceptance/i.test(msg)) {
+    sampleStatus = 'Waiting for acceptance';
+  }
+
+  const lotPatterns = [
+    /sample\s*(?:out\s*)?(?:lot|no\.?|number)[:\s#-]*([A-Za-z0-9/_-]+)/i,
+    /lot\s*(?:no\.?|number)?[:\s#-]*([A-Za-z0-9/_-]+)/i,
+    /SampleLotNo[:\s'"]+([^'"\s,;]+)/i,
+    /SampleOutNo[:\s'"]+([^'"\s,;]+)/i,
+  ];
+  let sampleLotNo = '';
+  for (const pattern of lotPatterns) {
+    const match = msg.match(pattern);
+    if (match?.[1]) {
+      sampleLotNo = String(match[1]).trim();
+      break;
+    }
+  }
+
+  return { sampleLotNo, sampleStatus };
+};
+
+const formatSaveRfidErrorLine = (entry) => {
+  if (typeof entry === 'string') return entry.trim();
+  const errText = pickFirstNonEmpty(entry, 'error', 'Error', 'message', 'Message');
+  const itemCode = pickFirstNonEmpty(entry, 'itemcode', 'Itemcode', 'itemCode', 'ItemCode');
+  const itemIndex = entry?.itemIndex ?? entry?.ItemIndex;
+  let line = errText;
+  if (!line && itemCode) line = `Product '${itemCode}' could not be saved.`;
+  if (itemIndex != null && line && !/^row\s+\d+/i.test(line) && !/^item\s+\d+/i.test(line)) {
+    line = `Item ${Number(itemIndex)}: ${line}`;
+  }
+  return line;
+};
+
+/** Normalize one SaveRFID error entry into a structured object for UI display. */
+export const normalizeSaveRfidErrorEntry = (entry) => {
+  if (typeof entry === 'string') {
+    const message = entry.trim();
+    if (!message) return null;
+    const parsedSample = parseSampleInfoFromErrorText(message);
+    return {
+      itemIndex: null,
+      itemCode: '',
+      rfidNumber: '',
+      message,
+      text: message,
+      sampleLotNo: parsedSample.sampleLotNo,
+      sampleStatus: parsedSample.sampleStatus,
+      isSampleOutBlock: SAMPLE_OUT_BLOCK_RE.test(message),
+      product: '',
+      category: '',
+      design: '',
+      purity: '',
+      grossWt: '',
+      netWt: '',
+      branch: '',
+      counter: '',
+      description: '',
+      box: '',
+      packet: '',
+    };
+  }
+  if (!entry || typeof entry !== 'object') return null;
+
+  const message = pickFirstNonEmpty(entry, 'error', 'Error', 'message', 'Message');
+  const itemCode = pickFirstNonEmpty(entry, 'itemcode', 'Itemcode', 'itemCode', 'ItemCode');
+  const rfidNumber = pickFirstNonEmpty(
+    entry,
+    'rfidNumber',
+    'RFIDNumber',
+    'RFIDCode',
+    'rfidCode',
+    'RfidNumber'
+  );
+  const itemIndexRaw = entry?.itemIndex ?? entry?.ItemIndex;
+  const itemIndex = itemIndexRaw != null ? Number(itemIndexRaw) : null;
+  const parsedSample = parseSampleInfoFromErrorText(message);
+  const sampleLotNo =
+    pickFirstNonEmpty(
+      entry,
+      'SampleLotNo',
+      'sampleLotNo',
+      'SampleOutNo',
+      'sampleOutNo',
+      'LotNumber',
+      'lotNumber',
+      'lotNo',
+      'LotNo'
+    ) || parsedSample.sampleLotNo;
+  const sampleStatus =
+    pickFirstNonEmpty(entry, 'SampleStatus', 'sampleStatus', 'MovementType', 'movementType') ||
+    parsedSample.sampleStatus;
+
+  const text = formatSaveRfidErrorLine(entry) || message;
+
+  return {
+    itemIndex: Number.isFinite(itemIndex) ? itemIndex : null,
+    itemCode,
+    rfidNumber,
+    message: message || text,
+    text: text || message,
+    sampleLotNo,
+    sampleStatus,
+    isSampleOutBlock: SAMPLE_OUT_BLOCK_RE.test(`${message} ${text}`),
+    product: pickFirstNonEmpty(entry, 'product_id', 'ProductName', 'productName', 'Product'),
+    category: pickFirstNonEmpty(entry, 'category_id', 'CategoryName', 'categoryName', 'Category'),
+    design: pickFirstNonEmpty(entry, 'design_id', 'DesignName', 'designName', 'Design'),
+    purity: pickFirstNonEmpty(entry, 'purity_id', 'PurityName', 'purityName', 'Purity'),
+    grossWt: pickFirstNonEmpty(entry, 'grosswt', 'GrossWt', 'grossWt', 'GrossWeight'),
+    netWt: pickFirstNonEmpty(entry, 'netwt', 'NetWt', 'netWt', 'NetWeight'),
+    branch: pickFirstNonEmpty(entry, 'branch_id', 'branch_name', 'BranchName', 'branchName'),
+    counter: pickFirstNonEmpty(entry, 'counter_id', 'counter_name', 'CounterName', 'counterName'),
+    description: pickFirstNonEmpty(entry, 'description', 'Description'),
+    box: pickFirstNonEmpty(entry, 'box_details', 'box_name', 'BoxName', 'boxName'),
+    packet: pickFirstNonEmpty(entry, 'packet', 'Packet', 'packetName', 'PacketName'),
+  };
+};
+
+const findMappedRowForError = (rows, err) => {
+  if (!rows?.length || !err) return null;
+  const idx = err.itemIndex;
+  if (idx != null && Number.isFinite(Number(idx))) {
+    const n = Number(idx);
+    if (rows[n] != null) return rows[n];
+    if (n > 0 && rows[n - 1] != null) return rows[n - 1];
+  }
+  if (err.itemCode) {
+    const code = String(err.itemCode).trim().toLowerCase();
+    const byCode = rows.find(
+      (row) => String(row?.Itemcode ?? row?.itemcode ?? row?.ItemCode ?? '').trim().toLowerCase() === code
+    );
+    if (byCode) return byCode;
+  }
+  if (err.rfidNumber) {
+    const rfid = String(err.rfidNumber).trim().toLowerCase();
+    const byRfid = rows.find(
+      (row) =>
+        String(row?.RFIDNumber ?? row?.rfidNumber ?? row?.RFIDCode ?? '').trim().toLowerCase() === rfid
+    );
+    if (byRfid) return byRfid;
+  }
+  return null;
+};
+
+const pickMergedField = (err, row, errKey, ...rowKeys) => {
+  const fromErr = String(err?.[errKey] ?? '').trim();
+  if (fromErr) return fromErr;
+  for (const key of rowKeys) {
+    const value = row?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return String(value).trim();
+    }
+  }
+  return '';
+};
+
+/** Merge API error entries with mapped Excel rows for richer sync failure UI. */
+export const enrichSyncFailureDetails = (errorEntries = [], mappedRows = []) => {
+  const rows = Array.isArray(mappedRows) ? mappedRows : [];
+  return (Array.isArray(errorEntries) ? errorEntries : [])
+    .map((entry) => normalizeSaveRfidErrorEntry(entry))
+    .filter(Boolean)
+    .map((err) => {
+      const row = findMappedRowForError(rows, err);
+      const merged = {
+        ...err,
+        itemCode: pickMergedField(err, row, 'itemCode', 'Itemcode', 'itemcode', 'ItemCode'),
+        rfidNumber: pickMergedField(err, row, 'rfidNumber', 'RFIDNumber', 'RFIDCode', 'rfidNumber'),
+        product: pickMergedField(err, row, 'product', 'product_id', 'ProductName'),
+        category: pickMergedField(err, row, 'category', 'category_id', 'CategoryName'),
+        design: pickMergedField(err, row, 'design', 'design_id', 'DesignName'),
+        purity: pickMergedField(err, row, 'purity', 'purity_id', 'PurityName'),
+        grossWt: pickMergedField(err, row, 'grossWt', 'grosswt', 'GrossWt'),
+        netWt: pickMergedField(err, row, 'netWt', 'netwt', 'NetWt'),
+        branch: pickMergedField(err, row, 'branch', 'branch_id', 'branch_name'),
+        counter: pickMergedField(err, row, 'counter', 'counter_id', 'counter_name'),
+        description: pickMergedField(err, row, 'description', 'description'),
+        box: pickMergedField(err, row, 'box', 'box_details', 'box_name'),
+        packet: pickMergedField(err, row, 'packet', 'packet', 'Packet'),
+      };
+      if (!merged.sampleStatus && row) {
+        const rowSample = pickFirstNonEmpty(row, 'SampleStatus', 'sampleStatus', 'status', 'Status');
+        if (/sample/i.test(rowSample)) merged.sampleStatus = rowSample;
+      }
+      return merged;
+    });
+};
+
 /** Parse SaveRFIDTransactionDetails body (success, partial, or failed with errors[]). */
 export const parseSaveRfidTransactionResponse = (data) => {
   const body = data && typeof data === 'object' ? data : {};
@@ -252,39 +458,50 @@ export const parseSaveRfidTransactionResponse = (data) => {
   const failedItems = Number(body.failedItems ?? body.FailedItems ?? 0) || 0;
   const successfulItems = Number(body.successfulItems ?? body.SuccessfulItems ?? 0) || 0;
   const errors = [];
+  const errorEntries = [];
 
   const rawErrors = body.errors ?? body.Errors ?? [];
   if (Array.isArray(rawErrors)) {
     rawErrors.forEach((entry) => {
       if (typeof entry === 'string') {
         const text = entry.trim();
-        if (text) errors.push(text);
+        if (text) {
+          errors.push(text);
+          const normalized = normalizeSaveRfidErrorEntry(text);
+          if (normalized) errorEntries.push(normalized);
+        }
         return;
       }
-      const errText = String(entry?.error ?? entry?.Error ?? entry?.message ?? entry?.Message ?? '').trim();
-      const itemCode = String(entry?.itemcode ?? entry?.Itemcode ?? entry?.itemCode ?? '').trim();
-      const itemIndex = entry?.itemIndex ?? entry?.ItemIndex;
-      let line = errText;
-      if (!line && itemCode) line = `Product '${itemCode}' could not be saved.`;
-      if (itemIndex != null && line && !/^row\s+\d+/i.test(line) && !/^item\s+\d+/i.test(line)) {
-        line = `Item ${Number(itemIndex)}: ${line}`;
-      }
+      const line = formatSaveRfidErrorLine(entry);
       if (line) errors.push(line);
+      const normalized = normalizeSaveRfidErrorEntry(entry);
+      if (normalized) errorEntries.push(normalized);
     });
   }
 
   if (!errors.length && message && /validation|fix validation|no new items were saved/i.test(message)) {
-    message.split(/[;\n]+/).map((s) => s.trim()).filter(Boolean).forEach((part) => errors.push(part));
+    message
+      .split(/[;\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((part) => {
+        errors.push(part);
+        const normalized = normalizeSaveRfidErrorEntry(part);
+        if (normalized) errorEntries.push(normalized);
+      });
   }
 
   const isFailed = status === 'failed' || (failedItems > 0 && successfulItems === 0);
   const isPartial = status === 'partial' || (failedItems > 0 && successfulItems > 0);
-  const isSampleOutBlock = errors.some((e) => SAMPLE_OUT_BLOCK_RE.test(e));
+  const isSampleOutBlock =
+    errors.some((e) => SAMPLE_OUT_BLOCK_RE.test(e)) ||
+    errorEntries.some((e) => e.isSampleOutBlock);
 
   return {
     status,
     message,
     errors,
+    errorEntries,
     failedItems,
     successfulItems,
     isFailed,
@@ -441,6 +658,7 @@ export async function runAutoPushFolderSyncOnce({ clientCode, username, onProgre
       okCount: results.filter((r) => r.ok).length,
       failCount: results.filter((r) => !r.ok).length,
     });
+    let mappedData = [];
     try {
       const readRes = await window.electronAPI.readExcel(filePath);
       const { rows, headers } = parseReadExcelResult(readRes);
@@ -448,7 +666,7 @@ export async function runAutoPushFolderSyncOnce({ clientCode, username, onProgre
         results.push({ fileName, ok: false, message: 'No data rows in file.' });
         continue;
       }
-      const mappedData = mapExcelDataToSystemFields(clientCode, rows, selectedTemplate.parsedData);
+      mappedData = mapExcelDataToSystemFields(clientCode, rows, selectedTemplate.parsedData);
       if (!mappedData.length) {
         results.push({ fileName, ok: false, message: 'Nothing mapped from rows.' });
         continue;
@@ -468,11 +686,17 @@ export async function runAutoPushFolderSyncOnce({ clientCode, username, onProgre
       results.push({ fileName, ok: true, moved, rows: mappedData.length });
     } catch (e) {
       const details = e?.saveRfidDetails || null;
+      const mappedRows = Array.isArray(mappedData) ? mappedData : [];
+      const errorEntries = details?.errorEntries?.length
+        ? details.errorEntries
+        : (details?.errors || []).map((entry) => normalizeSaveRfidErrorEntry(entry)).filter(Boolean);
       results.push({
         fileName,
         ok: false,
         message: e?.message || String(e),
         errors: details?.errors?.length ? details.errors : [],
+        errorEntries,
+        mappedRows,
         isSampleOutBlock: details?.isSampleOutBlock ?? SAMPLE_OUT_BLOCK_RE.test(String(e?.message || '')),
         failedItems: details?.failedItems ?? 0,
         successfulItems: details?.successfulItems ?? 0,

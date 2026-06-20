@@ -44,6 +44,7 @@ import {
   runAutoPushFolderSyncOnce,
   extractAutoPushUsername,
   formatSaveRfidErrorsTitle,
+  enrichSyncFailureDetails,
 } from '../../services/autoPushStockSyncService';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
@@ -3231,16 +3232,32 @@ const LabelStockList = () => {
       const failed = (res.results || []).filter((r) => !r.ok);
       const okList = (res.results || []).filter((r) => r.ok);
       const errorDetails = failed.flatMap((f) => {
-        if (Array.isArray(f.errors) && f.errors.length) {
-          return f.errors.map((errText) => ({
+        if (Array.isArray(f.errorEntries) && f.errorEntries.length) {
+          return enrichSyncFailureDetails(f.errorEntries, f.mappedRows).map((detail) => ({
             fileName: f.fileName,
-            text: String(errText),
-            isSampleOutBlock: f.isSampleOutBlock || /sample out|sample return|sample acceptance/i.test(String(errText)),
+            ...detail,
+            text: detail.message || detail.text,
+            isSampleOutBlock:
+              detail.isSampleOutBlock ||
+              f.isSampleOutBlock ||
+              /sample out|sample return|sample acceptance/i.test(String(detail.message || detail.text || '')),
+          }));
+        }
+        if (Array.isArray(f.errors) && f.errors.length) {
+          return enrichSyncFailureDetails(f.errors, f.mappedRows).map((detail) => ({
+            fileName: f.fileName,
+            ...detail,
+            text: detail.message || detail.text,
+            isSampleOutBlock:
+              detail.isSampleOutBlock ||
+              f.isSampleOutBlock ||
+              /sample out|sample return|sample acceptance/i.test(String(detail.message || detail.text || '')),
           }));
         }
         return [
           {
             fileName: f.fileName,
+            message: String(f.message || 'Sync failed for this file.'),
             text: String(f.message || 'Sync failed for this file.'),
             isSampleOutBlock: Boolean(f.isSampleOutBlock),
           },
@@ -5909,8 +5926,11 @@ const LabelStockList = () => {
             <div
               onClick={(e) => e.stopPropagation()}
               style={{
-                width: 520,
+                width: 760,
                 maxWidth: '100%',
+                maxHeight: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
                 background: '#fff',
                 borderRadius: 14,
                 border: '1px solid #e2e8f0',
@@ -5918,8 +5938,8 @@ const LabelStockList = () => {
                 overflow: 'hidden',
               }}
             >
-              <div style={{ height: 3, background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)' }} />
-              <div style={{ padding: '14px 16px' }}>
+              <div style={{ height: 3, background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)', flexShrink: 0 }} />
+              <div style={{ padding: '14px 16px', overflowY: 'auto', flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
                   <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Label Stock Sync Progress</div>
                   {!folderAutoPushSyncing ? (
@@ -6040,24 +6060,144 @@ const LabelStockList = () => {
                     {folderAutoPushOutcome.errorDetails?.length ? (
                       <div
                         style={{
-                          maxHeight: 220,
+                          maxHeight: 420,
                           overflowY: 'auto',
                           border: '1px solid rgba(15,23,42,0.08)',
                           borderRadius: 8,
                           background: 'rgba(255,255,255,0.65)',
-                          padding: '8px 10px',
+                          padding: '8px',
                         }}
                       >
-                        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55, fontSize: 12, fontWeight: 600 }}>
-                          {folderAutoPushOutcome.errorDetails.map((entry, idx) => (
-                            <li key={`sync-err-${idx}`} style={{ marginBottom: 6, color: '#0f172a' }}>
-                              {entry.fileName ? (
-                                <span style={{ color: '#64748b', fontWeight: 700 }}>{entry.fileName}: </span>
+                        {folderAutoPushOutcome.errorDetails.map((entry, idx) => {
+                          const detailFields = [
+                            ['Item Code', entry.itemCode],
+                            ['RFID', entry.rfidNumber],
+                            ['Product', entry.product],
+                            ['Category', entry.category],
+                            ['Design', entry.design],
+                            ['Purity', entry.purity],
+                            ['Gross Wt', entry.grossWt],
+                            ['Net Wt', entry.netWt],
+                            ['Branch', entry.branch],
+                            ['Counter', entry.counter],
+                            ['Box', entry.box],
+                            ['Packet', entry.packet],
+                            ['Sample Status', entry.sampleStatus],
+                            ['Sample / Lot No', entry.sampleLotNo],
+                            ['Description', entry.description],
+                          ].filter(([, value]) => value != null && String(value).trim() !== '');
+                          const rowLabel =
+                            entry.itemIndex != null
+                              ? `Row ${Number(entry.itemIndex)}`
+                              : `Failed item ${idx + 1}`;
+                          return (
+                            <div
+                              key={`sync-err-${idx}`}
+                              style={{
+                                marginBottom: idx < folderAutoPushOutcome.errorDetails.length - 1 ? 10 : 0,
+                                padding: '10px 12px',
+                                borderRadius: 8,
+                                border: '1px solid #fecaca',
+                                background: '#fff',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: 8,
+                                  alignItems: 'center',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 800,
+                                    color: '#991b1b',
+                                    background: '#fee2e2',
+                                    borderRadius: 999,
+                                    padding: '2px 8px',
+                                  }}
+                                >
+                                  {rowLabel}
+                                </span>
+                                {entry.fileName ? (
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                                    File: {entry.fileName}
+                                  </span>
+                                ) : null}
+                                {entry.isSampleOutBlock ? (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      fontWeight: 800,
+                                      color: '#92400e',
+                                      background: '#fef3c7',
+                                      borderRadius: 999,
+                                      padding: '2px 8px',
+                                    }}
+                                  >
+                                    Sample Out
+                                  </span>
+                                ) : null}
+                              </div>
+                              {detailFields.length ? (
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                                    gap: '6px 12px',
+                                    marginBottom: 8,
+                                  }}
+                                >
+                                  {detailFields.map(([label, value]) => (
+                                    <div key={`${idx}-${label}`} style={{ minWidth: 0 }}>
+                                      <div
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                          color: '#64748b',
+                                          textTransform: 'uppercase',
+                                          letterSpacing: '0.03em',
+                                        }}
+                                      >
+                                        {label}
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                          color: '#0f172a',
+                                          wordBreak: 'break-word',
+                                          lineHeight: 1.45,
+                                        }}
+                                      >
+                                        {value}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               ) : null}
-                              {entry.text}
-                            </li>
-                          ))}
-                        </ul>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  color: '#b91c1c',
+                                  lineHeight: 1.55,
+                                  wordBreak: 'break-word',
+                                  whiteSpace: 'pre-wrap',
+                                  padding: '8px 10px',
+                                  borderRadius: 6,
+                                  background: '#fef2f2',
+                                  border: '1px solid #fecaca',
+                                }}
+                              >
+                                {entry.message || entry.text || 'Sync failed for this item.'}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : null}
                   </div>

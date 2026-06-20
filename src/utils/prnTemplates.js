@@ -41,9 +41,11 @@ const calculateEpcMemory = (hexCode) => {
   const pcWord = (words << 11) | 0x0400;
   const pcValue = `*${pcWord.toString(16).toUpperCase().padStart(4, '0')}*`;
 
-  // Exact hex only — never pad with trailing/leading zeros (extra zeros break scanning)
   if (len > maxHexLen) {
     epcHex = epcHex.substring(0, maxHexLen);
+  } else if (len < maxHexLen) {
+    // Pad to full EPC word count (multiple of 4 hex digits) for Incoded printer memory
+    epcHex = epcHex.padStart(maxHexLen, '0');
   }
 
   return { epcBits, pcValue, epcHex };

@@ -111,7 +111,7 @@ const generateLS000428Prn = (item) => {
   const price = item.MRP || item.FixedAmt || '0';
   const purity = item.Purity || item.PurityName || '';
   const epcHex = toHex(item.ItemCode || '');
-  
+
   return `!PTX_SETUP
 ENGINE-WIDTH;2483:LENGTH;1065:MIRROR;0.
 PTX_END
@@ -177,7 +177,7 @@ const generateLS000443GoldPrn = (item) => {
   const grossWt = item.GrossWt || item.GrossWeight || '0.610';
   const purityName = item.PurityName || item.Purity || '18K GOLD PENDANT';
   let rawEpcHex = stringToHex(barcodeValue);
-  
+
   // Pad to 20 characters (80 bits) for EPC
   if (rawEpcHex.length < 20) {
     rawEpcHex = rawEpcHex.padStart(20, "0");
@@ -194,7 +194,7 @@ const generateLS000443GoldPrn = (item) => {
   } else {
     formattedBarcode = `&${barcodeValue}`;
   }
-  
+
   return `!PTX_SETUP
 ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
 PTX_END
@@ -259,7 +259,7 @@ const generateLS000443DiamondPrn = (item) => {
   const isGrossWtVisible = parseFloat(grossWt) > 0;
   const isDWtVisible = parseFloat(dWt) > 0;
   const isOWtVisible = parseFloat(oWt) > 0;
-  
+
   return `!PTX_SETUP
 ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
 PTX_END
@@ -350,7 +350,6 @@ const generateLS000431Prn = (item) => {
   prn = prn.split(`${barcodePrefix}&OP10B0426`).join(`${barcodePrefix}&${description}`);
   return prn;
 };
-
 /** Escape text embedded in PRN quoted strings */
 const prnQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
@@ -701,10 +700,10 @@ const resolveLS000544Melting = (item) =>
 const resolveLS000544HuidValue = (item) =>
   String(
     item.Description ||
-      item.description ||
-      item.HUIDCode ||
-      item.HallmarkAmount ||
-      ''
+    item.description ||
+    item.HUIDCode ||
+    item.HallmarkAmount ||
+    ''
   ).trim();
 
 // LS000544 — mangalsutra label (ENGINE 3941×710, RFID 48-bit EPC, QR)
@@ -791,7 +790,7 @@ const generateLS000443SilverPrn = (item) => {
   } else {
     formattedBarcode = `&${barcodeValue}`;
   }
-  
+
   return `!PTX_SETUP
 ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
 PTX_END
@@ -840,6 +839,70 @@ END
 `;
 };
 
+const generateLS000488Prn = (item) => {
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  const productName = prnQuote(item.ProductName || item.CategoryName || '');
+  const grossWt = prnQuote(formatWeight2(item.GrossWt ?? item.GrossWeight ?? item.grosswt));
+  const netWt = prnQuote(formatWeight2(item.NetWt ?? item.netwt));
+  const stoneWeight = prnQuote(formatWeight2(item.TotalStoneWeight ?? item.StoneWt ?? '0.000'));
+  const size = prnQuote(String(item.MRP ?? item.Size ?? item.size ?? '').trim());
+  const melting = prnQuote(resolveLS000544Melting(item));
+  const huidValue = prnQuote(resolveLS000544HuidValue(item));
+  const displayCode = prnQuote(itemCode);
+   const barcodeValue = item.BarcodeValue || item.Barcode || itemCode;
+  const { epcHex: rawEpcHex } = calculateEpcMemory(stringToHex(barcodeValue));
+  const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode);
+  
+  return `!PTX_SETUP
+ENGINE-WIDTH;1774:LENGTH;710:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 6;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
+~CONFIG
+CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
+END
+<xpml></page></xpml><xpml><page quantity='1' pitch='18.0 mm'></xpml>~CREATE;FORM-0;51
+SCALE;DOT;203;203
+ISET;'UTF8'
+RFWTAG;16;PC
+16;H;*1C00*
+STOP
+RFWTAG;48;EPC
+48;H;*${rawEpcHex}*
+STOP
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+INV;POINT;113;328;7;7;"${productName}"
+INV;POINT;83;328;7;7;"G wt :"
+INV;POINT;83;279;7;7;"${grossWt}"
+INV;POINT;17;328;7;7;"N wt :"
+INV;POINT;17;279;7;7;"${stoneWeight}"
+INV;POINT;50;328;7;7;"S wt :"
+INV;POINT;50;278;7;7;"${netWt}"
+STOP
+BARCODE
+QRCODE;INV;XD3;T2;E0;M0;I0;58;96
+"${displayCode}"
+STOP
+ALPHA
+INV;POINT;26;155;7;7;"${displayCode}"
+STOP
+END
+~EXECUTE;FORM-0;1
+<xpml></page></xpml>
+~NORMAL
+~DELETE FORM;FORM-0
+`;
+}
 // Main function to generate client-specific PRN
 export const generateClientPrn = (item, clientCode) => {
   const rawCode = (clientCode || '').trim().toUpperCase();
@@ -857,12 +920,14 @@ export const generateClientPrn = (item, clientCode) => {
         : generateLS000533Prn(item);
     case 'LS000544':
       return generateLS000544Prn(item);
+    case 'LS000488':
+      return generateLS000488Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection
       const category = item.Category || item.CategoryName || item.ProductId || '';
       const categoryUpper = category.toUpperCase();
-      
+
       if (categoryUpper === 'GOLD' || categoryUpper.includes('GOLD')) {
         return generateLS000443GoldPrn(item);
       } else if (categoryUpper === 'SILVER' || categoryUpper.includes('SILVER')) {

@@ -39,7 +39,7 @@ import { useLoading } from '../../App';
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100];
 const DEFAULT_PAGE_SIZE = 15;
-const PRN_ENABLED_CLIENT_CODES = ['LS000224', 'LS000428', 'LS000431', 'LS000443', 'LS000533', 'LS000544', '533'];
+const PRN_ENABLED_CLIENT_CODES = ['LS000224', 'LS000428', 'LS000431', 'LS000443', 'LS000533', 'LS000544','LS000488'];
 const LS000431_PRN_FILE_PATH = `${process.env.PUBLIC_URL || ''}/DelhiOPNewFont.prn`;
 
 const getUniqueOptions = (data, field) => {
@@ -131,7 +131,7 @@ const RFIDLabel = () => {
 
   // User Info
   const [userInfo, setUserInfo] = useState(null);
-  const clientCode = (userInfo?.ClientCode || '').trim();
+  const clientCode = String(userInfo?.ClientCode || userInfo?.clientCode || userInfo?.clientcode || '').trim().toUpperCase();
 
   // Responsive state
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);

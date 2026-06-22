@@ -44,6 +44,8 @@ import {
   runAutoPushFolderSyncOnce,
   extractAutoPushUsername,
   formatSaveRfidErrorsTitle,
+  formatSampleOutPartyLine,
+  formatSampleOutStatusLine,
   enrichSyncFailureDetails,
 } from '../../services/autoPushStockSyncService';
 import CloseIcon from '@mui/icons-material/Close';
@@ -6069,6 +6071,7 @@ const LabelStockList = () => {
                         }}
                       >
                         {folderAutoPushOutcome.errorDetails.map((entry, idx) => {
+                          const hasSampleOut = Boolean(entry.isSampleOutBlock);
                           const detailFields = [
                             ['Item Code', entry.itemCode],
                             ['RFID', entry.rfidNumber],
@@ -6082,14 +6085,14 @@ const LabelStockList = () => {
                             ['Counter', entry.counter],
                             ['Box', entry.box],
                             ['Packet', entry.packet],
-                            ['Sample Status', entry.sampleStatus],
-                            ['Sample / Lot No', entry.sampleLotNo],
                             ['Description', entry.description],
                           ].filter(([, value]) => value != null && String(value).trim() !== '');
                           const rowLabel =
                             entry.itemIndex != null
-                              ? `Row ${Number(entry.itemIndex)}`
-                              : `Failed item ${idx + 1}`;
+                              ? `Item ${Number(entry.itemIndex)}`
+                              : entry.itemCode
+                                ? `Item ${entry.itemCode}`
+                                : `Failed item ${idx + 1}`;
                           return (
                             <div
                               key={`sync-err-${idx}`}
@@ -6097,7 +6100,7 @@ const LabelStockList = () => {
                                 marginBottom: idx < folderAutoPushOutcome.errorDetails.length - 1 ? 10 : 0,
                                 padding: '10px 12px',
                                 borderRadius: 8,
-                                border: '1px solid #fecaca',
+                                border: hasSampleOut ? '1px solid #fdba74' : '1px solid #fecaca',
                                 background: '#fff',
                               }}
                             >
@@ -6124,7 +6127,7 @@ const LabelStockList = () => {
                                 </span>
                                 {entry.fileName ? (
                                   <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>
-                                    File: {entry.fileName}
+                                    {entry.fileName}
                                   </span>
                                 ) : null}
                                 {entry.isSampleOutBlock ? (
@@ -6142,7 +6145,58 @@ const LabelStockList = () => {
                                   </span>
                                 ) : null}
                               </div>
-                              {detailFields.length ? (
+                              {hasSampleOut ? (
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                                    gap: '8px 14px',
+                                    marginBottom: 8,
+                                    padding: '10px 12px',
+                                    borderRadius: 8,
+                                    background: '#fff7ed',
+                                    border: '1px solid #fed7aa',
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
+                                      Lot
+                                    </div>
+                                    <div style={{ fontSize: 13, fontWeight: 800, color: '#9a3412' }}>
+                                      {entry.sampleLotNo || entry.sampleOut?.lotNumber || '—'}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
+                                      Party
+                                    </div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f' }}>
+                                      {formatSampleOutPartyLine(entry)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
+                                      Status
+                                    </div>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f' }}>
+                                      {formatSampleOutStatusLine(entry)}
+                                    </div>
+                                  </div>
+                                  {(entry.itemCode || entry.rfidNumber) && (
+                                    <div>
+                                      <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
+                                        Product
+                                      </div>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f' }}>
+                                        {[entry.itemCode, entry.rfidNumber ? `RFID ${entry.rfidNumber}` : '']
+                                          .filter(Boolean)
+                                          .join(' · ')}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+                              {!hasSampleOut && detailFields.length ? (
                                 <div
                                   style={{
                                     display: 'grid',

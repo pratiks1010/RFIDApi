@@ -2994,19 +2994,25 @@ const formatScannedTime = (date) => {
       const lotId = parseInt(item.__lotId, 10);
       const lotItemId = parseInt(item.__lotItemId ?? item.LotItemId ?? item.lotItemId, 10);
       try {
-        // eslint-disable-next-line no-await-in-loop
-        const { data: inData } = await axios.post(
-          getScanSampleInUrl(),
-          {
+        const reviewNote = String(description || '').trim() || 'Returned via unified sample screen';
+        const scanPayload = {
             ClientCode: clientCode,
             LotId: Number.isFinite(lotId) && lotId > 0 ? lotId : undefined,
             LotItemId: Number.isFinite(lotItemId) && lotItemId > 0 ? lotItemId : undefined,
             TIDValue: tid || undefined,
             RFIDCode: rfid || undefined,
             ItemCode: itemCode || undefined,
-            ReturnRemark: 'Returned via unified sample screen',
             ScanMode: resolveScanMode(item),
-          },
+          };
+        if (isAdminUser) {
+          scanPayload.AdminReviewRemark = reviewNote;
+        } else {
+          scanPayload.ReturnRemark = reviewNote;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        const { data: inData } = await axios.post(
+          getScanSampleInUrl(),
+          scanPayload,
           { headers: sampleAuthHeaders() }
         );
         if (inData?.success === false) {

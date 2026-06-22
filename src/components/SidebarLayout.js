@@ -92,6 +92,7 @@ const SidebarLayout = ({ children }) => {
   const inventorySession = [
     { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
     { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
+    { path: '/stock-verification', icon: FaClipboardList, label: 'Stock Verification', color: '#84cc16', section: 'Inventory Management' },
   ];
 
   // Section 2: Transaction

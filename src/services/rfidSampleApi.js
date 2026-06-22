@@ -101,10 +101,10 @@ export const isRfidSampleLotFinalized = (meta = {}) =>
   isRfidSampleLotClosed(meta) || isRfidSampleLotCompleted(meta);
 
 export const formatRfidSampleLotClosedMessage = (message) =>
-  message || 'All products returned. Sample lot is closed.';
+  message || 'All products returned via scan. Sample lot is closed.';
 
 export const formatRfidSampleLotCompletedMessage = (message) =>
-  message || 'Sample lot marked complete by admin.';
+  message || 'All products force-returned by admin. Sample lot is completed.';
 
 export const getRfidSampleLotFinishUi = (meta = {}, { fallbackMessage } = {}) => {
   if (isRfidSampleLotClosed(meta)) {
@@ -178,10 +178,38 @@ const pickReturnRemark = (obj) => {
   return '';
 };
 
-/** Remark entered when admin force-returns sample items (line first, then lot header). */
+const pickAdminReviewRemark = (obj) => {
+  if (!obj || typeof obj !== 'object') return '';
+  const keys = ['AdminReviewRemark', 'adminReviewRemark'];
+  for (let i = 0; i < keys.length; i += 1) {
+    const v = obj[keys[i]];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+
+const pickLineReturnRemarkOnly = (obj) => {
+  if (!obj || typeof obj !== 'object') return '';
+  const keys = ['ReturnRemark', 'returnRemark'];
+  for (let i = 0; i < keys.length; i += 1) {
+    const v = obj[keys[i]];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+
+/** Per-product admin review note (force return / admin scan). */
+export const getLineAdminReviewRemark = (line, lotHeader) =>
+  pickAdminReviewRemark(line) || (isForceReturnItem(line) ? pickReturnRemark(lotHeader) : '');
+
+/** Bulk/lot return note stored on the line or lot header. */
+export const getLineReturnRemark = (line, lotHeader) =>
+  pickLineReturnRemarkOnly(line) || pickReturnRemark(lotHeader);
+
+/** Primary remark shown on force-returned item cards. */
 export const getLineForceReturnRemark = (line, lotHeader) => {
   if (!isForceReturnItem(line)) return '';
-  return pickReturnRemark(line) || pickReturnRemark(lotHeader);
+  return getLineAdminReviewRemark(line, lotHeader) || getLineReturnRemark(line, lotHeader);
 };
 
 /** Line still with customer / not yet returned. */

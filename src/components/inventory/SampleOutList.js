@@ -39,7 +39,8 @@ import {
   isRfidSampleLotFinalized,
   getRfidSampleLotFinishUi,
   getItemReturnedByTypeMeta,
-  getLineForceReturnRemark,
+  getLineAdminReviewRemark,
+  getLineReturnRemark,
   isOutItemStatus,
   isForceReturnItem,
   countOutItemsFromLines,
@@ -476,7 +477,11 @@ const isAdminReturnableLotStatus = (status) => {
 };
 
 const lineLotItemId = (line) => {
-  const raw = line?.Id ?? line?.id;
+  const raw =
+    line?.LotItemId ??
+    line?.lotItemId ??
+    line?.Id ??
+    line?.id;
   if (raw === undefined || raw === null || raw === '') return null;
   const n = Number(raw);
   return Number.isNaN(n) ? raw : n;
@@ -1156,9 +1161,88 @@ const AdminReturnProductCard = ({
   lineGrossWt,
   lineNetWt,
   compact = false,
+  dense = false,
+  reviewRemark = '',
+  onReviewRemarkChange,
+  bulkRemarkFallback = '',
 }) => {
   const code = lineItemCode(line);
-  const useRowLayout = !compact;
+  const useRowLayout = dense || !compact;
+
+  if (dense) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          alignItems: 'flex-start',
+          borderRadius: 10,
+          border: '1px solid #eef2f7',
+          background: '#fff',
+          padding: '8px 10px',
+          boxShadow: '0 1px 4px rgba(15, 23, 42, 0.04)',
+        }}
+      >
+        <div
+          style={{
+            width: 64,
+            height: 64,
+            flexShrink: 0,
+            borderRadius: 8,
+            background: '#f8fafc',
+            border: '1px solid #f1f5f9',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          {img ? (
+            <img src={img} alt={code} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          ) : (
+            <FaInbox size={20} style={{ color: '#cbd5e1' }} />
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: LOT_DETAIL_BLUE, marginBottom: 3, lineHeight: 1.2 }}>
+            {code}
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              color: '#64748b',
+              lineHeight: 1.45,
+              marginBottom: onReviewRemarkChange ? 6 : 0,
+              wordBreak: 'break-word',
+            }}
+          >
+            {lineCategory(line)} · {lineProduct(line)} · RFID {lineRfidValue(line)} · Gr {lineGrossWt(line)} · Net{' '}
+            {lineNetWt(line)}
+          </div>
+          {onReviewRemarkChange ? (
+            <input
+              type="text"
+              value={reviewRemark}
+              onChange={(e) => onReviewRemarkChange(e.target.value)}
+              placeholder={bulkRemarkFallback || 'Product review remark…'}
+              style={{
+                width: '100%',
+                padding: '6px 8px',
+                borderRadius: 7,
+                border: '1px solid #fcd34d',
+                fontSize: 11,
+                color: '#0f172a',
+                boxSizing: 'border-box',
+                fontFamily: 'inherit',
+                background: '#fffbeb',
+              }}
+            />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -1239,6 +1323,33 @@ const AdminReturnProductCard = ({
           <AdminReturnFieldCell label="Gross Wt" value={lineGrossWt(line)} />
           <AdminReturnFieldCell label="Net Wt" value={lineNetWt(line)} span={useRowLayout ? 1 : 2} />
         </div>
+        {onReviewRemarkChange ? (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>
+              Admin review remark
+            </div>
+            <textarea
+              value={reviewRemark}
+              onChange={(e) => onReviewRemarkChange(e.target.value)}
+              placeholder={bulkRemarkFallback || 'Per-product review (falls back to lot remark)…'}
+              rows={2}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                borderRadius: 8,
+                border: '1px solid #fcd34d',
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: '#0f172a',
+                resize: 'vertical',
+                minHeight: 52,
+                boxSizing: 'border-box',
+                fontFamily: 'inherit',
+                background: '#fff',
+              }}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1269,7 +1380,8 @@ const LotDetailItemCard = ({
   const status = String(line?.ItemStatus || '—').trim() || '—';
   const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
   const returnedByMeta = getReturnedByTypeMeta(line);
-  const forceReturnRemark = getLineForceReturnRemark(line, lotHeader);
+  const adminReviewRemark = getLineAdminReviewRemark(line, lotHeader);
+  const returnRemark = getLineReturnRemark(line, lotHeader);
   const pendingWithEmployee = line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true;
   const sampleOutDate = formatListDate(lineSampleOutDateRaw(line, lotHeader));
   const sampleInDate = formatLineSampleInDate(line);
@@ -1517,29 +1629,60 @@ const LotDetailItemCard = ({
             ) : null}
           </div>
         )}
-        {forceReturnRemark ? (
-          <div
-            style={{
-              marginTop: 6,
-              padding: '6px 8px',
-              borderRadius: 8,
-              background: '#fff7ed',
-              border: '1px solid #fed7aa',
-            }}
-          >
-            <div style={{ fontSize: 9, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>Remark</div>
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                color: '#78350f',
-                lineHeight: 1.45,
-                wordBreak: 'break-word',
-                overflowWrap: 'anywhere',
-              }}
-            >
-              {forceReturnRemark}
-            </div>
+        {(adminReviewRemark || returnRemark) && isForceReturnItem(line) ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            {adminReviewRemark ? (
+              <div
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: 8,
+                  background: '#fff7ed',
+                  border: '1px solid #fed7aa',
+                }}
+              >
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
+                  Admin review
+                </div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: '#78350f',
+                    lineHeight: 1.45,
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {adminReviewRemark}
+                </div>
+              </div>
+            ) : null}
+            {returnRemark && returnRemark !== adminReviewRemark ? (
+              <div
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: 8,
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', marginBottom: 2 }}>
+                  Return remark
+                </div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: '#475569',
+                    lineHeight: 1.45,
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  {returnRemark}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1559,7 +1702,9 @@ const mapRfidSampleLine = (line) => {
   if (!line || typeof line !== 'object') return line;
   return {
     ...line,
-    Id: line.id ?? line.Id,
+    LotItemId: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
+    lotItemId: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
+    Id: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
     ItemCode: line.itemCode ?? line.ItemCode,
     Itemcode: line.itemCode ?? line.Itemcode ?? line.ItemCode,
     RFIDCode: line.rfidCode ?? line.RFIDCode ?? line.RFIDNumber,
@@ -1614,6 +1759,8 @@ const mapRfidSampleLine = (line) => {
     sampleInOn: line.sampleInOn ?? line.SampleInOn,
     AdminReturnRemark: line.adminReturnRemark ?? line.AdminReturnRemark,
     adminReturnRemark: line.adminReturnRemark ?? line.AdminReturnRemark,
+    AdminReviewRemark: line.adminReviewRemark ?? line.AdminReviewRemark,
+    adminReviewRemark: line.adminReviewRemark ?? line.AdminReviewRemark,
     ReturnRemark: line.returnRemark ?? line.ReturnRemark,
     returnRemark: line.returnRemark ?? line.ReturnRemark,
     AdminRemark: line.adminRemark ?? line.AdminRemark,
@@ -1922,6 +2069,7 @@ const SampleOutList = ({
   const [imageFolderReady, setImageFolderReady] = useState(false);
   const [adminReturnSelectedIds, setAdminReturnSelectedIds] = useState(() => new Set());
   const [adminReturnRemark, setAdminReturnRemark] = useState('');
+  const [adminReturnProductRemarks, setAdminReturnProductRemarks] = useState({});
   const [adminReturning, setAdminReturning] = useState(false);
   const [adminReturnAllMode, setAdminReturnAllMode] = useState(false);
   const [showAdminReturnModal, setShowAdminReturnModal] = useState(false);
@@ -2022,6 +2170,7 @@ const SampleOutList = ({
     setDetailItemUserFilter('all');
     setAdminReturnSelectedIds(new Set());
     setAdminReturnRemark('');
+    setAdminReturnProductRemarks({});
     setAdminReturnAllMode(false);
     setShowAdminReturnModal(false);
     setAdminReturnSuccess(null);
@@ -2191,6 +2340,16 @@ const SampleOutList = ({
       const id = lineLotItemId(line);
       return id != null && adminReturnSelectedIds.has(id);
     });
+  const adminBulkExpectedStatus =
+    adminReturnAllMode || allAdminReturnableSelected
+      ? 'Completed'
+      : adminReturnSelectedCount > 0
+        ? 'PartialReturn'
+        : 'Open';
+  const setAdminReturnProductRemark = useCallback((lotItemId, value) => {
+    if (lotItemId == null) return;
+    setAdminReturnProductRemarks((prev) => ({ ...prev, [lotItemId]: value }));
+  }, []);
   const detailModalTotalPages = Math.max(1, Math.ceil(filteredDetailModalItems.length / MODAL_ITEMS_PER_PAGE));
   const detailModalStartIndex = (detailModalPage - 1) * MODAL_ITEMS_PER_PAGE;
   const detailModalEndIndex = detailModalStartIndex + MODAL_ITEMS_PER_PAGE;
@@ -2317,16 +2476,17 @@ const SampleOutList = ({
         const returnedByType = hit.returnedByType ?? hit.ReturnedByType ?? 'ForceReturn';
         const isForceReturn =
           hit.isForceReturn ?? hit.IsForceReturn ?? String(returnedByType).trim() === 'ForceReturn';
-        const itemRemark =
-          hit.adminReturnRemark ??
-          hit.AdminReturnRemark ??
+        const itemAdminReviewRemark =
+          hit.adminReviewRemark ??
+          hit.AdminReviewRemark ??
+          line.adminReviewRemark ??
+          line.AdminReviewRemark;
+        const itemReturnRemark =
           hit.returnRemark ??
           hit.ReturnRemark ??
-          hit.adminRemark ??
-          hit.AdminRemark ??
           bulkRemark ??
-          line.adminReturnRemark ??
-          line.AdminReturnRemark;
+          line.returnRemark ??
+          line.ReturnRemark;
         return {
           ...line,
           ItemStatus: hit.itemStatus ?? hit.ItemStatus ?? 'Returned',
@@ -2334,8 +2494,12 @@ const SampleOutList = ({
           returnedByType,
           IsForceReturn: isForceReturn,
           isForceReturn,
-          AdminReturnRemark: itemRemark,
-          adminReturnRemark: itemRemark,
+          AdminReviewRemark: itemAdminReviewRemark,
+          adminReviewRemark: itemAdminReviewRemark,
+          ReturnRemark: itemReturnRemark,
+          returnRemark: itemReturnRemark,
+          AdminReturnRemark: bulkRemark || line.adminReturnRemark || line.AdminReturnRemark,
+          adminReturnRemark: bulkRemark || line.adminReturnRemark || line.AdminReturnRemark,
           SampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.SampleInMode,
           sampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.sampleInMode,
           LastActionType: hit.lastActionType ?? hit.LastActionType ?? line.LastActionType,
@@ -2384,13 +2548,49 @@ const SampleOutList = ({
     });
     setAdminReturnSelectedIds(new Set());
     setAdminReturnAllMode(false);
+    setAdminReturnProductRemarks({});
+  };
+
+  const buildAdminReturnProductsPayload = (lines, bulkRemark) => {
+    const fromLines = (lines || [])
+      .map((line) => {
+        const lotItemId = lineLotItemId(line);
+        if (lotItemId == null) return null;
+        const perProductRemark = String(
+          adminReturnProductRemarks[lotItemId] ??
+            adminReturnProductRemarks[String(lotItemId)] ??
+            ''
+        ).trim();
+        return {
+          LotItemId: Number(lotItemId),
+          AdminReviewRemark: perProductRemark || bulkRemark,
+        };
+      })
+      .filter((entry) => Number.isFinite(entry?.LotItemId) && entry.LotItemId > 0);
+
+    if (fromLines.length) return fromLines;
+
+    return [...adminReturnSelectedIds]
+      .map((id) => {
+        const lotItemId = Number(id);
+        if (!Number.isFinite(lotItemId) || lotItemId <= 0) return null;
+        const perProductRemark = String(
+          adminReturnProductRemarks[id] ?? adminReturnProductRemarks[String(id)] ?? ''
+        ).trim();
+        return {
+          LotItemId: lotItemId,
+          AdminReviewRemark: perProductRemark || bulkRemark,
+        };
+      })
+      .filter(Boolean);
   };
 
   const handleAdminBulkReturn = async () => {
     const lotId = detailModal?.header?.Id ?? detailModal?.header?.LotId ?? detailModal?.header?.lotId;
     const clientCode = resolveClientCode(userInfo);
-    const ids = Array.from(adminReturnSelectedIds);
     const returnAllOutItems = adminReturnAllMode;
+    const bulkRemark = String(adminReturnRemark || '').trim() || 'Returned by admin';
+    const linesToReturn = returnAllOutItems ? adminReturnableItems : adminReturnSelectedLines;
     if (!isAdminUser) {
       addNotification({
         type: 'error',
@@ -2400,7 +2600,7 @@ const SampleOutList = ({
       return;
     }
     if (!lotId || !clientCode) return;
-    if (!returnAllOutItems && !ids.length) {
+    if (!linesToReturn.length) {
       addNotification({
         type: 'warning',
         title: 'Admin return',
@@ -2411,15 +2611,24 @@ const SampleOutList = ({
 
     setAdminReturning(true);
     try {
+      const products = buildAdminReturnProductsPayload(linesToReturn, bulkRemark);
+      if (!products.length) {
+        addNotification({
+          type: 'error',
+          title: 'Admin return',
+          message:
+            'Could not resolve LotItemId for selected products. Close and re-open lot details, then try again.',
+        });
+        return;
+      }
       const payload = {
         ClientCode: clientCode,
         LotId: Number(lotId),
-        AdminReturnRemark: String(adminReturnRemark || '').trim() || 'Returned by admin',
+        AdminReturnRemark: bulkRemark,
+        Products: products,
       };
       if (returnAllOutItems) {
         payload.ReturnAllOutItems = true;
-      } else {
-        payload.LotItemIds = ids.map((id) => Number(id));
       }
       const { data } = await axios.post(getAdminBulkSampleReturnUrl(), payload, {
         headers: sampleAuthHeaders(),
@@ -2434,8 +2643,8 @@ const SampleOutList = ({
         data?.message ||
         data?.Message ||
         (returnAllOutItems
-          ? `${adminReturnableItems.length} product(s) returned successfully.`
-          : `${ids.length} product(s) returned successfully.`);
+          ? `${adminReturnableItems.length} product(s) force-returned successfully.`
+          : `${linesToReturn.length} product(s) force-returned successfully.`);
       const finishUi = getRfidSampleLotFinishUi(lotMeta, { fallbackMessage: fallbackMsg });
       setAdminReturnSuccess({
         message: finishUi.message,
@@ -2471,6 +2680,7 @@ const SampleOutList = ({
   const openAdminReturnModal = ({ returnAll = false } = {}) => {
     setAdminReturnSuccess(null);
     setAdminReturnAllMode(returnAll);
+    setAdminReturnProductRemarks({});
     if (returnAll) {
       setAdminReturnSelectedIds(new Set());
     }
@@ -4216,10 +4426,10 @@ const SampleOutList = ({
             aria-labelledby="admin-return-modal-title"
             style={{
               background: '#fff',
-              borderRadius: 18,
-              maxWidth: 680,
+              borderRadius: 16,
+              maxWidth: 520,
               width: '100%',
-              maxHeight: '92vh',
+              maxHeight: 'min(560px, 92vh)',
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
@@ -4307,18 +4517,19 @@ const SampleOutList = ({
               <>
                 <div
                   style={{
-                    padding: '16px 20px',
+                    padding: '10px 14px',
                     background: 'linear-gradient(135deg, #c2410c 0%, #ea580c 55%, #d97706 100%)',
                     color: '#fff',
+                    flexShrink: 0,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
                       <div
                         style={{
-                          width: 42,
-                          height: 42,
-                          borderRadius: 11,
+                          width: 34,
+                          height: 34,
+                          borderRadius: 9,
                           background: 'rgba(255,255,255,0.18)',
                           border: '1px solid rgba(255,255,255,0.28)',
                           display: 'flex',
@@ -4327,41 +4538,33 @@ const SampleOutList = ({
                           flexShrink: 0,
                         }}
                       >
-                        <FaUndo size={16} />
+                        <FaUndo size={14} />
                       </div>
                       <div style={{ minWidth: 0 }}>
-                        <h3 id="admin-return-modal-title" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#fff' }}>
+                        <h3
+                          id="admin-return-modal-title"
+                          style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.25 }}
+                        >
                           {adminReturnAllMode ? 'Return all out items' : 'Admin bulk sample return'}
                         </h3>
                         <p
                           style={{
-                            margin: '6px 0 0',
-                            fontSize: 13,
-                            color: 'rgba(255,255,255,0.88)',
-                            lineHeight: 1.5,
-                            wordBreak: 'break-word',
-                            overflowWrap: 'anywhere',
+                            margin: '2px 0 0',
+                            fontSize: 11,
+                            color: 'rgba(255,255,255,0.9)',
+                            lineHeight: 1.35,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
                           }}
+                          title={`Lot ${detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}`}
                         >
                           Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'} ·{' '}
-                          {adminReturnAllMode ? (
-                            <>
-                              <strong style={{ fontWeight: 800 }}>{adminReturnableItems.length}</strong> remaining Out
-                              item{adminReturnableItems.length === 1 ? '' : 's'} — returns via scan path →{' '}
-                              <strong style={{ fontWeight: 800 }}>Closed</strong>
-                            </>
-                          ) : allAdminReturnableSelected ? (
-                            <>
-                              <strong style={{ fontWeight: 800 }}>{adminReturnSelectedCount}</strong> item
-                              {adminReturnSelectedCount === 1 ? '' : 's'} selected — admin manual finish →{' '}
-                              <strong style={{ fontWeight: 800 }}>Completed</strong>
-                            </>
-                          ) : (
-                            <>
-                              <strong style={{ fontWeight: 800 }}>{adminReturnSelectedCount}</strong> item
-                              {adminReturnSelectedCount === 1 ? '' : 's'} selected
-                            </>
-                          )}
+                          {adminReturnAllMode
+                            ? `${adminReturnableItems.length} Out → Completed`
+                            : allAdminReturnableSelected
+                              ? `${adminReturnSelectedCount} selected → Completed`
+                              : `${adminReturnSelectedCount} selected → PartialReturn`}
                         </p>
                       </div>
                     </div>
@@ -4374,103 +4577,86 @@ const SampleOutList = ({
                         border: '1px solid rgba(255,255,255,0.28)',
                         background: 'rgba(255,255,255,0.14)',
                         cursor: adminReturning ? 'not-allowed' : 'pointer',
-                        padding: 8,
-                        borderRadius: 9,
+                        padding: 6,
+                        borderRadius: 8,
                         color: '#fff',
                         flexShrink: 0,
                         lineHeight: 0,
                       }}
                     >
-                      <FaTimes size={14} />
+                      <FaTimes size={13} />
                     </button>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                      marginTop: 8,
+                      fontSize: 10,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(255,255,255,0.16)',
+                        border: '1px solid rgba(255,255,255,0.22)',
+                      }}
+                    >
+                      Items: {adminReturnAllMode ? adminReturnableItems.length : adminReturnSelectedCount}
+                    </span>
+                    <span
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(255,255,255,0.16)',
+                        border: '1px solid rgba(255,255,255,0.22)',
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={adminReturnPreviewDateTime}
+                    >
+                      {adminReturnPreviewDateTime}
+                    </span>
                   </div>
                 </div>
 
-                <div style={{ padding: '18px 20px 20px', overflowX: 'hidden', overflowY: 'auto', flex: 1, minHeight: 0 }}>
-                  {/* Selected products — full width */}
-                  <section
+                <div
+                  style={{
+                    padding: '10px 14px 0',
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                  }}
+                >
+                  <div
                     style={{
-                      borderRadius: 14,
-                      border: '1px solid #e8ecf4',
-                      background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
-                      overflow: 'hidden',
-                      marginBottom: 14,
+                      flex: '1 1 auto',
+                      minHeight: 0,
+                      overflowY: 'auto',
+                      overflowX: 'hidden',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
                     }}
                   >
-                    <div
-                      style={{
-                        padding: '12px 14px',
-                        borderBottom: '1px solid #eef2f7',
-                        background: '#f8fafc',
-                      }}
-                    >
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>
-                        {adminReturnAllMode ? 'All remaining Out products' : 'Selected products'}
-                      </div>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: windowWidth <= 520 ? '1fr' : 'repeat(2, minmax(0, 1fr))',
-                          gap: '10px 16px',
-                        }}
-                      >
-                        <AdminReturnFieldCell
-                          label="Items"
-                          value={adminReturnAllMode ? adminReturnableItems.length : adminReturnSelectedCount}
-                          valueColor="#c2410c"
-                        />
-                        <AdminReturnFieldCell
-                          label="Return date & time"
-                          value={adminReturnPreviewDateTime}
-                          valueColor={LOT_DETAIL_BLUE}
-                        />
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        maxHeight: 320,
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        padding: '12px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 10,
-                      }}
-                    >
-                      {adminReturnAllMode ? (
-                        adminReturnableItems.length ? (
-                          adminReturnableItems.map((line, idx) => {
-                            const code = lineItemCode(line);
-                            const img =
-                              lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
-                            return (
-                              <AdminReturnProductCard
-                                key={lineLotItemId(line) ?? `${code}-${idx}`}
-                                line={line}
-                                img={img}
-                                lineItemCode={lineItemCode}
-                                lineCategory={lineCategory}
-                                lineProduct={lineProduct}
-                                lineRfidValue={lineRfidValue}
-                                lineGrossWt={lineGrossWt}
-                                lineNetWt={lineNetWt}
-                                compact
-                              />
-                            );
-                          })
-                        ) : (
-                          <div style={{ padding: 16, fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>
-                            No Out items left to return.
-                          </div>
-                        )
-                      ) : adminReturnSelectedLines.length ? (
-                        adminReturnSelectedLines.map((line, idx) => {
+                    {adminReturnAllMode ? (
+                      adminReturnableItems.length ? (
+                        adminReturnableItems.map((line, idx) => {
                           const code = lineItemCode(line);
-                          const img =
-                            lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+                          const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+                          const lotItemId = lineLotItemId(line);
                           return (
                             <AdminReturnProductCard
-                              key={lineLotItemId(line) ?? `${code}-${idx}`}
+                              key={lotItemId ?? `${code}-${idx}`}
+                              dense
                               line={line}
                               img={img}
                               lineItemCode={lineItemCode}
@@ -4479,157 +4665,174 @@ const SampleOutList = ({
                               lineRfidValue={lineRfidValue}
                               lineGrossWt={lineGrossWt}
                               lineNetWt={lineNetWt}
+                              reviewRemark={adminReturnProductRemarks[lotItemId] || ''}
+                              onReviewRemarkChange={(value) => setAdminReturnProductRemark(lotItemId, value)}
+                              bulkRemarkFallback={adminReturnRemark}
                             />
                           );
                         })
                       ) : (
-                        <p style={{ margin: 0, padding: 16, textAlign: 'center', fontSize: 13, color: '#94a3b8' }}>
-                          No items selected.
-                        </p>
-                      )}
-                    </div>
-                  </section>
+                        <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+                          No Out items left to return.
+                        </div>
+                      )
+                    ) : adminReturnSelectedLines.length ? (
+                      adminReturnSelectedLines.map((line, idx) => {
+                        const code = lineItemCode(line);
+                        const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
+                        const lotItemId = lineLotItemId(line);
+                        return (
+                          <AdminReturnProductCard
+                            key={lotItemId ?? `${code}-${idx}`}
+                            dense
+                            line={line}
+                            img={img}
+                            lineItemCode={lineItemCode}
+                            lineCategory={lineCategory}
+                            lineProduct={lineProduct}
+                            lineRfidValue={lineRfidValue}
+                            lineGrossWt={lineGrossWt}
+                            lineNetWt={lineNetWt}
+                            reviewRemark={adminReturnProductRemarks[lotItemId] || ''}
+                            onReviewRemarkChange={(value) => setAdminReturnProductRemark(lotItemId, value)}
+                            bulkRemarkFallback={adminReturnRemark}
+                          />
+                        );
+                      })
+                    ) : (
+                      <p style={{ margin: 0, padding: 12, textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>
+                        No items selected.
+                      </p>
+                    )}
+                  </div>
 
-                  {/* Remark + complete lot */}
                   <section
                     style={{
-                      borderRadius: 14,
+                      flexShrink: 0,
+                      borderRadius: 10,
                       border: '1px solid #fde68a',
-                      background: 'linear-gradient(180deg, #fffbeb 0%, #ffffff 100%)',
-                      padding: '14px 16px',
+                      background: '#fffbeb',
+                      padding: '8px 10px',
                     }}
                   >
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>
-                        Return remark
-                      </div>
-                      <p style={{ margin: '0 0 12px', fontSize: 12, color: '#a16207', lineHeight: 1.45 }}>
-                        Optional note recorded with this admin return.
-                      </p>
-                      <textarea
-                        id="admin-return-remark-modal"
-                        value={adminReturnRemark}
-                        onChange={(e) => setAdminReturnRemark(e.target.value)}
-                        placeholder="Type remark here…"
-                        rows={4}
-                        disabled={adminReturning}
-                        style={{
-                          width: '100%',
-                          padding: '12px 14px',
-                          borderRadius: 10,
-                          border: '1px solid #fcd34d',
-                          fontSize: 13,
-                          lineHeight: 1.55,
-                          color: '#0f172a',
-                          resize: 'vertical',
-                          minHeight: 96,
-                          maxHeight: 140,
-                          boxSizing: 'border-box',
-                          fontFamily: 'inherit',
-                          background: '#fff',
-                        }}
-                      />
-                      <div
-                        style={{
-                          marginTop: 12,
-                          padding: '10px 12px',
-                          borderRadius: 9,
-                          background: '#fff',
-                          border: '1px solid #fde68a',
-                          fontSize: 11,
-                          color: '#78350f',
-                          lineHeight: 1.5,
-                          wordBreak: 'break-word',
-                          overflowWrap: 'anywhere',
-                        }}
-                      >
-                        <strong style={{ fontWeight: 800 }}>Note:</strong>{' '}
-                        {adminReturnAllMode
-                          ? 'Return all Out uses the scan-complete path (Closed) — only when every Out item is returned.'
-                          : 'Partial admin return keeps the lot Open or Partial return until every Out item is returned. Completed is set only when all items are back.'}
-                      </div>
-                    </section>
-
-                  <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowAdminReturnModal(false)}
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>
+                      Lot return remark
+                    </div>
+                    <textarea
+                      id="admin-return-remark-modal"
+                      value={adminReturnRemark}
+                      onChange={(e) => setAdminReturnRemark(e.target.value)}
+                      placeholder="Lot remark (fallback for empty product remarks)…"
+                      rows={2}
                       disabled={adminReturning}
                       style={{
-                        flex: 1,
-                        padding: '12px 16px',
-                        borderRadius: 10,
-                        border: '1px solid #e2e8f0',
+                        width: '100%',
+                        padding: '7px 9px',
+                        borderRadius: 8,
+                        border: '1px solid #fcd34d',
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        color: '#0f172a',
+                        resize: 'none',
+                        minHeight: 52,
+                        maxHeight: 52,
+                        boxSizing: 'border-box',
+                        fontFamily: 'inherit',
                         background: '#fff',
-                        color: '#475569',
-                        fontWeight: 700,
-                        fontSize: 13,
-                        cursor: adminReturning ? 'not-allowed' : 'pointer',
-                        fontFamily: LOT_DETAIL_FONT,
                       }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAdminBulkReturn}
-                      disabled={
+                    />
+                  </section>
+                </div>
+
+                <div
+                  style={{
+                    flexShrink: 0,
+                    padding: '10px 14px 12px',
+                    borderTop: '1px solid #eef2f7',
+                    background: '#fafcff',
+                    display: 'flex',
+                    gap: 8,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminReturnModal(false)}
+                    disabled={adminReturning}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: 9,
+                      border: '1px solid #e2e8f0',
+                      background: '#fff',
+                      color: '#475569',
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: adminReturning ? 'not-allowed' : 'pointer',
+                      fontFamily: LOT_DETAIL_FONT,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAdminBulkReturn}
+                    disabled={
+                      adminReturning ||
+                      (adminReturnAllMode ? adminReturnableItems.length === 0 : adminReturnSelectedCount === 0)
+                    }
+                    style={{
+                      flex: 1.3,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      padding: '10px 12px',
+                      borderRadius: 9,
+                      border: 'none',
+                      background:
                         adminReturning ||
-                        (adminReturnAllMode ? adminReturnableItems.length === 0 : adminReturnSelectedCount === 0)
-                      }
-                      style={{
-                        flex: 1.2,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8,
-                        padding: '12px 16px',
-                        borderRadius: 10,
-                        border: 'none',
-                        background:
-                          adminReturning ||
-                          (adminReturnAllMode
-                            ? adminReturnableItems.length === 0
-                            : adminReturnSelectedCount === 0)
-                            ? '#e2e8f0'
-                            : 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
-                        color:
-                          adminReturning ||
-                          (adminReturnAllMode
-                            ? adminReturnableItems.length === 0
-                            : adminReturnSelectedCount === 0)
-                            ? '#94a3b8'
-                            : '#fff',
-                        fontWeight: 800,
-                        fontSize: 13,
-                        cursor:
-                          adminReturning ||
-                          (adminReturnAllMode
-                            ? adminReturnableItems.length === 0
-                            : adminReturnSelectedCount === 0)
-                            ? 'not-allowed'
-                            : 'pointer',
-                        fontFamily: LOT_DETAIL_FONT,
-                        boxShadow:
-                          adminReturning ||
-                          (adminReturnAllMode
-                            ? adminReturnableItems.length === 0
-                            : adminReturnSelectedCount === 0)
-                            ? 'none'
-                            : '0 6px 20px rgba(234, 88, 12, 0.35)',
-                      }}
-                    >
-                      {adminReturning ? (
-                        <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} />
-                      ) : (
-                        <FaUndo size={13} />
-                      )}
-                      {adminReturnAllMode
-                        ? 'Return all & close lot'
-                        : allAdminReturnableSelected
-                          ? 'Return all selected (Completed)'
-                          : 'Confirm return'}
-                    </button>
-                  </div>
+                        (adminReturnAllMode
+                          ? adminReturnableItems.length === 0
+                          : adminReturnSelectedCount === 0)
+                          ? '#e2e8f0'
+                          : 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
+                      color:
+                        adminReturning ||
+                        (adminReturnAllMode
+                          ? adminReturnableItems.length === 0
+                          : adminReturnSelectedCount === 0)
+                          ? '#94a3b8'
+                          : '#fff',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      cursor:
+                        adminReturning ||
+                        (adminReturnAllMode
+                          ? adminReturnableItems.length === 0
+                          : adminReturnSelectedCount === 0)
+                          ? 'not-allowed'
+                          : 'pointer',
+                      fontFamily: LOT_DETAIL_FONT,
+                      boxShadow:
+                        adminReturning ||
+                        (adminReturnAllMode
+                          ? adminReturnableItems.length === 0
+                          : adminReturnSelectedCount === 0)
+                          ? 'none'
+                          : '0 4px 14px rgba(234, 88, 12, 0.28)',
+                    }}
+                  >
+                    {adminReturning ? (
+                      <FaSpinner style={{ animation: 'spin 0.9s linear infinite' }} />
+                    ) : (
+                      <FaUndo size={12} />
+                    )}
+                    {adminReturnAllMode
+                      ? 'Force return all'
+                      : adminBulkExpectedStatus === 'Completed'
+                        ? 'Force return all selected'
+                        : 'Force return selected'}
+                  </button>
                 </div>
               </>
             )}

@@ -242,7 +242,61 @@ export const parseReadExcelResult = (result) => {
 };
 
 const SAMPLE_OUT_BLOCK_RE =
-  /sample out|sample return|waiting for employee sample acceptance|sample acceptance|take sample return/i;
+  /cannot sync stock|cannot add new stock|sample out lot|is in sample out|sample return|waiting for employee sample acceptance|sample acceptance|take sample return/i;
+
+const normalizeSampleOutFromEntry = (entry) => {
+  const so = entry?.sampleOut ?? entry?.SampleOut ?? null;
+  if (!so || typeof so !== 'object') return null;
+  const lotNumber = pickFirstNonEmpty(
+    so,
+    'lotNumber',
+    'LotNumber',
+    'sampleLotNo',
+    'SampleLotNo',
+    'sampleOutNo',
+    'SampleOutNo'
+  );
+  const partyName = pickFirstNonEmpty(
+    so,
+    'partyName',
+    'PartyName',
+    'assignedToUserName',
+    'AssignedToUserName'
+  );
+  const partyType = pickFirstNonEmpty(so, 'partyType', 'PartyType');
+  const lotStatus = pickFirstNonEmpty(so, 'lotStatus', 'LotStatus');
+  const itemStatus = pickFirstNonEmpty(so, 'itemStatus', 'ItemStatus');
+  const itemCode = pickFirstNonEmpty(so, 'itemCode', 'ItemCode', 'itemcode');
+  if (!lotNumber && !partyName && !lotStatus && !itemStatus) return null;
+  return {
+    lotId: so.lotId ?? so.LotId ?? null,
+    lotNumber,
+    partyType,
+    partyName,
+    assignedToUserName: pickFirstNonEmpty(so, 'assignedToUserName', 'AssignedToUserName') || partyName,
+    lotStatus,
+    itemStatus,
+    itemCode,
+  };
+};
+
+/** Human-readable party line for sample-out sync blocks. */
+export const formatSampleOutPartyLine = (entry) => {
+  const so = entry?.sampleOut ?? entry;
+  const name = pickFirstNonEmpty(so, 'partyName', 'assignedToUserName', 'PartyName', 'AssignedToUserName');
+  const type = pickFirstNonEmpty(so, 'partyType', 'PartyType');
+  if (name && type) return `${name} (${type})`;
+  return name || type || '—';
+};
+
+/** Status line: item + lot status from sampleOut block. */
+export const formatSampleOutStatusLine = (entry) => {
+  const so = entry?.sampleOut ?? entry;
+  const itemStatus = pickFirstNonEmpty(so, 'itemStatus', 'ItemStatus');
+  const lotStatus = pickFirstNonEmpty(so, 'lotStatus', 'LotStatus');
+  const parts = [itemStatus, lotStatus].filter(Boolean);
+  return parts.length ? parts.join(' / ') : '—';
+};
 
 const pickFirstNonEmpty = (obj, ...keys) => {
   for (const key of keys) {
@@ -310,6 +364,11 @@ export const normalizeSaveRfidErrorEntry = (entry) => {
       text: message,
       sampleLotNo: parsedSample.sampleLotNo,
       sampleStatus: parsedSample.sampleStatus,
+      sampleOut: null,
+      partyName: '',
+      partyType: '',
+      lotStatus: '',
+      itemStatus: '',
       isSampleOutBlock: SAMPLE_OUT_BLOCK_RE.test(message),
       product: '',
       category: '',
@@ -339,7 +398,9 @@ export const normalizeSaveRfidErrorEntry = (entry) => {
   const itemIndexRaw = entry?.itemIndex ?? entry?.ItemIndex;
   const itemIndex = itemIndexRaw != null ? Number(itemIndexRaw) : null;
   const parsedSample = parseSampleInfoFromErrorText(message);
+  const sampleOut = normalizeSampleOutFromEntry(entry);
   const sampleLotNo =
+    sampleOut?.lotNumber ||
     pickFirstNonEmpty(
       entry,
       'SampleLotNo',
@@ -350,22 +411,35 @@ export const normalizeSaveRfidErrorEntry = (entry) => {
       'lotNumber',
       'lotNo',
       'LotNo'
-    ) || parsedSample.sampleLotNo;
+    ) ||
+    parsedSample.sampleLotNo;
   const sampleStatus =
+    sampleOut?.itemStatus ||
     pickFirstNonEmpty(entry, 'SampleStatus', 'sampleStatus', 'MovementType', 'movementType') ||
     parsedSample.sampleStatus;
+  const partyName = sampleOut?.partyName || pickFirstNonEmpty(entry, 'partyName', 'PartyName');
+  const partyType = sampleOut?.partyType || pickFirstNonEmpty(entry, 'partyType', 'PartyType');
+  const lotStatus = sampleOut?.lotStatus || pickFirstNonEmpty(entry, 'lotStatus', 'LotStatus');
+  const itemStatus = sampleOut?.itemStatus || pickFirstNonEmpty(entry, 'itemStatus', 'ItemStatus');
 
   const text = formatSaveRfidErrorLine(entry) || message;
+  const resolvedItemCode = itemCode || sampleOut?.itemCode || '';
 
   return {
     itemIndex: Number.isFinite(itemIndex) ? itemIndex : null,
-    itemCode,
+    itemCode: resolvedItemCode,
     rfidNumber,
     message: message || text,
     text: text || message,
     sampleLotNo,
     sampleStatus,
-    isSampleOutBlock: SAMPLE_OUT_BLOCK_RE.test(`${message} ${text}`),
+    sampleOut,
+    partyName,
+    partyType,
+    lotStatus,
+    itemStatus,
+    isSampleOutBlock:
+      Boolean(sampleOut) || SAMPLE_OUT_BLOCK_RE.test(`${message} ${text}`),
     product: pickFirstNonEmpty(entry, 'product_id', 'ProductName', 'productName', 'Product'),
     category: pickFirstNonEmpty(entry, 'category_id', 'CategoryName', 'categoryName', 'Category'),
     design: pickFirstNonEmpty(entry, 'design_id', 'DesignName', 'designName', 'Design'),

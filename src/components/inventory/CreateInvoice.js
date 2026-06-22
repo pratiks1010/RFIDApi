@@ -2293,12 +2293,15 @@ const CreateInvoice = () => {
         throw new Error('Item code is required to update RFID transaction.');
       }
 
+      const normalizedItemCode = selectedItemForStatus.ItemCode || selectedItemForStatus.Itemcode || selectedItemForStatus.SKU || selectedItemForStatus.sku || selectedItemForStatus?.itemcode;
+      const normalizedRfid = selectedItemForStatus.RFIDCode || selectedItemForStatus.RFIDNumber || selectedItemForStatus.rfidcode || selectedItemForStatus?.RFIDNumber || selectedItemForStatus?.rfidcode;
+
       const response = await axios.post(
         'https://soni.loyalstring.co.in/api/ProductMaster/UpdateRFIDTransactionDetails',
         [{
           client_code: clientCode,
-          itemcode: selectedItemForStatus.ItemCode || '',
-          ...(selectedItemForStatus.RFIDCode ? { RFIDNumber: selectedItemForStatus.RFIDCode } : {}),
+          itemcode: normalizedItemCode || '',
+          ...(normalizedRfid ? { RFIDNumber: normalizedRfid } : {}),
           status: newStatus || selectedItemForStatus.Status || 'Sold'
         }],
         {
@@ -2309,7 +2312,14 @@ const CreateInvoice = () => {
         }
       );
 
-      if (response.data && response.data.success !== false) {
+      const apiStatus = response.data?.status?.toLowerCase?.();
+      const isSuccess = response.data && (
+        apiStatus === 'success' ||
+        apiStatus === 'partial' ||
+        response.data.success !== false
+      );
+
+      if (isSuccess) {
         // Update the local state
         setLabeledStock(prev => prev.map(item => 
           item.Id === selectedItemForStatus.Id 
@@ -2375,16 +2385,24 @@ const CreateInvoice = () => {
         throw new Error('Client code not found. Please login again.');
       }
 
-      const validItemsToUpdate = itemsToUpdate.filter(item => item.ItemCode);
+      const validItemsToUpdate = itemsToUpdate
+        .map(item => ({
+          ...item,
+          _itemCode: item.ItemCode || item.Itemcode || item.SKU || item.sku || item?.itemcode,
+          _rfidValue: item.RFIDCode || item.RFIDNumber || item.rfidcode || item?.RFIDNumber || item?.rfidcode
+        }))
+        .filter(item => item._itemCode);
+
       if (validItemsToUpdate.length === 0) {
         throw new Error('No selected rows have itemcode. Please select valid items.');
       }
 
-      // Recommended payload format: itemcode mandatory, RFIDNumber optional, status defaults to Sold server-side.
+      // Recommended payload format: itemcode mandatory, RFIDNumber optional, status explicitly set to Sold.
       const payload = validItemsToUpdate.map(item => ({
         client_code: clientCode,
-        itemcode: item.ItemCode,
-        ...(item.RFIDCode ? { RFIDNumber: item.RFIDCode } : {})
+        itemcode: item._itemCode,
+        ...(item._rfidValue ? { RFIDNumber: item._rfidValue } : {}),
+        status: 'Sold'
       }));
 
       // Make API call with array payload
@@ -2400,7 +2418,14 @@ const CreateInvoice = () => {
       );
 
       // Handle response
-      if (response.data && response.data.status === 'success') {
+      const apiStatus = response.data?.status?.toLowerCase?.();
+      const isSuccess = response.data && (
+        apiStatus === 'success' ||
+        apiStatus === 'partial' ||
+        response.data.success !== false
+      );
+
+      if (isSuccess) {
         // Update local state for all items
         validItemsToUpdate.forEach(item => {
           setLabeledStock(prev => prev.map(prevItem => 
@@ -2425,7 +2450,7 @@ const CreateInvoice = () => {
 
         // Show success notification
         const skippedCount = itemsToUpdate.length - validItemsToUpdate.length;
-        const successBaseMessage = response.data.message || `Successfully marked ${validItemsToUpdate.length} item(s) as sold.`;
+        const successBaseMessage = response.data?.message || response.data?.Message || `Successfully marked ${validItemsToUpdate.length} item(s) as sold.`;
         const message = skippedCount > 0
           ? `${successBaseMessage} Skipped ${skippedCount} item(s) without itemcode.`
           : successBaseMessage;
@@ -2436,15 +2461,16 @@ const CreateInvoice = () => {
           type: 'success'
         });
       } else {
-        throw new Error(response.data?.message || 'Failed to mark items as sold');
+        throw new Error(response.data?.message || response.data?.Message || 'Failed to mark items as sold');
       }
     } catch (err) {
       console.error('Error marking items as sold:', err);
       setShowMarkSoldConfirm(false);
-      showSuccessNotification('Mark as Sold Failed', err.response?.data?.message || err.message || 'Failed to mark items as sold.');
+      const errorText = err.response?.data?.message || err.response?.data?.Message || err.message || 'Failed to mark items as sold.';
+      showSuccessNotification('Mark as Sold Failed', errorText);
       addNotification({
         title: 'Mark as sold failed',
-        description: err.response?.data?.message || err.message || 'Failed to mark items as sold.',
+        description: errorText,
         type: 'error'
       });
     } finally {

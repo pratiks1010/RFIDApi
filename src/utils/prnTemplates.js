@@ -839,21 +839,17 @@ END
 `;
 };
 
+// LS000488 — compact mangalsutra label (ENGINE 1774×710, RFID 48-bit EPC, QR)
 const generateLS000488Prn = (item) => {
   const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
-  const productName = prnQuote(item.ProductName || item.CategoryName || '');
-  const grossWt = prnQuote(formatWeight2(item.GrossWt ?? item.GrossWeight ?? item.grosswt));
-  const netWt = prnQuote(formatWeight2(item.NetWt ?? item.netwt));
-  const stoneWeight = prnQuote(formatWeight2(item.TotalStoneWeight ?? item.StoneWt ?? '0.000'));
-  const size = prnQuote(String(item.MRP ?? item.Size ?? item.size ?? '').trim());
-  const melting = prnQuote(resolveLS000544Melting(item));
-  const huidValue = prnQuote(resolveLS000544HuidValue(item));
-  const displayCode = prnQuote(itemCode);
-   const barcodeValue = item.BarcodeValue || item.Barcode || itemCode;
-  const { epcHex: rawEpcHex } = calculateEpcMemory(stringToHex(barcodeValue));
+  const productName = item.ProductName || item.CategoryName || 'Mangalsutra';
+  const grossWt = String(item.GrossWt || item.GrossWeight || item.grosswt || '10.00');
+  const netWt = String(item.NetWt || item.netwt || '10.00');
+  const stoneWt = String(item.StoneWt || item.stonewt || item.TotalStoneWeight || '0.00');
+  const displayCode = itemCode;
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode);
-  
-  return `!PTX_SETUP
+
+  return `<xpml><page quantity='0' pitch='18.0 mm'></xpml>!PTX_SETUP
 ENGINE-WIDTH;1774:LENGTH;710:MIRROR;0.
 PTX_END
 ~PAPER;ROTATE 0
@@ -874,10 +870,10 @@ END
 SCALE;DOT;203;203
 ISET;'UTF8'
 RFWTAG;16;PC
-16;H;*1C00*
+16;H;${pcValue}
 STOP
-RFWTAG;48;EPC
-48;H;*${rawEpcHex}*
+RFWTAG;${epcBits};EPC
+${epcBits};H;*${epcHex}*
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
@@ -885,9 +881,9 @@ INV;POINT;113;328;7;7;"${productName}"
 INV;POINT;83;328;7;7;"G wt :"
 INV;POINT;83;279;7;7;"${grossWt}"
 INV;POINT;17;328;7;7;"N wt :"
-INV;POINT;17;279;7;7;"${stoneWeight}"
+INV;POINT;17;279;7;7;"${netWt}"
 INV;POINT;50;328;7;7;"S wt :"
-INV;POINT;50;278;7;7;"${netWt}"
+INV;POINT;50;278;7;7;"${stoneWt}"
 STOP
 BARCODE
 QRCODE;INV;XD3;T2;E0;M0;I0;58;96
@@ -902,7 +898,8 @@ END
 ~NORMAL
 ~DELETE FORM;FORM-0
 `;
-}
+};
+
 // Main function to generate client-specific PRN
 export const generateClientPrn = (item, clientCode) => {
   const rawCode = (clientCode || '').trim().toUpperCase();
@@ -920,6 +917,8 @@ export const generateClientPrn = (item, clientCode) => {
         : generateLS000533Prn(item);
     case 'LS000544':
       return generateLS000544Prn(item);
+    case 'LS000488':
+      return generateLS000488Prn(item);
     case 'LS000488':
       return generateLS000488Prn(item);
     case 'LS000443':

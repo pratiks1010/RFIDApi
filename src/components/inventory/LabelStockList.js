@@ -4521,7 +4521,8 @@ const LabelStockList = () => {
               {/* Delete Button */}
               <button
                 onClick={handleDelete}
-                disabled={selectedRows.length === 0}
+                disabled={selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438'}
+                title={userInfo?.ClientCode === 'LS000438' ? 'Delete not available for this client' : ''}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -4531,10 +4532,10 @@ const LabelStockList = () => {
                   fontWeight: 700,
                   borderRadius: 8,
                   border: '1px solid #fecaca',
-                  background: selectedRows.length === 0 ? '#f8fafc' : 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
-                  color: selectedRows.length === 0 ? '#94a3b8' : '#b91c1c',
-                  cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: selectedRows.length === 0 ? 0.55 : 1,
+                  background: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? '#f8fafc' : 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
+                  color: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? '#94a3b8' : '#b91c1c',
+                  cursor: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? 'not-allowed' : 'pointer',
+                  opacity: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? 0.55 : 1,
                   boxSizing: 'border-box',
                   height: 30,
                 }}
@@ -4661,6 +4662,8 @@ const LabelStockList = () => {
               {/* Delete All Button */}
               <button
                 onClick={handleDeleteAllStock}
+                disabled={userInfo?.ClientCode === 'LS000438'}
+                title={userInfo?.ClientCode === 'LS000438' ? 'Delete all not available for this client' : ''}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -4670,9 +4673,10 @@ const LabelStockList = () => {
                   fontWeight: 700,
                   borderRadius: 8,
                   border: '1px solid #fecaca',
-                  background: 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
-                  color: '#b91c1c',
-                  cursor: 'pointer',
+                  background: userInfo?.ClientCode === 'LS000438' ? '#f8fafc' : 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
+                  color: userInfo?.ClientCode === 'LS000438' ? '#94a3b8' : '#b91c1c',
+                  cursor: userInfo?.ClientCode === 'LS000438' ? 'not-allowed' : 'pointer',
+                  opacity: userInfo?.ClientCode === 'LS000438' ? 0.55 : 1,
                   boxSizing: 'border-box',
                   height: 30,
                 }}

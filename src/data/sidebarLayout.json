@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "clientId": "default",
+  "title": "Default Sidebar Layout",
+  "updatedAt": "2026-06-19T00:00:00.000Z",
+  "sections": [
+    { "id": "inventory", "title": "Inventory Management", "order": 1 },
+    { "id": "transaction", "title": "Transaction", "order": 2 },
+    { "id": "rfidTags", "title": "RFID Tags Management", "order": 3 },
+    { "id": "thirdParty", "title": "Third Party", "order": 4 },
+    { "id": "mainMenu", "title": "Main Menu", "order": 5 },
+    { "id": "custom", "title": "Custom", "order": 6 }
+  ],
+  "items": [
+    { "id": "/analytics", "path": "/analytics", "label": "Dashboard", "section": "inventory", "order": 1, "visible": true },
+    { "id": "/create-masters", "path": "/create-masters", "label": "Create Masters", "section": "inventory", "order": 2, "visible": true },
+    { "id": "/stock", "path": "/stock", "label": "Add Inventory", "section": "inventory", "order": 3, "visible": true },
+    { "id": "/label-stock", "path": "/label-stock", "label": "Inventory List", "section": "inventory", "order": 4, "visible": true },
+    { "id": "/stock-verification", "path": "/stock-verification", "label": "Stock Verification", "section": "inventory", "order": 5, "visible": true },
+    { "id": "/create-label", "path": "/create-label", "label": "Design Label", "section": "inventory", "order": 6, "visible": true },
+    { "id": "/rfid-label", "path": "/rfid-label", "label": "Create PRN Label", "section": "inventory", "order": 7, "visible": true },
+
+    { "id": "/quotation", "path": "/quotation", "label": "Quotation", "section": "transaction", "order": 8, "visible": true },
+    { "id": "/create-invoice", "path": "/create-invoice", "label": "Invoice", "section": "transaction", "order": 9, "visible": true },
+    { "id": "/sample-in", "path": "/sample-in", "label": "Sample In", "section": "transaction", "order": 10, "visible": true },
+    { "id": "/sample-out", "path": "/sample-out", "label": "Sample Out", "section": "transaction", "order": 11, "visible": true },
+    { "id": "/rfid-sample-in-out", "path": "/rfid-sample-in-out", "label": "RFID Sample In/Out", "section": "transaction", "order": 12, "visible": true },
+    { "id": "/stock-transfer", "path": "/stock-transfer", "label": "Stock Transfer", "section": "transaction", "order": 13, "visible": true },
+    { "id": "/order-list", "path": "/order-list", "label": "Order List", "section": "transaction", "order": 14, "visible": true },
+    { "id": "/reports", "path": "/reports", "label": "Reports", "section": "transaction", "order": 15, "visible": true },
+
+    { "id": "/rfid-devices", "path": "/rfid-devices", "label": "Scan to Desktop", "section": "rfidTags", "order": 16, "visible": true },
+    { "id": "/stock-tracking", "path": "/stock-tracking", "label": "Stock Tracking", "section": "rfidTags", "order": 17, "visible": true },
+    { "id": "/box-rfid", "path": "/box-rfid", "label": "Box RFID Pack", "section": "rfidTags", "order": 18, "visible": true },
+    { "id": "/upload-rfid", "path": "/upload-rfid", "label": "RFID Tags Sheet Upload", "section": "rfidTags", "order": 19, "visible": true },
+    { "id": "/rfid-tags", "path": "/rfid-tags", "label": "RFID Tag List", "section": "rfidTags", "order": 20, "visible": true },
+    { "id": "/tag-usage", "path": "/tag-usage", "label": "RFID Tags Usage", "section": "rfidTags", "order": 21, "visible": true },
+
+    { "id": "/third-party-integration", "path": "/third-party-integration", "label": "Third Party Software Integration", "section": "thirdParty", "order": 22, "visible": true, "gate": "thirdParty" },
+    { "id": "/feronia-integration", "path": "/feronia-integration", "label": "Feronia Integration", "section": "thirdParty", "order": 23, "visible": true, "gate": "feronia" },
+    { "id": "/kumar916-stock-master", "path": "/kumar916-stock-master", "label": "Third Party (LS000456)", "section": "thirdParty", "order": 24, "visible": true, "gate": "kumar916" },
+
+    { "id": "/profile-menu", "path": "/profile-menu", "label": "All Apps & Resources", "section": "mainMenu", "order": 25, "visible": true },
+    { "id": "/rfid-utility", "path": "/rfid-utility", "label": "RFID Utility", "section": "mainMenu", "order": 26, "visible": true }
+  ]
+}

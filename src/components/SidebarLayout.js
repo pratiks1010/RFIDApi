@@ -32,6 +32,18 @@ import {
   FaThLarge,
   FaLayerGroup,
   FaTools,
+  FaMoon,
+  FaSun,
+  FaGripVertical,
+  FaEye,
+  FaEyeSlash,
+  FaSlidersH,
+  FaUndo,
+  FaChevronDown,
+  FaPlus,
+  FaTrash,
+  FaFolder,
+  FaFolderOpen,
 } from 'react-icons/fa';
 import {
   HiDocumentText,
@@ -43,6 +55,13 @@ import {
 import { useNotifications } from '../context/NotificationContext';
 import { useTranslation } from '../hooks/useTranslation';
 import axios from 'axios';
+import {
+  getSidebarLayout,
+  saveSidebarLayout,
+  resetSidebarLayout,
+  normalizeSidebarLayout,
+  defaultSidebarLayout,
+} from '../services/sidebarLayoutService';
 const SidebarLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -66,48 +85,63 @@ const SidebarLayout = ({ children }) => {
   const [backupError, setBackupError] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [rfidPlanInfo, setRfidPlanInfo] = useState(null);
+  const [sidebarTheme, setSidebarTheme] = useState(() => {
+    try {
+      return localStorage.getItem('sidebarTheme') === 'dark' ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
 
   const notificationsRef = useRef(null);
 
-  // Section 0: Quick Access
-  const navigationProfile = [
-    { path: '/profile-menu', icon: FaThLarge, label: 'All Apps & Resources', color: '#6366f1' },
-    { path: '/rfid-utility', icon: FaTools, label: 'RFID Utility', color: '#6d28d9' }
-  ];
+  // Per-path icon + accent color registry. Labels/order/visibility/section all
+  // live in the dynamic layout config (src/data/sidebarLayout.json); this map
+  // only supplies the things JSON can't store (React icon components + colors).
+  const SIDEBAR_REGISTRY = {
+    '/analytics': { icon: FaChartLine, color: '#0d9488' },
+    '/create-masters': { icon: FaLayerGroup, color: '#7c3aed' },
+    '/stock': { icon: FaBoxes, color: '#d97706' },
+    '/label-stock': { icon: FaListUl, color: '#2563eb' },
+    '/stock-verification': { icon: HiCheckCircle, color: '#059669' },
+    '/create-label': { icon: FaPaintBrush, color: '#0891b2' },
+    '/rfid-label': { icon: FaPrint, color: '#7c3aed' },
+    '/quotation': { icon: HiDocument, color: '#be185d' },
+    '/create-invoice': { icon: HiReceiptTax, color: '#15803d' },
+    '/sample-in': { icon: FaArrowDown, color: '#0d9488' },
+    '/sample-out': { icon: FaArrowUp, color: '#b91c1c' },
+    '/rfid-sample-in-out': { icon: FaListUl, color: '#7c3aed' },
+    '/stock-transfer': { icon: FaExchangeAlt, color: '#c2410c' },
+    '/order-list': { icon: FaClipboardList, color: '#6d28d9' },
+    '/reports': { icon: HiDocumentText, color: '#0e7490' },
+    '/rfid-devices': { icon: FaBarcode, color: '#a21caf' },
+    '/stock-tracking': { icon: FaBoxes, color: '#059669' },
+    '/box-rfid': { icon: FaBox, color: '#0f766e' },
+    '/upload-rfid': { icon: FaFileUpload, color: '#4f46e5' },
+    '/rfid-tags': { icon: FaTags, color: '#b91c1c' },
+    '/tag-usage': { icon: FaChartPie, color: '#0e7490' },
+    '/third-party-integration': { icon: FaPlug, color: '#0d9488' },
+    '/feronia-integration': { icon: FaPlug, color: '#0f766e' },
+    '/kumar916-stock-master': { icon: FaPlug, color: '#0d9488' },
+    '/profile-menu': { icon: FaThLarge, color: '#6366f1' },
+    '/rfid-utility': { icon: FaTools, color: '#6d28d9' },
+  };
 
-  // Navigation items – icons matched to menu names, distinct colors
-  // Section 1: Inventory Management
-  const inventorySession = [
-    { path: '/analytics', icon: FaChartLine, label: 'Dashboard', color: '#0d9488', section: 'Inventory Management' },
-     { path: '/create-masters', icon: FaLayerGroup, label: 'Create Masters', color: '#7c3aed', section: 'Inventory Management' },
-    { path: '/stock', icon: FaBoxes, label: 'Add Inventory', color: '#d97706', section: 'Inventory Management' },
-    { path: '/label-stock', icon: FaListUl, label: 'Inventory List', color: '#2563eb', section: 'Inventory Management' },
-    { path: '/stock-verification', icon: HiCheckCircle, label: 'Stock Verification', color: '#059669', section: 'Inventory Management' },
-    { path: '/create-label', icon: FaPaintBrush, label: 'Design Label', color: '#0891b2', section: 'Inventory Management' },
-    { path: '/rfid-label', icon: FaPrint, label: 'Create PRN Label', color: '#7c3aed', section: 'Inventory Management' },
-  ];
-
-  // Section 2: Transaction
-  const navigationSection2 = [
-    { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#be185d' },
-    { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#15803d' },
-    { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#0d9488' },
-    { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#b91c1c' },
-    { path: '/rfid-sample-in-out', icon: FaListUl, label: 'RFID Sample In/Out', color: '#7c3aed' },
-    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#c2410c' },
-    { path: '/order-list', icon: FaClipboardList, label: 'Order List', color: '#6d28d9' },
-    { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490' },
-  ];
-
-  // Section 3: RFID Tags Management
-  const navigationSection3 = [
-    { path: '/rfid-devices', icon: FaBarcode, label: 'Scan to Desktop', color: '#a21caf' },
-    { path: '/stock-tracking', icon: FaBoxes, label: 'Stock Tracking', color: '#059669' },
-    { path: '/box-rfid', icon: FaBox, label: 'Box RFID Pack', color: '#0f766e' },
-    { path: '/upload-rfid', icon: FaFileUpload, label: 'RFID Tags Sheet Upload', color: '#4f46e5' },
-    { path: '/rfid-tags', icon: FaTags, label: 'RFID Tag List', color: '#b91c1c' },
-    { path: '/tag-usage', icon: FaChartPie, label: 'RFID Tags Usage', color: '#0e7490' },
-  ];
+  // Selectable icons for custom (master) folders.
+  const FOLDER_ICONS = {
+    folder: FaFolder,
+    layers: FaLayerGroup,
+    grid: FaThLarge,
+    tags: FaTags,
+    boxes: FaBoxes,
+    box: FaBox,
+    tools: FaTools,
+    chart: FaChartPie,
+    list: FaClipboardList,
+    print: FaPrint,
+    barcode: FaBarcode,
+    upload: FaFileUpload,
+  };
 
   const clientCode = userInfo.ClientCode || userInfo.clientcode || userInfo.clientCode || 'N/A';
   const THIRD_PARTY_ALLOWED_CLIENT = 'LS000438';
@@ -116,15 +150,200 @@ const SidebarLayout = ({ children }) => {
   const showThirdPartyMenu = (clientCode || '').trim().toUpperCase() === THIRD_PARTY_ALLOWED_CLIENT;
   const showFeroniaMenu = (clientCode || '').trim().toUpperCase() === FERONIA_ALLOWED_CLIENT;
   const showKumar916Menu = (clientCode || '').trim().toUpperCase() === KUMAR916_ALLOWED_CLIENT;
-  const navigationSection5 = [
-    { path: '/third-party-integration', icon: FaPlug, label: 'Third Party Software Integration', color: '#0d9488' },
-  ];
-  const navigationSectionFeronia = [
-    { path: '/feronia-integration', icon: FaPlug, label: 'Feronia Integration', color: '#0f766e' },
-  ];
-  const navigationSectionKumar916 = [
-    { path: '/kumar916-stock-master', icon: FaPlug, label: `Third Party (${KUMAR916_ALLOWED_CLIENT})`, color: '#0d9488' },
-  ];
+
+  // A menu item only renders if its client gate (if any) passes.
+  const gatePass = useCallback((gate) => {
+    if (!gate) return true;
+    if (gate === 'thirdParty') return showThirdPartyMenu;
+    if (gate === 'feronia') return showFeroniaMenu;
+    if (gate === 'kumar916') return showKumar916Menu;
+    return true;
+  }, [showThirdPartyMenu, showFeroniaMenu, showKumar916Menu]);
+
+  // --- Dynamic (per-client) sidebar layout ------------------------------
+  const [sidebarLayout, setSidebarLayout] = useState(() => normalizeSidebarLayout(defaultSidebarLayout));
+  const [menuEditorOpen, setMenuEditorOpen] = useState(false);
+  const [draftItems, setDraftItems] = useState([]);
+  const [menuDragId, setMenuDragId] = useState(null);
+  const [menuDragOverId, setMenuDragOverId] = useState(null);
+  const [expandedGroups, setExpandedGroups] = useState({});
+
+  const toggleGroup = (id) => setExpandedGroups((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
+
+  useEffect(() => {
+    let mounted = true;
+    getSidebarLayout()
+      .then((cfg) => { if (mounted) setSidebarLayout(cfg); })
+      .catch(() => { /* keep bundled default */ });
+    return () => { mounted = false; };
+  }, []);
+
+  const sortByOrder = (arr) => [...arr].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const openMenuEditor = () => {
+    const items = sortByOrder((sidebarLayout?.items || []).map((it) => ({ ...it })));
+    setDraftItems(items);
+    setMenuEditorOpen(true);
+  };
+
+  const closeMenuEditor = () => {
+    setMenuEditorOpen(false);
+    setMenuDragId(null);
+    setMenuDragOverId(null);
+  };
+
+  const toggleDraftItem = (id) => {
+    setDraftItems((prev) => prev.map((it) => (it.id === id ? { ...it, visible: !it.visible } : it)));
+  };
+
+  // True if candidateAncestorId is an ancestor of itemId (used to prevent cycles).
+  const isDescendant = (items, itemId, candidateAncestorId) => {
+    const byId = new Map(items.map((it) => [it.id, it]));
+    let cur = byId.get(candidateAncestorId)?.parentId;
+    const seen = new Set();
+    while (cur && !seen.has(cur)) {
+      if (cur === itemId) return true;
+      seen.add(cur);
+      cur = byId.get(cur)?.parentId;
+    }
+    return false;
+  };
+
+  // Move dragged item next to the drop target (inherits target's section + parent).
+  const reorderDraftMenuItem = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    setDraftItems((prev) => {
+      const arr = [...prev];
+      const fromIdx = arr.findIndex((i) => i.id === fromId);
+      const toIdx = arr.findIndex((i) => i.id === toId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const target = arr[toIdx];
+      // Don't allow dropping a group into its own descendant.
+      if (target.parentId && (target.parentId === fromId || isDescendant(arr, fromId, target.parentId))) return prev;
+      const moved = { ...arr[fromIdx], section: target.section, parentId: target.parentId || null };
+      arr.splice(fromIdx, 1);
+      const insertIdx = arr.findIndex((i) => i.id === toId);
+      arr.splice(insertIdx, 0, moved);
+      return arr.map((it, i) => ({ ...it, order: i + 1 }));
+    });
+  };
+
+  // Drop onto a section header -> append to top level (no parent) of that section.
+  const dropDraftToSection = (fromId, sectionId) => {
+    if (!fromId || !sectionId) return;
+    setDraftItems((prev) => {
+      const arr = [...prev];
+      const fromIdx = arr.findIndex((i) => i.id === fromId);
+      if (fromIdx === -1) return prev;
+      const moved = { ...arr[fromIdx], section: sectionId, parentId: null };
+      arr.splice(fromIdx, 1);
+      let lastIdx = -1;
+      arr.forEach((it, i) => { if (it.section === sectionId) lastIdx = i; });
+      arr.splice(lastIdx + 1, 0, moved);
+      return arr.map((it, i) => ({ ...it, order: i + 1 }));
+    });
+  };
+
+  // Drop an item INTO a folder (group) -> becomes a child appended at the end.
+  const dropDraftIntoGroup = (fromId, groupId) => {
+    if (!fromId || !groupId || fromId === groupId) return;
+    setDraftItems((prev) => {
+      const arr = [...prev];
+      const from = arr.find((i) => i.id === fromId);
+      const group = arr.find((i) => i.id === groupId);
+      if (!from || !group || group.type !== 'group') return prev;
+      // Prevent moving a folder into one of its own descendants.
+      if (isDescendant(arr, fromId, groupId)) return prev;
+      const fromIdx = arr.findIndex((i) => i.id === fromId);
+      const moved = { ...from, section: group.section, parentId: groupId };
+      arr.splice(fromIdx, 1);
+      let insertIdx = arr.findIndex((i) => i.id === groupId);
+      arr.forEach((it, i) => { if (it.parentId === groupId) insertIdx = i; });
+      arr.splice(insertIdx + 1, 0, moved);
+      return arr.map((it, i) => ({ ...it, order: i + 1 }));
+    });
+    setExpandedGroups((prev) => ({ ...prev, [groupId]: true }));
+  };
+
+  // Nest / un-nest: set an item's parent group (or null for top level).
+  const setDraftItemParent = (itemId, parentId) => {
+    setDraftItems((prev) => {
+      const arr = [...prev];
+      const item = arr.find((i) => i.id === itemId);
+      if (!item) return prev;
+      let newParent = parentId || null;
+      if (newParent) {
+        const parent = arr.find((i) => i.id === newParent);
+        if (!parent || parent.type !== 'group' || newParent === itemId || isDescendant(arr, itemId, newParent)) {
+          newParent = null;
+        }
+      }
+      const section = newParent ? (arr.find((i) => i.id === newParent)?.section || item.section) : item.section;
+      return arr.map((i) => (i.id === itemId ? { ...i, parentId: newParent, section } : i));
+    });
+  };
+
+  // Add a new master folder (group container) in the dedicated "Custom" zone.
+  const addCustomMenu = () => {
+    const id = `group-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    setDraftItems((prev) => {
+      const group = {
+        id,
+        type: 'group',
+        path: '',
+        label: 'Master Folder',
+        iconKey: 'folder',
+        section: 'custom',
+        parentId: null,
+        visible: true,
+        order: prev.length + 1,
+      };
+      return [...prev, group].map((it, i) => ({ ...it, order: i + 1 }));
+    });
+    setExpandedGroups((prev) => ({ ...prev, [id]: true }));
+  };
+
+  const renameDraftGroup = (id, label) => {
+    setDraftItems((prev) => prev.map((it) => (it.id === id ? { ...it, label } : it)));
+  };
+
+  const setDraftGroupIcon = (id, iconKey) => {
+    setDraftItems((prev) => prev.map((it) => (it.id === id ? { ...it, iconKey } : it)));
+  };
+
+  const setDraftItemColor = (id, color) => {
+    setDraftItems((prev) => prev.map((it) => (it.id === id ? { ...it, color } : it)));
+  };
+
+  const clearDraftItemColor = (id) => {
+    setDraftItems((prev) => prev.map((it) => (it.id === id ? { ...it, color: undefined } : it)));
+  };
+
+  // Delete a custom group; its children are lifted back to top level.
+  const deleteDraftGroup = (id) => {
+    setDraftItems((prev) => prev
+      .filter((it) => it.id !== id)
+      .map((it) => (it.parentId === id ? { ...it, parentId: null } : it))
+      .map((it, i) => ({ ...it, order: i + 1 })));
+  };
+
+  const saveMenuDraft = async () => {
+    const toSave = { ...sidebarLayout, items: draftItems.map((it, i) => ({ ...it, order: i + 1 })) };
+    try {
+      const saved = await saveSidebarLayout(toSave);
+      setSidebarLayout(saved);
+    } catch {
+      setSidebarLayout(normalizeSidebarLayout(toSave));
+    }
+    closeMenuEditor();
+  };
+
+  const resetMenuDraft = async () => {
+    try {
+      const def = await resetSidebarLayout();
+      setDraftItems(sortByOrder(def.items || []));
+    } catch { /* ignore */ }
+  };
 
   // Effects
   useEffect(() => {
@@ -185,8 +404,14 @@ const SidebarLayout = ({ children }) => {
   useEffect(() => {
     try {
       localStorage.setItem('sidebarCollapsed', JSON.stringify(sidebarCollapsed));
-    } catch (_) {}
+    } catch (_) { }
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sidebarTheme', sidebarTheme);
+    } catch (_) { }
+  }, [sidebarTheme]);
 
   useEffect(() => {
     const checkFullscreen = () => {
@@ -339,11 +564,90 @@ const SidebarLayout = ({ children }) => {
   })();
 
   const sidebarWidth = sidebarOpen
-    ? (isMobile ? '264px' : (sidebarCollapsed ? '64px' : '204px'))
+    ? (isMobile ? '280px' : (sidebarCollapsed ? '72px' : '248px'))
     : '0';
   const mainContentMargin = !isMobile && sidebarOpen
-    ? (sidebarCollapsed ? '64px' : '204px')
+    ? (sidebarCollapsed ? '72px' : '248px')
     : '0';
+
+  // Clean, readable font stack for the sidebar
+  const sidebarFont = '"Inter", "Segoe UI", system-ui, -apple-system, "Roboto", "Helvetica Neue", Arial, sans-serif';
+
+  // Sidebar-only theme (does not affect any other component)
+  const isDarkSidebar = sidebarTheme === 'dark';
+  const sb = isDarkSidebar
+    ? {
+        bg: '#0f172a',
+        border: 'rgba(148, 163, 184, 0.12)',
+        divider: 'rgba(148, 163, 184, 0.1)',
+        separator: 'rgba(148, 163, 184, 0.18)',
+        logo: '#f8fafc',
+        neutralBtnBg: 'rgba(148, 163, 184, 0.1)',
+        neutralBtnBorder: 'rgba(148, 163, 184, 0.2)',
+        neutralBtnColor: '#cbd5e1',
+        profileBg: 'rgba(148, 163, 184, 0.06)',
+        profileBorder: 'rgba(148, 163, 184, 0.14)',
+        username: '#f8fafc',
+        subtext: '#cbd5e1',
+        plan: '#93c5fd',
+        sectionHeader: '#64748b',
+        itemColor: '#cbd5e1',
+        itemHoverBg: 'rgba(148, 163, 184, 0.08)',
+        itemHoverBorder: 'rgba(148, 163, 184, 0.16)',
+        itemHoverColor: '#ffffff',
+        itemActiveColor: '#ffffff',
+        itemActiveBg: 'rgba(96, 165, 250, 0.12)',
+        itemActiveBorder: 'rgba(96, 165, 250, 0.28)',
+        iconBg: 'rgba(148, 163, 184, 0.1)',
+        iconColor: '#94a3b8',
+        iconBorder: 'rgba(148, 163, 184, 0.14)',
+        iconActiveBg: 'rgba(96, 165, 250, 0.18)',
+        iconActiveColor: '#60a5fa',
+        iconActiveBorder: 'rgba(96, 165, 250, 0.35)',
+        accentBar: '#60a5fa',
+        avatarBg: 'rgba(96, 165, 250, 0.16)',
+        avatarColor: '#60a5fa',
+        avatarBorder: 'rgba(96, 165, 250, 0.3)',
+        logoutBg: 'rgba(239, 68, 68, 0.12)',
+        logoutBorder: 'rgba(239, 68, 68, 0.3)',
+        logoutColor: '#f87171',
+      }
+    : {
+        bg: '#ffffff',
+        border: '#e5e7eb',
+        divider: '#eef2f7',
+        separator: 'rgba(148, 163, 184, 0.18)',
+        logo: '#0f172a',
+        neutralBtnBg: '#f1f5f9',
+        neutralBtnBorder: '#e5e7eb',
+        neutralBtnColor: '#475569',
+        profileBg: '#f8fafc',
+        profileBorder: '#eef2f7',
+        username: '#0f172a',
+        subtext: '#64748b',
+        plan: '#2563eb',
+        sectionHeader: '#94a3b8',
+        itemColor: '#475569',
+        itemHoverBg: '#f1f5f9',
+        itemHoverBorder: '#e5e7eb',
+        itemHoverColor: '#1e293b',
+        itemActiveColor: '#1d4ed8',
+        itemActiveBg: 'rgba(37, 99, 235, 0.09)',
+        itemActiveBorder: 'rgba(37, 99, 235, 0.22)',
+        iconBg: '#f1f5f9',
+        iconColor: '#64748b',
+        iconBorder: '#e5e7eb',
+        iconActiveBg: 'rgba(37, 99, 235, 0.12)',
+        iconActiveColor: '#2563eb',
+        iconActiveBorder: 'rgba(37, 99, 235, 0.3)',
+        accentBar: '#2563eb',
+        avatarBg: 'rgba(37, 99, 235, 0.1)',
+        avatarColor: '#2563eb',
+        avatarBorder: 'rgba(37, 99, 235, 0.2)',
+        logoutBg: '#fef2f2',
+        logoutBorder: '#fecaca',
+        logoutColor: '#dc2626',
+      };
 
   return (
     <div style={{
@@ -434,10 +738,11 @@ const SidebarLayout = ({ children }) => {
             top: 0,
             bottom: 0,
             width: isMobile ? 'min(82vw, 300px)' : sidebarWidth,
-            background: 'linear-gradient(180deg, #042954 0%, #032547 45%, #021f3d 100%)',
+            background: sb.bg,
+            fontFamily: sidebarFont,
             backdropFilter: 'blur(10px)',
             WebkitBackdropFilter: 'blur(10px)',
-            borderRight: '1px solid rgba(148, 163, 184, 0.14)',
+            borderRight: `1px solid ${sb.border}`,
             transition: isMobile ? 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             overflow: 'hidden',
             zIndex: 999,
@@ -451,13 +756,13 @@ const SidebarLayout = ({ children }) => {
           {/* Sidebar top: Logo + collapse/expand on desktop, close on mobile */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            background: 'rgba(255, 255, 255, 0.04)',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
+            padding: sidebarCollapsed ? '12px 8px' : '14px 14px',
+            background: 'transparent',
+            borderBottom: `1px solid ${sb.divider}`,
             display: 'flex',
             flexDirection: sidebarCollapsed ? 'column' : 'row',
             alignItems: 'center',
-            gap: 8,
+            gap: 10,
             justifyContent: sidebarCollapsed ? 'center' : 'flex-start'
           }}>
             <Link
@@ -475,10 +780,10 @@ const SidebarLayout = ({ children }) => {
             >
               <span
                 style={{
-                  color: '#f8fafc',
+                  color: sb.logo,
                   fontWeight: 700,
-                  fontSize: sidebarCollapsed ? 8 : 16,
-                  letterSpacing: sidebarCollapsed ? 0 : '0.02em',
+                  fontSize: sidebarCollapsed ? 9 : 19,
+                  letterSpacing: sidebarCollapsed ? 0 : '0.01em',
                   textAlign: sidebarCollapsed ? 'center' : 'left',
                   lineHeight: sidebarCollapsed ? 1.15 : 1.25,
                   overflow: 'hidden',
@@ -497,36 +802,36 @@ const SidebarLayout = ({ children }) => {
               </span>
             </Link>
             {!isMobile && !sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(true)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 8, cursor: 'pointer', color: '#facc15' }} title="Collapse sidebar" aria-label="Collapse sidebar"><FaChevronLeft size={14} /></button>
+              <button onClick={() => setSidebarCollapsed(true)} style={{ flexShrink: 0, background: sb.neutralBtnBg, border: `1px solid ${sb.neutralBtnBorder}`, borderRadius: 10, padding: 9, cursor: 'pointer', color: sb.neutralBtnColor }} title="Collapse sidebar" aria-label="Collapse sidebar"><FaChevronLeft size={15} /></button>
             )}
             {!isMobile && sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 6, cursor: 'pointer', color: '#facc15' }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={12} /></button>
+              <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: sb.neutralBtnBg, border: `1px solid ${sb.neutralBtnBorder}`, borderRadius: 10, padding: 7, cursor: 'pointer', color: sb.neutralBtnColor }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={13} /></button>
             )}
             {isMobile && (
-              <button type="button" onClick={() => setSidebarOpen(false)} className="sidebar-close-btn" style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10, cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Close menu" aria-label="Close menu"><FaTimes size={18} /></button>
+              <button type="button" onClick={() => setSidebarOpen(false)} className="sidebar-close-btn" style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: sb.neutralBtnBg, border: `1px solid ${sb.neutralBtnBorder}`, borderRadius: 10, padding: 10, cursor: 'pointer', color: sb.neutralBtnColor, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Close menu" aria-label="Close menu"><FaTimes size={18} /></button>
             )}
           </div>
 
           {/* User Profile - Moved to top */}
           <div style={{
             flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
+            padding: sidebarCollapsed ? '10px 8px' : '12px 14px',
+            borderBottom: `1px solid ${sb.divider}`,
             display: 'flex',
             flexDirection: 'column',
             gap: 8
           }}>
-            <button onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }} title={`${username} • ${clientCode}`} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148, 163, 184, 0.18)', padding: sidebarCollapsed ? '7px' : '7px 10px', borderRadius: 12, cursor: 'pointer', transition: 'all 0.2s ease', boxShadow: 'none' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)', color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0, boxShadow: 'none' }}>{avatarLetter}</div>
+            <button onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }} title={`${username} • ${clientCode}`} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 12, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: sb.profileBg, border: `1px solid ${sb.profileBorder}`, padding: sidebarCollapsed ? '9px' : '10px 12px', borderRadius: 14, cursor: 'pointer', transition: 'all 0.2s ease', boxShadow: 'none' }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: sb.avatarBg, color: sb.avatarColor, border: `1px solid ${sb.avatarBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, flexShrink: 0, boxShadow: 'none' }}>{avatarLetter}</div>
               {!sidebarCollapsed && (
                 <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, marginBottom: 2 }}>{username}</div>
-                  <div style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }}></span>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: sb.username, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.25, marginBottom: 3 }}>{username}</div>
+                  <div style={{ fontSize: 12, color: sb.subtext, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981' }}></span>
                     {clientCode}
                   </div>
                   {(planName || formattedPlanExpiry) && (
-                    <div style={{ fontSize: 9, color: '#93c5fd', fontWeight: 700, marginTop: 2, lineHeight: 1.25 }}>
+                    <div style={{ fontSize: 11, color: sb.plan, fontWeight: 700, marginTop: 3, lineHeight: 1.3 }}>
                       {planName ? `Plan: ${planName}` : ''}
                       {formattedPlanExpiry ? `${planName ? ' • ' : ''}Exp: ${formattedPlanExpiry}` : ''}
                     </div>
@@ -541,33 +846,26 @@ const SidebarLayout = ({ children }) => {
             {/* Nav sections - IIFE */}
             {/* Helper function to render section header */}
             {(() => {
-              const renderSectionHeader = (title, gradientColors) => {
+              const renderSectionHeader = (title) => {
                 if (sidebarCollapsed) return null;
                 return (
                   <div style={{
-                    padding: '4px 10px 6px',
-                    margin: '8px 8px 4px',
+                    padding: '4px 12px 2px',
+                    margin: '10px 10px 2px',
                     position: 'relative',
                   }}>
-                    <span style={{ fontSize: '9px', fontWeight: '700', color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.45px', lineHeight: 1.2 }}>
+                    <span style={{ fontSize: '10px', fontWeight: '700', color: sb.sectionHeader, textTransform: 'uppercase', letterSpacing: '0.6px', lineHeight: 1.2 }}>
                       {title}
                     </span>
-                    <div
-                      style={{
-                        marginTop: 4,
-                        height: 2,
-                        width: 46,
-                        borderRadius: 999,
-                        background: 'linear-gradient(90deg, #facc15 0%, #60a5fa 100%)',
-                        boxShadow: '0 0 10px rgba(250, 204, 21, 0.35)',
-                      }}
-                    />
                   </div>
                 );
               };
 
-              const renderMenuItem = (item) => {
-                const { path, icon: Icon, label, color, comingSoon } = item;
+              const renderMenuItem = (item, depth = 0) => {
+                const { path, label, comingSoon } = item;
+                const reg = SIDEBAR_REGISTRY[path] || {};
+                const Icon = item.icon || reg.icon || FaThLarge;
+                const accent = item.color || reg.color || sb.iconColor;
                 const isActive = location.pathname === path;
 
                 if (comingSoon) {
@@ -578,10 +876,10 @@ const SidebarLayout = ({ children }) => {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
-                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
-                      borderRadius: '9px',
+                        gap: sidebarCollapsed ? '0' : '8px',
+                        padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
+                        margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
+                        borderRadius: '9px',
                         color: '#64748b',
                         background: 'transparent',
                         fontWeight: 500,
@@ -650,69 +948,65 @@ const SidebarLayout = ({ children }) => {
                     onClick={() => isMobile && setSidebarOpen(false)}
                     className="sidebar-nav-item"
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
-                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
-                      borderRadius: '9px',
-                        textDecoration: 'none',
-                        color: '#e2e8f0',
-                        background: isActive
-                        ? `linear-gradient(90deg, rgba(250, 204, 21, 0.22) 0%, rgba(59, 130, 246, 0.34) 55%, rgba(15, 23, 42, 0.86) 100%)`
-                        : 'transparent',
-                      fontWeight: isActive ? 600 : 500,
-                      fontSize: '12px',
-                      lineHeight: '1.25',
-                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                      position: 'relative',
-                      border: isActive ? '1px solid rgba(250, 204, 21, 0.55)' : `1px solid transparent`,
-                      boxShadow: 'none'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = `linear-gradient(90deg, rgba(250, 204, 21, 0.12) 0%, rgba(59, 130, 246, 0.22) 60%, rgba(30, 41, 59, 0.52) 100%)`;
-                        e.currentTarget.style.borderColor = 'rgba(250, 204, 21, 0.35)';
-                        e.currentTarget.style.transform = 'translateX(3px)';
-                        e.currentTarget.style.boxShadow = 'none';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.borderColor = 'transparent';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                      }
-                    }}
-                    title={sidebarCollapsed ? label : ''}
-                  >
-                    <span style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 8,
-                      background: isActive
-                        ? 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)'
-                        : `linear-gradient(135deg, ${color}2b 0%, ${color}14 100%)`,
-                      color: isActive ? '#0f172a' : color,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      transition: 'all 0.25s ease',
-                      border: isActive ? '1px solid rgba(250, 204, 21, 0.65)' : `1px solid ${color}34`,
-                    }}>
-                      <Icon style={{ fontSize: 12 }} />
-                    </span>
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: sidebarCollapsed ? '0' : '10px',
+                    padding: sidebarCollapsed ? '7px 6px' : '6px 10px',
+                    margin: sidebarCollapsed ? '2px 8px' : '2px 10px',
+                    borderRadius: '11px',
+                    textDecoration: 'none',
+                    color: isActive ? sb.itemActiveColor : sb.itemColor,
+                    background: isActive
+                      ? sb.itemActiveBg
+                      : 'transparent',
+                    fontWeight: isActive ? 600 : 500,
+                    fontSize: '12px',
+                    lineHeight: '1.3',
+                    transition: 'all 0.2s ease',
+                    justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                    position: 'relative',
+                    border: isActive ? `1px solid ${sb.itemActiveBorder}` : '1px solid transparent',
+                    boxShadow: 'none'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = sb.itemHoverBg;
+                      e.currentTarget.style.borderColor = sb.itemHoverBorder;
+                      e.currentTarget.style.color = sb.itemHoverColor;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'transparent';
+                      e.currentTarget.style.color = sb.itemColor;
+                    }
+                  }}
+                  title={sidebarCollapsed ? label : ''}
+                >
+                  <span style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 10,
+                    background: isActive ? `${accent}29` : `${accent}1a`,
+                    color: accent,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'all 0.2s ease',
+                    border: `1px solid ${accent}40`,
+                  }}>
+                    <Icon style={{ fontSize: 15 }} />
+                  </span>
                     {!sidebarCollapsed && (
                       <span style={{
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        maxWidth: '150px',
+                        maxWidth: '170px',
                         display: 'inline-block',
-                        letterSpacing: '-0.2px'
+                        letterSpacing: '0'
                       }}>
                         {label}
                       </span>
@@ -723,112 +1017,193 @@ const SidebarLayout = ({ children }) => {
                         left: 0,
                         top: '50%',
                         transform: 'translateY(-50%)',
-                        width: '4px',
-                        height: '60%',
-                        background: 'linear-gradient(180deg, #facc15 0%, #f59e0b 100%)',
-                        borderRadius: '0 3px 3px 0',
-                        boxShadow: 'none'
-                      }} />
+                      width: '3px',
+                      height: '60%',
+                      background: accent,
+                      borderRadius: '0 3px 3px 0',
+                      boxShadow: 'none'
+                    }} />
                     )}
                   </Link>
                 );
               };
 
+              const allItems = (sidebarLayout?.items || []).filter(
+                (it) => it.visible !== false
+                  && gatePass(it.gate)
+                  && (it.type === 'group' || SIDEBAR_REGISTRY[it.path])
+              );
+              const childrenOf = (parentId) => sortByOrder(allItems.filter((it) => (it.parentId || null) === parentId));
+              const topLevelFor = (sectionId) => sortByOrder(allItems.filter((it) => it.section === sectionId && !it.parentId));
+
+              // Does a group contain the active route anywhere in its subtree?
+              const groupHasActive = (groupId) => {
+                const stack = childrenOf(groupId);
+                while (stack.length) {
+                  const node = stack.pop();
+                  if (node.type !== 'group' && node.path === location.pathname) return true;
+                  childrenOf(node.id).forEach((c) => stack.push(c));
+                }
+                return false;
+              };
+
+              const renderGroupHeader = (item, depth, expanded) => {
+                const GroupIcon = (item.iconKey && FOLDER_ICONS[item.iconKey])
+                  ? FOLDER_ICONS[item.iconKey]
+                  : (expanded ? FaFolderOpen : FaFolder);
+                const folderColor = item.color || '#2563eb';
+                return (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(item.id)}
+                    className="sidebar-nav-item"
+                    title={sidebarCollapsed ? item.label : ''}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: sidebarCollapsed ? '0' : '10px',
+                      padding: sidebarCollapsed ? '7px 6px' : '6px 10px',
+                      margin: sidebarCollapsed ? '2px 8px' : '2px 10px',
+                      borderRadius: '11px',
+                      color: sb.itemColor,
+                      background: 'transparent',
+                      border: '1px solid transparent',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      lineHeight: '1.3',
+                      cursor: 'pointer',
+                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                      width: sidebarCollapsed ? 'auto' : 'calc(100% - 20px)',
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = sb.itemHoverBg; e.currentTarget.style.color = sb.itemHoverColor; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = sb.itemColor; }}
+                  >
+                    <span style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      background: `${folderColor}1a`,
+                      color: folderColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      border: `1px solid ${folderColor}40`,
+                    }}>
+                      <GroupIcon style={{ fontSize: 14 }} />
+                    </span>
+                    {!sidebarCollapsed && (
+                      <>
+                        <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>
+                          {item.label}
+                        </span>
+                        <FaChevronDown
+                          size={11}
+                          style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)', opacity: 0.7 }}
+                        />
+                      </>
+                    )}
+                  </button>
+                );
+              };
+
+              const renderNode = (item, depth = 0) => {
+                if (item.type === 'group') {
+                  const kids = childrenOf(item.id);
+                  if (!kids.length) return null; // hide empty custom menus
+                  // In collapsed (icon-only) mode there's no room for a tree:
+                  // surface the group's link children directly as icons.
+                  if (sidebarCollapsed) {
+                    return kids.map((c) => renderNode(c, depth));
+                  }
+                  const expanded = expandedGroups[item.id] ?? groupHasActive(item.id);
+                  return (
+                    <React.Fragment key={item.id}>
+                      {renderGroupHeader(item, depth, expanded)}
+                      {expanded && (
+                        <div style={{
+                          marginLeft: 26,
+                          paddingLeft: 8,
+                          borderLeft: `1.5px solid ${sb.iconBorder}`,
+                        }}>
+                          {kids.map((c) => renderNode(c, depth + 1))}
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                }
+                return renderMenuItem(item, depth);
+              };
+
+              const sections = sortByOrder(sidebarLayout?.sections || []);
+              const separator = (
+                <div style={{
+                  height: '1px',
+                  background: 'linear-gradient(90deg, transparent 0%, rgba(148, 163, 184, 0.18) 50%, transparent 100%)',
+                  margin: '2px 10px',
+                  opacity: 1
+                }} />
+              );
+
               return (
                 <>
-                  {/* Section 1: Inventory Management */}
-                  {renderSectionHeader('Inventory Management', ['#10b981', '#10b981'])}
-                  {inventorySession.map(renderMenuItem)}
+                  {sections.map((section) => {
+                    const tops = topLevelFor(section.id);
+                    const nodes = tops.map((it) => renderNode(it, 0)).filter((n) => n != null);
+                    if (!nodes.length) return null;
+                    return (
+                      <React.Fragment key={section.id}>
+                        {renderSectionHeader(section.title)}
+                        {nodes}
+                        {!sidebarCollapsed && separator}
+                      </React.Fragment>
+                    );
+                  })}
 
-                  {/* Separator */}
-                  {!sidebarCollapsed && (
-                    <div style={{
-                      height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
-                    }} />
-                  )}
-
-                  {/* Section 2: Transaction */}
-                  {renderSectionHeader('Transaction', ['#f97316', '#f97316'])}
-                  {navigationSection2.map(renderMenuItem)}
-
-                  {/* Separator */}
-                  {!sidebarCollapsed && (
-                    <div style={{
-                      height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
-                    }} />
-                  )}
-
-                  {/* Section 3: RFID Tags Management */}
-                  {renderSectionHeader('RFID Tags Management', ['#ef4444', '#ef4444'])}
-                  {navigationSection3.map(renderMenuItem)}
-
-                  {/* Separator */}
-                  {!sidebarCollapsed && (
-                    <div style={{
-                      height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
-                    }} />
-                  )}
-
-                  {/* Section 5: Third Party (client LS000438 only) */}
-                  {showThirdPartyMenu && (
-                    <>
-                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
-                      {navigationSection5.map(renderMenuItem)}
-                      
-                       {!sidebarCollapsed && (
-                        <div style={{
-                          height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
-                        }} />
-                      )}
-                    </>
-                  )}
-
-                  {showFeroniaMenu && (
-                    <>
-                      {renderSectionHeader('Third Party', ['#0f766e', '#0f766e'])}
-                      {navigationSectionFeronia.map(renderMenuItem)}
-                      {!sidebarCollapsed && (
-                        <div style={{
-                          height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
-                        }} />
-                      )}
-                    </>
-                  )}
-
-                  {showKumar916Menu && (
-                    <>
-                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
-                      {navigationSectionKumar916.map(renderMenuItem)}
-                      {!sidebarCollapsed && (
-                        <div style={{
-                          height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
-                        }} />
-                      )}
-                    </>
-                  )}
-
-                  {/* Section 0: Quick Access - Moved to Bottom */}
-                  {renderSectionHeader('Main Menu', ['#6366f1', '#6366f1'])}
-                  {navigationProfile.map(renderMenuItem)}
-
+                  {/* Customize / arrange menu */}
+                  <button
+                    type="button"
+                    onClick={openMenuEditor}
+                    className="sidebar-nav-item"
+                    title="Customize Menu"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: sidebarCollapsed ? '0' : '10px',
+                      padding: sidebarCollapsed ? '7px 6px' : '6px 10px',
+                      margin: sidebarCollapsed ? '5px 8px 4px' : '5px 10px 4px',
+                      borderRadius: '11px',
+                      color: sb.itemColor,
+                      background: 'transparent',
+                      border: `1px dashed ${sb.iconBorder}`,
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      lineHeight: '1.3',
+                      cursor: 'pointer',
+                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                      width: sidebarCollapsed ? 'auto' : 'calc(100% - 20px)',
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = sb.itemHoverBg; e.currentTarget.style.color = sb.itemHoverColor; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = sb.itemColor; }}
+                  >
+                    <span style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      background: sb.iconBg,
+                      color: sb.iconColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      border: `1px solid ${sb.iconBorder}`,
+                    }}>
+                      <FaSlidersH style={{ fontSize: 15 }} />
+                    </span>
+                    {!sidebarCollapsed && <span>Customize Menu</span>}
+                  </button>
                 </>
               );
             })()}
@@ -838,19 +1213,27 @@ const SidebarLayout = ({ children }) => {
           <div style={{
             flexShrink: 0,
             padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            borderTop: '1px solid rgba(148, 163, 184, 0.14)',
+            borderTop: `1px solid ${sb.divider}`,
             display: 'flex',
             flexDirection: sidebarCollapsed ? 'column' : 'row',
             alignItems: 'center',
-            gap: 8,
+            gap: 10,
             justifyContent: 'center'
           }}>
-            <button onClick={toggleFullscreen} style={{ flexShrink: 0, background: 'rgba(250, 204, 21, 0.12)', border: '1px solid rgba(250, 204, 21, 0.35)', padding: 8, borderRadius: 10, cursor: 'pointer', color: '#facc15', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
-              {isFullscreen ? <FaCompress size={16} /> : <FaExpand size={16} />}
+            <button onClick={toggleFullscreen} style={{ flexShrink: 0, background: sb.neutralBtnBg, border: `1px solid ${sb.neutralBtnBorder}`, padding: 11, borderRadius: 12, cursor: 'pointer', color: sb.neutralBtnColor, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+              {isFullscreen ? <FaCompress size={17} /> : <FaExpand size={17} />}
             </button>
-            <button onClick={handleLogout} style={{ flex: 1, background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', border: '1px solid #fecaca', padding: '8px', borderRadius: 10, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: sidebarCollapsed ? 'auto' : '100%', transition: 'all 0.2s ease', boxShadow: '0 3px 8px rgba(239, 68, 68, 0.12)' }} title="Logout">
-              <FaSignOutAlt size={16} />
-              {!sidebarCollapsed && <span style={{ fontSize: 13, fontWeight: 700 }}>Logout</span>}
+            <button
+              onClick={() => setSidebarTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+              style={{ flexShrink: 0, background: sb.neutralBtnBg, border: `1px solid ${sb.neutralBtnBorder}`, padding: 11, borderRadius: 12, cursor: 'pointer', color: isDarkSidebar ? '#facc15' : '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease' }}
+              title={isDarkSidebar ? 'Switch to light sidebar' : 'Switch to dark sidebar'}
+              aria-label="Toggle sidebar theme"
+            >
+              {isDarkSidebar ? <FaSun size={17} /> : <FaMoon size={17} />}
+            </button>
+            <button onClick={handleLogout} style={{ flex: 1, background: sb.logoutBg, border: `1px solid ${sb.logoutBorder}`, padding: '11px', borderRadius: 12, cursor: 'pointer', color: sb.logoutColor, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, width: sidebarCollapsed ? 'auto' : '100%', transition: 'all 0.2s ease', boxShadow: 'none' }} title="Logout">
+              <FaSignOutAlt size={17} />
+              {!sidebarCollapsed && <span style={{ fontSize: 14, fontWeight: 700 }}>Logout</span>}
             </button>
           </div>
         </aside>
@@ -910,6 +1293,242 @@ const SidebarLayout = ({ children }) => {
               >
                 {backupLoading ? (t('header.downloading') || 'Downloading...') : (t('header.downloadBackupButton') || 'Download Backup')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customize Menu (arrange sidebar) modal */}
+      {menuEditorOpen && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={closeMenuEditor}
+          onKeyDown={(e) => { if (e.key === 'Escape') closeMenuEditor(); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 16, boxShadow: '0 24px 50px rgba(0,0,0,0.3)', width: 460, maxWidth: '96vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', fontFamily: sidebarFont }}
+          >
+            <div style={{ padding: '18px 20px', borderBottom: '1px solid #eef2f7', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Customize Menu</h2>
+                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#64748b' }}>Add a Master Folder (lives in the “Custom” zone), then drag or use the dropdown to move options into it from any section. Your original sections stay intact.</p>
+              </div>
+              <button type="button" onClick={closeMenuEditor} aria-label="Close" style={{ background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: 10, width: 34, height: 34, cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <FaTimes size={15} />
+              </button>
+            </div>
+
+            <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+              <button
+                type="button"
+                onClick={() => addCustomMenu()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#2563eb', borderRadius: 9, padding: '8px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', marginBottom: 12 }}
+              >
+                <FaPlus size={11} /> Add Master Folder
+              </button>
+              {(() => {
+                const editorSections = sortByOrder(sidebarLayout?.sections || []);
+                const usable = (it) => gatePass(it.gate) && (it.type === 'group' || SIDEBAR_REGISTRY[it.path]);
+                const childrenOf = (sectionId, parentId) => sortByOrder(
+                  draftItems.filter((it) => it.section === sectionId && (it.parentId || null) === parentId && usable(it))
+                );
+                const sectionTitleById = Object.fromEntries(editorSections.map((s) => [s.id, s.title]));
+                // A folder can collect items from ANY section, so list every folder
+                // (except the item itself and its own descendants, to avoid cycles).
+                const groupOptions = (selfId) => draftItems.filter(
+                  (it) => it.type === 'group' && it.id !== selfId && !isDescendant(draftItems, selfId, it.id)
+                );
+
+                const renderRow = (it, sectionId, depth) => {
+                  const isGroup = it.type === 'group';
+                  const reg = SIDEBAR_REGISTRY[it.path] || {};
+                  const Icon = isGroup
+                    ? (FOLDER_ICONS[it.iconKey] || FaFolder)
+                    : (reg.icon || FaThLarge);
+                  const isHidden = it.visible === false;
+                  const isDragging = menuDragId === it.id;
+                  const isDragOver = menuDragOverId === it.id && menuDragId && menuDragId !== it.id;
+                  const kids = isGroup ? childrenOf(sectionId, it.id) : [];
+                  const parents = groupOptions(it.id);
+                  const defaultColor = isGroup ? '#2563eb' : (reg.color || '#64748b');
+                  const rowColor = it.color || defaultColor;
+                  return (
+                    <React.Fragment key={it.id}>
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (menuDragOverId !== it.id) setMenuDragOverId(it.id); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (isGroup) { dropDraftIntoGroup(menuDragId, it.id); }
+                          else { reorderDraftMenuItem(menuDragId, it.id); }
+                          setMenuDragId(null);
+                          setMenuDragOverId(null);
+                        }}
+                        onDragEnd={() => { setMenuDragId(null); setMenuDragOverId(null); }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '7px 9px',
+                          marginLeft: depth * 18,
+                          border: isDragOver
+                            ? (isGroup ? '1.5px dashed #2563eb' : '1px solid #2563eb')
+                            : `1px solid ${isGroup ? '#dbeafe' : '#eef2f7'}`,
+                          borderRadius: 10,
+                          marginBottom: 6,
+                          background: isDragOver && isGroup ? '#eff6ff' : (isHidden ? '#f8fafc' : (isGroup ? '#f8faff' : '#fff')),
+                          opacity: isDragging ? 0.45 : 1,
+                          boxShadow: isDragOver ? '0 0 0 2px rgba(37,99,235,0.15)' : 'none',
+                          transition: 'border-color 0.12s ease, box-shadow 0.12s ease',
+                        }}
+                      >
+                        <span
+                          draggable
+                          onDragStart={(e) => { setMenuDragId(it.id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', it.id); } catch { /* noop */ } }}
+                          title="Drag to reorder"
+                          aria-label="Drag to reorder"
+                          style={{ cursor: 'grab', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: '2px 1px', flexShrink: 0 }}
+                        >
+                          <FaGripVertical size={13} />
+                        </span>
+                        <span style={{ width: 26, height: 26, borderRadius: 8, background: `${rowColor}1a`, color: rowColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: `1px solid ${rowColor}40` }}>
+                          <Icon style={{ fontSize: 12 }} />
+                        </span>
+                        {isGroup ? (
+                          <input
+                            value={it.label}
+                            onChange={(e) => renameDraftGroup(it.id, e.target.value)}
+                            placeholder="Menu name"
+                            style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: '#1e293b', border: '1px solid #e5e7eb', borderRadius: 7, padding: '5px 8px', outline: 'none', background: '#fff' }}
+                          />
+                        ) : (
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: isHidden ? '#94a3b8' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {it.label}
+                          </span>
+                        )}
+                        <select
+                          value={it.parentId || ''}
+                          onChange={(e) => setDraftItemParent(it.id, e.target.value || null)}
+                          title="Move inside a folder (any section)"
+                          style={{ flexShrink: 0, maxWidth: 132, fontSize: 11.5, color: '#475569', border: '1px solid #e5e7eb', borderRadius: 7, padding: '5px 6px', background: '#fff', cursor: 'pointer' }}
+                        >
+                          <option value="">Top level</option>
+                          {parents.map((g) => (
+                            <option key={g.id} value={g.id}>
+                              {`${g.label || 'Folder'} (${sectionTitleById[g.section] || ''})`}
+                            </option>
+                          ))}
+                        </select>
+                        <span style={{ position: 'relative', flexShrink: 0, width: 26, height: 26 }} title="Icon color">
+                          <input
+                            type="color"
+                            value={rowColor}
+                            onChange={(e) => setDraftItemColor(it.id, e.target.value)}
+                            aria-label="Pick icon color"
+                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', opacity: 0 }}
+                          />
+                          <span style={{ display: 'block', width: 26, height: 26, borderRadius: 8, background: rowColor, border: '1px solid #e5e7eb', boxShadow: 'inset 0 0 0 2px #fff' }} />
+                          {it.color && (
+                            <button
+                              type="button"
+                              onClick={() => clearDraftItemColor(it.id)}
+                              title="Reset to default color"
+                              aria-label="Reset color"
+                              style={{ position: 'absolute', top: -6, right: -6, width: 14, height: 14, borderRadius: '50%', background: '#fff', border: '1px solid #e5e7eb', color: '#94a3b8', fontSize: 9, lineHeight: '12px', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              <FaTimes size={7} />
+                            </button>
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleDraftItem(it.id)}
+                          title={isHidden ? 'Show' : 'Hide'}
+                          aria-label={isHidden ? 'Show' : 'Hide'}
+                          style={{ background: isHidden ? '#f1f5f9' : 'rgba(37,99,235,0.1)', border: `1px solid ${isHidden ? '#e5e7eb' : 'rgba(37,99,235,0.25)'}`, borderRadius: 8, width: 28, height: 26, cursor: 'pointer', color: isHidden ? '#94a3b8' : '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                        >
+                          {isHidden ? <FaEyeSlash size={12} /> : <FaEye size={12} />}
+                        </button>
+                        {isGroup && (
+                          <button
+                            type="button"
+                            onClick={() => deleteDraftGroup(it.id)}
+                            title="Delete custom menu"
+                            aria-label="Delete custom menu"
+                            style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, width: 28, height: 26, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                          >
+                            <FaTrash size={11} />
+                          </button>
+                        )}
+                      </div>
+                      {isGroup && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: '0 0 8px', marginLeft: depth * 18 + 34 }}>
+                          {Object.entries(FOLDER_ICONS).map(([key, Ico]) => {
+                            const selected = (it.iconKey || 'folder') === key;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => setDraftGroupIcon(it.id, key)}
+                                title={`Use ${key} icon`}
+                                aria-label={`Use ${key} icon`}
+                                style={{
+                                  width: 26,
+                                  height: 26,
+                                  borderRadius: 7,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background: selected ? 'rgba(37,99,235,0.12)' : '#fff',
+                                  color: selected ? '#2563eb' : '#64748b',
+                                  border: `1px solid ${selected ? 'rgba(37,99,235,0.45)' : '#e5e7eb'}`,
+                                }}
+                              >
+                                <Ico size={12} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {kids.map((c) => renderRow(c, sectionId, depth + 1))}
+                    </React.Fragment>
+                  );
+                };
+
+                return editorSections.map((section) => {
+                  const tops = childrenOf(section.id, null);
+                  if (!tops.length) return null;
+                  return (
+                    <div
+                      key={section.id}
+                      onDragOver={(e) => { if (menuDragId) { e.preventDefault(); } }}
+                      onDrop={(e) => { if (menuDragId) { e.preventDefault(); dropDraftToSection(menuDragId, section.id); setMenuDragId(null); setMenuDragOverId(null); } }}
+                      style={{ marginBottom: 14 }}
+                    >
+                      <div style={{ padding: '4px 4px 8px' }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.6px' }}>{section.title}</span>
+                      </div>
+                      {tops.map((it) => renderRow(it, section.id, 0))}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            <div style={{ padding: '14px 16px', borderTop: '1px solid #eef2f7', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <button type="button" onClick={resetMenuDraft} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 9, padding: '9px 14px', fontSize: 13, fontWeight: 600, color: '#475569', cursor: 'pointer' }}>
+                <FaUndo size={12} /> Reset
+              </button>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button type="button" onClick={closeMenuEditor} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 9, padding: '9px 16px', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>Cancel</button>
+                <button type="button" onClick={saveMenuDraft} style={{ background: '#2563eb', border: 'none', borderRadius: 9, padding: '9px 18px', fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>Save</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1106,17 +1725,17 @@ const SidebarLayout = ({ children }) => {
             -webkit-overflow-scrolling: touch;
           }
           .sidebar-nav-item {
-            padding: 12px 14px !important;
-            margin: 0 8px 2px 8px !important;
-            font-size: 12px !important;
+            padding: 9px 12px !important;
+            margin: 2px 10px !important;
+            font-size: 13px !important;
             gap: 12px !important;
-            border-radius: 11px !important;
+            border-radius: 12px !important;
             min-height: 44px !important;
             align-items: center !important;
             display: flex !important;
           }
           .sidebar-nav-item svg {
-            font-size: 18px !important;
+            font-size: 17px !important;
           }
           .sidebar-main-content {
             padding: 12px !important;
@@ -1131,10 +1750,10 @@ const SidebarLayout = ({ children }) => {
             max-width: 85vw !important;
           }
           .sidebar-nav-item {
-            padding: 10px 12px !important;
-            margin: 0 6px 2px 6px !important;
+            padding: 9px 11px !important;
+            margin: 2px 8px !important;
             font-size: 12px !important;
-            min-height: 44px !important;
+            min-height: 42px !important;
           }
           .sidebar-nav-item svg {
             font-size: 16px !important;
@@ -1150,7 +1769,7 @@ const SidebarLayout = ({ children }) => {
             max-width: 90vw !important;
           }
           .sidebar-nav-item {
-            padding: 10px 10px !important;
+            padding: 9px 10px !important;
             font-size: 11px !important;
             min-height: 42px !important;
           }
@@ -1159,31 +1778,31 @@ const SidebarLayout = ({ children }) => {
         /* Tablet responsive */
         @media (min-width: 769px) and (max-width: 1024px) {
           .sidebar-nav-item {
-            padding: 4px 8px !important;
+            padding: 6px 9px !important;
             font-size: 11px !important;
-            gap: 6px !important;
-            margin: 0px 4px !important;
-            height: 26px !important;
+            gap: 8px !important;
+            margin: 2px 8px !important;
+            min-height: 32px !important;
           }
           .sidebar-nav-item svg {
             font-size: 13px !important;
           }
-          .sidebar-content > div > div:first-child { margin-top: 8px !important; }
+          .sidebar-content > div > div:first-child { margin-top: 6px !important; }
         }
         
-        /* Large screens - keep compact to fit */
+        /* Large screens - compact, easy to read */
         @media (min-width: 1025px) {
           .sidebar-nav-item {
-            padding: 2px 6px !important;
-            margin: 0 4px !important;
-            font-size: 11px !important;
-            height: 28px !important;
-            gap: 6px !important;
+            padding: 6px 10px !important;
+            margin: 2px 10px !important;
+            font-size: 12px !important;
+            min-height: 34px !important;
+            gap: 10px !important;
           }
            .sidebar-nav-item svg {
-            font-size: 13px !important;
+            font-size: 14px !important;
           }
-          .sidebar-content > div > div:first-child { margin-top: 8px !important; }
+          .sidebar-content > div > div:first-child { margin-top: 6px !important; }
         }
         
         /* Prevent all scrollbars */

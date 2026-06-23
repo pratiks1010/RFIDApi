@@ -783,14 +783,23 @@ END
 `;
 };
 
-// LS000488 — compact mangalsutra label (ENGINE 1774×710, RFID 48-bit EPC, QR)
+/** Purity/Melting line on LS000488 label (e.g. "916") */
+const resolveLS000488Melting = (item) =>
+  String(item.Purity || item.PurityName || item.purity || '').trim();
+
+/** Product name or category on LS000488 label */
+const resolveLS000488ProductName = (item) =>
+  String(item.ProductName || item.CategoryName || item.Description || '').trim();
+
+// LS000488 — mangalsutra label (SanpreetAtwal, ENGINE 1774×710, RFID 80-bit EPC, compact format)
 const generateLS000488Prn = (item) => {
   const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
-  const productName = item.ProductName || item.CategoryName || 'Mangalsutra';
-  const grossWt = String(item.GrossWt || item.GrossWeight || item.grosswt || '10.00');
-  const netWt = String(item.NetWt || item.netwt || '10.00');
-  const stoneWt = String(item.StoneWt || item.stonewt || item.TotalStoneWeight || '0.00');
-  const displayCode = itemCode;
+  const productName = prnQuote(resolveLS000488ProductName(item));
+  const grossWt = prnQuote(formatWeight2(item.GrossWt ?? item.GrossWeight ?? item.grosswt));
+  const netWt = prnQuote(formatWeight2(item.NetWt ?? item.netwt));
+  const stoneWt = prnQuote(formatWeight2(item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? 0));
+  const melting = prnQuote(resolveLS000488Melting(item));
+  const displayCode = prnQuote(itemCode);
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode);
 
   return `<xpml><page quantity='0' pitch='18.0 mm'></xpml>!PTX_SETUP
@@ -821,20 +830,14 @@ ${epcBits};H;*${epcHex}*
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
-INV;POINT;113;328;7;7;"${productName}"
-INV;POINT;83;328;7;7;"G wt :"
-INV;POINT;83;279;7;7;"${grossWt}"
-INV;POINT;17;328;7;7;"N wt :"
-INV;POINT;17;279;7;7;"${netWt}"
-INV;POINT;50;328;7;7;"S wt :"
-INV;POINT;50;278;7;7;"${stoneWt}"
-STOP
-BARCODE
-QRCODE;INV;XD3;T2;E0;M0;I0;58;96
-"${displayCode}"
-STOP
-ALPHA
-INV;POINT;26;155;7;7;"${displayCode}"
+INV;POINT;115;331;7;7;"${productName}"
+INV;POINT;83;335;7;7;"G wt :"
+INV;POINT;83;285;7;7;"${grossWt}"
+INV;POINT;57;335;7;7;"N wt :"
+INV;POINT;55;285;7;7;"${netWt}"
+INV;POINT;27;335;7;7;"S wt :"
+INV;POINT;27;285;7;7;"${stoneWt}"
+INV;POINT;17;146;7;7;"${displayCode}"
 STOP
 END
 ~EXECUTE;FORM-0;1
@@ -854,14 +857,14 @@ export const generateClientPrn = (item, clientCode) => {
       return generateLS000428Prn(item);
     case 'LS000431':
       return generateLS000431Prn(item);
+    case 'LS000488':
+      return generateLS000488Prn(item);
     case 'LS000533':
       return resolveLS000533PrnVariant(item) === 'stone'
         ? generateLS000533StonePrn(item)
         : generateLS000533Prn(item);
     case 'LS000544':
       return generateLS000544Prn(item);
-    case 'LS000488':
-      return generateLS000488Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection

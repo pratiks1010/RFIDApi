@@ -184,7 +184,6 @@ C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API R
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\hostfxr.dll
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\hostpolicy.dll
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\mscordaccore.dll
-C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\mscordaccore_amd64_amd64_8.0.2626.16921.dll
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\mscordbi.dll
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\mscorrc.dll
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\msquic.dll
@@ -199,3 +198,4 @@ C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API R
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\obj\Release\net8.0\win-x64\rfid-bridge.pdb
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\obj\Release\net8.0\win-x64\rfid-bridge.genruntimeconfig.cache
 C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\obj\Release\net8.0\win-x64\ref\rfid-bridge.dll
+C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\rfid-bridge\bin\Release\net8.0\win-x64\mscordaccore_amd64_amd64_8.0.2826.26413.dll

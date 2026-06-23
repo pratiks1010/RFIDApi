@@ -67,7 +67,6 @@ const lineItemCode = (line) => pick(line, 'ItemCode', 'itemCode') || '—';
 const lineRfid = (line) => pick(line, 'RFIDCode', 'RFIDNumber', 'rfidCode') || '—';
 const lineDesign = (line) => pick(line, 'DesignName', 'DesignNo', 'designName', 'Design', 'DesignId') || '—';
 const lineCategory = (line) => pick(line, 'CategoryName', 'categoryName', 'Category', 'category_id') || '—';
-const lineProduct = (line) => pick(line, 'ProductName', 'productName', 'Product', 'product_id') || '—';
 const lineGrossWt = (line) => formatWeight3(line?.GrossWt ?? line?.grosswt ?? line?.TWt ?? 0);
 const lineNetWt = (line) => formatWeight3(line?.NetWt ?? line?.netwt ?? 0);
 // Pieces field displays MRP value from API response (MRP key)
@@ -659,12 +658,10 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
   const rfid = lineRfid(line);
   const design = lineDesign(line);
   const category = lineCategory(line);
-  const product = lineProduct(line);
   const pieces = formatPiecesValue(linePieces(line));
   const status = pick(line, 'ItemStatus', 'itemStatus') || '—';
 
   const lookupKeys = getPreviewLineLookupKeys(line);
-  const dot = <span style={{ color: '#cbd5e1', margin: '0 4px' }}>·</span>;
 
   const getLineStatusStyle = (s) => {
     const statusLower = String(s || '').toLowerCase();
@@ -792,46 +789,77 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
       </div>
       <div
         style={{
-          padding: '12px 14px 14px',
-          fontSize: 12,
-          lineHeight: 1.55,
+          padding: '10px 12px 12px',
+          fontSize: 11,
+          lineHeight: 1.35,
           color: '#334155',
           borderTop: '1px solid #f1f5f9',
         }}
       >
         <div
           style={{
-            fontWeight: 600,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            marginBottom: 6,
-          }}
-          title={`Category: ${category} | Product: ${product} | RFID: ${rfid} | Design: ${design}`}
-        >
-          <span style={{ color: '#64748b' }}>Category:</span> {category}
-          {dot}
-          <span style={{ color: '#64748b' }}>Product:</span> {product}
-        </div>
-        <div
-          style={{
-            fontWeight: 600,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            marginBottom: 6,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: '6px 10px',
           }}
         >
-          <span style={{ color: '#64748b' }}>RFID:</span> {rfid}
-          {dot}
-          <span style={{ color: '#64748b' }}>Design:</span> {design}
-        </div>
-        <div style={{ fontWeight: 600, color: '#0f172a' }}>
-          <span style={{ color: '#64748b' }}>Gross:</span> {lineGrossWt(line)}
-          {dot}
-          <span style={{ color: '#64748b' }}>Net:</span> {lineNetWt(line)}
-          {dot}
-          <span style={{ color: '#64748b' }}>Pieces:</span> {pieces}
+          <div style={{ minWidth: 0, gridColumn: '1 / -1' }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              Category
+            </div>
+            <div
+              style={{ fontWeight: 700, color: '#0f172a', wordBreak: 'break-word', overflowWrap: 'anywhere', lineHeight: 1.4 }}
+              title={category}
+            >
+              {category}
+            </div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              RFID
+            </div>
+            <div
+              style={{ fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title={rfid}
+            >
+              {rfid}
+            </div>
+          </div>
+          <div style={{ minWidth: 0, gridColumn: '2 / -1' }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              Design
+            </div>
+            <div
+              style={{ fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title={design}
+            >
+              {design}
+            </div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              Gross
+            </div>
+            <div style={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+              {lineGrossWt(line)}
+            </div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              Net
+            </div>
+            <div style={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+              {lineNetWt(line)}
+            </div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              Pieces
+            </div>
+            <div style={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+              {pieces}
+            </div>
+          </div>
         </div>
       </div>
     </article>

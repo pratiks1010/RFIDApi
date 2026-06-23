@@ -142,7 +142,7 @@ export const isForceReturnItem = (line) =>
 
 export const getItemReturnedByTypeMeta = (line) => {
   if (isForceReturnItem(line)) {
-    return { label: 'Force Returned by Admin', color: '#c2410c', bg: '#fff7ed', bd: '#fdba74' };
+    return { label: 'Manual Return by Admin', color: '#c2410c', bg: '#fff7ed', bd: '#fdba74' };
   }
   const raw = String(line?.returnedByType ?? line?.ReturnedByType ?? '').trim().toLowerCase();
   if (raw === 'admin') {

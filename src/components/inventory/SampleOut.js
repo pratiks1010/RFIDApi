@@ -61,7 +61,7 @@ import {
 } from '../../services/rfidSampleApi';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
 import { getAuthState, isSuperAdmin } from '../../utils/authState';
-import { buildDesignAwarePages, sortProductsByDesign } from '../../utils/designSort';
+import { buildDesignAwarePages, designNoFromItem, sortProductsByDesign } from '../../utils/designSort';
 import { authHeaders as rfidUserAuthHeaders, rfidUserUrls } from '../../services/rfidUserManagementApi';
 
 const EMPLOYEE_MASTER_LINK_HELP =
@@ -74,6 +74,99 @@ const BULK_SCAN_THRESHOLD = 5;
 /** Above this count, batch review popup shows counts only (not every item code). */
 const BULK_REVIEW_DETAIL_CAP = 50;
 const SAMPLE_OUT_TRAY_DEVICE_ID = 'Adb';
+
+const normalizeLabeledStockArray = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (data.Data && Array.isArray(data.Data)) return data.Data;
+  if (data.data && Array.isArray(data.data)) return data.data;
+  if (data.Items && Array.isArray(data.Items)) return data.Items;
+  if (data.result && Array.isArray(data.result)) return data.result;
+  return [];
+};
+
+const labeledStockMatchesSearch = (item, term) => {
+  const q = String(term || '').trim().toLowerCase();
+  if (!q) return true;
+  const fields = [
+    item?.ItemCode,
+    item?.Itemcode,
+    item?.RFIDNumber,
+    item?.RFID,
+    item?.RFIDCode,
+    item?.TIDValue,
+    item?.TIDNumber,
+    designNoFromItem(item),
+    item?.DesignName,
+    item?.Design,
+    item?.DesignId,
+    item?.design_id,
+    item?.DesignCode,
+    item?.CategoryName,
+    item?.ProductName,
+  ];
+  return fields.some((v) => String(v ?? '').trim().toLowerCase().includes(q));
+};
+
+const filterLabeledStockSearchResults = (rows, term) => {
+  const list = Array.isArray(rows) ? rows : [];
+  const q = String(term || '').trim();
+  if (!q) return list;
+  const matched = list.filter((item) => labeledStockMatchesSearch(item, q));
+  return matched.length ? matched : list;
+};
+
+const buildLabeledStockSearchPayload = (clientCode, term, extra = {}) => ({
+  ClientCode: clientCode,
+  ItemCode: term,
+  SearchQuery: term,
+  RFIDCode: term,
+  DesignNo: term,
+  DesignName: term,
+  PageNumber: 1,
+  PageSize: 30,
+  ...extra,
+});
+
+const fetchLabeledStockSearchResults = async (clientCode, searchTerm) => {
+  if (!clientCode || !String(searchTerm || '').trim()) return [];
+  const headers = {
+    Authorization: `Bearer ${localStorage.getItem('token')}`,
+    'Content-Type': 'application/json',
+  };
+  const term = searchTerm.trim();
+  const labeledStockUrl = toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock');
+  const requestLabeledStock = (payload) =>
+    axios.post(labeledStockUrl, payload, { headers });
+
+  let results = normalizeLabeledStockArray(
+    (await requestLabeledStock(buildLabeledStockSearchPayload(clientCode, term))).data
+  );
+
+  if (!results.length) {
+    results = normalizeLabeledStockArray(
+      (
+        await requestLabeledStock(
+          buildLabeledStockSearchPayload(clientCode, term, {
+            CategoryId: 0,
+            ProductId: 0,
+            DesignId: 0,
+            PurityId: 0,
+            BranchId: 0,
+            CounterId: 0,
+            FromDate: null,
+            ToDate: null,
+            Status: 'ApiActive',
+            ListType: 'ascending',
+            SortColumn: null,
+          })
+        )
+      ).data
+    );
+  }
+
+  return filterLabeledStockSearchResults(results, term);
+};
 
 const enrichTrayStockRows = (stockRows, scanRows) => {
   const byEpc = new Map();
@@ -784,6 +877,306 @@ const summarizeScanRows = (rows) => {
   return { gross, net, pieces, latest };
 };
 
+const formatSummaryWeight = (value) => {
+  const n = parseFloat(value);
+  return Number.isNaN(n) ? '0.000' : n.toFixed(3);
+};
+
+const formatSummaryPieces = (value) => {
+  const n = parseFloat(value);
+  if (Number.isNaN(n)) return '0';
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
+
+const pendingInRowGrossWt = (row) =>
+  String(row?.grosswt ?? row?.GrossWt ?? row?.GrossWeight ?? row?.TWt ?? '0.000');
+
+const pendingInRowNetWt = (row) =>
+  String(row?.netwt ?? row?.NetWt ?? row?.NetWeight ?? row?.NtWt ?? '0.000');
+
+const pendingInRowImageUrl = (row) => {
+  const src = row?.fullItemData ?? row ?? {};
+  const raw = String(
+    src?.ImageUrl ??
+      src?.ImageURL ??
+      src?.ImagePath ??
+      src?.Image ??
+      src?.PhotoUrl ??
+      src?.PhotoURL ??
+      src?.Photo ??
+      src?.ProductImage ??
+      src?.ImageName ??
+      ''
+  ).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `${getRrgoldApiBaseUrl().replace(/\/$/, '')}/${raw.replace(/^\/+/, '')}`;
+};
+
+const pendingInRowImageLookupKeys = (row) => {
+  const code = rowItemCodeFromRaw(row) || row?.Itemcode || row?.ItemCode || '';
+  return getItemImageLookupKeys({
+    ...(row?.fullItemData || {}),
+    ...row,
+    ItemCode: code,
+    Itemcode: code,
+    RFIDCode: row?.RFIDNumber ?? row?.RFIDCode,
+    RFID: row?.RFIDNumber,
+    DesignId: row?.design_id ?? row?.DesignId,
+    design_id: row?.design_id ?? row?.DesignId,
+    DesignName: row?.DesignName ?? row?.Design ?? row?.design_id,
+    Design: row?.DesignName ?? row?.Design,
+  });
+};
+
+const SampleInReturnItemCard = ({ row, index }) => {
+  const code = rowItemCodeFromRaw(row) || row?.Itemcode || row?.ItemCode || '—';
+  const design = designNoFromItem(row) || '—';
+  const rfid = String(row?.RFIDNumber ?? row?.RFIDCode ?? '').trim() || '—';
+  return (
+    <article
+      style={{
+        border: '1px solid #e2e8f0',
+        borderRadius: 10,
+        overflow: 'hidden',
+        background: '#fff',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ position: 'relative', background: '#f8fafc', height: 96 }}>
+        <span
+          style={{
+            position: 'absolute',
+            top: 6,
+            left: 6,
+            zIndex: 2,
+            fontSize: 9,
+            fontWeight: 800,
+            color: '#64748b',
+            background: 'rgba(255,255,255,0.92)',
+            border: '1px solid #e2e8f0',
+            borderRadius: 6,
+            padding: '2px 6px',
+          }}
+        >
+          {index + 1}
+        </span>
+        <GridItemImage
+          src={pendingInRowImageUrl(row)}
+          itemCode={code === '—' ? '' : code}
+          lookupKeys={pendingInRowImageLookupKeys(row)}
+          alt={code}
+          eagerLoad
+          wrapperStyle={{
+            width: '100%',
+            height: 96,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '4px 6px',
+            boxSizing: 'border-box',
+          }}
+          imgStyle={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            objectPosition: 'center',
+          }}
+          placeholder={
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8' }}>No image</div>
+          }
+        />
+      </div>
+      <div style={{ padding: '7px 8px 8px', minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            color: '#0f4c81',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={code}
+        >
+          {code}
+        </div>
+        <div style={{ fontSize: 9, fontWeight: 600, color: '#64748b', marginTop: 3, lineHeight: 1.35 }}>
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={design}>
+            Design: {design}
+          </div>
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rfid}>
+            RFID: {rfid}
+          </div>
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr',
+            gap: '2px 4px',
+            marginTop: 5,
+            fontSize: 9,
+            fontWeight: 700,
+            color: '#334155',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          <span>Gr {pendingInRowGrossWt(row)}</span>
+          <span>Net {pendingInRowNetWt(row)}</span>
+          <span>Pcs {scanRowPieces(row)}</span>
+        </div>
+      </div>
+    </article>
+  );
+};
+
+const SampleInReturnItemsGrid = ({ rows, title = 'Returning items' }) => {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 800,
+          color: '#64748b',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          marginBottom: 8,
+        }}
+      >
+        {title}
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))',
+          gap: 8,
+        }}
+      >
+        {rows.map((row, i) => (
+          <SampleInReturnItemCard key={row.id ?? `${rowItemCodeFromRaw(row)}-${i}`} row={row} index={i} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const isLotLineOutStatus = (line) => {
+  const s = String(line?.ItemStatus ?? line?.itemStatus ?? '').trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('return') || s === 'in' || s === 'returned') return false;
+  return s === 'out' || s.includes('sampleout');
+};
+
+const lotLineItemId = (line) => {
+  const id = parseInt(line?.LotItemId ?? line?.lotItemId ?? line?.__lotItemId ?? line?.Id ?? line?.id, 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+};
+
+const summarizeLineItems = (lines) => {
+  let items = 0;
+  let gross = 0;
+  let net = 0;
+  let pieces = 0;
+  (lines || []).forEach((line) => {
+    items += 1;
+    gross += parseFloat(line?.GrossWt ?? line?.grosswt ?? line?.grossWt ?? 0) || 0;
+    net += parseFloat(line?.NetWt ?? line?.netwt ?? line?.netWt ?? 0) || 0;
+    pieces += scanRowPieces(line);
+  });
+  return { items, gross, net, pieces };
+};
+
+const buildPartialReturnBreakdown = (ctx, returningRows, { outOnLot, remainingAfter } = {}) => {
+  const returningFromScans = summarizeScanRows(returningRows);
+  const returningFallback = {
+    items: returningRows.length,
+    pieces: returningFromScans.pieces,
+    gross: returningFromScans.gross,
+    net: returningFromScans.net,
+  };
+
+  const outLines = (ctx?.items ?? []).filter(isLotLineOutStatus);
+  if (outLines.length) {
+    const returningIds = new Set(
+      returningRows.map((row) => lotLineItemId(row)).filter((id) => id != null)
+    );
+    const returningLines = outLines.filter((line) => returningIds.has(lotLineItemId(line)));
+    const pendingLines = outLines.filter((line) => !returningIds.has(lotLineItemId(line)));
+    const lotTotal = summarizeLineItems(outLines);
+    const returning = returningLines.length ? summarizeLineItems(returningLines) : returningFallback;
+    const pending = pendingLines.length
+      ? summarizeLineItems(pendingLines)
+      : {
+          items: Math.max(0, lotTotal.items - returning.items),
+          gross: Math.max(0, lotTotal.gross - returning.gross),
+          net: Math.max(0, lotTotal.net - returning.net),
+          pieces: Math.max(0, lotTotal.pieces - returning.pieces),
+        };
+    return { lotTotal, returning, pending };
+  }
+
+  const pendingItems =
+    remainingAfter != null
+      ? remainingAfter
+      : Math.max(0, (outOnLot ?? returningFallback.items) - returningFallback.items);
+  const lotTotalItems = outOnLot ?? returningFallback.items + pendingItems;
+  const lotTotal = {
+    items: lotTotalItems,
+    pieces: returningFallback.pieces,
+    gross: returningFallback.gross,
+    net: returningFallback.net,
+  };
+
+  if (pendingItems > 0 && lotTotalItems > returningFallback.items) {
+    lotTotal.pieces = returningFallback.pieces;
+    lotTotal.gross = returningFallback.gross;
+    lotTotal.net = returningFallback.net;
+  }
+
+  const pending = {
+    items: pendingItems,
+    gross: Math.max(0, lotTotal.gross - returningFallback.gross),
+    net: Math.max(0, lotTotal.net - returningFallback.net),
+    pieces: Math.max(0, lotTotal.pieces - returningFallback.pieces),
+  };
+
+  return {
+    lotTotal,
+    returning: returningFallback,
+    pending,
+  };
+};
+
+const PartialReturnSummaryTable = ({ label, data, rowStyle }) => (
+  <div
+    style={{
+      display: 'grid',
+      gridTemplateColumns: 'minmax(120px, 1.4fr) repeat(4, minmax(72px, 1fr))',
+      gap: '8px 12px',
+      alignItems: 'center',
+      padding: '10px 12px',
+      borderRadius: 10,
+      ...rowStyle,
+    }}
+  >
+    <div style={{ fontSize: 12, fontWeight: 800, color: '#334155', lineHeight: 1.3 }}>{label}</div>
+    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+      {data.items} Item{data.items === 1 ? '' : 's'}
+    </div>
+    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+      {formatSummaryPieces(data.pieces)} Pcs
+    </div>
+    <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d', fontVariantNumeric: 'tabular-nums' }}>
+      {formatSummaryWeight(data.gross)}
+    </div>
+    <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
+      {formatSummaryWeight(data.net)}
+    </div>
+  </div>
+);
+
 const SampleInReturnConfirmBanner = ({ report }) => {
   const isFullReturn = report.isFullLotReturn;
   const tone = report.isPartial ? 'partial' : 'full';
@@ -791,31 +1184,13 @@ const SampleInReturnConfirmBanner = ({ report }) => {
   const border = tone === 'partial' ? '#fde68a' : '#86efac';
   const titleColor = tone === 'partial' ? '#92400e' : '#15803d';
   const textColor = tone === 'partial' ? '#78350f' : '#14532d';
-
-  const statCell = (label, value, emphasize = false) => (
-    <div key={label} style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: tone === 'partial' ? '#a16207' : '#166534', marginBottom: 2 }}>
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: emphasize ? 14 : 12,
-          fontWeight: 800,
-          color: '#0f172a',
-          wordBreak: 'break-word',
-          overflowWrap: 'anywhere',
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
+  const breakdown = report.breakdown;
 
   return (
     <div
       style={{
-        padding: '12px 14px',
-        borderRadius: 10,
+        padding: '14px 16px',
+        borderRadius: 12,
         background: bg,
         border: `1px solid ${border}`,
         color: textColor,
@@ -824,29 +1199,84 @@ const SampleInReturnConfirmBanner = ({ report }) => {
         overflow: 'hidden',
       }}
     >
-      <div style={{ fontWeight: 800, fontSize: 14, color: titleColor, marginBottom: 10 }}>
-        {isFullReturn ? 'Complete lot return' : report.isPartial ? 'Partial return' : 'Return confirmation'}
-      </div>
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-          gap: '10px 16px',
-          marginBottom: 10,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+          gap: 10,
+          marginBottom: 12,
         }}
       >
-        {statCell('Lot', report.lotNo, true)}
-        {report.assignedName && report.assignedName !== '—' ? statCell('Employee', report.assignedName) : null}
-        {statCell('Returning', `${report.returning} item${report.returning === 1 ? '' : 's'}`)}
-        {statCell('Gr.Wt', report.grossWt)}
-        {statCell('Net Wt', report.netWt, true)}
-        {statCell('Pieces', report.pieces)}
-        {report.outOnLot != null ? statCell('Out on lot', report.outOnLot) : null}
-        {report.returned > 0 ? statCell('Already returned', report.returned) : null}
-        {report.remainingAfter != null && report.remainingAfter > 0
-          ? statCell('Still out after', report.remainingAfter)
-          : null}
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: titleColor }}>
+            {isFullReturn ? 'Complete lot return' : report.isPartial ? 'Partial return' : 'Return confirmation'}
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', marginTop: 4 }}>Lot {report.lotNo}</div>
+        </div>
+        {report.assignedName && report.assignedName !== '—' ? (
+          <div style={{ fontSize: 12, color: '#64748b', textAlign: 'right' }}>
+            Employee:{' '}
+            <strong style={{ color: '#0f766e', fontWeight: 800 }}>{report.assignedName}</strong>
+          </div>
+        ) : null}
       </div>
+
+      {breakdown ? (
+        <div
+          style={{
+            overflowX: 'auto',
+            marginBottom: 12,
+            borderRadius: 10,
+            border: '1px solid rgba(226, 232, 240, 0.9)',
+            background: '#fff',
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(120px, 1.4fr) repeat(4, minmax(72px, 1fr))',
+              gap: '8px 12px',
+              alignItems: 'center',
+              padding: '10px 12px',
+              borderBottom: '1px solid #eef2f7',
+              background: '#f8fafc',
+              minWidth: 520,
+            }}
+          >
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }} />
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Items</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pcs</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Gross</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Net</div>
+          </div>
+          <div style={{ minWidth: 520 }}>
+            <PartialReturnSummaryTable
+              label="Lot total summary"
+              data={breakdown.lotTotal}
+              rowStyle={{ background: '#fafcff', borderBottom: '1px solid #eef2f7' }}
+            />
+            <PartialReturnSummaryTable
+              label="Returning"
+              data={breakdown.returning}
+              rowStyle={{ background: '#f0fdf4', borderBottom: '1px solid #eef2f7' }}
+            />
+            {!isFullReturn && report.isPartial ? (
+              <PartialReturnSummaryTable
+                label="Pending"
+                data={breakdown.pending}
+                rowStyle={{ background: '#fffbeb' }}
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {Array.isArray(report.rows) && report.rows.length > 0 ? (
+        <SampleInReturnItemsGrid rows={report.rows} />
+      ) : null}
+
       <div
         style={{
           fontWeight: 600,
@@ -855,6 +1285,7 @@ const SampleInReturnConfirmBanner = ({ report }) => {
           wordBreak: 'break-word',
           overflowWrap: 'anywhere',
           lineHeight: 1.55,
+          marginTop: 12,
         }}
       >
         {report.confirmationMessage}
@@ -1049,11 +1480,10 @@ const SampleOut = () => {
   const rowItemCodeOrDash = (row) => rowItemCode(row) || '—';
   const rowRfidOrDash = (row) => String(row?.RFIDNumber ?? '').trim() || '—';
   const rowCategoryOrDash = (row) =>
-    String(row?.category_id ?? row?.CategoryName ?? row?.Category ?? '').trim() || '—';
+    String(row?.CategoryName ?? row?.Category ?? row?.categoryName ?? row?.category_id ?? '').trim() || '—';
   const rowProductOrDash = (row) =>
     String(row?.product_id ?? row?.ProductName ?? row?.Product ?? '').trim() || '—';
-  const rowDesignOrDash = (row) =>
-    String(row?.design_id ?? row?.DesignName ?? row?.Design ?? '').trim() || '—';
+  const rowDesignOrDash = (row) => designNoFromItem(row) || '—';
   const currentScannerName = useMemo(() => resolveScannerDisplayName(userInfo), [userInfo]);
   const rowScannedByUser = (row) => {
     const stored = String(
@@ -1885,7 +2315,7 @@ const formatScannedTime = (date) => {
     return () => clearTimeout(timeoutId);
   }, [itemCodeSearch]);
 
-  // Search labeled stock via ProductMaster GetAllLabeledStock (item code / RFID / query)
+  // Search labeled stock via ProductMaster GetAllLabeledStock (item code / RFID / design no)
   const handleItemCodeSearch = async (searchTerm) => {
     if (!searchTerm || searchTerm.trim().length === 0) {
       setSearchResults([]);
@@ -1899,56 +2329,7 @@ const formatScannedTime = (date) => {
 
     setSearching(true);
     try {
-      const headers = {
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      };
-      const term = searchTerm.trim();
-      const clientCode = userInfo.ClientCode;
-      const labeledStockUrl = toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock');
-
-      const requestLabeledStock = (payload) =>
-        axios.post(labeledStockUrl, payload, { headers });
-
-      let results = normalizeArray(
-        (
-          await requestLabeledStock({
-            ClientCode: clientCode,
-            ItemCode: term,
-            SearchQuery: term,
-            RFIDCode: term,
-            PageNumber: 1,
-            PageSize: 30,
-          })
-        ).data
-      );
-
-      if (!results.length) {
-        results = normalizeArray(
-          (
-            await requestLabeledStock({
-              ClientCode: clientCode,
-              CategoryId: 0,
-              ProductId: 0,
-              DesignId: 0,
-              PurityId: 0,
-              BranchId: 0,
-              CounterId: 0,
-              ItemCode: term,
-              RFIDCode: term,
-              SearchQuery: term,
-              FromDate: null,
-              ToDate: null,
-              Status: 'ApiActive',
-              ListType: 'ascending',
-              SortColumn: null,
-              PageNumber: 1,
-              PageSize: 30,
-            })
-          ).data
-        );
-      }
-
+      const results = await fetchLabeledStockSearchResults(userInfo.ClientCode, searchTerm);
       setSearchResults(results);
       setShowSearchResults(results.length > 0);
     } catch (error) {
@@ -2430,8 +2811,28 @@ const formatScannedTime = (date) => {
   const handleDirectScan = async (term) => {
     const t = String(term || '').trim();
     if (!t) return;
+    const clientCode = resolveClientCodeForSampleApi(userInfo);
     setScanChecking(true);
     try {
+      let results = searchResults.filter((item) => labeledStockMatchesSearch(item, t));
+      if (!results.length && clientCode) {
+        results = await fetchLabeledStockSearchResults(clientCode, t);
+        setSearchResults(results);
+        setShowSearchResults(results.length > 0);
+      }
+      if (results.length === 1) {
+        await processScannedProduct(results[0], { clearSearch: true, source: 'search' });
+        return;
+      }
+      if (results.length > 1) {
+        setShowSearchResults(true);
+        addNotification({
+          type: 'info',
+          title: 'Multiple matches',
+          message: `${results.length} items found — select one from the list.`,
+        });
+        return;
+      }
       await processScannedProduct(
         { ItemCode: t, RFIDCode: t, RFIDNumber: t, TIDValue: t },
         { clearSearch: true, source: 'barcode' }
@@ -3364,9 +3765,12 @@ const formatScannedTime = (date) => {
           item.product_id,
           item.ProductName,
           item.Product,
+          designNoFromItem(item),
           item.design_id,
           item.DesignName,
           item.Design,
+          item.DesignId,
+          item.DesignCode,
         ].some((v) => String(v || '').toLowerCase().includes(q))
       );
     }
@@ -3510,6 +3914,7 @@ const formatScannedTime = (date) => {
       const pieces = rowTotals.pieces;
       const isFullLotReturn =
         outOnLot != null && remainingAfter === 0 && returning > 0 && returning >= outOnLot;
+      const breakdown = buildPartialReturnBreakdown(ctx, group.rows, { outOnLot, remainingAfter });
 
       let confirmationMessage;
       if (isFullLotReturn) {
@@ -3535,10 +3940,12 @@ const formatScannedTime = (date) => {
         grossWt,
         netWt,
         pieces,
+        breakdown,
         canReturn,
         isAccepted,
         confirmationMessage,
         message: confirmationMessage,
+        rows: group.rows,
       };
     });
   }, [pendingInRows, sampleInLotDetails]);
@@ -4175,7 +4582,7 @@ const formatScannedTime = (date) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div ref={itemCodeSearchRef} style={{ position: 'relative', width: '100%', overflow: 'visible' }}>
               <label htmlFor="sample-out-item-code-search" style={compactLbl}>
-                Item code <span style={{ color: '#ef4444' }}>*</span>
+                Item / Design <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%', flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 200, maxWidth: '100%' }}>
@@ -4196,7 +4603,7 @@ const formatScannedTime = (date) => {
                     autoComplete="off"
                     aria-autocomplete="list"
                     aria-expanded={showSearchResults && !!itemCodeSearch.trim()}
-                    placeholder="Scan RFID / item code — 1st scan Sample Out, 2nd scan Sample In…"
+                    placeholder="Scan RFID / item code / design no — 1st scan Sample Out, 2nd scan Sample In…"
                     value={itemCodeSearch}
                     onChange={(e) => {
                       setItemCodeSearch(e.target.value);
@@ -4247,7 +4654,7 @@ const formatScannedTime = (date) => {
                         borderTop: '3px solid #3b82f6',
                       }}
                       role="listbox"
-                      aria-label="Item code suggestions"
+                      aria-label="Item, RFID, and design suggestions"
                     >
                       {searching && (
                         <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
@@ -4256,8 +4663,8 @@ const formatScannedTime = (date) => {
                       )}
                       {!searching && !scanChecking && searchResults.length === 0 && (
                         <div style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b', lineHeight: 1.5 }}>
-                          No in-stock match in labeled list. Press <strong>Enter</strong> to check live sample
-                          status (Sample Out vs Sample In).
+                          No in-stock match for item code, RFID, or design no. Press <strong>Enter</strong> to
+                          check live sample status (Sample Out vs Sample In).
                         </div>
                       )}
                       {!searching && searchResults.map((item, idx) => (
@@ -4296,7 +4703,7 @@ const formatScannedTime = (date) => {
                               padding: '2px 6px',
                               borderRadius: 4,
                             }}>
-                              Item code
+                              Item
                             </span>
                             <span style={{
                               fontWeight: 700,
@@ -4307,6 +4714,11 @@ const formatScannedTime = (date) => {
                             }}>
                               {rowItemCodeOrDash(item)}
                             </span>
+                            {rowDesignOrDash(item) !== '—' ? (
+                              <span style={{ fontSize: '10px', color: '#64748b' }} title="Design number">
+                                Design: <strong style={{ color: '#334155' }}>{rowDesignOrDash(item)}</strong>
+                              </span>
+                            ) : null}
                             {(item.RFIDNumber || item.RFID || item.RFIDCode) ? (
                               <span style={{ fontSize: '10px', color: '#64748b' }} title="RFID on tag">
                                 RFID: <strong style={{ color: '#334155' }}>{item.RFIDNumber || item.RFID || item.RFIDCode}</strong>
@@ -4731,14 +5143,13 @@ const formatScannedTime = (date) => {
                     const itemCode = rowItemCodeOrDash(item);
                     const rfid = rowRfidOrDash(item);
                     const design = rowDesignOrDash(item);
-                    const purity = rowPurityOrZero(item);
+                    const category = rowCategoryOrDash(item);
                     const pieces = rowPieces(item);
                     const scanMode = rowScanMode(item);
                     const scanModeBadge = scanModeBadgeStyle(scanMode);
                     const isSampleInPending = item.__scanAction === 'SampleInPending';
                     const isSampleInDone = item.__scanAction === 'SampleInDone';
                     const isSampleIn = isSampleInPending || isSampleInDone;
-                    const dot = <span style={{ color: '#cbd5e1', margin: '0 5px' }}>·</span>;
                     const scannedAt = rowScannedDateTime(item);
                     const scannedByUser = rowScannedByUser(item);
                     return (
@@ -4889,43 +5300,102 @@ const formatScannedTime = (date) => {
                           style={{
                             padding: '8px 10px 10px',
                             flex: '0 0 auto',
-                            fontSize: 12,
-                            lineHeight: 1.5,
+                            fontSize: 11,
+                            lineHeight: 1.35,
                             color: '#0f172a',
                           }}
                         >
                           <div
                             style={{
-                              fontWeight: 800,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              marginBottom: 4,
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: '6px 10px',
+                              marginBottom: 8,
                             }}
-                            title={`${rfid} | ${itemCode} | ${design}`}
                           >
-                            <span style={{ color: '#475569' }}>RFID:</span> {rfid}
-                            {dot}
-                            <span style={{ color: '#475569' }}>Item:</span> {itemCode}
-                            {dot}
-                            <span style={{ color: '#475569' }}>Design:</span> {design}
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                RFID
+                              </div>
+                              <div
+                                style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                title={rfid}
+                              >
+                                {rfid}
+                              </div>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Item
+                              </div>
+                              <div
+                                style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                title={itemCode}
+                              >
+                                {itemCode}
+                              </div>
+                            </div>
+                            <div style={{ minWidth: 0, gridColumn: '1 / -1' }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Design
+                              </div>
+                              <div
+                                style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                title={design}
+                              >
+                                {design}
+                              </div>
+                            </div>
                           </div>
                           <div
                             style={{
-                              fontWeight: 800,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                              gap: '6px 8px',
+                              paddingTop: 8,
+                              borderTop: '1px solid #f1f5f9',
                             }}
-                            title={`${purity} · Gr. Wt ${rowGrossWtOrZero(item)} · Net Wt ${rowNetWtOrZero(item)} · Pieces ${pieces}`}
                           >
-                            <span style={{ color: '#475569' }}>Purity:</span> {purity}
-                            {dot}
-                            <span style={{ color: '#475569' }}>Gr. Wt:</span> {rowGrossWtOrZero(item)}
-                            {dot}
-                            <span style={{ color: '#475569' }}>Net Wt:</span> {rowNetWtOrZero(item)}
-                            {dot}
-                            <span style={{ color: '#475569' }}>Pieces:</span> {pieces}
+                            <div style={{ minWidth: 0, gridColumn: '1 / -1' }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Category
+                              </div>
+                              <div
+                                style={{
+                                  fontWeight: 800,
+                                  wordBreak: 'break-word',
+                                  overflowWrap: 'anywhere',
+                                  lineHeight: 1.4,
+                                }}
+                                title={category}
+                              >
+                                {category}
+                              </div>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Gr. Wt
+                              </div>
+                              <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                                {rowGrossWtOrZero(item)}
+                              </div>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Net Wt
+                              </div>
+                              <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                                {rowNetWtOrZero(item)}
+                              </div>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Pieces
+                              </div>
+                              <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                                {pieces}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </article>
@@ -5580,7 +6050,7 @@ const formatScannedTime = (date) => {
               background: '#fff',
               borderRadius: 16,
               padding: isSmallScreen ? 20 : 24,
-              maxWidth: 560,
+              maxWidth: 720,
               width: '100%',
               maxHeight: '90vh',
               overflowY: 'auto',
@@ -5610,14 +6080,12 @@ const formatScannedTime = (date) => {
                 </p>
                 <div
                   style={{
-                    background: '#f0fdf4',
-                    borderRadius: 10,
-                    padding: '12px 14px',
-                    marginBottom: 12,
-                    border: '1px solid #bbf7d0',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                    gap: '10px 16px',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '10px 18px',
+                    padding: '10px 0 14px',
+                    marginBottom: 4,
+                    borderBottom: '1px solid #eef2f7',
                   }}
                 >
                   {[
@@ -5626,6 +6094,7 @@ const formatScannedTime = (date) => {
                     ['Returning', `${pendingInRows.length} item(s)`],
                     ['Pieces', String(pendingInSummary.pieces)],
                     ['Gross wt', pendingInSummary.gross.toFixed(3)],
+                    ['Net wt', pendingInSummary.net.toFixed(3)],
                     [
                       'Scanned',
                       pendingInSummary.latest
@@ -5637,7 +6106,7 @@ const formatScannedTime = (date) => {
                     ],
                   ].map(([label, value]) => (
                     <div key={label} style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: '#166534', marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', marginBottom: 2 }}>{label}</div>
                       <div
                         style={{
                           fontSize: 12,
@@ -5653,54 +6122,18 @@ const formatScannedTime = (date) => {
                     </div>
                   ))}
                 </div>
-                {pendingInRows.length > 0 ? (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 6,
-                      marginBottom: 12,
-                    }}
-                  >
-                    {pendingInRows.slice(0, 12).map((row, i) => (
-                      <span
-                        key={row.id ?? i}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '5px 10px',
-                          borderRadius: 8,
-                          background: '#f8fafc',
-                          border: '1px solid #e2e8f0',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: '#334155',
-                          maxWidth: '100%',
-                        }}
-                      >
-                        <span style={{ color: '#64748b', fontWeight: 600 }}>{i + 1}.</span>
-                        <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                          {rowItemCode(row) || '—'}
-                        </span>
-                        <span style={{ color: '#94a3b8', fontWeight: 600 }}>· {rowGrossWtOrZero(row)}</span>
-                      </span>
-                    ))}
-                    {pendingInRows.length > 12 ? (
-                      <span style={{ fontSize: 11, color: '#64748b', alignSelf: 'center' }}>
-                        +{pendingInRows.length - 12} more
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
                 {sampleInReturnReports.length > 0 ? (
-                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {sampleInReturnReports.map((report) => (
                       <SampleInReturnConfirmBanner
                         key={`confirm-report-${report.lotId || report.lotNo}`}
                         report={report}
                       />
                     ))}
+                  </div>
+                ) : pendingInRows.length > 0 ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <SampleInReturnItemsGrid rows={pendingInRows} />
                   </div>
                 ) : null}
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>

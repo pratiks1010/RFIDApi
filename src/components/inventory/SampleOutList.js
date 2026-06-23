@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { 
   FaSearch, 
@@ -39,8 +39,6 @@ import {
   isRfidSampleLotFinalized,
   getRfidSampleLotFinishUi,
   getItemReturnedByTypeMeta,
-  getLineAdminReviewRemark,
-  getLineReturnRemark,
   isOutItemStatus,
   isForceReturnItem,
   countOutItemsFromLines,
@@ -56,6 +54,7 @@ import {
   warmupLocalItemImageIndex,
 } from '../../services/localItemImageService';
 import GridItemImage from '../common/GridItemImage';
+import { sortProductsByDesign } from '../../utils/designSort';
 
 const LOT_LIST_PAGE_SIZE = 15;
 const LOT_GRID_PAGE_SIZE = 6;
@@ -105,101 +104,171 @@ const LotDetailInlineStat = ({ label, value, valueColor = '#0f172a' }) => (
   </span>
 );
 
-const LotDetailStatChip = ({ label, value, tone = 'neutral', compact = false }) => {
-  const tones = {
-    primary: { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', fg: '#1e40af', bd: '#93c5fd', shadow: '0 2px 8px rgba(37, 99, 235, 0.1)' },
-    warning: { bg: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)', fg: '#b45309', bd: '#fcd34d', shadow: '0 2px 8px rgba(180, 83, 9, 0.08)' },
-    info: { bg: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)', fg: '#0369a1', bd: '#7dd3fc', shadow: '0 2px 8px rgba(3, 105, 161, 0.1)' },
-    success: { bg: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)', fg: '#047857', bd: '#6ee7b7', shadow: '0 2px 8px rgba(4, 120, 87, 0.08)' },
-    accent: { bg: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', fg: '#15803d', bd: '#86efac', shadow: '0 2px 8px rgba(21, 128, 61, 0.08)' },
-    danger: { bg: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)', fg: '#c2410c', bd: '#fdba74', shadow: '0 2px 8px rgba(194, 65, 12, 0.1)' },
-    neutral: { bg: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', fg: '#334155', bd: '#e2e8f0', shadow: '0 1px 4px rgba(15, 23, 42, 0.05)' },
-  };
-  const t = tones[tone] || tones.neutral;
-  return (
+const LotDetailMetaCell = ({ label, value, valueColor = '#0f172a' }) => (
+  <div style={{ minWidth: 0, fontFamily: LOT_DETAIL_FONT }}>
     <div
-      title={`${label}: ${value}`}
       style={{
-        flex: compact ? '1 1 72px' : '1 1 88px',
-        minWidth: compact ? 72 : 88,
-        padding: compact ? '8px 10px' : '10px 12px',
-        borderRadius: compact ? 10 : 12,
-        background: t.bg,
-        border: `1px solid ${t.bd}`,
-        boxShadow: t.shadow,
-        fontFamily: LOT_DETAIL_FONT,
+        fontSize: 10,
+        fontWeight: 600,
+        color: '#64748b',
+        marginBottom: 3,
+        lineHeight: 1.35,
+        letterSpacing: '0.01em',
       }}
     >
-      <div
-        style={{
-          fontSize: compact ? 9 : 10,
-          fontWeight: 800,
-          color: t.fg,
-          opacity: 0.9,
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          marginBottom: 3,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: compact ? 17 : 20,
-          fontWeight: 900,
-          color: t.fg,
-          fontVariantNumeric: 'tabular-nums',
-          lineHeight: 1.1,
-        }}
-      >
-        {value}
-      </div>
+      {label}
     </div>
-  );
-};
+    <div
+      style={{
+        fontSize: 13,
+        fontWeight: 800,
+        color: valueColor,
+        fontVariantNumeric: 'tabular-nums',
+        lineHeight: 1.4,
+        wordBreak: 'break-word',
+        overflowWrap: 'anywhere',
+      }}
+    >
+      {value}
+    </div>
+  </div>
+);
 
-const LotDetailReturnBreakdown = ({ employeeReturnedItems, adminReturnedItems, forceReturnedItems }) => (
-  <div
+const LotDetailCountInline = ({ label, value, color = '#0f172a', bg = '#f1f5f9' }) => (
+  <span
     style={{
-      display: 'flex',
-      flexWrap: 'wrap',
+      display: 'inline-flex',
       alignItems: 'center',
-      gap: '8px 14px',
-      padding: '8px 12px',
-      borderRadius: 10,
-      background: '#fff',
-      border: '1px solid #e8ecf4',
-      marginBottom: 10,
+      gap: 6,
+      fontSize: 11,
+      fontWeight: 600,
+      color: '#64748b',
+      fontFamily: LOT_DETAIL_FONT,
+      whiteSpace: 'nowrap',
     }}
   >
-    <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+    {label}
+    <strong
+      style={{
+        fontSize: 13,
+        fontWeight: 800,
+        color,
+        background: bg,
+        padding: '2px 8px',
+        borderRadius: 6,
+        fontVariantNumeric: 'tabular-nums',
+        minWidth: 22,
+        textAlign: 'center',
+      }}
+    >
+      {value ?? '—'}
+    </strong>
+  </span>
+);
+
+const LotDetailReturnInline = ({ employeeReturnedItems, adminReturnedItems, forceReturnedItems }) => (
+  <div
+    style={{
+      display: 'inline-flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      gap: '6px 10px',
+      fontFamily: LOT_DETAIL_FONT,
+    }}
+  >
+    <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
       Returns
     </span>
     {[
       { label: 'Emp', value: employeeReturnedItems, color: '#047857', bg: '#ecfdf5' },
       { label: 'Admin', value: adminReturnedItems, color: '#15803d', bg: '#f0fdf4' },
-      { label: 'Force', value: forceReturnedItems ?? 0, color: '#c2410c', bg: '#fff7ed' },
+      { label: 'Manual', value: forceReturnedItems ?? 0, color: '#c2410c', bg: '#fff7ed' },
     ].map((item) => (
       <span
         key={item.label}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 6,
-          padding: '4px 10px',
-          borderRadius: 8,
+          gap: 4,
+          padding: '3px 8px',
+          borderRadius: 6,
           background: item.bg,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: 700,
           color: item.color,
         }}
       >
-        <span style={{ fontWeight: 800, opacity: 0.85 }}>{item.label}</span>
-        <strong style={{ fontSize: 14, fontWeight: 900 }}>{item.value ?? 0}</strong>
+        {item.label}
+        <strong style={{ fontSize: 12, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>
+          {item.value ?? 0}
+        </strong>
       </span>
     ))}
   </div>
 );
+
+const pickLoginDisplayName = (src) => {
+  if (!src || typeof src !== 'object') return '';
+  const firstLast = src.FirstName
+    ? `${src.FirstName}${src.LastName ? ` ${src.LastName}` : ''}`.trim()
+    : '';
+  return String(
+    src.Username ??
+      src.username ??
+      src.LoginName ??
+      src.loginName ??
+      src.UserName ??
+      src.userName ??
+      src.EmployeeName ??
+      src.employeeName ??
+      firstLast ??
+      src.Name ??
+      src.name ??
+      ''
+  ).trim();
+};
+
+const resolveLoginDisplayName = (userInfo) => {
+  const fromState = pickLoginDisplayName(userInfo);
+  if (fromState) return fromState;
+  try {
+    return pickLoginDisplayName(JSON.parse(localStorage.getItem('userInfo') || '{}'));
+  } catch {
+    return '';
+  }
+};
+
+const lotSampleInDateRaw = (header, lines = []) => {
+  const fromHeader = pickLineField(
+    header,
+    'ClosedDate',
+    'closedDate',
+    'SampleInDate',
+    'sampleInDate',
+    'InDate',
+    'inDate',
+    'CompletedDate',
+    'completedDate',
+    'ClosedOn',
+    'closedOn',
+    'CompletedOn',
+    'completedOn'
+  );
+  if (fromHeader) return fromHeader;
+
+  let latestRaw = '';
+  let latestTime = -1;
+  (lines || []).forEach((line) => {
+    const raw = lineSampleInDateRaw(line);
+    if (!raw) return;
+    const t = new Date(String(raw).trim()).getTime();
+    if (!Number.isNaN(t) && t > latestTime) {
+      latestTime = t;
+      latestRaw = raw;
+    }
+  });
+  return latestRaw;
+};
 
 const LotDetailFilterPill = ({ active, label, onClick, count }) => (
   <button
@@ -235,33 +304,37 @@ const LotDetailSummaryBar = ({
   netWt,
   pieces,
   outDate,
+  inDate,
   dueDate,
   employee,
+  loginUser,
   lotStatus,
 }) => {
   const statusKey = String(lotStatus || '').toLowerCase();
   const statusTone = statusKey.includes('completed')
     ? { bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' }
     : statusKey.includes('closed')
-    ? { bg: '#f0fdf4', fg: '#166534', bd: '#bbf7d0' }
-    : statusKey.includes('open')
-      ? { bg: '#eff6ff', fg: '#1d4ed8', bd: '#bfdbfe' }
-      : statusKey.includes('partial')
-        ? { bg: '#fff7ed', fg: '#c2410c', bd: '#fed7aa' }
-        : statusKey.includes('pending')
-          ? { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' }
-          : { bg: '#f8fafc', fg: '#475569', bd: '#e2e8f0' };
+      ? { bg: '#f0fdf4', fg: '#166534', bd: '#bbf7d0' }
+      : statusKey.includes('open')
+        ? { bg: '#eff6ff', fg: '#1d4ed8', bd: '#bfdbfe' }
+        : statusKey.includes('partial')
+          ? { bg: '#fff7ed', fg: '#c2410c', bd: '#fed7aa' }
+          : statusKey.includes('pending')
+            ? { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' }
+            : { bg: '#f8fafc', fg: '#475569', bd: '#e2e8f0' };
+
+  const sectionRule = { height: 1, background: '#eef2f7', margin: '2px 0' };
 
   return (
     <div
       style={{
-        marginBottom: 16,
-        borderRadius: 14,
+        marginBottom: 14,
+        borderRadius: 12,
         border: '1px solid #e8ecf4',
-        background: 'linear-gradient(180deg, #fafcff 0%, #ffffff 100%)',
+        background: '#fff',
         overflow: 'hidden',
         fontFamily: LOT_DETAIL_FONT,
-        boxShadow: '0 4px 20px rgba(15, 76, 129, 0.06)',
+        boxShadow: '0 2px 12px rgba(15, 76, 129, 0.05)',
       }}
     >
       <div
@@ -270,81 +343,101 @@ const LotDetailSummaryBar = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
-          flexWrap: 'wrap',
-          padding: '12px 16px',
+          padding: '10px 14px',
           borderBottom: '1px solid #eef2f7',
-          background: `linear-gradient(90deg, ${statusTone.bg} 0%, #ffffff 100%)`,
+          background: statusTone.bg,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Lot status
-          </span>
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '5px 14px',
-              borderRadius: 999,
-              fontSize: 12,
-              fontWeight: 800,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              color: statusTone.fg,
-              background: '#fff',
-              border: `1px solid ${statusTone.bd}`,
-              boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
-            }}
-          >
-            {humanizeLotStatus(lotStatus)}
-          </span>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', alignItems: 'center' }}>
-          <LotDetailInlineStat label="Out date" value={outDate} valueColor={LOT_DETAIL_BLUE} />
-          <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
-          <LotDetailInlineStat label="Due" value={dueDate} valueColor="#b45309" />
-          <span style={{ color: '#e2e8f0', fontWeight: 300 }}>|</span>
-          <LotDetailInlineStat label="Employee" value={employee} valueColor="#0f766e" />
-        </div>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#64748b',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          Lot summary
+        </span>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '4px 12px',
+            borderRadius: 999,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            color: statusTone.fg,
+            background: '#fff',
+            border: `1px solid ${statusTone.bd}`,
+          }}
+        >
+          {humanizeLotStatus(lotStatus)}
+        </span>
       </div>
 
-      <div style={{ padding: '10px 14px 12px' }}>
+      <div style={{ padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
-            gap: 8,
-            marginBottom: 10,
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: '10px 18px',
           }}
         >
-          <LotDetailStatChip label="Items" value={itemsCount} tone="primary" compact />
-          <LotDetailStatChip label="Pending" value={pending} tone="warning" compact />
-          <LotDetailStatChip label="Out" value={outItems} tone="info" compact />
-          <LotDetailStatChip label="Returned" value={returnedItems ?? '—'} tone="success" compact />
+          <LotDetailMetaCell label="Sample out date" value={outDate} valueColor={LOT_DETAIL_BLUE} />
+          <LotDetailMetaCell label="Sample in date" value={inDate} valueColor="#047857" />
+          <LotDetailMetaCell label="Sample due date" value={dueDate} valueColor="#b45309" />
         </div>
 
-        <LotDetailReturnBreakdown
-          employeeReturnedItems={employeeReturnedItems}
-          adminReturnedItems={adminReturnedItems}
-          forceReturnedItems={forceReturnedItems}
-        />
+        <div style={sectionRule} />
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: '10px 18px',
+          }}
+        >
+          <LotDetailMetaCell label="Sample out employee name" value={employee} valueColor="#0f766e" />
+          <LotDetailMetaCell label="Sample in user name" value={loginUser} valueColor={LOT_DETAIL_BLUE} />
+        </div>
+
+        <div style={sectionRule} />
 
         <div
           style={{
             display: 'flex',
             flexWrap: 'wrap',
-            gap: '10px 16px',
             alignItems: 'center',
-            padding: '8px 12px',
-            borderRadius: 10,
-            background: '#f8fafc',
-            border: '1px solid #eef2f7',
+            gap: '10px 14px',
+          }}
+        >
+          <LotDetailCountInline label="Items" value={itemsCount} color="#1e40af" bg="#eff6ff" />
+          <LotDetailCountInline label="Pending" value={pending} color="#b45309" bg="#fffbeb" />
+          <LotDetailCountInline label="Out" value={outItems} color="#0369a1" bg="#e0f2fe" />
+          <LotDetailCountInline label="Returned" value={returnedItems ?? '—'} color="#047857" bg="#ecfdf5" />
+          <span style={{ width: 1, height: 18, background: '#e2e8f0', flexShrink: 0 }} aria-hidden />
+          <LotDetailReturnInline
+            employeeReturnedItems={employeeReturnedItems}
+            adminReturnedItems={adminReturnedItems}
+            forceReturnedItems={forceReturnedItems}
+          />
+        </div>
+
+        <div style={sectionRule} />
+
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '14px 22px',
           }}
         >
           <LotDetailInlineStat label="Gross Wt" value={grossWt} />
-          <span style={{ color: '#cbd5e1' }}>•</span>
           <LotDetailInlineStat label="Net Wt" value={netWt} />
-          <span style={{ color: '#cbd5e1' }}>•</span>
           <LotDetailInlineStat label="Pieces" value={pieces} />
         </div>
       </div>
@@ -563,6 +656,12 @@ const formatPiecesDisplay = (value) => {
 
 const sumLinePieces = (lines) =>
   (lines || []).reduce((sum, line) => sum + linePiecesFromMrp(line), 0);
+
+const lotTotalProductCount = (item, lines) => {
+  const apiTotal = Number(item?.TotalItems ?? item?.totalItems) || 0;
+  if (apiTotal > 0) return apiTotal;
+  return Array.isArray(lines) ? lines.length : 0;
+};
 
 const pageBtnStyle = (disabled) => ({
   padding: '5px 11px',
@@ -788,6 +887,7 @@ const LotGridCard = ({
   const lines = Array.isArray(item.LineItems) ? item.LineItems : [];
   const weights = sumLineWeights(lines);
   const totalPieces = formatPiecesDisplay(sumLinePieces(lines));
+  const totalProducts = lotTotalProductCount(item, lines);
   const activeLine = lines[imageIndex] || null;
   const activeCode = activeLine ? lineItemCode(activeLine) : '—';
   const hasMultiple = lines.length > 1;
@@ -832,7 +932,7 @@ const LotGridCard = ({
   const partyName = lotDisplayParty(item);
   const partyLabel = lotPartyLabel(item);
   const sampleOutDateTime = formatLotDateTime(lotSampleOutDateTimeRaw(item));
-  const summaryTitle = `Gross: ${grossDisplay} · Net: ${netDisplay} · Pcs: ${totalPieces}`;
+  const summaryTitle = `Gross: ${grossDisplay} · Net: ${netDisplay} · Pcs: ${totalPieces} · Products: ${totalProducts}`;
   const detailTitle = `Sample Out: ${sampleOutDateTime} · Due: ${formatDate(item.ExpectedReturnDate)} · Item: ${activeCode}${
     item.Remarks ? ` · Remark: ${item.Remarks}` : ''
   }`;
@@ -910,6 +1010,9 @@ const LotGridCard = ({
         {LOT_CARD_DOT}
         <span style={LOT_CARD_LABEL}>Pcs:</span>{' '}
         <span style={LOT_CARD_VALUE}>{totalPieces}</span>
+        {LOT_CARD_DOT}
+        <span style={LOT_CARD_LABEL}>Products:</span>{' '}
+        <span style={{ ...LOT_CARD_VALUE, color: '#0f4c81' }}>{totalProducts}</span>
       </LotCardStatRow>
 
       <div
@@ -1380,8 +1483,6 @@ const LotDetailItemCard = ({
   const status = String(line?.ItemStatus || '—').trim() || '—';
   const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
   const returnedByMeta = getReturnedByTypeMeta(line);
-  const adminReviewRemark = getLineAdminReviewRemark(line, lotHeader);
-  const returnRemark = getLineReturnRemark(line, lotHeader);
   const pendingWithEmployee = line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true;
   const sampleOutDate = formatListDate(lineSampleOutDateRaw(line, lotHeader));
   const sampleInDate = formatLineSampleInDate(line);
@@ -1584,12 +1685,16 @@ const LotDetailItemCard = ({
           <LotDetailFieldCell label="Net Wt" value={lineNetWt(line)} />
           <LotDetailFieldCell label="Sample out" value={sampleOutDateTime !== '—' ? sampleOutDateTime : sampleOutDate} valueColor="#0369a1" wrap />
           <LotDetailFieldCell label="Sample in" value={sampleInDateTime !== '—' ? sampleInDateTime : sampleInDate} valueColor="#047857" wrap />
-          <LotDetailFieldCell label="Employee" value={employeeName} valueColor="#0f766e" span={2} />
-          {scanMeta.sampleOutMode ? (
-            <LotDetailFieldCell label="Out mode" value={scanMeta.sampleOutMode} valueColor="#1d4ed8" />
-          ) : null}
+          <LotDetailFieldCell label="Employee" value={employeeName} valueColor="#0f766e" />
           {scanMeta.sampleInMode ? (
             <LotDetailFieldCell label="In mode" value={scanMeta.sampleInMode} valueColor="#047857" />
+          ) : scanMeta.sampleOutMode ? (
+            <LotDetailFieldCell label="Out mode" value={scanMeta.sampleOutMode} valueColor="#1d4ed8" />
+          ) : (
+            <div aria-hidden style={{ minWidth: 0 }} />
+          )}
+          {scanMeta.sampleOutMode && scanMeta.sampleInMode ? (
+            <LotDetailFieldCell label="Out mode" value={scanMeta.sampleOutMode} valueColor="#1d4ed8" span={2} />
           ) : null}
         </div>
         {(pendingWithEmployee || returnedByMeta) && (
@@ -1629,60 +1734,38 @@ const LotDetailItemCard = ({
             ) : null}
           </div>
         )}
-        {(adminReviewRemark || returnRemark) && isForceReturnItem(line) ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-            {adminReviewRemark ? (
-              <div
-                style={{
-                  padding: '6px 8px',
-                  borderRadius: 8,
-                  background: '#fff7ed',
-                  border: '1px solid #fed7aa',
-                }}
-              >
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
-                  Admin review
-                </div>
-                <div
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: '#78350f',
-                    lineHeight: 1.45,
-                    wordBreak: 'break-word',
-                    overflowWrap: 'anywhere',
-                  }}
-                >
-                  {adminReviewRemark}
-                </div>
-              </div>
-            ) : null}
-            {returnRemark && returnRemark !== adminReviewRemark ? (
-              <div
-                style={{
-                  padding: '6px 8px',
-                  borderRadius: 8,
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                }}
-              >
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', marginBottom: 2 }}>
-                  Return remark
-                </div>
-                <div
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: '#475569',
-                    lineHeight: 1.45,
-                    wordBreak: 'break-word',
-                    overflowWrap: 'anywhere',
-                  }}
-                >
-                  {returnRemark}
-                </div>
-              </div>
-            ) : null}
+        {isForceReturnItem(line) ? (
+          <div
+            style={{
+              marginTop: 8,
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 800,
+                color: '#64748b',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                marginBottom: 4,
+              }}
+            >
+              Return Remark
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#334155',
+                lineHeight: 1.45,
+              }}
+            >
+              Returned by admin
+            </div>
           </div>
         ) : null}
       </div>
@@ -1698,8 +1781,29 @@ const normalizeArray = (data) => {
   return [];
 };
 
+const firstNonEmptySampleField = (...values) => {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return String(value).trim();
+    }
+  }
+  return '';
+};
+
 const mapRfidSampleLine = (line) => {
   if (!line || typeof line !== 'object') return line;
+  const itemCodeVal = firstNonEmptySampleField(line.itemCode, line.ItemCode, line.Itemcode);
+  const designNoVal = firstNonEmptySampleField(
+    line.designNo,
+    line.DesignNo,
+    line.design_no,
+    line.DesignCode,
+    line.designCode,
+    line.designId,
+    line.DesignId,
+    line.design_id,
+    itemCodeVal
+  );
   return {
     ...line,
     LotItemId: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
@@ -1713,7 +1817,8 @@ const mapRfidSampleLine = (line) => {
     ProductName: line.productName ?? line.ProductName,
     CategoryName: line.categoryName ?? line.CategoryName,
     DesignName: line.designName ?? line.DesignName ?? line.Design,
-    DesignId: line.designId ?? line.DesignId ?? line.design_id,
+    DesignNo: designNoVal || undefined,
+    DesignId: line.designId ?? line.DesignId ?? line.design_id ?? (designNoVal || undefined),
     DesignCode: line.designCode ?? line.DesignCode,
     GrossWt: line.grossWt ?? line.GrossWt,
     NetWt: line.netWt ?? line.NetWt,
@@ -1854,7 +1959,7 @@ const enrichDetailLineItem = (line, lotHeader) => {
 };
 
 const enrichDetailLineItems = (items, lotHeader) =>
-  (items || []).map((line) => enrichDetailLineItem(line, lotHeader));
+  sortProductsByDesign((items || []).map((line) => enrichDetailLineItem(line, lotHeader)));
 
 const lineImageCacheKey = (line) => {
   const keys = getLineImageLookupKeys(line);
@@ -1894,7 +1999,7 @@ const mapRfidSampleLotRow = (entry) => {
     : Array.isArray(entry.items)
       ? entry.items
       : [];
-  const lineItems = items.map(mapRfidSampleLine);
+  const lineItems = sortProductsByDesign(items.map(mapRfidSampleLine));
   const lotNumber = entry.LotNumber ?? entry.lotNumber ?? entry.SampleLotNo ?? entry.SampleOutNo;
   const lotStatus = entry.LotStatus ?? entry.lotStatus ?? entry.Status;
   const sampleOutDate = entry.SampleOutDate ?? entry.sampleOutDate ?? entry.IssueDate;
@@ -1993,13 +2098,17 @@ const normalizeSampleOutListRows = (raw) => {
       return {
         ...headerRest,
         LotBranchName: entry.BranchName ?? null,
-        LineItems: (Array.isArray(entry.Items) ? entry.Items : []).map(mapRfidSampleLine),
+        LineItems: sortProductsByDesign(
+          (Array.isArray(entry.Items) ? entry.Items : []).map(mapRfidSampleLine)
+        ),
       };
     }
     return {
       ...entry,
       LotBranchName: entry.BranchName ?? entry.LotBranchName ?? null,
-      LineItems: (Array.isArray(entry.LineItems) ? entry.LineItems : []).map(mapRfidSampleLine),
+      LineItems: sortProductsByDesign(
+        (Array.isArray(entry.LineItems) ? entry.LineItems : []).map(mapRfidSampleLine)
+      ),
     };
   });
 };
@@ -2297,13 +2406,14 @@ const SampleOutList = ({
   }, [detailModalItems]);
 
   const filteredDetailModalItems = useMemo(() => {
-    return detailModalItems.filter((line) => {
+    const filtered = detailModalItems.filter((line) => {
       const status = line?.ItemStatus ?? line?.itemStatus;
       if (detailItemStatusFilter === 'out' && !isOutItemStatus(status)) return false;
       if (detailItemStatusFilter === 'returned' && !isReturnedLineStatus(status)) return false;
       if (!lineMatchesDetailUserFilter(line, detailItemUserFilter)) return false;
       return true;
     });
+    return sortProductsByDesign(filtered);
   }, [detailModalItems, detailItemStatusFilter, detailItemUserFilter]);
 
   useEffect(() => {
@@ -2314,6 +2424,10 @@ const SampleOutList = ({
     if (!detailModal?.header) return [];
     return detailModalItems.filter((line) => lineCanAdminReturn(line, detailModal.header));
   }, [detailModal?.header, detailModalItems]);
+  const filteredAdminReturnableItems = useMemo(() => {
+    if (!detailModal?.header) return [];
+    return filteredDetailModalItems.filter((line) => lineCanAdminReturn(line, detailModal.header));
+  }, [detailModal?.header, filteredDetailModalItems]);
   const adminReturnSelectedCount = adminReturnSelectedIds.size;
   const adminReturnSelectedLines = useMemo(() => {
     if (!adminReturnSelectedIds.size) return [];
@@ -2340,6 +2454,18 @@ const SampleOutList = ({
       const id = lineLotItemId(line);
       return id != null && adminReturnSelectedIds.has(id);
     });
+  const allFilteredAdminReturnableSelected =
+    filteredAdminReturnableItems.length > 0 &&
+    filteredAdminReturnableItems.every((line) => {
+      const id = lineLotItemId(line);
+      return id != null && adminReturnSelectedIds.has(id);
+    });
+  const selectAllAdminReturnCheckboxRef = useRef(null);
+  useEffect(() => {
+    const el = selectAllAdminReturnCheckboxRef.current;
+    if (!el) return;
+    el.indeterminate = adminReturnSelectedCount > 0 && !allAdminReturnableSelected;
+  }, [adminReturnSelectedCount, allAdminReturnableSelected]);
   const adminBulkExpectedStatus =
     adminReturnAllMode || allAdminReturnableSelected
       ? 'Completed'
@@ -2443,6 +2569,41 @@ const SampleOutList = ({
     setAdminReturnSelectedIds(
       new Set(adminReturnableItems.map((line) => lineLotItemId(line)).filter((id) => id != null))
     );
+  };
+
+  const selectFilteredAdminReturnable = () => {
+    setAdminReturnSelectedIds((prev) => {
+      const next = new Set(prev);
+      filteredAdminReturnableItems.forEach((line) => {
+        const id = lineLotItemId(line);
+        if (id != null) next.add(id);
+      });
+      return next;
+    });
+  };
+
+  const toggleSelectAllAdminReturnable = () => {
+    const useFiltered =
+      detailItemStatusFilter !== 'all' ||
+      detailItemUserFilter !== 'all' ||
+      filteredAdminReturnableItems.length < adminReturnableItems.length;
+    if (useFiltered) {
+      if (allFilteredAdminReturnableSelected) {
+        setAdminReturnSelectedIds((prev) => {
+          const next = new Set(prev);
+          filteredAdminReturnableItems.forEach((line) => {
+            const id = lineLotItemId(line);
+            if (id != null) next.delete(id);
+          });
+          return next;
+        });
+      } else {
+        selectFilteredAdminReturnable();
+      }
+      return;
+    }
+    if (allAdminReturnableSelected) clearAdminReturnSelection();
+    else selectAllAdminReturnable();
   };
 
   const clearAdminReturnSelection = () => {
@@ -4117,9 +4278,11 @@ const SampleOutList = ({
                   grossWt={detailModalWeights.gross > 0 ? detailModalWeights.gross.toFixed(3) : '—'}
                   netWt={detailModalWeights.net > 0 ? detailModalWeights.net.toFixed(3) : '—'}
                   pieces={detailModalPieces}
-                  outDate={formatDate(detailModal.header?.IssueDate || detailModal.header?.SampleOutDate)}
+                  outDate={formatLotDateTime(lotSampleOutDateTimeRaw(detailModal.header))}
+                  inDate={formatLotDateTime(lotSampleInDateRaw(detailModal.header, detailModalItems))}
                   dueDate={formatDate(detailModal.header?.ExpectedReturnDate)}
                   employee={lotDisplayParty(detailModal.header)}
+                  loginUser={resolveLoginDisplayName(userInfo) || '—'}
                   lotStatus={detailModal.header?.Status}
                 />
 
@@ -4182,7 +4345,7 @@ const SampleOutList = ({
                       />
                       <LotDetailFilterPill
                         active={detailItemUserFilter === 'force'}
-                        label="Force"
+                        label="Manual"
                         count={detailModalFilterCounts.force}
                         onClick={() => setDetailItemUserFilter('force')}
                       />
@@ -4193,36 +4356,88 @@ const SampleOutList = ({
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'flex-end',
+                          justifyContent: 'space-between',
                           gap: 12,
                           flexWrap: 'wrap',
                           marginBottom: 12,
+                          padding: '10px 12px',
+                          borderRadius: 10,
+                          background: '#fafcff',
+                          border: '1px solid #e8ecf4',
                           fontSize: 13,
                         }}
                       >
-                        <button
-                          type="button"
-                          onClick={selectAllAdminReturnable}
-                          disabled={allAdminReturnableSelected}
-                          style={lotDetailToolbarBtn(allAdminReturnableSelected)}
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                            color: '#334155',
+                            userSelect: 'none',
+                          }}
                         >
-                          Select returnable ({adminReturnableItems.length})
-                        </button>
-                        <span style={{ color: '#e2e8f0', userSelect: 'none' }}>|</span>
-                        <button
-                          type="button"
-                          onClick={clearAdminReturnSelection}
-                          disabled={adminReturnSelectedCount === 0}
-                          style={lotDetailToolbarBtn(adminReturnSelectedCount === 0)}
+                          <input
+                            ref={selectAllAdminReturnCheckboxRef}
+                            type="checkbox"
+                            checked={
+                              detailItemStatusFilter !== 'all' ||
+                              detailItemUserFilter !== 'all' ||
+                              filteredAdminReturnableItems.length < adminReturnableItems.length
+                                ? allFilteredAdminReturnableSelected
+                                : allAdminReturnableSelected
+                            }
+                            onChange={toggleSelectAllAdminReturnable}
+                            style={{
+                              width: 18,
+                              height: 18,
+                              accentColor: LOT_DETAIL_BLUE,
+                              cursor: 'pointer',
+                              margin: 0,
+                            }}
+                            aria-label="Select all returnable items"
+                          />
+                          Select all
+                          {detailItemStatusFilter !== 'all' ||
+                          detailItemUserFilter !== 'all' ||
+                          filteredAdminReturnableItems.length < adminReturnableItems.length
+                            ? ` (${filteredAdminReturnableItems.length} visible)`
+                            : ` (${adminReturnableItems.length})`}
+                        </label>
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            flexWrap: 'wrap',
+                          }}
                         >
-                          Clear
-                        </button>
-                        <span style={{ color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                          <strong style={{ color: LOT_DETAIL_BLUE, fontWeight: 700 }}>
-                            {adminReturnSelectedCount}
-                          </strong>{' '}
-                          selected
-                        </span>
+                          {!allAdminReturnableSelected &&
+                          filteredAdminReturnableItems.length < adminReturnableItems.length ? (
+                            <button
+                              type="button"
+                              onClick={selectAllAdminReturnable}
+                              style={lotDetailToolbarBtn(false)}
+                            >
+                              Select all in lot ({adminReturnableItems.length})
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={clearAdminReturnSelection}
+                            disabled={adminReturnSelectedCount === 0}
+                            style={lotDetailToolbarBtn(adminReturnSelectedCount === 0)}
+                          >
+                            Clear
+                          </button>
+                          <span style={{ color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                            <strong style={{ color: LOT_DETAIL_BLUE, fontWeight: 700 }}>
+                              {adminReturnSelectedCount}
+                            </strong>{' '}
+                            selected
+                          </span>
+                        </div>
                       </div>
                     ) : null}
 

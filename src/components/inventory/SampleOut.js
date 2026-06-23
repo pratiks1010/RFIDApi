@@ -41,7 +41,7 @@ import {
 import TrayScanModal from '../common/TrayScanModal';
 import GridItemImage from '../common/GridItemImage';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
-import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl, getSoniApiBaseUrl, toRrgoldApiUrl } from '../../services/apiBaseConfig';
+import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl, getSoniApiBaseUrl, toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
 import {
   getSubmitSampleOutUrl,
   getPartyLookupUrl,
@@ -85,46 +85,12 @@ const normalizeLabeledStockArray = (data) => {
   return [];
 };
 
-const labeledStockMatchesSearch = (item, term) => {
-  const q = String(term || '').trim().toLowerCase();
-  if (!q) return true;
-  const fields = [
-    item?.ItemCode,
-    item?.Itemcode,
-    item?.RFIDNumber,
-    item?.RFID,
-    item?.RFIDCode,
-    item?.TIDValue,
-    item?.TIDNumber,
-    designNoFromItem(item),
-    item?.DesignName,
-    item?.Design,
-    item?.DesignId,
-    item?.design_id,
-    item?.DesignCode,
-    item?.CategoryName,
-    item?.ProductName,
-  ];
-  return fields.some((v) => String(v ?? '').trim().toLowerCase().includes(q));
-};
-
-const filterLabeledStockSearchResults = (rows, term) => {
-  const list = Array.isArray(rows) ? rows : [];
-  const q = String(term || '').trim();
-  if (!q) return list;
-  const matched = list.filter((item) => labeledStockMatchesSearch(item, q));
-  return matched.length ? matched : list;
-};
-
 const buildLabeledStockSearchPayload = (clientCode, term, extra = {}) => ({
   ClientCode: clientCode,
-  ItemCode: term,
-  SearchQuery: term,
-  RFIDCode: term,
-  DesignNo: term,
-  DesignName: term,
+  Search: String(term || '').trim(),
   PageNumber: 1,
-  PageSize: 30,
+  PageSize: 20,
+  Status: 'all',
   ...extra,
 });
 
@@ -135,37 +101,12 @@ const fetchLabeledStockSearchResults = async (clientCode, searchTerm) => {
     'Content-Type': 'application/json',
   };
   const term = searchTerm.trim();
-  const labeledStockUrl = toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock');
-  const requestLabeledStock = (payload) =>
-    axios.post(labeledStockUrl, payload, { headers });
-
-  let results = normalizeLabeledStockArray(
-    (await requestLabeledStock(buildLabeledStockSearchPayload(clientCode, term))).data
+  const response = await axios.post(
+    toSoniApiUrl('/api/ProductMaster/SearchLabelledStock'),
+    buildLabeledStockSearchPayload(clientCode, term),
+    { headers }
   );
-
-  if (!results.length) {
-    results = normalizeLabeledStockArray(
-      (
-        await requestLabeledStock(
-          buildLabeledStockSearchPayload(clientCode, term, {
-            CategoryId: 0,
-            ProductId: 0,
-            DesignId: 0,
-            PurityId: 0,
-            BranchId: 0,
-            CounterId: 0,
-            FromDate: null,
-            ToDate: null,
-            Status: 'ApiActive',
-            ListType: 'ascending',
-            SortColumn: null,
-          })
-        )
-      ).data
-    );
-  }
-
-  return filterLabeledStockSearchResults(results, term);
+  return normalizeLabeledStockArray(response.data);
 };
 
 const enrichTrayStockRows = (stockRows, scanRows) => {
@@ -1478,12 +1419,15 @@ const SampleOut = () => {
     return '';
   };
   const rowItemCodeOrDash = (row) => rowItemCode(row) || '—';
-  const rowRfidOrDash = (row) => String(row?.RFIDNumber ?? '').trim() || '—';
+  const rowRfidOrDash = (row) =>
+    String(row?.RFIDNumber ?? row?.RFID ?? row?.RFIDCode ?? row?.rfidCode ?? '').trim() || '—';
   const rowCategoryOrDash = (row) =>
     String(row?.CategoryName ?? row?.Category ?? row?.categoryName ?? row?.category_id ?? '').trim() || '—';
   const rowProductOrDash = (row) =>
     String(row?.product_id ?? row?.ProductName ?? row?.Product ?? '').trim() || '—';
   const rowDesignOrDash = (row) => designNoFromItem(row) || '—';
+  const rowDesignNameOrDash = (row) =>
+    String(row?.DesignName ?? row?.designName ?? '').trim() || designNoFromItem(row) || '—';
   const currentScannerName = useMemo(() => resolveScannerDisplayName(userInfo), [userInfo]);
   const rowScannedByUser = (row) => {
     const stored = String(
@@ -2315,7 +2259,7 @@ const formatScannedTime = (date) => {
     return () => clearTimeout(timeoutId);
   }, [itemCodeSearch]);
 
-  // Search labeled stock via ProductMaster GetAllLabeledStock (item code / RFID / design no)
+  // Search labeled stock via ProductMaster SearchLabelledStock (item code / RFID / design no)
   const handleItemCodeSearch = async (searchTerm) => {
     if (!searchTerm || searchTerm.trim().length === 0) {
       setSearchResults([]);
@@ -2814,12 +2758,13 @@ const formatScannedTime = (date) => {
     const clientCode = resolveClientCodeForSampleApi(userInfo);
     setScanChecking(true);
     try {
-      let results = searchResults.filter((item) => labeledStockMatchesSearch(item, t));
-      if (!results.length && clientCode) {
+      let results = [];
+      if (clientCode) {
         results = await fetchLabeledStockSearchResults(clientCode, t);
         setSearchResults(results);
         setShowSearchResults(results.length > 0);
       }
+
       if (results.length === 1) {
         await processScannedProduct(results[0], { clearSearch: true, source: 'search' });
         return;
@@ -4258,7 +4203,7 @@ const formatScannedTime = (date) => {
               title="Shown when REACT_APP_SHOW_SAMPLE_API_BASE=1 at build time"
             >
               API mode: {getApiMode()} · Sample Out host: {getSoniApiBaseUrl()} · Stock search host:{' '}
-              {getRrgoldApiBaseUrl()}
+              {getSoniApiBaseUrl()}
             </div>
           )}
         </div>
@@ -4667,6 +4612,18 @@ const formatScannedTime = (date) => {
                           check live sample status (Sample Out vs Sample In).
                         </div>
                       )}
+                      {!searching && !scanChecking && searchResults.length === 1 && (
+                        <div style={{
+                          padding: '8px 12px',
+                          fontSize: '10px',
+                          color: '#2563eb',
+                          background: '#eff6ff',
+                          borderBottom: '1px solid #dbeafe',
+                          fontWeight: 600,
+                        }}>
+                          1 match — press <strong>Enter</strong> to add below
+                        </div>
+                      )}
                       {!searching && searchResults.map((item, idx) => (
                         <div
                           key={`${item.LabelledStockId ?? item.Id ?? 'row'}-${rowItemCode(item) || idx}`}
@@ -4692,70 +4649,33 @@ const formatScannedTime = (date) => {
                             e.currentTarget.style.transform = 'translateX(0)';
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                            <span style={{
-                              fontSize: '9px',
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.06em',
-                              color: '#64748b',
-                              background: '#f1f5f9',
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                            }}>
-                              Item
-                            </span>
-                            <span style={{
-                              fontWeight: 700,
-                              color: '#0f172a',
-                              fontSize: '13px',
-                              fontVariantNumeric: 'tabular-nums',
-                              letterSpacing: '-0.02em',
-                            }}>
-                              {rowItemCodeOrDash(item)}
-                            </span>
-                            {rowDesignOrDash(item) !== '—' ? (
-                              <span style={{ fontSize: '10px', color: '#64748b' }} title="Design number">
-                                Design: <strong style={{ color: '#334155' }}>{rowDesignOrDash(item)}</strong>
-                              </span>
-                            ) : null}
-                            {(item.RFIDNumber || item.RFID || item.RFIDCode) ? (
-                              <span style={{ fontSize: '10px', color: '#64748b' }} title="RFID on tag">
-                                RFID: <strong style={{ color: '#334155' }}>{item.RFIDNumber || item.RFID || item.RFIDCode}</strong>
-                              </span>
-                            ) : null}
+                          <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px', marginBottom: 4, letterSpacing: '-0.02em' }}>
+                            {rowDesignNameOrDash(item)}
                           </div>
                           <div style={{
-                            fontSize: '11px',
+                            fontSize: '10px',
                             color: '#64748b',
-                            fontWeight: 400,
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '6px',
                             flexWrap: 'wrap',
+                            gap: '4px 10px',
+                            lineHeight: 1.4,
                           }}>
-                            <span style={{
-                              display: 'inline-block',
-                              width: '4px',
-                              height: '4px',
-                              borderRadius: '50%',
-                              background: '#94a3b8',
-                              flexShrink: 0,
-                            }}
-                            />
                             <span>
-                              <span style={{ fontWeight: 600, color: '#475569' }}>Product:</span>{' '}
-                              {item.ProductName || item.Product || '—'}
+                              RFID: <strong style={{ color: '#334155' }}>{rowRfidOrDash(item)}</strong>
                             </span>
-                            {(item.CategoryName || item.Category) ? (
-                              <>
-                                <span style={{ color: '#cbd5e1' }}>·</span>
-                                <span>
-                                  <span style={{ fontWeight: 600, color: '#475569' }}>Category:</span>{' '}
-                                  {item.CategoryName || item.Category}
-                                </span>
-                              </>
-                            ) : null}
+                            <span style={{ color: '#cbd5e1' }}>·</span>
+                            <span>
+                              Category: <strong style={{ color: '#334155' }}>{rowCategoryOrDash(item)}</strong>
+                            </span>
+                            <span style={{ color: '#cbd5e1' }}>·</span>
+                            <span>
+                              Gr.Wt: <strong style={{ color: '#334155' }}>{rowGrossWtOrZero(item)}</strong>
+                            </span>
+                            <span style={{ color: '#cbd5e1' }}>·</span>
+                            <span>
+                              Net.Wt: <strong style={{ color: '#334155' }}>{rowNetWtOrZero(item)}</strong>
+                            </span>
                           </div>
                         </div>
                       ))}
@@ -5318,7 +5238,7 @@ const formatScannedTime = (date) => {
                                 RFID
                               </div>
                               <div
-                                style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                style={{ fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                 title={rfid}
                               >
                                 {rfid}
@@ -5329,21 +5249,38 @@ const formatScannedTime = (date) => {
                                 Item
                               </div>
                               <div
-                                style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                style={{ fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                 title={itemCode}
                               >
                                 {itemCode}
                               </div>
                             </div>
-                            <div style={{ minWidth: 0, gridColumn: '1 / -1' }}>
+                            <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                                 Design
                               </div>
                               <div
-                                style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                style={{ fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                 title={design}
                               >
                                 {design}
+                              </div>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                Category
+                              </div>
+                              <div
+                                style={{
+                                  fontWeight: 700,
+                                  color: '#0f172a',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={category}
+                              >
+                                {category}
                               </div>
                             </div>
                           </div>
@@ -5356,27 +5293,11 @@ const formatScannedTime = (date) => {
                               borderTop: '1px solid #f1f5f9',
                             }}
                           >
-                            <div style={{ minWidth: 0, gridColumn: '1 / -1' }}>
-                              <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                                Category
-                              </div>
-                              <div
-                                style={{
-                                  fontWeight: 800,
-                                  wordBreak: 'break-word',
-                                  overflowWrap: 'anywhere',
-                                  lineHeight: 1.4,
-                                }}
-                                title={category}
-                              >
-                                {category}
-                              </div>
-                            </div>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                                 Gr. Wt
                               </div>
-                              <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                              <div style={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
                                 {rowGrossWtOrZero(item)}
                               </div>
                             </div>
@@ -5384,7 +5305,7 @@ const formatScannedTime = (date) => {
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                                 Net Wt
                               </div>
-                              <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                              <div style={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
                                 {rowNetWtOrZero(item)}
                               </div>
                             </div>
@@ -5392,7 +5313,7 @@ const formatScannedTime = (date) => {
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                                 Pieces
                               </div>
-                              <div style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                              <div style={{ fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
                                 {pieces}
                               </div>
                             </div>

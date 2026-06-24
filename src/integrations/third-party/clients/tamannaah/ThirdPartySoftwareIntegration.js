@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { FaPlug, FaLock, FaInfoCircle, FaSync, FaSpinner, FaCheckCircle, FaExclamationCircle, FaCloudUploadAlt, FaEdit } from 'react-icons/fa';
+import { FaPlug, FaLock, FaInfoCircle, FaSync, FaSpinner, FaCheckCircle, FaExclamationCircle, FaCloudUploadAlt, FaEdit, FaImage, FaTimes } from 'react-icons/fa';
 import { HiChip, HiDocumentText, HiLightningBolt } from 'react-icons/hi';
 import { getTestService, getStockOnHand, hasGatiAuthToken } from './tamannaahBSGatiService';
 
@@ -82,6 +82,8 @@ const STOCK_COLUMNS = [
   { key: 'Status', label: 'Status', width: 80 },
 ];
 
+const getRowImagePath = (row) => String(row?.ImagePath ?? row?.imagePath ?? row?.ImageUrl ?? '').trim();
+
 const getClientCodeFromAuth = () => {
   try {
     const stored = localStorage.getItem('userInfo');
@@ -108,6 +110,7 @@ const ThirdPartySoftwareIntegration = () => {
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(0);
   const [updateResult, setUpdateResult] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
 
   useEffect(() => {
     const code = getClientCodeFromAuth();
@@ -347,6 +350,50 @@ const ThirdPartySoftwareIntegration = () => {
 
   return (
     <>
+    {imagePreview && (
+      <div
+        onClick={() => setImagePreview(null)}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 2000,
+          background: 'rgba(0,0,0,0.9)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setImagePreview(null)}
+          style={{
+            position: 'absolute',
+            top: 20,
+            right: 20,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            border: 'none',
+            background: 'rgba(255,255,255,0.2)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          aria-label="Close image preview"
+        >
+          <FaTimes size={20} />
+        </button>
+        <img
+          src={imagePreview.url}
+          alt={imagePreview.label || 'Product image'}
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: '100%', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8 }}
+        />
+      </div>
+    )}
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     <div style={{
       padding: '0 4px',
@@ -709,6 +756,7 @@ const ThirdPartySoftwareIntegration = () => {
                 <thead style={{ position: 'sticky', top: 0, background: '#f1f5f9', zIndex: 1 }}>
                   <tr>
                     <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 600, color: '#475569', borderBottom: '2px solid #e2e8f0' }}>#</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 600, color: '#475569', borderBottom: '2px solid #e2e8f0', width: 56 }}>Image</th>
                     {STOCK_COLUMNS.map((col) => (
                       <th
                         key={col.key}
@@ -737,6 +785,35 @@ const ThirdPartySoftwareIntegration = () => {
                       }}
                     >
                       <td style={{ padding: '8px', color: '#64748b' }}>{idx + 1}</td>
+                      <td style={{ padding: '8px', textAlign: 'center' }}>
+                        {getRowImagePath(row) ? (
+                          <button
+                            type="button"
+                            onClick={() => setImagePreview({
+                              url: getRowImagePath(row),
+                              label: row.ItemCode || row.ProductName || 'Product image',
+                            })}
+                            title="View product image"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: 32,
+                              height: 32,
+                              border: '1px solid #99f6e4',
+                              borderRadius: 8,
+                              background: '#f0fdfa',
+                              color: '#0d9488',
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            <FaImage size={14} />
+                          </button>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>—</span>
+                        )}
+                      </td>
                       {STOCK_COLUMNS.map((col) => (
                         <td
                           key={col.key}

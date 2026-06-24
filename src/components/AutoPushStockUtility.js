@@ -77,6 +77,7 @@ function AutoPushStockUtility() {
       return;
     }
     try {
+      const raw = localStorage.getItem(defaultTemplateStorageKey(clientCode, username));
       if (!raw) {
         setDefaultTemplateHint("");
         return;

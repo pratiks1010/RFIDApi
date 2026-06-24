@@ -970,6 +970,11 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
     });
   };
 
+  // Update a single field on the current product being edited
+  const updateField = (key, value) => {
+    setCurrentProduct(prev => ({ ...prev, [key]: value }));
+  };
+
   // Add product to quotation
   const addProduct = () => {
     // Validate required fields
@@ -1041,7 +1046,6 @@ const QuotationNew = ({ editStatus, defaultValues }) => {
       URDAmount: ''
     });
     
-    setShowItemForm(false);
     addNotification({
       type: 'success',
       title: 'Success',

@@ -1,5 +1,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+// Builds a printable stock catalog PDF and returns the jsPDF document
+const CatalogPDF = ({ data = [], userName = '', clientCode = '' }) => {
+  const doc = new jsPDF();
+  doc.setFontSize(16);
+  doc.text('Stock Catalog', 14, 16);
+  doc.setFontSize(10);
+  doc.text(`Client: ${userName || clientCode || '-'}`, 14, 24);
+  doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+
+  const tableColumn = [
+    'Sr No', 'Item Code', 'Product Name', 'Category', 'Purity', 'Gross Wt', 'Net Wt', 'RFID Code', 'Status'
+  ];
+  const tableRows = data.map((item, idx) => [
+    idx + 1,
+    item.ItemCode || '-',
+    item.ProductName || '-',
+    item.CategoryName || '-',
+    item.PurityName || '-',
+    item.GrossWt ?? '-',
+    item.NetWt ?? '-',
+    item.RFIDCode || '-',
+    item.Status || '-'
+  ]);
+
+  autoTable(doc, {
+    head: [tableColumn],
+    body: tableRows,
+    startY: 36,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [69, 73, 232], textColor: 255 },
+    alternateRowStyles: { fillColor: [245, 247, 250] }
+  });
+
+  return doc;
+};
 
 const AdminViewUserStock = ({ clientCode, userName, onBack }) => {
   const [stockData, setStockData] = useState([]);

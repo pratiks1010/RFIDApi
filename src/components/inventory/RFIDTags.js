@@ -181,6 +181,7 @@ const RFIDTags = () => {
       return;
     }
     try {
+      const userInfo = JSON.parse(localStorage.getItem('userInfo'));
       const doc = new jsPDF();
       doc.setFontSize(16);
       doc.text('RFID Tags Report', 14, 16);
@@ -219,6 +220,7 @@ const RFIDTags = () => {
       toast.error('Please enter an email address');
       return;
     }
+    const userInfo = JSON.parse(localStorage.getItem('userInfo'));
     toast.success(`Sending export to ${emailInput}...`);
     setEmailInput('');
     setShowExportModal(false);

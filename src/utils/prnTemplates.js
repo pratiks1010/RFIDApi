@@ -882,10 +882,6 @@ export const generateClientPrn = (item, clientCode) => {
         : generateLS000533Prn(item);
     case 'LS000544':
       return generateLS000544Prn(item);
-    case 'LS000488':
-      return generateLS000488Prn(item);
-    case 'LS000488':
-      return generateLS000488Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection

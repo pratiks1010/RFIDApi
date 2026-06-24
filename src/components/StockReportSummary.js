@@ -47,7 +47,7 @@ const StockReportSummary = () => {
         // Get dates from URL params or use current date
         const urlParams = new URLSearchParams(window.location.search);
         const dateFrom = urlParams.get('dateFrom') || getCurrentDate();
-        const dateTo = urlParams.get('dateTo') || getCurrentDate();cjdchbdi
+        const dateTo = urlParams.get('dateTo') || getCurrentDate();
         
         setFilterValues({
           dateFrom,

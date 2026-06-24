@@ -783,68 +783,28 @@ END
 `;
 };
 
-/** Purity/Melting line on LS000488 label (e.g. "916") */
-const resolveLS000488Melting = (item) =>
-  String(item.Purity || item.PurityName || item.purity || '').trim();
+// Exact LS000488 baseline PRN ("SanpreetTestDemo") with embedded PCX logo — byte-preserved via base64.
+// Only the dynamic fields (RFID memory + item code) are swapped at print time; the logo bytes stay untouched.
+const LS000488_BASE_PRN_B64 = "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";
 
-/** Product name or category on LS000488 label */
-const resolveLS000488ProductName = (item) =>
-  String(item.ProductName || item.CategoryName || item.Description || '').trim();
-
-// LS000488 — mangalsutra label (SanpreetAtwal, ENGINE 1774×710, RFID 80-bit EPC, compact format)
+// LS000488 — SanpreetAtwal label with client logo + single item-code field.
+// Reuses the exact approved PRN (incl. embedded PCX logo) and swaps only dynamic fields.
 const generateLS000488Prn = (item) => {
   const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
-  const productName = prnQuote(resolveLS000488ProductName(item));
-  const grossWt = prnQuote(formatWeight2(item.GrossWt ?? item.GrossWeight ?? item.grosswt));
-  const netWt = prnQuote(formatWeight2(item.NetWt ?? item.netwt));
-  const stoneWt = prnQuote(formatWeight2(item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? 0));
-  const melting = prnQuote(resolveLS000488Melting(item));
   const displayCode = prnQuote(itemCode);
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode);
 
-  return `<xpml><page quantity='0' pitch='18.0 mm'></xpml>!PTX_SETUP
-ENGINE-WIDTH;1774:LENGTH;710:MIRROR;0.
-PTX_END
-~PAPER;ROTATE 0
-~CONFIG
-UPC DESCENDERS;0
-END
-~PAPER;LABELS 2;MEDIA 1
-~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 6;TYPE 0
-~PAPER;CUT 0;PAUSE 0;TEAR 0
-~CONFIG
-CHECK DYNAMIC BCD;0
-SLASH ZERO;0
-UPPERCASE;0
-AUTO WRAP;0
-HOST FORM LENGTH;1
-END
-<xpml></page></xpml><xpml><page quantity='1' pitch='18.0 mm'></xpml>~CREATE;FORM-0;51
-SCALE;DOT;203;203
-ISET;'UTF8'
-RFWTAG;16;PC
-16;H;${pcValue}
-STOP
-RFWTAG;${epcBits};EPC
-${epcBits};H;*${epcHex}*
-STOP
-FONT;FACE 92250;BOLD 0;SLANT 0
-ALPHA
-INV;POINT;115;331;7;7;"${productName}"
-INV;POINT;83;335;7;7;"G wt :"
-INV;POINT;83;285;7;7;"${grossWt}"
-INV;POINT;57;335;7;7;"N wt :"
-INV;POINT;55;285;7;7;"${netWt}"
-INV;POINT;27;335;7;7;"S wt :"
-INV;POINT;27;285;7;7;"${stoneWt}"
-INV;POINT;17;146;7;7;"${displayCode}"
-STOP
-END
-~EXECUTE;FORM-0;1
-<xpml></page></xpml>
-~NORMAL
-~DELETE FORM;FORM-0
-`;
+  let prn = decodeBase64Latin1(LS000488_BASE_PRN_B64);
+
+  // RFID memory (PC + EPC bank) — sized to the item code, so it adapts to any code length
+  prn = prn.replace('16;H;*2C00*', `16;H;${pcValue}`);
+  prn = prn.replace('RFWTAG;80;EPC', `RFWTAG;${epcBits};EPC`);
+  prn = prn.replace('80;H;*363438312D312D353130*', `${epcBits};H;*${epcHex}*`);
+
+  // Item code (the only printed text field on this label)
+  prn = prn.replace('"6481-1-513"', `"${displayCode}"`);
+
+  return prn;
 };
 
 // Main function to generate client-specific PRN

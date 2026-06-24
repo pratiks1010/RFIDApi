@@ -6,9 +6,22 @@ export const TRAY_POWER_ATT_MAX = 300;
 /** Allowed preset values sent to the bridge (matches vendor-friendly steps). */
 export const TRAY_POWER_PRESET_VALUES = Object.freeze([0, 50, 100, 150, 200, 250, 300]);
 
-/** UI labels: value 0 = strongest RF output; 300 = weakest (most attenuation). */
+/** UI display scale: 300 = maximum power / fastest tray scan, 0 = minimum. */
+export const TRAY_POWER_DISPLAY_MAX = 300;
+
+export const attToDisplayPower = (attDb10) => {
+  const att = snapPowerAttDb10ToPreset(attDb10);
+  return TRAY_POWER_DISPLAY_MAX - att;
+};
+
+export const displayPowerToAtt = (displayValue) => {
+  const display = snapPowerAttDb10ToPreset(displayValue);
+  return snapPowerAttDb10ToPreset(TRAY_POWER_DISPLAY_MAX - display);
+};
+
+/** UI labels (internal att: 0 = max power, 300 = min). */
 export const TRAY_POWER_PRESET_OPTIONS = Object.freeze([
-  { value: 0, label: 'Maximum — strongest signal' },
+  { value: 0, label: 'Maximum — fastest scan' },
   { value: 50, label: 'Very high' },
   { value: 100, label: 'High' },
   { value: 150, label: 'Medium' },

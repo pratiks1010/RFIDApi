@@ -1,24 +1,28 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { FaPlay, FaPlug, FaSearch, FaStop } from 'react-icons/fa';
 import { toSoniApiUrl } from '../../services/apiBaseConfig';
 import {
   buildTrayConnectCommands,
+  connectTrayReaders,
   TRAY_CONNECTION_MODE_OPTIONS,
   TRAY_CONNECTION_MODES,
 } from '../../services/trayBridgeConnect';
+import { getTrayTagIdentity, parseTrayTagLine } from '../../utils/trayTagParse';
 import {
   getTrayReaderConfig,
   saveTrayReaderConfig,
   parsePowerAttDb10,
   snapPowerAttDb10ToPreset,
+  attToDisplayPower,
+  displayPowerToAtt,
   TRAY_POWER_ATT_MAX,
+  TRAY_POWER_DISPLAY_MAX,
   TRAY_POWER_PRESET_OPTIONS
 } from '../../services/trayReaderConfig';
 
-const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1000;
-const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 1000;
-
+const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 2200;
+const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 3500;
 /** Matches `SidebarLayout` sidebar-glass gradient + accent */
 const SIDEBAR_GRADIENT = 'linear-gradient(180deg, #042954 0%, #032547 45%, #021f3d 100%)';
 const ACCENT_AMBER = '#fbbf24';
@@ -135,6 +139,13 @@ const TrayScanModal = ({
   const [resolvingCodes, setResolvingCodes] = useState(false);
   const [resolveError, setResolveError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [connectedDeviceCount, setConnectedDeviceCount] = useState(0);
+
+  const bridgeLineHistoryRef = useRef([]);
+  const deviceRowsRef = useRef([]);
+  const sdkConnectedCountRef = useRef(0);
+  const tagsRef = useRef([]);
+  const autoFetchPendingRef = useRef(false);
 
   const hasBridge = typeof window !== 'undefined' && !!window.electronAPI?.rfidBridgeCommand;
   const pageSize = compactLayout ? 20 : 10;
@@ -159,19 +170,69 @@ const TrayScanModal = ({
     while (rightRows.length < half) rightRows.push(null);
     return { leftRows, rightRows };
   }, [compactLayout, pageRows, pageSize]);
+
+  useEffect(() => {
+    tagsRef.current = tags;
+  }, [tags]);
+
   useEffect(() => {
     if (!open || !hasBridge) return undefined;
+
+    const ingestTagIdentity = (tag) => {
+      const identity = getTrayTagIdentity(tag);
+      if (!identity) return;
+      setTags((prev) => (prev.includes(identity) ? prev : [...prev, identity]));
+    };
+
+    const pushBridgeLine = (line) => {
+      bridgeLineHistoryRef.current.push(String(line || ''));
+      if (bridgeLineHistoryRef.current.length > 600) {
+        bridgeLineHistoryRef.current = bridgeLineHistoryRef.current.slice(-600);
+      }
+    };
+
     const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
-      const epc = String(tag?.epc || '').trim().toUpperCase();
-      if (!epc) return;
-      setTags((prev) => (prev.includes(epc) ? prev : [...prev, epc]));
+      ingestTagIdentity(tag);
     });
     const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
-      const lower = String(line || '').toLowerCase();
+      const raw = String(line || '');
+      pushBridgeLine(raw);
+      const lower = raw.toLowerCase();
       if (lower.includes('inventory started')) setIsScanning(true);
-      if (lower.includes('inventory stopped')) setIsScanning(false);
-      const powerMatch = String(line || '').match(/\bPOWER\s+attDb10\s*=\s*(\d+)/i);
+      if (lower.includes('inventory stopped') || /scan finished/i.test(raw)) {
+        setIsScanning(false);
+        if (/scan finished/i.test(raw) && tagsRef.current.length > 0) {
+          autoFetchPendingRef.current = true;
+        }
+      }
+      if (lower.includes('start inventory failed')) {
+        setFetchMessage('Scan could not start on connected readers. Check power/antenna and retry.');
+      }
+      const powerMatch = raw.match(/\bPOWER\s+attDb10\s*=\s*(\d+)/i);
       if (powerMatch) setPowerAttDb10(String(snapPowerAttDb10ToPreset(powerMatch[1])));
+      const normalizedLine = raw.replace(/^rfid>\s*/i, '').trim();
+      if (normalizedLine.toLowerCase().startsWith('device id=')) {
+        const parsed = normalizedLine.match(/^device id=([^\s]+)\s+type=(.*?)\s+ip=(.*?)\s+port=([^\s]+)$/i);
+        if (parsed) {
+          const key = `${parsed[1]}|${parsed[4]}`;
+          const existing = deviceRowsRef.current.filter((item) => `${item.id}|${item.port}` !== key);
+          existing.push({
+            id: parsed[1],
+            type: parsed[2]?.trim() || '',
+            ip: parsed[3]?.trim() || '',
+            port: parsed[4],
+          });
+          deviceRowsRef.current = existing.sort((a, b) => Number(a.id) - Number(b.id));
+          setConnectedDeviceCount(Math.max(existing.length, sdkConnectedCountRef.current));
+        }
+      }
+      const connectedSummary = normalizedLine.match(/^connected devices detected by sdk:\s*(\d+)/i);
+      if (connectedSummary) {
+        sdkConnectedCountRef.current = Number.parseInt(connectedSummary[1], 10) || 0;
+        setConnectedDeviceCount(Math.max(deviceRowsRef.current.length, sdkConnectedCountRef.current));
+      }
+      const parsedTag = parseTrayTagLine(raw);
+      if (parsedTag) ingestTagIdentity(parsedTag);
     });
     return () => {
       unsubTag?.();
@@ -197,6 +258,11 @@ const TrayScanModal = ({
     setFetchMessage('');
     setCurrentPage(1);
     setIsScanning(false);
+    setConnectedDeviceCount(0);
+    deviceRowsRef.current = [];
+    sdkConnectedCountRef.current = 0;
+    bridgeLineHistoryRef.current = [];
+    autoFetchPendingRef.current = false;
     if (hasBridge) {
       window.electronAPI.rfidBridgeEnsure().catch(() => {});
     }
@@ -286,7 +352,15 @@ const TrayScanModal = ({
     setBusy(true);
     setFetchMessage('');
     try {
-      const { commands, errors } = buildTrayConnectCommands({
+      setTags([]);
+      setRfidCodeMap({});
+      setCurrentPage(1);
+      deviceRowsRef.current = [];
+      sdkConnectedCountRef.current = 0;
+      setConnectedDeviceCount(0);
+      autoFetchPendingRef.current = false;
+
+      const { errors } = buildTrayConnectCommands({
         connectionMode,
         comPrimary,
         comSecondary,
@@ -296,19 +370,32 @@ const TrayScanModal = ({
         setFetchMessage(errors.join(' '));
         return;
       }
-      for (const cmd of commands) {
-        await run(cmd);
+
+      const connectResult = await connectTrayReaders({
+        runCommand: run,
+        lineHistory: bridgeLineHistoryRef.current,
+        connectionMode,
+        comPrimary,
+        comSecondary,
+        baudRate,
+        powerAttDb10,
+        parsePowerAttDb10,
+        getDeviceCount: () => Math.max(deviceRowsRef.current.length, sdkConnectedCountRef.current),
+      });
+
+      setConnectedDeviceCount(connectResult.effectiveDeviceCount);
+      if (connectResult.effectiveDeviceCount === 0) {
+        setFetchMessage(connectResult.message);
+        return;
       }
-      const pwr = parsePowerAttDb10(powerAttDb10);
-      if (pwr !== null) {
-        try {
-          await run(`set-power ${pwr}`);
-        } catch (_) {
-          /* bridge may not support UHFAPI power on some DLL builds */
-        }
-      }
+
       await run('start');
       setIsScanning(true);
+      setFetchMessage(
+        connectResult.effectiveDeviceCount > 1
+          ? `Scanning on ${connectResult.effectiveDeviceCount} connected device(s). Place tray on antenna.`
+          : ''
+      );
       if (onScanStart) {
         try {
           await onScanStart();
@@ -320,7 +407,6 @@ const TrayScanModal = ({
       setBusy(false);
     }
   };
-
   const stopScan = async () => {
     setBusy(true);
     try {
@@ -354,7 +440,19 @@ const TrayScanModal = ({
   };
 
   useEffect(() => {
-    if (!open || !isScanning || autoLoading) return undefined;
+    if (!open || autoLoading) return undefined;
+
+    if (autoFetchPendingRef.current && !isScanning) {
+      autoFetchPendingRef.current = false;
+      const timer = setTimeout(() => {
+        if (tagsRef.current.length > 0) {
+          runFetch();
+        }
+      }, 280);
+      return () => clearTimeout(timer);
+    }
+
+    if (!isScanning) return undefined;
 
     const timeoutMs = tags.length > 0 ? TRAY_IDLE_TIMEOUT_WITH_TAGS_MS : TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS;
     const idleTimer = setTimeout(async () => {
@@ -363,16 +461,15 @@ const TrayScanModal = ({
       } catch (_) {}
       setIsScanning(false);
 
-      if (tags.length > 0) {
+      if (tagsRef.current.length > 0) {
         await runFetch();
       } else {
-        await closeModal();
+        setFetchMessage('No tags detected. Adjust tray position and connect & start scan again.');
       }
     }, timeoutMs);
 
     return () => clearTimeout(idleTimer);
   }, [open, isScanning, tags, autoLoading]);
-
   if (!open) return null;
 
   const btnBase = { borderRadius: 10, fontWeight: 700, border: 'none', padding: '8px 13px' };
@@ -503,7 +600,7 @@ const TrayScanModal = ({
                 )}
                 <div className="col-12 col-md">
                   <label className="form-label small mb-1" style={{ color: '#64748b', fontWeight: 600 }} htmlFor="tray-power-select-modal">
-                    Transmit power (0 = strongest, {TRAY_POWER_ATT_MAX} = weakest)
+                    Transmit power ({TRAY_POWER_DISPLAY_MAX} = strongest / fastest, 0 = weakest)
                   </label>
                   <select
                     id="tray-power-select-modal"
@@ -516,7 +613,7 @@ const TrayScanModal = ({
                   >
                     {TRAY_POWER_PRESET_OPTIONS.map((opt) => (
                       <option key={opt.value} value={String(opt.value)}>
-                        {opt.label} ({opt.value})
+                        {opt.label} (slider {attToDisplayPower(opt.value)})
                       </option>
                     ))}
                   </select>
@@ -552,7 +649,11 @@ const TrayScanModal = ({
                 {isScanning ? 'Scanning — place tray on antenna' : 'Reader idle — connect & start when ready'}
               </span>
               <span style={{ color: '#64748b' }}>Tags in list: <strong style={{ color: '#0f172a' }}>{tags.length}</strong></span>
-              <span style={{ color: resolvingCodes ? ACCENT_TEAL : '#64748b' }}>
+              {connectedDeviceCount > 0 ? (
+                <span style={{ color: '#0f766e' }}>
+                  Readers: <strong>{connectedDeviceCount}</strong> active
+                </span>
+              ) : null}              <span style={{ color: resolvingCodes ? ACCENT_TEAL : '#64748b' }}>
                 Item codes: {resolvingCodes ? 'looking up…' : 'ready'}
               </span>
             </div>

@@ -117,6 +117,15 @@ export const getBoxByRfidTag = async (payload) => {
   return data;
 };
 
+/** Bulk lookup — barcode, EPC, or TID (resolved via tblRFID) */
+export const getDetailsByRfidCodes = async (payload) => {
+  const { data } = await axios.post(boxRfidUrl('/GetDetailsByRfidCodes'), payload, {
+    headers: boxRfidAuthHeaders(),
+    timeout: 90000,
+  });
+  return data;
+};
+
 /** NEW — list what's in a box */
 export const getBoxContents = async (payload) => {
   const { data } = await axios.post(boxRfidUrl('/GetBoxContents'), payload, {

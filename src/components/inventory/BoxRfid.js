@@ -12,6 +12,7 @@ import {
   FaSync,
   FaTimes,
 } from 'react-icons/fa';
+import TrayScanModal from '../common/TrayScanModal';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 import {
@@ -19,8 +20,10 @@ import {
   getAllBoxMaster,
   getAllLabeledStock,
   getBoxContents,
+  getDetailsByRfidCodes,
 } from '../../services/boxRfidApi';
 import { OFFLINE_API_BASES_EVENT } from '../../services/offlineApiBaseStorage';
+import { normalizeTrayScanIdentities } from '../../services/trayBridgeConnect';
 
 const PAGE_SIZE_OPTIONS = [15, 20, 25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 20;
@@ -71,6 +74,80 @@ const pick = (row, ...keys) => {
   }
   return '';
 };
+
+const collectTrayRfidCodes = (scannedTags = []) => {
+  const codes = new Set();
+  normalizeTrayScanIdentities(scannedTags).forEach((value) => {
+    if (value) codes.add(value);
+  });
+  (Array.isArray(scannedTags) ? scannedTags : []).forEach((item) => {
+    if (typeof item !== 'object' || !item) return;
+    const rfid = String(item.rfidCode || item.RFIDCode || '').trim();
+    if (rfid && rfid !== '-') codes.add(rfid);
+  });
+  return Array.from(codes);
+};
+
+const normalizeDetailsByRfidCodesResponse = (data) => {
+  if (!data || typeof data !== 'object') {
+    return {
+      success: false,
+      message: '',
+      products: [],
+      notFoundRfidCodes: [],
+      totalScanned: 0,
+      totalFound: 0,
+      totalNotFound: 0,
+    };
+  }
+  const products = Array.isArray(data.products)
+    ? data.products
+    : Array.isArray(data.Products)
+      ? data.Products
+      : [];
+  const notFoundRfidCodes = Array.isArray(data.notFoundRfidCodes)
+    ? data.notFoundRfidCodes
+    : Array.isArray(data.NotFoundRfidCodes)
+      ? data.NotFoundRfidCodes
+      : [];
+  return {
+    success: data.success ?? data.Success ?? products.length > 0,
+    message: String(data.message ?? data.Message ?? '').trim(),
+    products,
+    notFoundRfidCodes,
+    totalScanned: data.totalScanned ?? data.TotalScanned ?? 0,
+    totalFound: data.totalFound ?? data.TotalFound ?? products.length,
+    totalNotFound: data.totalNotFound ?? data.TotalNotFound ?? notFoundRfidCodes.length,
+  };
+};
+
+const mapRfidDetailsProductsToStockRows = (products) => (
+  products.map((item, index) => {
+    const itemCode = pick(item, 'itemCode', 'ItemCode');
+    const rowId = pick(item, 'labelledStockId', 'LabelledStockId', 'Id', 'id') || itemCode || `tray-${index}`;
+    return {
+      ...item,
+      Id: rowId,
+      srNo: index + 1,
+      CounterName: pick(item, 'counterName', 'CounterName', 'Counter'),
+      ItemCode: itemCode,
+      RFIDCode: pick(item, 'rfidCode', 'RfidCode', 'RFIDCode'),
+      ProductName: pick(item, 'productName', 'ProductName', 'productTitle', 'ProductTitle'),
+      CategoryName: pick(item, 'categoryName', 'CategoryName'),
+      DesignName: pick(item, 'designName', 'DesignName'),
+      PurityName: pick(item, 'purityName', 'PurityName'),
+      GrossWt: pick(item, 'grossWt', 'GrossWt'),
+      NetWt: pick(item, 'netWt', 'NetWt'),
+      Qty: pick(item, 'qty', 'Qty', 'quantity', 'Quantity') || '1',
+      BoxName: pick(item, 'boxName', 'BoxName'),
+      BoxId: pick(item, 'boxId', 'BoxId'),
+      HexCode: pick(item, 'hexCode', 'HexCode', 'tidNumber', 'TidNumber', 'TIDNumber'),
+      TIDNumber: pick(item, 'tidNumber', 'TidNumber', 'TIDNumber'),
+      Status: pick(item, 'status', 'Status') || 'Active',
+      matchedRfidCodes: item.matchedRfidCodes ?? item.MatchedRfidCodes ?? [],
+    };
+  })
+);
 
 const formatWt = (value) => {
   if (value === undefined || value === null || value === '') return '-';
@@ -221,6 +298,8 @@ const BoxRfid = () => {
   const [packResult, setPackResult] = useState(null);
   const [boxContentsPreview, setBoxContentsPreview] = useState(null);
   const [contentsLoading, setContentsLoading] = useState(false);
+  const [showTrayScanModal, setShowTrayScanModal] = useState(false);
+  const [trayFetchLoading, setTrayFetchLoading] = useState(false);
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== 'undefined' ? window.innerWidth : 1200
   );
@@ -325,6 +404,89 @@ const BoxRfid = () => {
   };
 
   const handleRefresh = () => fetchStock(currentPage, itemsPerPage, searchQuery);
+
+  const handleTrayFetchData = async (scannedTags = []) => {
+    const rfidCodes = collectTrayRfidCodes(scannedTags);
+    if (!rfidCodes.length) {
+      addNotification({
+        type: 'warning',
+        title: 'No tags scanned',
+        message: 'Scan RFID tags on the tray first, then load stock.',
+      });
+      return { success: false, message: 'No tags scanned.' };
+    }
+    if (!clientCode) {
+      addNotification({
+        type: 'error',
+        title: 'Client code missing',
+        message: 'Login session is missing client code. Please login again.',
+      });
+      return { success: false, message: 'Client code missing.' };
+    }
+
+    setTrayFetchLoading(true);
+    setLoading(true);
+    try {
+      const responseData = await getDetailsByRfidCodes({
+        ClientCode: clientCode,
+        RfidCodes: rfidCodes,
+      });
+      const result = normalizeDetailsByRfidCodesResponse(responseData);
+      const products = result.products;
+
+      if (!products.length) {
+        const notFoundHint = result.notFoundRfidCodes.length
+          ? ` Unmatched: ${result.notFoundRfidCodes.join(', ')}`
+          : '';
+        addNotification({
+          type: 'warning',
+          title: 'No products found',
+          message: (result.message || `No products matched ${rfidCodes.length} scanned code(s).`) + notFoundHint,
+        });
+        return { success: false, message: result.message || 'No products found for scanned tags.' };
+      }
+
+      const mappedRows = mapRfidDetailsProductsToStockRows(products);
+      const nextSelection = {};
+      mappedRows.forEach((row) => {
+        const id = row.Id ?? row.id;
+        if (id !== undefined && id !== null) nextSelection[id] = row;
+      });
+
+      setSearchQuery('');
+      setCurrentPage(1);
+      setStock(mappedRows);
+      setTotalRecords(mappedRows.length);
+      setTotalPages(1);
+      setSelectedItemsMap(nextSelection);
+      setShowTrayScanModal(false);
+
+      const notFoundHint = result.notFoundRfidCodes.length
+        ? ` ${result.notFoundRfidCodes.length} code(s) had no product match.`
+        : '';
+      addNotification({
+        type: 'success',
+        title: 'Tray scan loaded',
+        message: (result.message || `Found ${mappedRows.length} product(s). Use Add to box when ready.`) + notFoundHint,
+      });
+      return { success: true };
+    } catch (error) {
+      const message =
+        error?.response?.data?.message
+        || error?.response?.data?.error
+        || error?.message
+        || 'Failed to find products for scanned tray tags.';
+      addNotification({
+        type: 'error',
+        title: 'Tray scan failed',
+        message,
+      });
+      return { success: false, message };
+    } finally {
+      setLoading(false);
+      setTrayFetchLoading(false);
+    }
+  };
 
   const getRowId = (row) => row.Id ?? row.id;
 
@@ -782,6 +944,28 @@ const BoxRfid = () => {
               >
                 <FaList style={{ fontSize: 11 }} />
                 <span>Box list</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTrayScanModal(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                }}
+              >
+                <FaSearch style={{ fontSize: 11, color: '#475569' }} />
+                <span>Scan tray</span>
               </button>
               <button
                 type="button"
@@ -1575,6 +1759,16 @@ const BoxRfid = () => {
           </div>
         </div>
       ) : null}
+
+      <TrayScanModal
+        open={showTrayScanModal}
+        onClose={() => setShowTrayScanModal(false)}
+        onFetchData={handleTrayFetchData}
+        title="Box RFID Tray Scan"
+        subtitle="When scanning finishes, product tags are looked up by RFID/EPC/TID. Only matched products appear in the table."
+        loadButtonLabel={trayFetchLoading ? 'Finding products…' : 'Find products'}
+        compactLayout
+      />
 
       <style>{`
         @keyframes boxRfidSpin {

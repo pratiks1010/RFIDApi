@@ -46,6 +46,7 @@ import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
 import { getTrayReaderConfig, parsePowerAttDb10 } from '../../services/trayReaderConfig';
+import { getTrayTagIdentity, parseTrayTagLine } from '../../utils/trayTagParse';
 import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
 import {
   getItemImageLookupKeys,
@@ -355,15 +356,19 @@ const CreateInvoice = () => {
   useEffect(() => {
     if (!showTrayScanModal || !hasElectronTrayBridge) return undefined;
 
-    const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
-      const epc = String(tag?.epc || '').trim().toUpperCase();
-      if (!epc) return;
+    const ingestTrayTagForInvoice = (tag) => {
+      const identity = getTrayTagIdentity(tag);
+      if (!identity) return;
       setTrayTags((prev) => {
-        if (prev.includes(epc)) return prev;
-        const next = [...prev, epc];
+        if (prev.includes(identity)) return prev;
+        const next = [...prev, identity];
         matchTrayTagsToRows(next);
         return next;
       });
+    };
+
+    const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
+      ingestTrayTagForInvoice(tag);
     });
 
     const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
@@ -371,6 +376,8 @@ const CreateInvoice = () => {
       const lowered = line.toLowerCase();
       if (lowered.includes('inventory started')) setTrayScanning(true);
       if (lowered.includes('inventory stopped')) setTrayScanning(false);
+      const parsedTag = parseTrayTagLine(line);
+      if (parsedTag) ingestTrayTagForInvoice(parsedTag);
     });
 
     const unsubError = window.electronAPI.onRfidBridgeError((line) => appendTrayLog(`ERROR: ${line}`));

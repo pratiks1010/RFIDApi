@@ -38,6 +38,7 @@ import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
 import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
+import { normalizeTrayScanIdentities } from '../../services/trayBridgeConnect';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
 import { runAutoPushFolderSyncOnce, extractAutoPushUsername } from '../../services/autoPushStockSyncService';
@@ -1033,9 +1034,7 @@ const LabelStockList = () => {
   };
 
   const handleTrayFetchData = async (scannedTags = []) => {
-    const normalizedTags = Array.from(
-      new Set((scannedTags || []).map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean))
-    );
+    const normalizedTags = normalizeTrayScanIdentities(scannedTags);
     if (!normalizedTags.length) {
       addNotification({
         type: 'warning',
@@ -2052,7 +2051,7 @@ const LabelStockList = () => {
         'Net Wt': item.NetWt ? Number(item.NetWt).toFixed(3) : '',
         'Stone Amt': item.StoneAmt ? Number(item.StoneAmt).toFixed(2) : '',
         'Fixed Amt': item.FixedAmt ? Number(item.FixedAmt).toFixed(2) : '',
-        'Vendor': item.Vendor || '',
+        'Hallmark Amt': item.HallmarkAmount != null && item.HallmarkAmount !== '' ? Number(item.HallmarkAmount).toFixed(2) : '',
         'Branch': item.Branch || '',
         'Created Date': item.CreatedDate ? new Date(item.CreatedDate).toLocaleDateString('en-GB') : '',
         'Packing Weight': item.PackingWeight ? Number(item.PackingWeight).toFixed(3) : '',
@@ -2077,7 +2076,7 @@ const LabelStockList = () => {
         { wch: 12 }, // Net Wt
         { wch: 12 }, // Stone Amt
         { wch: 12 }, // Fixed Amt
-        { wch: 15 }, // Vendor
+        { wch: 15 }, // Hallmark Amt
         { wch: 15 }, // Branch
         { wch: 15 }, // Created Date
         { wch: 15 }, // Packing Weight
@@ -2359,7 +2358,7 @@ const LabelStockList = () => {
         'Net Wt': item.NetWt ? Number(item.NetWt).toFixed(3) : '',
         'Stone Amt': item.StoneAmt ? Number(item.StoneAmt).toFixed(2) : '',
         'Fixed Amt': item.FixedAmt ? Number(item.FixedAmt).toFixed(2) : '',
-        'Vendor': item.Vendor || '',
+        'Hallmark Amt': item.HallmarkAmount != null && item.HallmarkAmount !== '' ? Number(item.HallmarkAmount).toFixed(2) : '',
         'Branch': item.Branch || '',
         'Created Date': item.CreatedDate ? new Date(item.CreatedDate).toLocaleDateString('en-GB') : '',
         'Packing Weight': item.PackingWeight ? Number(item.PackingWeight).toFixed(3) : '',
@@ -2384,7 +2383,7 @@ const LabelStockList = () => {
         { wch: 12 }, // Net Wt
         { wch: 12 }, // Stone Amt
         { wch: 12 }, // Fixed Amt
-        { wch: 15 }, // Vendor
+        { wch: 15 }, // Hallmark Amt
         { wch: 15 }, // Branch
         { wch: 15 }, // Created Date
         { wch: 15 }, // Packing Weight
@@ -3487,7 +3486,7 @@ const LabelStockList = () => {
   // Restrict columns to only the specified fields, in this order
   const columns = [
     { key: 'srNo', label: 'Sr No', width: '50px' },
-    { key: 'CounterName', label: 'Counter', width: '100px' },
+    { key: 'HallmarkAmount', label: 'Hallmark Amt', width: '100px' },
     { key: 'ItemCode', label: 'Item Code', width: '100px' },
     { key: 'RFIDCode', label: 'RFID Code', width: '100px' },
     { key: 'ProductName', label: 'Product', width: '120px' },
@@ -3500,7 +3499,6 @@ const LabelStockList = () => {
     { key: 'NetWt', label: 'Net Wt', width: '85px' },
     { key: 'Qty', label: 'Qty', width: '70px' },
     { key: 'Description', label: 'Description', width: '180px' },
-    { key: 'Vendor', label: 'Vendor', width: '100px' },
     { key: 'Branch', label: 'Branch', width: '100px' },
     { key: 'BoxName', label: 'Box', width: '90px' }
   ];
@@ -5335,6 +5333,10 @@ const LabelStockList = () => {
                             if (column.key === 'Qty') {
                               const numValue = parseFloat(value);
                               return isNaN(numValue) ? value : String(numValue);
+                            }
+                            if (column.key === 'HallmarkAmount') {
+                              const numValue = parseFloat(value);
+                              return isNaN(numValue) ? value : numValue.toFixed(2);
                             }
                             return value;
                           })()}

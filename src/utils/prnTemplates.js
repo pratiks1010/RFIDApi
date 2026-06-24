@@ -852,13 +852,20 @@ const generateLS000488Prn = (item) => {
 
   let prn = decodeBase64Latin1(LS000488_BASE_PRN_B64);
 
+  // Print a single label (sample file had LABELS 2, which duplicates the form across the web)
+  prn = prn.replace('~PAPER;LABELS 2;MEDIA 1', '~PAPER;LABELS 1;MEDIA 1');
+
   // RFID memory (PC + EPC bank) — sized to the item code, so it adapts to any code length
   prn = prn.replace('16;H;*2C00*', `16;H;${pcValue}`);
   prn = prn.replace('RFWTAG;80;EPC', `RFWTAG;${epcBits};EPC`);
   prn = prn.replace('80;H;*363438312D312D353130*', `${epcBits};H;*${epcHex}*`);
 
-  // Item code (the only printed text field on this label)
-  prn = prn.replace('"6481-1-513"', `"${displayCode}"`);
+  // Item code field — replace the sample's auto-increment field (`I;...;+0000000001;`)
+  // with a plain ALPHA field so the text actually renders on the label
+  prn = prn.replace(
+    'I;INV;POINT;63;337;8;8;+0000000001;"6481-1-513"',
+    `INV;POINT;63;337;8;8;"${displayCode}"`
+  );
 
   return prn;
 };

@@ -101,19 +101,33 @@ const IMAGE_BASE_URL = 'https://rrgold.loyalstring.co.in/';
 const TRAY_LABELLED_STOCK_BY_TID_URL = process.env.REACT_APP_TRAY_LABELLED_STOCK_BY_TID_URL
   || 'https://rrgold.loyalstring.co.in/api/ProductMaster/GetLabelledStockByTIDNumbers';
 
-/** Get display image URL for an item: from API "Images" (comma-separated paths) use last image, or Image1/imageurl/ImageUrl */
+/** Get display image URL for an item: Images field, ImagePath, imageurl, or other image keys; supports full URLs and relative paths. */
+const absolutizeImageUrl = (rawPath) => {
+  const path = String(rawPath || '').trim();
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path) || /^data:/i.test(path)) return path;
+  const base = IMAGE_BASE_URL.replace(/\/$/, '');
+  return `${base}/${path.replace(/^\//, '')}`;
+};
+
 const getItemImageUrl = (item) => {
   if (!item) return null;
   if (item.Images && typeof item.Images === 'string') {
     const paths = item.Images.split(',').map((s) => s.trim()).filter(Boolean);
     const lastPath = paths.length > 0 ? paths[paths.length - 1] : null;
-    if (lastPath) {
-      const base = IMAGE_BASE_URL.replace(/\/$/, '');
-      const path = lastPath.replace(/^\//, '');
-      return `${base}/${path}`;
-    }
+    if (lastPath) return absolutizeImageUrl(lastPath);
   }
-  return item.Image1 || item.imageurl || item.ImageUrl || null;
+  const direct =
+    item.Image1 ||
+    item.ImagePath ||
+    item.imagePath ||
+    item.imageurl ||
+    item.ImageUrl ||
+    item.ImageURL ||
+    item.PhotoUrl ||
+    item.ProductImage ||
+    null;
+  return absolutizeImageUrl(direct);
 };
 
 const getUniqueOptions = (data, field) => {
@@ -5067,6 +5081,7 @@ const LabelStockList = () => {
                         alt={item.ProductName || 'Product'}
                         className="product-card__image"
                         wrapperStyle={{ width: '100%', height: '100%' }}
+                        imgStyle={{ width: '100%', height: '100%', objectFit: 'contain' }}
                         placeholder={(
                           <div className="product-card__image-placeholder">
                             <FaGem size={32} />

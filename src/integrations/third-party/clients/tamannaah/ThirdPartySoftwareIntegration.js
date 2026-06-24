@@ -8,6 +8,8 @@ const LOYALSTRING_SAVE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/S
 const UPDATE_EXISTING_API = 'https://soni.loyalstring.co.in/api/ProductMaster/UpdateExistingProducts';
 const PUSH_CHUNK_SIZE = 50;
 
+const getRowImagePath = (row) => String(row?.ImagePath ?? row?.imagePath ?? row?.ImageUrl ?? '').trim();
+
 // Save RFID API: send all rows; RFIDNumber may be empty when Gati has no RFID.
 const mapGatiToLoyalstringPayload = (row, clientCode) => ({
   client_code: String(clientCode || ''),
@@ -33,7 +35,7 @@ const mapGatiToLoyalstringPayload = (row, clientCode) => ({
   MakingPercentage: '0',
   MakingFixedAmt: '0',
   MRP: String(row.MRP ?? '0'),
-  imageurl: String(row.Description ?? ''),
+  imageurl: getRowImagePath(row),
   status: 'ApiActive',
 });
 
@@ -59,6 +61,7 @@ const mapGatiToUpdateExistingPayload = (row, clientCode) => ({
   MakingPerGram: '0',
   MakingPercentage: '0',
   MakingFixedAmt: '0',
+  imageurl: getRowImagePath(row),
   status: String('ApiActive'),
 });
 
@@ -81,8 +84,6 @@ const STOCK_COLUMNS = [
   { key: 'MRP', label: 'MRP', width: 95 },
   { key: 'Status', label: 'Status', width: 80 },
 ];
-
-const getRowImagePath = (row) => String(row?.ImagePath ?? row?.imagePath ?? row?.ImageUrl ?? '').trim();
 
 const getClientCodeFromAuth = () => {
   try {

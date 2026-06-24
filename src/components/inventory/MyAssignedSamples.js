@@ -22,6 +22,13 @@ import {
   getLotByIdUrl,
   getMyAssignedLotsUrl,
   sampleAuthHeaders,
+  displayRfidSampleDate,
+  isEmployeeLotAcceptancePending,
+  canEmployeeAcceptSampleLine,
+  isRfidSamplePartiallyAcceptedLot,
+  pickLotPendingAcceptanceItems,
+  pickLotAcceptedOutItems,
+  isRfidSamplePartialAcceptedLot,
 } from '../../services/rfidSampleApi';
 import { getRrgoldApiBaseUrl } from '../../services/apiBaseConfig';
 import {
@@ -52,6 +59,12 @@ const formatDate = (value) => {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 };
 
+const displayLotSampleOut = (lot) =>
+  displayRfidSampleDate(lot, ['sampleOutDate', 'SampleOutDate', 'outDate', 'OutDate'], formatDate);
+
+const displayLotExpectedReturn = (lot) =>
+  displayRfidSampleDate(lot, ['expectedReturnDate', 'ExpectedReturnDate'], formatDate);
+
 const formatWeight3 = (value) => {
   const n = parseFloat(value);
   return Number.isNaN(n) ? '0.000' : n.toFixed(3);
@@ -62,6 +75,17 @@ const lineKey = (line) =>
     pick(line, 'Id', 'id', 'LabelledStockId', 'labelledStockId') ||
       `${pick(line, 'ItemCode', 'itemCode')}|${pick(line, 'RFIDCode', 'rfidCode')}`
   );
+
+/** Lot line id for AcceptLot AcceptedItemIds (not LabelledStockId). */
+const lineItemId = (line) => {
+  const id = parseInt(pick(line, 'Id', 'id'), 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+};
+
+const isPendingItemStatus = (line) => {
+  const s = String(pick(line, 'ItemStatus', 'itemStatus') || '').trim().toLowerCase();
+  return s === 'pending' || s.includes('pending');
+};
 
 const lineItemCode = (line) => pick(line, 'ItemCode', 'itemCode') || '—';
 const lineRfid = (line) => pick(line, 'RFIDCode', 'RFIDNumber', 'rfidCode') || '—';
@@ -234,6 +258,7 @@ const formatLotStatusLabel = (status) => {
   if (!s) return '—';
   const known = {
     PendingAcceptance: 'Pending acceptance',
+    PartialAccepted: 'Partial accepted',
     Open: 'Open',
     PartialReturned: 'Partial return',
     PartiallyReturned: 'Partial return',
@@ -242,6 +267,9 @@ const formatLotStatusLabel = (status) => {
   };
   return known[s] || s.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
 };
+
+const employeeLotDisplayStatus = (lot) =>
+  pick(lot, 'EmployeeLotStatus', 'employeeLotStatus', 'LotStatus', 'lotStatus', 'Status', 'status');
 
 const formatItemStatusLabel = (status) => {
   const s = String(status || '').trim();
@@ -872,7 +900,7 @@ const MyAssignedSamples = () => {
   const clientCode = getClientCode();
   const [lots, setLots] = useState([]);
   const [listLoading, setListLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('PendingAcceptance');
   const [detailLot, setDetailLot] = useState(null);
   const [detailItems, setDetailItems] = useState([]);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1025,12 +1053,36 @@ const MyAssignedSamples = () => {
     }
   };
 
+  const refreshDetailLot = useCallback(
+    async (lotId, fallbackLot) => {
+      if (!lotId || !clientCode) return;
+      const { data } = await axios.get(getLotByIdUrl(clientCode, lotId), {
+        headers: sampleAuthHeaders(),
+      });
+      if (data?.success === false) {
+        throw new Error(data?.message || data?.Message || 'Could not refresh lot detail');
+      }
+      const { lot: body, items } = parseLotDetailResponse(data);
+      setDetailLot(body || fallbackLot);
+      setDetailItems(items);
+      setSelectedLineKeys(new Set());
+    },
+    [clientCode]
+  );
+
+  const acceptableItems = useMemo(
+    () => detailItems.filter(canEmployeeAcceptSampleLine),
+    [detailItems]
+  );
+
   const detailSummary = useMemo(() => summarizeItems(detailItems), [detailItems]);
   const selectedCount = selectedLineKeys.size;
-  const allSelected = detailItems.length > 0 && selectedCount === detailItems.length;
-  const canAcceptLot =
-    pick(detailLot, 'LotStatus', 'lotStatus', 'Status') === 'PendingAcceptance' ||
-    pick(detailLot, 'LotStatus', 'lotStatus', 'Status') === 'pendingAcceptance';
+  const allSelected =
+    acceptableItems.length > 0 && selectedCount === acceptableItems.length;
+  const canAcceptLot = isEmployeeLotAcceptancePending(detailLot);
+  const detailPartialAccepted = isRfidSamplePartiallyAcceptedLot(detailLot);
+  const detailPendingAcceptanceCount = pickLotPendingAcceptanceItems(detailLot);
+  const detailAcceptedOutCount = pickLotAcceptedOutItems(detailLot);
 
   // Item pagination inside detail view
   const totalItemPages = useMemo(() => {
@@ -1053,7 +1105,7 @@ const MyAssignedSamples = () => {
   };
 
   const selectAllLines = () => {
-    setSelectedLineKeys(new Set(detailItems.map((line) => lineKey(line))));
+    setSelectedLineKeys(new Set(acceptableItems.map((line) => lineKey(line))));
   };
 
   const clearLineSelection = () => {
@@ -1066,15 +1118,16 @@ const MyAssignedSamples = () => {
 
     const selectedLines =
       mode === 'all'
-        ? detailItems
-        : detailItems.filter((line) => selectedLineKeys.has(lineKey(line)));
+        ? acceptableItems
+        : acceptableItems.filter((line) => selectedLineKeys.has(lineKey(line)));
 
     if (!selectedLines.length) {
-      toast.warn('Select at least one item to accept.', { position: 'top-right' });
+      toast.warn('Select at least one pending item to accept.', { position: 'top-right' });
       return;
     }
 
-    const isPartial = mode === 'selected' && selectedLines.length < detailItems.length;
+    const isPartial =
+      mode === 'selected' && selectedLines.length < acceptableItems.length;
 
     setAccepting(true);
     setLoading(true);
@@ -1086,13 +1139,12 @@ const MyAssignedSamples = () => {
       };
 
       if (isPartial) {
-        payload.Items = selectedLines.map((line) => ({
-          LabelledStockId:
-            parseInt(pick(line, 'LabelledStockId', 'labelledStockId'), 10) || undefined,
-          ItemCode: pick(line, 'ItemCode', 'itemCode') || undefined,
-          Id: parseInt(pick(line, 'Id', 'id'), 10) || undefined,
-        }));
-        payload.AcceptPartial = true;
+        const acceptedItemIds = selectedLines.map((line) => lineItemId(line)).filter((id) => id != null);
+        if (!acceptedItemIds.length) {
+          toast.warn('Could not resolve item IDs for the selected lines.', { position: 'top-right' });
+          return;
+        }
+        payload.AcceptedItemIds = acceptedItemIds;
       }
 
       const { data } = await axios.post(getAcceptLotUrl(), payload, {
@@ -1101,28 +1153,53 @@ const MyAssignedSamples = () => {
       if (data?.success === false) {
         throw new Error(data?.message || data?.Message || 'Accept failed');
       }
+
+      const partialResult =
+        data?.isPartialAccept === true ||
+        data?.IsPartialAccept === true ||
+        isRfidSamplePartialAcceptedLot({ lotStatus: data?.lotStatus ?? data?.LotStatus }) ||
+        isPartial;
+      const acceptedCount =
+        data?.acceptedCount ?? data?.AcceptedCount ?? selectedLines.length;
+      const rejectedCount = data?.rejectedCount ?? data?.RejectedCount;
+      const pendingAcceptanceRemaining = Number(
+        data?.pendingAcceptanceItems ?? data?.PendingAcceptanceItems ?? 0
+      );
+      const employeeStillPending =
+        isEmployeeLotAcceptancePending({
+          employeeLotStatus: data?.employeeLotStatus ?? data?.EmployeeLotStatus,
+          pendingAcceptanceItems: pendingAcceptanceRemaining,
+          canEmployeeAcceptMore: data?.canEmployeeAcceptMore ?? data?.CanEmployeeAcceptMore,
+        }) || pendingAcceptanceRemaining > 0;
+
       addNotification({
         type: 'success',
-        title: isPartial ? 'Items accepted' : 'Lot accepted',
+        title: partialResult ? 'Partial accept' : 'Lot accepted',
         message:
           data?.message ||
           data?.Message ||
-          (isPartial
-            ? `${selectedLines.length} item(s) accepted.`
+          (partialResult
+            ? `${acceptedCount} item(s) accepted${
+                pendingAcceptanceRemaining > 0
+                  ? `, ${pendingAcceptanceRemaining} still pending acceptance`
+                  : rejectedCount
+                    ? `, ${rejectedCount} released back to stock`
+                    : ''
+              }.`
             : 'You now have custody of this sample lot.'),
       });
-      closeDetail();
-      setAcceptRemark('OK');
+
+      if (employeeStillPending) {
+        await refreshDetailLot(Number(lotId), detailLot);
+        setAcceptRemark('');
+      } else {
+        closeDetail();
+        setAcceptRemark('');
+      }
       await loadLots();
     } catch (err) {
       const msg = err?.response?.data?.message || err?.message || 'Could not accept lot';
       addNotification({ type: 'error', title: 'Accept failed', message: msg });
-      if (isPartial && /partial|item|not support/i.test(msg)) {
-        toast.info('Partial accept may not be supported — try Accept complete lot.', {
-          position: 'top-right',
-          autoClose: 7000,
-        });
-      }
     } finally {
       setAccepting(false);
       setLoading(false);
@@ -1302,8 +1379,11 @@ const MyAssignedSamples = () => {
                 {paginatedLots.map((lot, idx) => {
                   const id = pick(lot, 'LotId', 'lotId', 'Id', 'id') || idx;
                   const status = pick(lot, 'LotStatus', 'lotStatus', 'Status', 'status');
-                  const canAccept =
-                    status === 'PendingAcceptance' || status === 'pendingAcceptance';
+                  const displayStatus = employeeLotDisplayStatus(lot);
+                  const canAccept = isEmployeeLotAcceptancePending(lot);
+                  const pendingAcceptCount = pickLotPendingAcceptanceItems(lot);
+                  const acceptedOutCount = pickLotAcceptedOutItems(lot);
+                  const partialAcceptLot = isRfidSamplePartiallyAcceptedLot(lot);
                   const no = lotNo(lot);
                   const previewLines =
                     (Array.isArray(lotPreviewLines[id]) && lotPreviewLines[id].length
@@ -1324,7 +1404,7 @@ const MyAssignedSamples = () => {
                     <article
                       key={id}
                       style={{
-                        border: partialOut ? '2px solid #fdba74' : '1px solid #e2e8f0',
+                        border: partialAcceptLot ? '2px solid #fbbf24' : partialOut ? '2px solid #fdba74' : '1px solid #e2e8f0',
                         borderRadius: 16,
                         background: '#fff',
                         overflow: 'hidden',
@@ -1347,7 +1427,7 @@ const MyAssignedSamples = () => {
                         <span style={{ fontSize: 18, fontWeight: 800, color: '#0f4c81', letterSpacing: '-0.01em' }}>
                           {no}
                         </span>
-                        <StatusBadge status={status} size="lg" />
+                        <StatusBadge status={displayStatus} size="lg" />
                       </div>
 
                       <LotImageSlider lines={previewLines} alt={no} height={LOT_CARD_IMAGE_HEIGHT} />
@@ -1358,24 +1438,34 @@ const MyAssignedSamples = () => {
                             <span style={{ color: '#64748b' }}>Lot:</span> {no} · <span style={{ color: '#64748b' }}>Emp:</span> {assignee}
                           </div>
                           <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                            <span style={{ color: '#64748b' }}>Out:</span> {formatDate(pick(lot, 'SampleOutDate', 'sampleOutDate', 'OutDate'))} · <span style={{ color: '#64748b' }}>Items:</span> {itemCount} · <span style={{ color: '#64748b' }}>Gr:</span> {lotListGrossWt(lot)} · <span style={{ color: '#64748b' }}>Pcs:</span> {lotListPieces(lot)}
+                            <span style={{ color: '#64748b' }}>Out:</span> {displayLotSampleOut(lot)} · <span style={{ color: '#64748b' }}>Items:</span> {itemCount} · <span style={{ color: '#64748b' }}>Gr:</span> {lotListGrossWt(lot)} · <span style={{ color: '#64748b' }}>Pcs:</span> {lotListPieces(lot)}
                           </div>
-                          {(partialOut || pendingCount != null || returnedCount != null) && (
+                          {(partialAcceptLot || partialOut || pendingCount != null || returnedCount != null) && (
                             <div
                               style={{
                                 textOverflow: 'ellipsis',
                                 overflow: 'hidden',
                                 whiteSpace: 'nowrap',
                                 marginTop: 2,
-                                color: partialOut ? '#9a3412' : '#64748b',
+                                color: partialAcceptLot || partialOut ? '#9a3412' : '#64748b',
                               }}
                             >
-                              <span style={{ color: '#64748b' }}>Pending out:</span>{' '}
-                              {pendingCount != null ? pendingCount : '—'}
-                              {' · '}
-                              <span style={{ color: '#64748b' }}>Returned:</span>{' '}
-                              {returnedCount != null ? returnedCount : '—'}
-                              {partialOut ? ' · Partial out' : ''}
+                              {partialAcceptLot ? (
+                                <>
+                                  <span style={{ color: '#64748b' }}>Accepted:</span> {acceptedOutCount}{' '}
+                                  · <span style={{ color: '#64748b' }}>Pending acceptance:</span>{' '}
+                                  {pendingAcceptCount}
+                                </>
+                              ) : (
+                                <>
+                                  <span style={{ color: '#64748b' }}>Pending out:</span>{' '}
+                                  {pendingCount != null ? pendingCount : '—'}
+                                  {' · '}
+                                  <span style={{ color: '#64748b' }}>Returned:</span>{' '}
+                                  {returnedCount != null ? returnedCount : '—'}
+                                  {partialOut ? ' · Partial out' : ''}
+                                </>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1554,15 +1644,27 @@ const MyAssignedSamples = () => {
                     {lotNo(detailLot)}
                   </h1>
                   <div style={{ marginTop: 12 }}>
-                    <StatusBadge status={pick(detailLot, 'LotStatus', 'lotStatus', 'Status')} size="xl" />
+                    <StatusBadge status={employeeLotDisplayStatus(detailLot)} size="xl" />
+                    {detailPartialAccepted ? (
+                      <p style={{ margin: '8px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>
+                        {detailAcceptedOutCount} accepted · {detailPendingAcceptanceCount} still pending
+                        acceptance
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </div>
-              {canAcceptLot && !detailLoading && detailItems.length > 0 ? (
+              {canAcceptLot && !detailLoading && acceptableItems.length > 0 ? (
                 <button
                   type="button"
                   disabled={accepting}
-                  onClick={() => acceptLot('all')}
+                  onClick={() =>
+                    acceptLot(
+                      selectedLineKeys.size > 0 && selectedLineKeys.size < acceptableItems.length
+                        ? 'selected'
+                        : 'all'
+                    )
+                  }
                   style={{
                     height: 48,
                     padding: '0 22px',
@@ -1581,7 +1683,11 @@ const MyAssignedSamples = () => {
                   }}
                 >
                   <FaCheckCircle size={16} />
-                  Accept Complete Lot
+                  {selectedLineKeys.size > 0 && selectedLineKeys.size < acceptableItems.length
+                    ? `Accept Selected (${selectedLineKeys.size})`
+                    : detailPartialAccepted
+                      ? `Accept remaining (${acceptableItems.length})`
+                      : 'Accept Complete Lot'}
                 </button>
               ) : null}
             </div>
@@ -1604,8 +1710,7 @@ const MyAssignedSamples = () => {
               }}
             >
               <FaExclamationTriangle size={16} style={{ flexShrink: 0 }} />
-              Overdue — expected return was{' '}
-              {formatDate(pick(detailLot, 'ExpectedReturnDate', 'expectedReturnDate'))}
+              Overdue — expected return was {displayLotExpectedReturn(detailLot)}
             </div>
           ) : null}
 
@@ -1640,7 +1745,7 @@ const MyAssignedSamples = () => {
                   <DetailStatChip label="Pieces" value={formatPiecesValue(detailSummary.pieces)} />
                   <DetailStatChip
                     label="Out Date"
-                    value={formatDate(pick(detailLot, 'SampleOutDate', 'sampleOutDate'))}
+                    value={displayLotSampleOut(detailLot)}
                   />
                   <DetailStatChip
                     label="Employee"
@@ -1650,24 +1755,43 @@ const MyAssignedSamples = () => {
                       '—'
                     }
                   />
-                  {(lotPendingItems(detailLot) != null || lotReturnedItems(detailLot) != null) && (
+                  {(detailPartialAccepted ||
+                    lotPendingItems(detailLot) != null ||
+                    lotReturnedItems(detailLot) != null) && (
                     <>
-                      <DetailStatChip
-                        label="Pending Out"
-                        value={lotPendingItems(detailLot) ?? '—'}
-                        accent={isPartialOutLot(detailLot) ? '#b45309' : '#0f172a'}
-                      />
-                      <DetailStatChip
-                        label="Returned"
-                        value={lotReturnedItems(detailLot) ?? '—'}
-                        accent="#047857"
-                      />
+                      {detailPartialAccepted ? (
+                        <>
+                          <DetailStatChip
+                            label="Accepted"
+                            value={detailAcceptedOutCount}
+                            accent="#0369a1"
+                          />
+                          <DetailStatChip
+                            label="Pending acceptance"
+                            value={detailPendingAcceptanceCount}
+                            accent="#b45309"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <DetailStatChip
+                            label="Pending Out"
+                            value={lotPendingItems(detailLot) ?? '—'}
+                            accent={isPartialOutLot(detailLot) ? '#b45309' : '#0f172a'}
+                          />
+                          <DetailStatChip
+                            label="Returned"
+                            value={lotReturnedItems(detailLot) ?? '—'}
+                            accent="#047857"
+                          />
+                        </>
+                      )}
                     </>
                   )}
                 </div>
 
                 {/* Remark card */}
-                {canAcceptLot && detailItems.length > 0 ? (
+                {canAcceptLot && acceptableItems.length > 0 ? (
                   <div style={{ marginBottom: 22 }}>
                     <label
                       htmlFor="lot-accept-remark"
@@ -1727,9 +1851,12 @@ const MyAssignedSamples = () => {
                       </h3>
                       <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
                         {detailItems.length} product{detailItems.length === 1 ? '' : 's'} in this lot
+                        {canAcceptLot && acceptableItems.length > 0
+                          ? ' · select items to accept; unselected items stay pending for a later accept'
+                          : ''}
                       </p>
                     </div>
-                    {canAcceptLot && detailItems.length > 0 && (
+                    {canAcceptLot && acceptableItems.length > 0 && (
                       <div
                         style={{
                           display: 'flex',
@@ -1752,7 +1879,7 @@ const MyAssignedSamples = () => {
                             cursor: allSelected ? 'not-allowed' : 'pointer',
                           }}
                         >
-                          Select all ({detailItems.length})
+                          Select all ({acceptableItems.length})
                         </button>
                         <span style={{ color: '#e2e8f0' }}>|</span>
                         <button
@@ -1773,7 +1900,7 @@ const MyAssignedSamples = () => {
                         <span style={{ color: '#64748b', fontWeight: 500 }}>
                           <strong style={{ color: '#0f4c81', fontWeight: 700 }}>{selectedCount}</strong>
                           {' / '}
-                          {detailItems.length} selected
+                          {acceptableItems.length} selected
                         </span>
                       </div>
                     )}
@@ -1800,7 +1927,7 @@ const MyAssignedSamples = () => {
                             line={line}
                             selected={selectedLineKeys.has(lineKey(line))}
                             onToggle={() => toggleLine(line)}
-                            selectable={canAcceptLot}
+                            selectable={canAcceptLot && canEmployeeAcceptSampleLine(line)}
                           />
                         ))}
                       </div>
@@ -1814,7 +1941,7 @@ const MyAssignedSamples = () => {
                         onPage={setItemPage}
                       />
 
-                      {canAcceptLot && detailItems.length > 0 && (
+                      {canAcceptLot && acceptableItems.length > 0 && (
                         <div
                           style={{
                             marginTop: 22,
@@ -1832,7 +1959,7 @@ const MyAssignedSamples = () => {
                               Ready to accept
                             </div>
                             <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>
-                              {selectedCount} of {detailItems.length} selected
+                              {selectedCount} of {acceptableItems.length} selected
                             </div>
                           </div>
                           <button

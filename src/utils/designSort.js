@@ -40,6 +40,28 @@ const localeDesign = (a, b) =>
 
 const familyGroupKey = (family) => String(family || '\uffff').toLowerCase();
 
+/** Sample out / scan mode (RFID, Tray, Barcode, etc.) for grouping. */
+export const outModeFromItem = (item) => {
+  if (!item) return '';
+  const keys = [
+    'SampleOutMode',
+    'sampleOutMode',
+    'LastActionMode',
+    'lastActionMode',
+    'ScanMode',
+    'scanMode',
+    'LastActionType',
+    'lastActionType',
+  ];
+  for (let i = 0; i < keys.length; i += 1) {
+    const v = item[keys[i]];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+
+const modeGroupKey = (mode) => String(mode || '\uffff').toLowerCase();
+
 export const compareItemsByDesign = (a, b) => {
   const ka = parseDesignSortKey(designNoFromItem(a));
   const kb = parseDesignSortKey(designNoFromItem(b));
@@ -66,6 +88,65 @@ export const sortProductsByDesign = (items) => {
     out.push(...batch);
   });
   return out;
+};
+
+/** Group by out mode, then design family within each mode. */
+export const sortProductsByModeThenDesign = (items) => {
+  if (!items?.length) return [];
+  const modeGroups = new Map();
+  items.forEach((item) => {
+    const key = modeGroupKey(outModeFromItem(item));
+    if (!modeGroups.has(key)) modeGroups.set(key, []);
+    modeGroups.get(key).push(item);
+  });
+  const sortedModes = [...modeGroups.keys()].sort(localeDesign);
+  const out = [];
+  sortedModes.forEach((key) => {
+    out.push(...sortProductsByDesign(modeGroups.get(key)));
+  });
+  return out;
+};
+
+/** Paginate without splitting mode groups; within each mode keep design families together. */
+export const buildModeAndDesignAwarePages = (items, pageSize) => {
+  const sorted = sortProductsByModeThenDesign(items);
+  if (!sorted.length) return [];
+
+  const pages = [];
+  let current = [];
+  const flush = () => {
+    if (current.length) {
+      pages.push(current);
+      current = [];
+    }
+  };
+
+  let idx = 0;
+  while (idx < sorted.length) {
+    const startMode = modeGroupKey(outModeFromItem(sorted[idx]));
+    let modeEnd = idx + 1;
+    while (modeEnd < sorted.length) {
+      if (modeGroupKey(outModeFromItem(sorted[modeEnd])) !== startMode) break;
+      modeEnd += 1;
+    }
+    const modeSlice = sorted.slice(idx, modeEnd);
+    const designPages = buildDesignAwarePages(modeSlice, pageSize);
+    designPages.forEach((page) => {
+      if (current.length > 0 && current.length + page.length > pageSize) flush();
+      if (page.length > pageSize) {
+        flush();
+        for (let g = 0; g < page.length; g += pageSize) {
+          pages.push(page.slice(g, g + pageSize));
+        }
+      } else {
+        current.push(...page);
+        if (current.length >= pageSize) flush();
+      }
+    });
+    idx = modeEnd;
+  }
+  flush();
+  return pages;
 };
 
 /** Paginate without splitting a design family when it fits on one page. */

@@ -145,7 +145,7 @@ const GridItemImage = ({
           style={imgStyle}
           loading="lazy"
           decoding="async"
-          fetchPriority="low"
+          fetchpriority="low"
           draggable={false}
           onError={() => {
             if (displaySrc === apiSrc && apiSrc) {

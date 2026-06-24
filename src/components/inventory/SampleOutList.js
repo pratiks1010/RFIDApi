@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { 
   FaSearch, 
@@ -33,6 +34,7 @@ import { partyTypeToApiEnum } from '../../services/sampleInOutApi';
 import {
   getAdminBulkSampleReturnUrl,
   getAllSampleOutListUrl,
+  buildGetAllSampleOutListQuery,
   getLotByIdUrl,
   sampleAuthHeaders,
   parseRfidSampleLotReturnMeta,
@@ -40,10 +42,22 @@ import {
   getRfidSampleLotFinishUi,
   getItemReturnedByTypeMeta,
   isOutItemStatus,
+  canEmployeeAcceptSampleLine,
   isForceReturnItem,
   countOutItemsFromLines,
   reconcileRfidSampleLotStatus,
+  displayRfidSampleDate,
+  pickFormattedDateField,
+  extractRfidSampleOutListFromResponse,
+  isRfidSamplePartiallyAcceptedLot,
+  isRfidSampleFullyAcceptedLot,
+  pickLotPendingAcceptanceItems,
+  pickLotAcceptedOutItems,
+  normalizeRfidSampleLotStatus,
+  getLotPartialReturnSummaryUrl,
+  parseLotPartialReturnSummary,
 } from '../../services/rfidSampleApi';
+import { PartialReturnSummaryPanel } from './partialReturnSummaryUi';
 import { isSuperAdmin } from '../../utils/authState';
 import { getRrgoldApiBaseUrl, getSoniApiBaseUrl } from '../../services/apiBaseConfig';
 import {
@@ -54,13 +68,17 @@ import {
   warmupLocalItemImageIndex,
 } from '../../services/localItemImageService';
 import GridItemImage from '../common/GridItemImage';
-import { sortProductsByDesign } from '../../utils/designSort';
+import {
+  designNoFromItem,
+  sortProductsByModeThenDesign,
+} from '../../utils/designSort';
 
 const LOT_LIST_PAGE_SIZE = 15;
 const LOT_GRID_PAGE_SIZE = 6;
 const LOT_GRID_COLUMNS = 3;
 const MODAL_GRID_COLUMNS = 3;
-const MODAL_ITEMS_PER_PAGE = 3;
+const MODAL_GRID_ROWS = 1;
+const MODAL_ITEMS_PER_PAGE = MODAL_GRID_COLUMNS * MODAL_GRID_ROWS;
 const MODAL_CARD_IMAGE_HEIGHT = 280;
 const MODAL_CARD_IMAGE_HEIGHT_SM = 220;
 const LINE_GRID_IMAGE_RESOLVE_LIMIT = 120;
@@ -69,9 +87,20 @@ const LOT_DETAIL_BLUE = '#0f4c81';
 const LOT_DETAIL_GOLD = '#c9a227';
 const LOT_DETAIL_FONT = "'Inter', 'Poppins', system-ui, -apple-system, sans-serif";
 
+const LOT_STATUS_LABELS = {
+  PendingAcceptance: 'Pending acceptance',
+  PartialAccepted: 'Partial accepted',
+  Open: 'Open',
+  PartialReturn: 'Partial return',
+  PartialReturned: 'Partial return',
+  Closed: 'Closed',
+  Completed: 'Completed',
+};
+
 const humanizeLotStatus = (status) => {
   const raw = String(status || '').trim();
   if (!raw || raw === '—') return '—';
+  if (LOT_STATUS_LABELS[raw]) return LOT_STATUS_LABELS[raw];
   return raw
     .replace(/_/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -296,6 +325,9 @@ const LotDetailSummaryBar = ({
   itemsCount,
   pending,
   outItems,
+  pendingAcceptanceItems,
+  isPartiallyAccepted,
+  isFullyAccepted,
   employeeReturnedItems,
   adminReturnedItems,
   forceReturnedItems,
@@ -303,12 +335,13 @@ const LotDetailSummaryBar = ({
   grossWt,
   netWt,
   pieces,
+  totalProducts,
   outDate,
   inDate,
-  dueDate,
   employee,
   loginUser,
   lotStatus,
+  adminSelectAll,
 }) => {
   const statusKey = String(lotStatus || '').toLowerCase();
   const statusTone = statusKey.includes('completed')
@@ -388,7 +421,6 @@ const LotDetailSummaryBar = ({
         >
           <LotDetailMetaCell label="Sample out date" value={outDate} valueColor={LOT_DETAIL_BLUE} />
           <LotDetailMetaCell label="Sample in date" value={inDate} valueColor="#047857" />
-          <LotDetailMetaCell label="Sample due date" value={dueDate} valueColor="#b45309" />
         </div>
 
         <div style={sectionRule} />
@@ -400,8 +432,8 @@ const LotDetailSummaryBar = ({
             gap: '10px 18px',
           }}
         >
-          <LotDetailMetaCell label="Sample out employee name" value={employee} valueColor="#0f766e" />
-          <LotDetailMetaCell label="Sample in user name" value={loginUser} valueColor={LOT_DETAIL_BLUE} />
+          <LotDetailMetaCell label="Sample Assigned to" value={employee} valueColor="#0f766e" />
+          <LotDetailMetaCell label="Sample Assigned BY" value={loginUser} valueColor={LOT_DETAIL_BLUE} />
         </div>
 
         <div style={sectionRule} />
@@ -415,8 +447,32 @@ const LotDetailSummaryBar = ({
           }}
         >
           <LotDetailCountInline label="Items" value={itemsCount} color="#1e40af" bg="#eff6ff" />
-          <LotDetailCountInline label="Pending" value={pending} color="#b45309" bg="#fffbeb" />
-          <LotDetailCountInline label="Out" value={outItems} color="#0369a1" bg="#e0f2fe" />
+          {isFullyAccepted ? (
+            <>
+              <LotDetailCountInline label="Out" value={outItems} color="#0369a1" bg="#e0f2fe" />
+              <LotDetailCountInline label="Fully accepted" value="Yes" color="#047857" bg="#ecfdf5" />
+            </>
+          ) : isPartiallyAccepted || Number(pendingAcceptanceItems) > 0 ? (
+            <>
+              <LotDetailCountInline
+                label="Accepted"
+                value={outItems}
+                color="#0369a1"
+                bg="#e0f2fe"
+              />
+              <LotDetailCountInline
+                label="Pending acceptance"
+                value={pendingAcceptanceItems ?? '—'}
+                color="#b45309"
+                bg="#fffbeb"
+              />
+            </>
+          ) : (
+            <>
+              <LotDetailCountInline label="Pending" value={pending} color="#b45309" bg="#fffbeb" />
+              <LotDetailCountInline label="Out" value={outItems} color="#0369a1" bg="#e0f2fe" />
+            </>
+          )}
           <LotDetailCountInline label="Returned" value={returnedItems ?? '—'} color="#047857" bg="#ecfdf5" />
           <span style={{ width: 1, height: 18, background: '#e2e8f0', flexShrink: 0 }} aria-hidden />
           <LotDetailReturnInline
@@ -433,12 +489,68 @@ const LotDetailSummaryBar = ({
             display: 'flex',
             flexWrap: 'wrap',
             alignItems: 'center',
-            gap: '14px 22px',
+            justifyContent: 'space-between',
+            gap: 14,
           }}
         >
-          <LotDetailInlineStat label="Gross Wt" value={grossWt} />
-          <LotDetailInlineStat label="Net Wt" value={netWt} />
-          <LotDetailInlineStat label="Pieces" value={pieces} />
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '14px 22px',
+            }}
+          >
+            <LotDetailInlineStat label="Gross Wt" value={grossWt} />
+            <LotDetailInlineStat label="Net Wt" value={netWt} />
+            <LotDetailInlineStat label="Pieces" value={pieces} />
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '14px 18px',
+              marginLeft: 'auto',
+            }}
+          >
+            <LotDetailInlineStat
+              label="Total Products"
+              value={totalProducts ?? itemsCount ?? '—'}
+              valueColor={LOT_DETAIL_BLUE}
+            />
+            {adminSelectAll?.show ? (
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  color: '#334155',
+                  userSelect: 'none',
+                  fontFamily: LOT_DETAIL_FONT,
+                  fontSize: 13,
+                }}
+              >
+                <input
+                  ref={adminSelectAll.checkboxRef}
+                  type="checkbox"
+                  checked={adminSelectAll.checked}
+                  onChange={adminSelectAll.onChange}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    accentColor: LOT_DETAIL_BLUE,
+                    cursor: 'pointer',
+                    margin: 0,
+                  }}
+                  aria-label={adminSelectAll.ariaLabel || 'Select all returnable items'}
+                />
+                {adminSelectAll.label}
+              </label>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -743,6 +855,25 @@ const formatLotDateTime = (dateString) => {
   }
 };
 
+const displayLotSampleOutDateTime = (item) =>
+  displayRfidSampleDate(
+    item,
+    ['sampleOutDate', 'issueDate', 'SampleOutDate', 'IssueDate', 'createdOn', 'CreatedOn'],
+    formatLotDateTime
+  );
+
+const displayLotExpectedReturnDate = (item) =>
+  displayRfidSampleDate(item, ['expectedReturnDate', 'ExpectedReturnDate'], formatListDate);
+
+const displayLotSampleInDateTime = (header, lines = []) => {
+  const formatted =
+    pickFormattedDateField(header, 'actualReturnDate') ||
+    pickFormattedDateField(header, 'closedDate') ||
+    pickFormattedDateField(header, 'sampleInDate');
+  if (formatted) return formatted;
+  return formatLotDateTime(lotSampleInDateRaw(header, lines));
+};
+
 const lotDisplayParty = (item) => {
   const name = String(item?.PartyName || '').trim();
   if (name && name !== '—') return name;
@@ -931,9 +1062,9 @@ const LotGridCard = ({
   const netDisplay = weights.net > 0 ? weights.net.toFixed(3) : '—';
   const partyName = lotDisplayParty(item);
   const partyLabel = lotPartyLabel(item);
-  const sampleOutDateTime = formatLotDateTime(lotSampleOutDateTimeRaw(item));
+  const sampleOutDateTime = displayLotSampleOutDateTime(item);
   const summaryTitle = `Gross: ${grossDisplay} · Net: ${netDisplay} · Pcs: ${totalPieces} · Products: ${totalProducts}`;
-  const detailTitle = `Sample Out: ${sampleOutDateTime} · Due: ${formatDate(item.ExpectedReturnDate)} · Item: ${activeCode}${
+  const detailTitle = `Sample Out: ${sampleOutDateTime} · Due: ${displayLotExpectedReturnDate(item)} · Item: ${activeCode}${
     item.Remarks ? ` · Remark: ${item.Remarks}` : ''
   }`;
 
@@ -1149,7 +1280,7 @@ const LotGridCard = ({
         <span style={{ ...LOT_CARD_VALUE, fontVariantNumeric: 'tabular-nums' }}>{sampleOutDateTime}</span>
         {LOT_CARD_DOT}
         <span style={LOT_CARD_LABEL}>Due:</span>{' '}
-        <span style={LOT_CARD_VALUE}>{formatDate(item.ExpectedReturnDate)}</span>
+        <span style={LOT_CARD_VALUE}>{displayLotExpectedReturnDate(item)}</span>
         {LOT_CARD_DOT}
         <span style={LOT_CARD_LABEL}>Item:</span>{' '}
         <span style={LOT_CARD_VALUE}>{activeCode}</span>
@@ -1158,6 +1289,25 @@ const LotGridCard = ({
             {LOT_CARD_DOT}
             <span style={LOT_CARD_LABEL}>Remark:</span>{' '}
             <span style={{ ...LOT_CARD_VALUE, fontWeight: 700 }}>{item.Remarks}</span>
+          </>
+        ) : null}
+        {isRfidSamplePartiallyAcceptedLot(item) || isRfidSampleFullyAcceptedLot(item) ? (
+          <>
+            {LOT_CARD_DOT}
+            <span style={LOT_CARD_LABEL}>Out:</span>{' '}
+            <span style={{ ...LOT_CARD_VALUE, color: '#0369a1' }}>{pickLotAcceptedOutItems(item)}</span>
+            {isRfidSampleFullyAcceptedLot(item) ? (
+              <>
+                {LOT_CARD_DOT}
+                <span style={{ ...LOT_CARD_VALUE, color: '#047857' }}>Fully accepted</span>
+              </>
+            ) : (
+              <>
+                {LOT_CARD_DOT}
+                <span style={LOT_CARD_LABEL}>Pending accept:</span>{' '}
+                <span style={{ ...LOT_CARD_VALUE, color: '#b45309' }}>{pickLotPendingAcceptanceItems(item)}</span>
+              </>
+            )}
           </>
         ) : null}
       </LotCardStatRow>
@@ -1214,10 +1364,54 @@ const isReturnedLineStatus = (status) => {
   return s.includes('return') || s === 'in' || s === 'returned';
 };
 
+/** Out on sample but employee has not accepted yet. */
+const isPendingAcceptanceLine = (line) => {
+  if (!line || typeof line !== 'object') return false;
+  const status = line?.ItemStatus ?? line?.itemStatus;
+  if (isReturnedLineStatus(status)) return false;
+  if (line.isPendingWithEmployee === true || line.IsPendingWithEmployee === true) return true;
+  return canEmployeeAcceptSampleLine(line);
+};
+
 const formatLineDateTimeField = (line, ...keys) => {
   const raw = pickLineField(line, ...keys);
   if (!raw) return '—';
   return formatLotDateTime(raw);
+};
+
+const displayLineSampleOutOn = (line, lotHeader) => {
+  const formatted =
+    pickFormattedDateField(line, 'sampleOutOn') ||
+    pickFormattedDateField(line, 'sampleOutDate') ||
+    pickFormattedDateField(lotHeader, 'sampleOutDate');
+  if (formatted) return formatted;
+  return formatLineDateTimeField(
+    line,
+    'SampleOutOn',
+    'sampleOutOn',
+    'OutDate',
+    'outDate',
+    'SampleOutDate',
+    'sampleOutDate'
+  );
+};
+
+const displayLineSampleInOn = (line) => {
+  const formatted =
+    pickFormattedDateField(line, 'sampleInOn') ||
+    pickFormattedDateField(line, 'actualReturnDate');
+  if (formatted) return formatted;
+  return formatLineDateTimeField(
+    line,
+    'SampleInOn',
+    'sampleInOn',
+    'InDate',
+    'inDate',
+    'SampleInDate',
+    'sampleInDate',
+    'ReturnDate',
+    'returnDate'
+  );
 };
 
 const lineMatchesDetailUserFilter = (line, filter) => {
@@ -1458,6 +1652,383 @@ const AdminReturnProductCard = ({
   );
 };
 
+const AdminReturnProductsAccordion = ({
+  lines,
+  lineItemCode,
+  lineCategory,
+  lineProduct,
+  lineDesign,
+  lineRfidValue,
+  lineGrossWt,
+  lineNetWt,
+  lineLotItemId,
+  lineItemKey,
+  lineItemLocalImageUrls,
+  lineImageUrl,
+  productRemarks = {},
+  onRemarkChange,
+  lotRemarkFallback = '',
+  disabled = false,
+}) => {
+  const itemRows = useMemo(
+    () =>
+      (lines || []).map((line, idx) => {
+        const lotItemId = lineLotItemId(line);
+        const code = lineItemCode(line);
+        return {
+          line,
+          idx,
+          lotItemId,
+          code,
+          img: lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line),
+          category: lineCategory(line),
+          product: lineProduct(line),
+          design: lineDesign ? lineDesign(line) : '—',
+          rfid: lineRfidValue(line),
+          gross: lineGrossWt(line),
+          net: lineNetWt(line),
+          remark: String(productRemarks[lotItemId] ?? productRemarks[String(lotItemId)] ?? '').trim(),
+        };
+      }),
+    [
+      lines,
+      lineItemCode,
+      lineCategory,
+      lineProduct,
+      lineDesign,
+      lineRfidValue,
+      lineGrossWt,
+      lineNetWt,
+      lineLotItemId,
+      lineItemKey,
+      lineItemLocalImageUrls,
+      lineImageUrl,
+      productRemarks,
+    ]
+  );
+
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+
+  useEffect(() => {
+    if (itemRows.length === 1 && itemRows[0].lotItemId != null) {
+      setExpandedIds(new Set([itemRows[0].lotItemId]));
+      return;
+    }
+    if (itemRows.length > 1) {
+      const firstId = itemRows[0]?.lotItemId;
+      setExpandedIds(firstId != null ? new Set([firstId]) : new Set());
+    } else {
+      setExpandedIds(new Set());
+    }
+  }, [itemRows.length, itemRows[0]?.lotItemId]);
+
+  const remarkFilledCount = itemRows.filter((row) => row.remark).length;
+  const multi = itemRows.length > 1;
+
+  const toggleExpanded = (lotItemId) => {
+    if (lotItemId == null) return;
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lotItemId)) next.delete(lotItemId);
+      else next.add(lotItemId);
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    setExpandedIds(new Set(itemRows.map((row) => row.lotItemId).filter((id) => id != null)));
+  };
+
+  const collapseAll = () => setExpandedIds(new Set());
+
+  const applyLotRemarkToEmpty = () => {
+    const bulk = String(lotRemarkFallback || '').trim();
+    if (!bulk || !onRemarkChange) return;
+    itemRows.forEach((row) => {
+      if (row.lotItemId != null && !row.remark) onRemarkChange(row.lotItemId, bulk);
+    });
+  };
+
+  if (!itemRows.length) {
+    return (
+      <div style={{ padding: 16, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+        No items to return.
+      </div>
+    );
+  }
+
+  return (
+    <section
+      style={{
+        borderRadius: 12,
+        border: '1px solid #e2e8f0',
+        background: '#fff',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          padding: '10px 12px',
+          background: 'linear-gradient(180deg, #f8fafc 0%, #fff 100%)',
+          borderBottom: '1px solid #eef2f7',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
+            Product remarks ({itemRows.length})
+          </div>
+          <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+            {remarkFilledCount} with remark · {itemRows.length - remarkFilledCount} using lot default
+          </div>
+        </div>
+        {multi ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <button
+              type="button"
+              onClick={expandAll}
+              disabled={disabled}
+              style={adminReturnMiniBtn(disabled)}
+            >
+              Expand all
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              disabled={disabled}
+              style={adminReturnMiniBtn(disabled)}
+            >
+              Collapse all
+            </button>
+            <button
+              type="button"
+              onClick={applyLotRemarkToEmpty}
+              disabled={disabled || !String(lotRemarkFallback || '').trim()}
+              style={adminReturnMiniBtn(disabled || !String(lotRemarkFallback || '').trim(), true)}
+              title="Copy lot remark into empty product fields"
+            >
+              Fill empty from lot
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      <div
+        style={{
+          maxHeight: multi ? 'min(360px, 42vh)' : undefined,
+          overflowY: multi ? 'auto' : 'visible',
+          overflowX: 'hidden',
+          padding: multi ? '8px' : 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: multi ? 6 : 0,
+        }}
+      >
+        {itemRows.map((row) => {
+          const expanded = !multi || expandedIds.has(row.lotItemId);
+          const rowKey = row.lotItemId ?? `${row.code}-${row.idx}`;
+
+          if (!multi) {
+            return (
+              <AdminReturnProductCard
+                key={rowKey}
+                dense
+                line={row.line}
+                img={row.img}
+                lineItemCode={lineItemCode}
+                lineCategory={lineCategory}
+                lineProduct={lineProduct}
+                lineRfidValue={lineRfidValue}
+                lineGrossWt={lineGrossWt}
+                lineNetWt={lineNetWt}
+                reviewRemark={row.remark}
+                onReviewRemarkChange={(value) => onRemarkChange?.(row.lotItemId, value)}
+                bulkRemarkFallback={lotRemarkFallback}
+              />
+            );
+          }
+
+          return (
+            <div
+              key={rowKey}
+              style={{
+                borderRadius: 10,
+                border: expanded ? '1px solid #fcd34d' : '1px solid #eef2f7',
+                background: expanded ? '#fffbeb' : '#fff',
+                overflow: 'hidden',
+                boxShadow: expanded ? '0 2px 10px rgba(180, 83, 9, 0.08)' : '0 1px 3px rgba(15,23,42,0.04)',
+                transition: 'border-color 0.15s ease, background 0.15s ease',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => toggleExpanded(row.lotItemId)}
+                disabled={disabled}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 10px',
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  textAlign: 'left',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <FaChevronDown
+                  size={11}
+                  style={{
+                    color: '#64748b',
+                    flexShrink: 0,
+                    transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.15s ease',
+                  }}
+                />
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    flexShrink: 0,
+                    borderRadius: 8,
+                    background: '#f8fafc',
+                    border: '1px solid #f1f5f9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {row.img ? (
+                    <img src={row.img} alt={row.code} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  ) : (
+                    <FaInbox size={16} style={{ color: '#cbd5e1' }} />
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: LOT_DETAIL_BLUE }}>{row.code}</span>
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 999,
+                        background: row.remark ? '#dcfce7' : '#f1f5f9',
+                        color: row.remark ? '#15803d' : '#64748b',
+                        border: row.remark ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
+                      }}
+                    >
+                      {row.remark ? 'Remark set' : 'No remark'}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: '#64748b',
+                      marginTop: 2,
+                      lineHeight: 1.4,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    title={`${row.design} · ${row.category} · RFID ${row.rfid}`}
+                  >
+                    {row.design} · {row.category} · RFID {row.rfid}
+                  </div>
+                  {!expanded && row.remark ? (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: '#92400e',
+                        marginTop: 3,
+                        fontStyle: 'italic',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={row.remark}
+                    >
+                      “{row.remark}”
+                    </div>
+                  ) : null}
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0, fontSize: 10, color: '#475569', lineHeight: 1.35 }}>
+                  <div>
+                    Gr <strong>{row.gross}</strong>
+                  </div>
+                  <div>
+                    Net <strong>{row.net}</strong>
+                  </div>
+                </div>
+              </button>
+
+              {expanded ? (
+                <div
+                  style={{
+                    padding: '0 10px 10px 44px',
+                    borderTop: '1px solid #fde68a',
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', margin: '8px 0 4px' }}>
+                    Product review remark
+                  </div>
+                  <textarea
+                    value={row.remark}
+                    onChange={(e) => onRemarkChange?.(row.lotItemId, e.target.value)}
+                    placeholder={lotRemarkFallback || 'Product review remark…'}
+                    rows={2}
+                    disabled={disabled}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      border: '1px solid #fcd34d',
+                      fontSize: 12,
+                      lineHeight: 1.45,
+                      color: '#0f172a',
+                      resize: 'vertical',
+                      minHeight: 56,
+                      maxHeight: 120,
+                      boxSizing: 'border-box',
+                      fontFamily: 'inherit',
+                      background: '#fff',
+                    }}
+                  />
+                  <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>
+                    Falls back to lot remark when left empty.
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+const adminReturnMiniBtn = (disabled, accent = false) => ({
+  padding: '4px 8px',
+  borderRadius: 7,
+  border: accent ? '1px solid #fcd34d' : '1px solid #e2e8f0',
+  background: accent ? '#fffbeb' : '#fff',
+  color: disabled ? '#94a3b8' : accent ? '#92400e' : '#475569',
+  fontSize: 10,
+  fontWeight: 700,
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  fontFamily: LOT_DETAIL_FONT,
+  whiteSpace: 'nowrap',
+});
+
 const LotDetailItemCard = ({
   line,
   lotHeader,
@@ -1465,6 +2036,7 @@ const LotDetailItemCard = ({
   lineItemCode,
   lineCategory,
   lineProduct,
+  lineDesign,
   lineGrossWt,
   lineNetWt,
   lineImageUrl,
@@ -1479,33 +2051,21 @@ const LotDetailItemCard = ({
   const rfid = lineRfidValue(line);
   const category = lineCategory(line);
   const product = lineProduct(line);
+  const designTitle = lineDesignCardTitle(line);
+  const designName = lineDesign ? lineDesign(line) : lineDesignLabel(line);
   const pieces = formatPiecesDisplay(linePiecesFromMrp(line));
   const status = String(line?.ItemStatus || '—').trim() || '—';
   const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
   const returnedByMeta = getReturnedByTypeMeta(line);
   const pendingWithEmployee = line?.isPendingWithEmployee === true || line?.IsPendingWithEmployee === true;
-  const sampleOutDate = formatListDate(lineSampleOutDateRaw(line, lotHeader));
-  const sampleInDate = formatLineSampleInDate(line);
-  const sampleOutDateTime = formatLineDateTimeField(
+  const sampleOutDate = displayRfidSampleDate(
     line,
-    'SampleOutOn',
-    'sampleOutOn',
-    'OutDate',
-    'outDate',
-    'SampleOutDate',
-    'sampleOutDate'
+    ['sampleOutDate', 'outDate', 'issueDate'],
+    formatListDate
   );
-  const sampleInDateTime = formatLineDateTimeField(
-    line,
-    'SampleInOn',
-    'sampleInOn',
-    'InDate',
-    'inDate',
-    'SampleInDate',
-    'sampleInDate',
-    'ReturnDate',
-    'returnDate'
-  );
+  const sampleInDate = displayLineSampleInOn(line);
+  const sampleOutDateTime = displayLineSampleOutOn(line, lotHeader);
+  const sampleInDateTime = displayLineSampleInOn(line);
   const employeeName = lineEmployeeNameRaw(line, lotHeader) || '—';
   const scanMeta = pickLineScanMeta(line);
   const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
@@ -1655,7 +2215,7 @@ const LotDetailItemCard = ({
           style={{
             border: 'none',
             background: 'none',
-            padding: '0 0 6px',
+            padding: 0,
             margin: 0,
             fontSize: 15,
             fontWeight: 800,
@@ -1666,20 +2226,26 @@ const LotDetailItemCard = ({
             letterSpacing: '-0.01em',
             display: 'block',
             width: '100%',
+            lineHeight: 1.35,
+            wordBreak: 'break-word',
           }}
+          title={designTitle}
         >
-          {itemCode}
+          {designTitle}
         </button>
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
             gap: '6px 10px',
+            marginTop: 8,
           }}
         >
-          <LotDetailFieldCell label="Category" value={category} />
-          <LotDetailFieldCell label="Product" value={product} valueColor={LOT_DETAIL_BLUE} />
+          <LotDetailFieldCell label="Item" value={itemCode} valueColor={LOT_DETAIL_BLUE} />
+          <LotDetailFieldCell label="Design" value={designName} />
           <LotDetailFieldCell label="RFID" value={rfid} />
+          <LotDetailFieldCell label="Category" value={category} />
+          <LotDetailFieldCell label="Product" value={product} />
           <LotDetailFieldCell label="Pieces" value={pieces} />
           <LotDetailFieldCell label="Gross Wt" value={lineGrossWt(line)} />
           <LotDetailFieldCell label="Net Wt" value={lineNetWt(line)} />
@@ -1773,6 +2339,16 @@ const LotDetailItemCard = ({
   );
 };
 
+const chunkModalDetailPages = (items, pageSize) => {
+  const sorted = sortProductsByModeThenDesign(items || []);
+  if (!sorted.length) return [];
+  const pages = [];
+  for (let i = 0; i < sorted.length; i += pageSize) {
+    pages.push(sorted.slice(i, i + pageSize));
+  }
+  return pages;
+};
+
 const normalizeArray = (data) => {
   if (Array.isArray(data)) return data;
   if (data && typeof data === 'object') {
@@ -1826,6 +2402,9 @@ const mapRfidSampleLine = (line) => {
     DiamondWt: line.diamondWt ?? line.DiamondWt,
     PurityName: line.purityName ?? line.PurityName,
     Mrp: line.mrp ?? line.Mrp ?? line.MRP,
+    mrp: line.mrp ?? line.Mrp ?? line.MRP,
+    Pcs: line.pcs ?? line.Pcs ?? line.mrp ?? line.MRP,
+    pcs: line.pcs ?? line.Pcs ?? line.mrp ?? line.MRP,
     ImageUrl: line.imageUrl ?? line.ImageUrl ?? line.ImageURL ?? line.ImagePath ?? line.imagePath,
     ImagePath: line.imagePath ?? line.ImagePath ?? line.ImageUrl,
     LabelledStockId: line.labelledStockId ?? line.LabelledStockId,
@@ -1850,6 +2429,10 @@ const mapRfidSampleLine = (line) => {
     isForceReturn: line.isForceReturn ?? line.IsForceReturn ?? false,
     IsPendingWithEmployee: line.isPendingWithEmployee ?? line.IsPendingWithEmployee,
     isPendingWithEmployee: line.isPendingWithEmployee ?? line.IsPendingWithEmployee,
+    IsPendingAcceptance: line.isPendingAcceptance ?? line.IsPendingAcceptance,
+    isPendingAcceptance: line.isPendingAcceptance ?? line.IsPendingAcceptance,
+    CanEmployeeAccept: line.canEmployeeAccept ?? line.CanEmployeeAccept,
+    canEmployeeAccept: line.canEmployeeAccept ?? line.CanEmployeeAccept,
     SampleOutMode: line.sampleOutMode ?? line.SampleOutMode,
     sampleOutMode: line.sampleOutMode ?? line.SampleOutMode,
     SampleInMode: line.sampleInMode ?? line.SampleInMode,
@@ -1959,7 +2542,27 @@ const enrichDetailLineItem = (line, lotHeader) => {
 };
 
 const enrichDetailLineItems = (items, lotHeader) =>
-  sortProductsByDesign((items || []).map((line) => enrichDetailLineItem(line, lotHeader)));
+  sortProductsByModeThenDesign((items || []).map((line) => enrichDetailLineItem(line, lotHeader)));
+
+const lineDesignLabel = (line) => {
+  const designName = String(line?.DesignName ?? line?.designName ?? line?.Design ?? '').trim();
+  return designName || designNoFromItem(line) || '—';
+};
+
+/** Card title: item code + design name with hyphen (e.g. SAU127-FANCY TOP). */
+const lineDesignCardTitle = (line) => {
+  const itemCode = String(line?.ItemCode ?? line?.Itemcode ?? line?.itemCode ?? '').trim();
+  const designName = String(line?.DesignName ?? line?.designName ?? line?.Design ?? '').trim();
+  const designNo = designNoFromItem(line);
+
+  if (itemCode && designName && itemCode.toLowerCase() !== designName.toLowerCase()) {
+    return `${itemCode}-${designName}`;
+  }
+  if (designNo && designName && designNo.toLowerCase() !== designName.toLowerCase()) {
+    return `${designNo}-${designName}`;
+  }
+  return itemCode || designNo || designName || '—';
+};
 
 const lineImageCacheKey = (line) => {
   const keys = getLineImageLookupKeys(line);
@@ -1974,7 +2577,15 @@ const isRfidLotRow = (entry) =>
   (entry.LotId != null ||
     entry.lotId != null ||
     entry.LotNumber != null ||
-    entry.lotNumber != null);
+    entry.lotNumber != null ||
+    entry.SampleLotNo != null ||
+    entry.sampleLotNo != null ||
+    entry.SampleOutNo != null ||
+    (entry.Id != null &&
+      (Array.isArray(entry.Items) ||
+        Array.isArray(entry.items) ||
+        Array.isArray(entry.LineItems) ||
+        Array.isArray(entry.lineItems))));
 
 const countPendingLines = (lines) =>
   lines.filter((l) => {
@@ -1999,7 +2610,7 @@ const mapRfidSampleLotRow = (entry) => {
     : Array.isArray(entry.items)
       ? entry.items
       : [];
-  const lineItems = sortProductsByDesign(items.map(mapRfidSampleLine));
+  const lineItems = sortProductsByModeThenDesign(items.map(mapRfidSampleLine));
   const lotNumber = entry.LotNumber ?? entry.lotNumber ?? entry.SampleLotNo ?? entry.SampleOutNo;
   const lotStatus = entry.LotStatus ?? entry.lotStatus ?? entry.Status;
   const sampleOutDate = entry.SampleOutDate ?? entry.sampleOutDate ?? entry.IssueDate;
@@ -2008,8 +2619,25 @@ const mapRfidSampleLotRow = (entry) => {
   const apiTotal = Number(entry.TotalItems ?? entry.totalItems) || 0;
   const apiPending = Number(entry.PendingItems ?? entry.pendingItems) || 0;
   const apiOutItems = Number(entry.OutItems ?? entry.outItems) || 0;
+  const pendingAcceptanceItems = Number(entry.PendingAcceptanceItems ?? entry.pendingAcceptanceItems) || 0;
+  const isFullyAccepted =
+    entry.IsFullyAccepted === true ||
+    entry.isFullyAccepted === true ||
+    (normalizeRfidSampleLotStatus(lotStatus) === 'open' &&
+      pendingAcceptanceItems === 0 &&
+      apiOutItems > 0);
+  const isPartiallyAccepted =
+    !isFullyAccepted &&
+    (entry.IsPartiallyAccepted === true ||
+      entry.isPartiallyAccepted === true ||
+      normalizeRfidSampleLotStatus(lotStatus) === 'partialaccepted');
   const totalItems = apiTotal > 0 ? apiTotal : lineItems.length;
-  const pendingItems = apiPending > 0 ? apiPending : countPendingLines(lineItems);
+  const pendingItems =
+    isPartiallyAccepted && pendingAcceptanceItems > 0
+      ? pendingAcceptanceItems
+      : apiPending > 0
+        ? apiPending
+        : countPendingLines(lineItems);
   const returnedItems = Number(entry.ReturnedItems ?? entry.returnedItems) || 0;
   const outFromLines = countOutItemsFromLines(lineItems);
   const outItems =
@@ -2024,6 +2652,7 @@ const mapRfidSampleLotRow = (entry) => {
     totalItems,
     returnedItems,
     outItems,
+    isFullyAccepted,
   });
   const partyNameRaw = entry.PartyName ?? entry.partyName;
   const partyName =
@@ -2051,6 +2680,14 @@ const mapRfidSampleLotRow = (entry) => {
     TotalItems: totalItems,
     ReturnedItems: returnedItems,
     OutItems: outItems,
+    PendingAcceptanceItems: pendingAcceptanceItems,
+    pendingAcceptanceItems,
+    IsFullyAccepted: isFullyAccepted,
+    isFullyAccepted,
+    IsPartiallyAccepted: isPartiallyAccepted,
+    isPartiallyAccepted,
+    EmployeeLotStatus: entry.EmployeeLotStatus ?? entry.employeeLotStatus,
+    employeeLotStatus: entry.EmployeeLotStatus ?? entry.employeeLotStatus,
     EmployeeReturnedItems: Number(entry.EmployeeReturnedItems ?? entry.employeeReturnedItems) || 0,
     AdminReturnedItems: Number(entry.AdminReturnedItems ?? entry.adminReturnedItems) || 0,
     ForceReturnedItems: Number(entry.ForceReturnedItems ?? entry.forceReturnedItems) || 0,
@@ -2060,27 +2697,6 @@ const mapRfidSampleLotRow = (entry) => {
     LineItems: lineItems,
     LotBranchName: entry.BranchName ?? entry.branchName ?? entry.LotBranchName ?? null,
   };
-};
-
-/** Extract list + total from GetAllSampleOutList response. */
-const extractSampleOutListFromResponse = (payload) => {
-  if (!payload || typeof payload !== 'object') {
-    return { rows: [], totalRecords: 0 };
-  }
-  if (payload.success === false) {
-    throw new Error(payload.message || payload.Message || 'Could not load sample out list');
-  }
-  let rows = [];
-  if (Array.isArray(payload.data)) rows = payload.data;
-  else if (Array.isArray(payload.Data)) rows = payload.Data;
-  else if (Array.isArray(payload.data?.data)) rows = payload.data.data;
-  else rows = normalizeArray(payload);
-  const totalRecords =
-    payload.totalRecords ??
-    payload.TotalRecords ??
-    payload.data?.totalRecords ??
-    rows.length;
-  return { rows, totalRecords };
 };
 
 /**
@@ -2098,7 +2714,7 @@ const normalizeSampleOutListRows = (raw) => {
       return {
         ...headerRest,
         LotBranchName: entry.BranchName ?? null,
-        LineItems: sortProductsByDesign(
+        LineItems: sortProductsByModeThenDesign(
           (Array.isArray(entry.Items) ? entry.Items : []).map(mapRfidSampleLine)
         ),
       };
@@ -2106,7 +2722,7 @@ const normalizeSampleOutListRows = (raw) => {
     return {
       ...entry,
       LotBranchName: entry.BranchName ?? entry.LotBranchName ?? null,
-      LineItems: sortProductsByDesign(
+      LineItems: sortProductsByModeThenDesign(
         (Array.isArray(entry.LineItems) ? entry.LineItems : []).map(mapRfidSampleLine)
       ),
     };
@@ -2152,6 +2768,7 @@ const SampleOutList = ({
   const [totalRecords, setTotalRecords] = useState(0);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState(null);
+  const [listDashboard, setListDashboard] = useState({ partialAccepted: 0, pendingAcceptance: 0, open: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [userInfo, setUserInfo] = useState(null);
@@ -2183,6 +2800,8 @@ const SampleOutList = ({
   const [adminReturnAllMode, setAdminReturnAllMode] = useState(false);
   const [showAdminReturnModal, setShowAdminReturnModal] = useState(false);
   const [adminReturnSuccess, setAdminReturnSuccess] = useState(null);
+  const [adminPartialSummary, setAdminPartialSummary] = useState(null);
+  const [adminPartialSummaryLoading, setAdminPartialSummaryLoading] = useState(false);
   const detailCacheRef = useRef(new Map());
   const lineItemLocalImageUrlsRef = useRef({});
   const isAdminUser = isSuperAdmin();
@@ -2222,25 +2841,59 @@ const SampleOutList = ({
     setListError(null);
     const headers = sampleAuthHeaders();
 
-    const body = {
-      ClientCode: clientCode,
-      PageNumber: 1,
-      PageSize: 500,
-    };
-    if (partyTypeFilter !== 'all') body.PartyType = partyTypeToApiEnum(partyTypeFilter);
-    if (statusFilter !== 'All') body.LotStatus = statusFilter;
-    if (fromDate) body.FromDate = `${fromDate}T00:00:00.000Z`;
-    if (toDate) body.ToDate = `${toDate}T23:59:59.999Z`;
+    const partyTypeApi =
+      partyTypeFilter !== 'all' ? partyTypeToApiEnum(partyTypeFilter) : undefined;
+    const lotStatusApi = statusFilter !== 'All' ? statusFilter : undefined;
+    const hasDateFilter = Boolean(fromDate || toDate);
 
     try {
-      const { data } = await axios.post(getAllSampleOutListUrl(), body, {
-        headers,
-        timeout: SAMPLE_LIST_TIMEOUT_MS,
-      });
-      const { rows: rawRows, totalRecords: total } = extractSampleOutListFromResponse(data);
+      let data;
+      if (hasDateFilter) {
+        const body = {
+          ClientCode: clientCode,
+          PageNumber: 1,
+          PageSize: 500,
+        };
+        if (partyTypeApi) body.PartyType = partyTypeApi;
+        if (lotStatusApi) body.LotStatus = lotStatusApi;
+        if (fromDate) body.FromDate = `${fromDate}T00:00:00.000Z`;
+        if (toDate) body.ToDate = `${toDate}T23:59:59.999Z`;
+        ({ data } = await axios.post(getAllSampleOutListUrl(), body, {
+          headers,
+          timeout: SAMPLE_LIST_TIMEOUT_MS,
+        }));
+      } else {
+        const listUrl = buildGetAllSampleOutListQuery({
+          clientCode,
+          pageNumber: 1,
+          pageSize: 500,
+          lotStatus: lotStatusApi,
+          partyType: partyTypeApi,
+        });
+        try {
+          ({ data } = await axios.get(listUrl, {
+            headers,
+            timeout: SAMPLE_LIST_TIMEOUT_MS,
+          }));
+        } catch (getErr) {
+          const body = {
+            ClientCode: clientCode,
+            PageNumber: 1,
+            PageSize: 500,
+          };
+          if (partyTypeApi) body.PartyType = partyTypeApi;
+          if (lotStatusApi) body.LotStatus = lotStatusApi;
+          ({ data } = await axios.post(getAllSampleOutListUrl(), body, {
+            headers,
+            timeout: SAMPLE_LIST_TIMEOUT_MS,
+          }));
+        }
+      }
+      const { rows: rawRows, totalRecords: total, dashboard } = extractRfidSampleOutListFromResponse(data);
       const rows = normalizeSampleOutListRows(rawRows);
       setSampleOutData(rows);
       setTotalRecords(total);
+      setListDashboard(dashboard);
     } catch (error) {
       console.error('GetAllSampleOutList:', error);
       const isTimeout =
@@ -2301,6 +2954,23 @@ const SampleOutList = ({
     setSearchQuery(value);
     setCurrentPage(1);
   };
+
+  const computedListDashboard = useMemo(() => {
+    let partialAccepted = 0;
+    let pendingAcceptance = 0;
+    let open = 0;
+    sampleOutData.forEach((lot) => {
+      const key = normalizeRfidSampleLotStatus(lot?.Status ?? lot?.LotStatus);
+      if (key === 'partialaccepted') partialAccepted += 1;
+      else if (key === 'pendingacceptance') pendingAcceptance += 1;
+      else if (key === 'open') open += 1;
+    });
+    return {
+      partialAccepted: listDashboard.partialAccepted || partialAccepted,
+      pendingAcceptance: listDashboard.pendingAcceptance || pendingAcceptance,
+      open: listDashboard.open || open,
+    };
+  }, [sampleOutData, listDashboard]);
 
   const filteredData = useMemo(() => {
     if (!searchQuery.trim()) return sampleOutData;
@@ -2378,7 +3048,7 @@ const SampleOutList = ({
   const lineItemCode = (line) => String(line?.ItemCode || line?.Itemcode || '').trim() || '—';
   const lineCategory = (line) => String(line?.CategoryName || line?.Category || '').trim() || '—';
   const lineProduct = (line) => String(line?.ProductName || line?.Product || '').trim() || '—';
-  const lineDesign = (line) => String(line?.DesignName || line?.Design || '').trim() || '—';
+  const lineDesign = lineDesignLabel;
   const lineGrossWt = (line) => String(line?.GrossWt ?? line?.grosswt ?? '0.000');
   const lineNetWt = (line) => String(line?.NetWt ?? line?.netwt ?? '0.000');
   const lineItemKey = lineImageCacheKey;
@@ -2397,6 +3067,7 @@ const SampleOutList = ({
     const items = detailModalItems;
     return {
       all: items.length,
+      pending: items.filter((l) => isPendingAcceptanceLine(l)).length,
       out: items.filter((l) => isOutItemStatus(l?.ItemStatus ?? l?.itemStatus)).length,
       returned: items.filter((l) => isReturnedLineStatus(l?.ItemStatus ?? l?.itemStatus)).length,
       employee: items.filter((l) => lineMatchesDetailUserFilter(l, 'employee')).length,
@@ -2408,12 +3079,13 @@ const SampleOutList = ({
   const filteredDetailModalItems = useMemo(() => {
     const filtered = detailModalItems.filter((line) => {
       const status = line?.ItemStatus ?? line?.itemStatus;
+      if (detailItemStatusFilter === 'pending' && !isPendingAcceptanceLine(line)) return false;
       if (detailItemStatusFilter === 'out' && !isOutItemStatus(status)) return false;
       if (detailItemStatusFilter === 'returned' && !isReturnedLineStatus(status)) return false;
       if (!lineMatchesDetailUserFilter(line, detailItemUserFilter)) return false;
       return true;
     });
-    return sortProductsByDesign(filtered);
+    return sortProductsByModeThenDesign(filtered);
   }, [detailModalItems, detailItemStatusFilter, detailItemUserFilter]);
 
   useEffect(() => {
@@ -2431,11 +3103,24 @@ const SampleOutList = ({
   const adminReturnSelectedCount = adminReturnSelectedIds.size;
   const adminReturnSelectedLines = useMemo(() => {
     if (!adminReturnSelectedIds.size) return [];
-    return detailModalItems.filter((line) => {
-      const id = lineLotItemId(line);
-      return id != null && adminReturnSelectedIds.has(id);
+    const seen = new Set();
+    const matched = [];
+    const pools = [detailModalItems, adminReturnableItems, filteredDetailModalItems];
+    pools.forEach((pool) => {
+      (pool || []).forEach((line) => {
+        const id = lineLotItemId(line);
+        if (id == null || !adminReturnSelectedIds.has(id) || seen.has(id)) return;
+        seen.add(id);
+        matched.push(line);
+      });
     });
-  }, [detailModalItems, adminReturnSelectedIds]);
+    return matched;
+  }, [
+    detailModalItems,
+    adminReturnableItems,
+    filteredDetailModalItems,
+    adminReturnSelectedIds,
+  ]);
   const adminReturnPreviewDateTime = useMemo(
     () =>
       new Date().toLocaleString(undefined, {
@@ -2476,10 +3161,18 @@ const SampleOutList = ({
     if (lotItemId == null) return;
     setAdminReturnProductRemarks((prev) => ({ ...prev, [lotItemId]: value }));
   }, []);
-  const detailModalTotalPages = Math.max(1, Math.ceil(filteredDetailModalItems.length / MODAL_ITEMS_PER_PAGE));
+  const detailModalPages = useMemo(
+    () => chunkModalDetailPages(filteredDetailModalItems, MODAL_ITEMS_PER_PAGE),
+    [filteredDetailModalItems]
+  );
+  const detailModalTotalPages = Math.max(1, detailModalPages.length);
+  const paginatedDetailModalItems = detailModalPages[detailModalPage - 1] ?? [];
   const detailModalStartIndex = (detailModalPage - 1) * MODAL_ITEMS_PER_PAGE;
-  const detailModalEndIndex = detailModalStartIndex + MODAL_ITEMS_PER_PAGE;
-  const paginatedDetailModalItems = filteredDetailModalItems.slice(detailModalStartIndex, detailModalEndIndex);
+
+  useEffect(() => {
+    setDetailModalPage((p) => Math.min(p, detailModalTotalPages));
+  }, [detailModalTotalPages]);
+
   const detailModalWeights = sumLineWeights(detailModalItems);
   const detailModalPieces = formatPiecesDisplay(sumLinePieces(detailModalItems));
 
@@ -2675,6 +3368,26 @@ const SampleOutList = ({
         totalItems: lotMeta.totalItems ?? prev.header?.TotalItems,
         returnedItems: lotMeta.returnedItems ?? prev.header?.ReturnedItems,
         outItems: data?.outItems ?? data?.OutItems ?? prev.header?.OutItems,
+        isFullyAccepted:
+          data?.isFullyAccepted ??
+          data?.IsFullyAccepted ??
+          prev.header?.isFullyAccepted ??
+          prev.header?.IsFullyAccepted,
+      });
+      const fullyAccepted = isRfidSampleFullyAcceptedLot({
+        ...prev.header,
+        Status: reconciledStatus,
+        LotStatus: reconciledStatus,
+        isFullyAccepted:
+          data?.isFullyAccepted ??
+          data?.IsFullyAccepted ??
+          prev.header?.isFullyAccepted ??
+          prev.header?.IsFullyAccepted,
+        pendingAcceptanceItems:
+          data?.pendingAcceptanceItems ??
+          data?.PendingAcceptanceItems ??
+          prev.header?.pendingAcceptanceItems,
+        outItems: data?.outItems ?? data?.OutItems ?? prev.header?.OutItems,
       });
       const nextHeader = {
         ...prev.header,
@@ -2684,6 +3397,18 @@ const SampleOutList = ({
         PendingItems: lotMeta.pendingItems ?? prev.header?.PendingItems,
         ReturnedItems: lotMeta.returnedItems ?? prev.header?.ReturnedItems,
         OutItems: data?.outItems ?? data?.OutItems ?? prev.header?.OutItems,
+        PendingAcceptanceItems:
+          data?.pendingAcceptanceItems ??
+          data?.PendingAcceptanceItems ??
+          prev.header?.PendingAcceptanceItems,
+        pendingAcceptanceItems:
+          data?.pendingAcceptanceItems ??
+          data?.PendingAcceptanceItems ??
+          prev.header?.pendingAcceptanceItems,
+        IsFullyAccepted: fullyAccepted,
+        isFullyAccepted: fullyAccepted,
+        IsPartiallyAccepted: fullyAccepted ? false : prev.header?.IsPartiallyAccepted,
+        isPartiallyAccepted: fullyAccepted ? false : prev.header?.isPartiallyAccepted,
         EmployeeReturnedItems:
           data?.employeeReturnedItems ??
           data?.EmployeeReturnedItems ??
@@ -2807,6 +3532,10 @@ const SampleOutList = ({
           ? `${adminReturnableItems.length} product(s) force-returned successfully.`
           : `${linesToReturn.length} product(s) force-returned successfully.`);
       const finishUi = getRfidSampleLotFinishUi(lotMeta, { fallbackMessage: fallbackMsg });
+      const partialSummary =
+        parseLotPartialReturnSummary(
+          data?.partialReturnSummary ?? data?.PartialReturnSummary ?? data?.data ?? data
+        ) || adminPartialSummary;
       setAdminReturnSuccess({
         message: finishUi.message,
         lotCompleted: lotMeta.lotCompleted,
@@ -2816,6 +3545,7 @@ const SampleOutList = ({
         pendingItems: lotMeta.pendingItems,
         outItems: data?.outItems ?? data?.OutItems,
         remainingOutItems: data?.remainingOutItems ?? data?.RemainingOutItems ?? [],
+        partialSummary,
         finishTitle: finishUi.title,
         finishAccent: finishUi.accent,
         finishBg: finishUi.bg,
@@ -2838,9 +3568,89 @@ const SampleOutList = ({
     }
   };
 
+  useEffect(() => {
+    if (!showAdminReturnModal || adminReturnSuccess) {
+      setAdminPartialSummary(null);
+      setAdminPartialSummaryLoading(false);
+      return undefined;
+    }
+    const lotId = detailModal?.header?.Id ?? detailModal?.header?.LotId ?? detailModal?.header?.lotId;
+    const clientCode = resolveClientCode(userInfo);
+    const linesToReturn = adminReturnAllMode ? adminReturnableItems : adminReturnSelectedLines;
+    const returningIds = linesToReturn
+      .map((line) => lineLotItemId(line))
+      .filter((id) => id != null);
+    if (!lotId || !clientCode || !returningIds.length) {
+      setAdminPartialSummary(null);
+      setAdminPartialSummaryLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setAdminPartialSummaryLoading(true);
+    (async () => {
+      try {
+        const { data } = await axios.post(
+          getLotPartialReturnSummaryUrl(),
+          {
+            ClientCode: clientCode,
+            LotId: Number(lotId),
+            ReturningLotItemIds: returningIds,
+          },
+          { headers: sampleAuthHeaders() }
+        );
+        if (!cancelled) {
+          if (data?.success === false) {
+            setAdminPartialSummary(null);
+          } else {
+            setAdminPartialSummary(parseLotPartialReturnSummary(data));
+          }
+          setAdminPartialSummaryLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setAdminPartialSummary(null);
+          setAdminPartialSummaryLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showAdminReturnModal,
+    adminReturnSuccess,
+    adminReturnAllMode,
+    adminReturnableItems,
+    adminReturnSelectedLines,
+    detailModal?.header,
+    userInfo,
+  ]);
+
+  const adminReturnRemarkRef = useRef(null);
+
+  useEffect(() => {
+    if (!showAdminReturnModal || adminReturnSuccess) return;
+    const t = setTimeout(() => {
+      adminReturnRemarkRef.current?.focus?.();
+    }, 80);
+    return () => clearTimeout(t);
+  }, [showAdminReturnModal, adminReturnSuccess, adminReturnAllMode, adminReturnSelectedCount]);
+
   const openAdminReturnModal = ({ returnAll = false } = {}) => {
+    if (!returnAll && adminReturnSelectedIds.size === 0) {
+      addNotification({
+        type: 'warning',
+        title: 'Admin return',
+        message: 'Select at least one Out item to return.',
+      });
+      return;
+    }
     setAdminReturnSuccess(null);
+    setAdminPartialSummary(null);
     setAdminReturnAllMode(returnAll);
+    setAdminReturnRemark('');
     setAdminReturnProductRemarks({});
     if (returnAll) {
       setAdminReturnSelectedIds(new Set());
@@ -2939,8 +3749,8 @@ const SampleOutList = ({
       PartyName: r.PartyName || '',
       AssignedTo: r.AssignedToUserName || '',
       Status: r.Status || '',
-      IssueDate: r.IssueDate || '',
-      ExpectedReturn: r.ExpectedReturnDate || '',
+      IssueDate: displayLotSampleOutDateTime(r),
+      ExpectedReturn: displayLotExpectedReturnDate(r),
       ClosedDate: r.ClosedDate || '',
       BranchId: r.BranchId ?? '',
       BranchName: r.LotBranchName || '',
@@ -2978,9 +3788,9 @@ const SampleOutList = ({
       r.PartyType || '—',
       r.PartyName || '—',
       r.Status || '—',
-      formatDate(r.IssueDate),
-      formatDate(r.ExpectedReturnDate),
-      formatDate(r.ClosedDate),
+      displayLotSampleOutDateTime(r),
+      displayLotExpectedReturnDate(r),
+      displayRfidSampleDate(r, ['closedDate', 'ClosedDate', 'actualReturnDate', 'ActualReturnDate'], formatDate),
       r.LotBranchName || String(r.BranchId ?? '—'),
       String(r.TotalItems ?? '—'),
       String(r.ReturnedItems ?? '—'),
@@ -3085,11 +3895,11 @@ const SampleOutList = ({
       <table>
         <tr><td>Party</td><td>${row.PartyName || '—'} (${row.PartyType || '—'})</td></tr>
         <tr><td>Status</td><td>${row.Status || '—'}</td></tr>
-        <tr><td>Issue</td><td>${formatDate(row.IssueDate)}</td></tr>
-        <tr><td>Expected return</td><td>${formatDate(row.ExpectedReturnDate)}</td></tr>
+        <tr><td>Issue</td><td>${displayLotSampleOutDateTime(row)}</td></tr>
+        <tr><td>Expected return</td><td>${displayLotExpectedReturnDate(row)}</td></tr>
         <tr><td>Returned</td><td>${row.ReturnedItems ?? '—'}</td></tr>
         <tr><td>Items</td><td>${row.TotalItems ?? '—'} total · ${row.PendingItems ?? '—'} pending</td></tr>
-        <tr><td>Closed</td><td>${formatDate(row.ClosedDate)}</td></tr>
+        <tr><td>Closed</td><td>${displayRfidSampleDate(row, ['closedDate', 'ClosedDate', 'actualReturnDate', 'ActualReturnDate'], formatDate)}</td></tr>
         <tr><td>Remarks</td><td>${(row.Remarks || '—').replace(/</g, '&lt;')}</td></tr>
       </table>
       <script>window.onload=function(){window.print();window.close()}</script>
@@ -3402,6 +4212,7 @@ const SampleOutList = ({
                   >
                     <option value="All">All statuses</option>
                     <option value="PendingAcceptance">Pending acceptance</option>
+                    <option value="PartialAccepted">Partial accepted</option>
                     <option value="Open">Open</option>
                     <option value="PartialReturn">Partial return</option>
                     <option value="PartialReturned">Partial returned (legacy)</option>
@@ -3532,6 +4343,73 @@ const SampleOutList = ({
           {listError}
         </div>
       )}
+
+      {!listLoading && sampleOutData.length > 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 8,
+            marginBottom: 10,
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+            Lot status
+          </span>
+          {[
+            {
+              key: 'partialAccepted',
+              label: 'Partial accepted',
+              value: computedListDashboard.partialAccepted,
+              bg: '#fff7ed',
+              fg: '#c2410c',
+              bd: '#fdba74',
+              filter: 'PartialAccepted',
+            },
+            {
+              key: 'pendingAcceptance',
+              label: 'Pending acceptance',
+              value: computedListDashboard.pendingAcceptance,
+              bg: '#fffbeb',
+              fg: '#b45309',
+              bd: '#fde68a',
+              filter: 'PendingAcceptance',
+            },
+            {
+              key: 'open',
+              label: 'Open',
+              value: computedListDashboard.open,
+              bg: '#eff6ff',
+              fg: '#1d4ed8',
+              bd: '#bfdbfe',
+              filter: 'Open',
+            },
+          ].map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => setStatusFilter(chip.filter)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '5px 10px',
+                borderRadius: 999,
+                border: `1px solid ${statusFilter === chip.filter ? chip.fg : chip.bd}`,
+                background: statusFilter === chip.filter ? chip.bg : '#fff',
+                color: chip.fg,
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {chip.label}
+              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{chip.value}</strong>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div
         className="table-print-area"
@@ -3726,9 +4604,15 @@ const SampleOutList = ({
                         <td style={tdL}>
                           <LotStatusPill status={item.Status} />
                         </td>
-                        <td style={tdL}>{formatDate(item.IssueDate)}</td>
-                        <td style={tdL}>{formatDate(item.ExpectedReturnDate)}</td>
-                        <td style={{ ...tdL, color: '#737373' }}>{formatDate(item.ClosedDate)}</td>
+                        <td style={tdL}>{displayLotSampleOutDateTime(item)}</td>
+                        <td style={tdL}>{displayLotExpectedReturnDate(item)}</td>
+                        <td style={{ ...tdL, color: '#737373' }}>
+                          {displayRfidSampleDate(
+                            item,
+                            ['closedDate', 'ClosedDate', 'actualReturnDate', 'ActualReturnDate'],
+                            formatDate
+                          )}
+                        </td>
                         <td style={{ ...tdL, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                           {item.TotalItems ?? '—'}
                         </td>
@@ -4269,6 +5153,7 @@ const SampleOutList = ({
                 >
                 <LotDetailSummaryBar
                   itemsCount={detailModal.header?.TotalItems ?? detailModalItems.length}
+                  totalProducts={detailModal.header?.TotalItems ?? detailModalItems.length}
                   pending={detailModal.header?.PendingItems ?? '—'}
                   outItems={detailModal.header?.OutItems ?? detailModal.header?.RemainingOutItems ?? '—'}
                   returnedItems={detailModal.header?.ReturnedItems ?? '—'}
@@ -4278,12 +5163,36 @@ const SampleOutList = ({
                   grossWt={detailModalWeights.gross > 0 ? detailModalWeights.gross.toFixed(3) : '—'}
                   netWt={detailModalWeights.net > 0 ? detailModalWeights.net.toFixed(3) : '—'}
                   pieces={detailModalPieces}
-                  outDate={formatLotDateTime(lotSampleOutDateTimeRaw(detailModal.header))}
-                  inDate={formatLotDateTime(lotSampleInDateRaw(detailModal.header, detailModalItems))}
-                  dueDate={formatDate(detailModal.header?.ExpectedReturnDate)}
+                  outDate={displayLotSampleOutDateTime(detailModal.header)}
+                  inDate={displayLotSampleInDateTime(detailModal.header, detailModalItems)}
                   employee={lotDisplayParty(detailModal.header)}
                   loginUser={resolveLoginDisplayName(userInfo) || '—'}
                   lotStatus={detailModal.header?.Status}
+                  pendingAcceptanceItems={pickLotPendingAcceptanceItems(detailModal.header)}
+                  isPartiallyAccepted={isRfidSamplePartiallyAcceptedLot(detailModal.header)}
+                  isFullyAccepted={isRfidSampleFullyAcceptedLot(detailModal.header)}
+                  adminSelectAll={
+                    isAdminUser && adminReturnableItems.length > 0
+                      ? {
+                          show: true,
+                          checkboxRef: selectAllAdminReturnCheckboxRef,
+                          checked:
+                            detailItemStatusFilter !== 'all' ||
+                            detailItemUserFilter !== 'all' ||
+                            filteredAdminReturnableItems.length < adminReturnableItems.length
+                              ? allFilteredAdminReturnableSelected
+                              : allAdminReturnableSelected,
+                          onChange: toggleSelectAllAdminReturnable,
+                          label: `Select all${
+                            detailItemStatusFilter !== 'all' ||
+                            detailItemUserFilter !== 'all' ||
+                            filteredAdminReturnableItems.length < adminReturnableItems.length
+                              ? ` (${filteredAdminReturnableItems.length} visible)`
+                              : ` (${adminReturnableItems.length})`
+                          }`,
+                        }
+                      : { show: false }
+                  }
                 />
 
                 {detailModalItems.length > 0 ? (
@@ -4309,6 +5218,12 @@ const SampleOutList = ({
                         label="All"
                         count={detailModalFilterCounts.all}
                         onClick={() => setDetailItemStatusFilter('all')}
+                      />
+                      <LotDetailFilterPill
+                        active={detailItemStatusFilter === 'pending'}
+                        label="Pending"
+                        count={detailModalFilterCounts.pending}
+                        onClick={() => setDetailItemStatusFilter('pending')}
                       />
                       <LotDetailFilterPill
                         active={detailItemStatusFilter === 'out'}
@@ -4356,7 +5271,7 @@ const SampleOutList = ({
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'space-between',
+                          justifyContent: 'flex-end',
                           gap: 12,
                           flexWrap: 'wrap',
                           marginBottom: 12,
@@ -4367,44 +5282,6 @@ const SampleOutList = ({
                           fontSize: 13,
                         }}
                       >
-                        <label
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 10,
-                            cursor: 'pointer',
-                            fontWeight: 700,
-                            color: '#334155',
-                            userSelect: 'none',
-                          }}
-                        >
-                          <input
-                            ref={selectAllAdminReturnCheckboxRef}
-                            type="checkbox"
-                            checked={
-                              detailItemStatusFilter !== 'all' ||
-                              detailItemUserFilter !== 'all' ||
-                              filteredAdminReturnableItems.length < adminReturnableItems.length
-                                ? allFilteredAdminReturnableSelected
-                                : allAdminReturnableSelected
-                            }
-                            onChange={toggleSelectAllAdminReturnable}
-                            style={{
-                              width: 18,
-                              height: 18,
-                              accentColor: LOT_DETAIL_BLUE,
-                              cursor: 'pointer',
-                              margin: 0,
-                            }}
-                            aria-label="Select all returnable items"
-                          />
-                          Select all
-                          {detailItemStatusFilter !== 'all' ||
-                          detailItemUserFilter !== 'all' ||
-                          filteredAdminReturnableItems.length < adminReturnableItems.length
-                            ? ` (${filteredAdminReturnableItems.length} visible)`
-                            : ` (${adminReturnableItems.length})`}
-                        </label>
                         <div
                           style={{
                             display: 'inline-flex',
@@ -4448,8 +5325,9 @@ const SampleOutList = ({
                         gridTemplateColumns: isSmallScreen
                           ? 'repeat(1, minmax(0, 1fr))'
                           : `repeat(${MODAL_GRID_COLUMNS}, minmax(0, 1fr))`,
+                        gridAutoRows: 'auto',
                         gap: 12,
-                        alignItems: 'stretch',
+                        alignItems: 'start',
                       }}
                     >
                       {paginatedDetailModalItems.length ? (
@@ -4466,6 +5344,7 @@ const SampleOutList = ({
                               lineItemCode={lineItemCode}
                               lineCategory={lineCategory}
                               lineProduct={lineProduct}
+                              lineDesign={lineDesign}
                               lineGrossWt={lineGrossWt}
                               lineNetWt={lineNetWt}
                               lineImageUrl={lineImageUrl}
@@ -4622,38 +5501,39 @@ const SampleOutList = ({
         </div>
       )}
 
-      {showAdminReturnModal && detailModal ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15,23,42,0.58)',
-            zIndex: 10055,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
-          onClick={() => !adminReturning && setShowAdminReturnModal(false)}
-        >
-          <div
-            role="dialog"
-            aria-labelledby="admin-return-modal-title"
-            style={{
-              background: '#fff',
-              borderRadius: 16,
-              maxWidth: 520,
-              width: '100%',
-              maxHeight: 'min(560px, 92vh)',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '0 28px 64px rgba(15, 23, 42, 0.24)',
-              fontFamily: LOT_DETAIL_FONT,
-              boxSizing: 'border-box',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
+      {showAdminReturnModal && detailModal
+        ? createPortal(
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(15,23,42,0.58)',
+                zIndex: 10200,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 16,
+              }}
+              onClick={() => !adminReturning && setShowAdminReturnModal(false)}
+            >
+              <div
+                role="dialog"
+                aria-labelledby="admin-return-modal-title"
+                style={{
+                  background: '#fff',
+                  borderRadius: 16,
+                  maxWidth: 720,
+                  width: '100%',
+                  maxHeight: 'min(780px, 94vh)',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  boxShadow: '0 28px 64px rgba(15, 23, 42, 0.24)',
+                  fontFamily: LOT_DETAIL_FONT,
+                  boxSizing: 'border-box',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
             {adminReturnSuccess ? (
               <div style={{ textAlign: 'center', padding: '28px 24px 24px' }}>
                 <div
@@ -4687,8 +5567,12 @@ const SampleOutList = ({
                     {adminReturnSuccess.totalItems != null ? ` · ${adminReturnSuccess.totalItems} total` : ''}
                   </p>
                 ) : null}
-                {Array.isArray(adminReturnSuccess?.remainingOutItems) &&
-                adminReturnSuccess.remainingOutItems.length > 0 ? (
+                {adminReturnSuccess?.partialSummary ? (
+                  <div style={{ marginTop: 12, textAlign: 'left' }}>
+                    <PartialReturnSummaryPanel summary={adminReturnSuccess.partialSummary} compact />
+                  </div>
+                ) : Array.isArray(adminReturnSuccess?.remainingOutItems) &&
+                  adminReturnSuccess.remainingOutItems.length > 0 ? (
                   <div
                     style={{
                       textAlign: 'left',
@@ -4842,122 +5726,87 @@ const SampleOutList = ({
 
                 <div
                   style={{
-                    padding: '10px 14px 0',
                     flex: 1,
                     minHeight: 0,
-                    overflow: 'hidden',
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    padding: '10px 14px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 10,
                   }}
                 >
-                  <div
-                    style={{
-                      flex: '1 1 auto',
-                      minHeight: 0,
-                      overflowY: 'auto',
-                      overflowX: 'hidden',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
-                  >
-                    {adminReturnAllMode ? (
-                      adminReturnableItems.length ? (
-                        adminReturnableItems.map((line, idx) => {
-                          const code = lineItemCode(line);
-                          const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
-                          const lotItemId = lineLotItemId(line);
-                          return (
-                            <AdminReturnProductCard
-                              key={lotItemId ?? `${code}-${idx}`}
-                              dense
-                              line={line}
-                              img={img}
-                              lineItemCode={lineItemCode}
-                              lineCategory={lineCategory}
-                              lineProduct={lineProduct}
-                              lineRfidValue={lineRfidValue}
-                              lineGrossWt={lineGrossWt}
-                              lineNetWt={lineNetWt}
-                              reviewRemark={adminReturnProductRemarks[lotItemId] || ''}
-                              onReviewRemarkChange={(value) => setAdminReturnProductRemark(lotItemId, value)}
-                              bulkRemarkFallback={adminReturnRemark}
-                            />
-                          );
-                        })
-                      ) : (
-                        <div style={{ padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-                          No Out items left to return.
-                        </div>
-                      )
-                    ) : adminReturnSelectedLines.length ? (
-                      adminReturnSelectedLines.map((line, idx) => {
-                        const code = lineItemCode(line);
-                        const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
-                        const lotItemId = lineLotItemId(line);
-                        return (
-                          <AdminReturnProductCard
-                            key={lotItemId ?? `${code}-${idx}`}
-                            dense
-                            line={line}
-                            img={img}
-                            lineItemCode={lineItemCode}
-                            lineCategory={lineCategory}
-                            lineProduct={lineProduct}
-                            lineRfidValue={lineRfidValue}
-                            lineGrossWt={lineGrossWt}
-                            lineNetWt={lineNetWt}
-                            reviewRemark={adminReturnProductRemarks[lotItemId] || ''}
-                            onReviewRemarkChange={(value) => setAdminReturnProductRemark(lotItemId, value)}
-                            bulkRemarkFallback={adminReturnRemark}
-                          />
-                        );
-                      })
-                    ) : (
-                      <p style={{ margin: 0, padding: 12, textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>
-                        No items selected.
-                      </p>
-                    )}
-                  </div>
-
                   <section
                     style={{
                       flexShrink: 0,
                       borderRadius: 10,
-                      border: '1px solid #fde68a',
-                      background: '#fffbeb',
-                      padding: '8px 10px',
+                      border: '1px solid #e2e8f0',
+                      background: '#fafcff',
+                      padding: '10px 12px',
                     }}
                   >
-                    <div style={{ fontSize: 11, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>
-                      Lot return remark
-                    </div>
-                    <textarea
-                      id="admin-return-remark-modal"
-                      value={adminReturnRemark}
-                      onChange={(e) => setAdminReturnRemark(e.target.value)}
-                      placeholder="Lot remark (fallback for empty product remarks)…"
-                      rows={2}
-                      disabled={adminReturning}
-                      style={{
-                        width: '100%',
-                        padding: '7px 9px',
-                        borderRadius: 8,
-                        border: '1px solid #fcd34d',
-                        fontSize: 12,
-                        lineHeight: 1.4,
-                        color: '#0f172a',
-                        resize: 'none',
-                        minHeight: 52,
-                        maxHeight: 52,
-                        boxSizing: 'border-box',
-                        fontFamily: 'inherit',
-                        background: '#fff',
-                      }}
+                    <PartialReturnSummaryPanel
+                      summary={adminPartialSummary}
+                      loading={adminPartialSummaryLoading}
+                      compact
                     />
                   </section>
+                  <AdminReturnProductsAccordion
+                    lines={adminReturnAllMode ? adminReturnableItems : adminReturnSelectedLines}
+                    lineItemCode={lineItemCode}
+                    lineCategory={lineCategory}
+                    lineProduct={lineProduct}
+                    lineDesign={lineDesign}
+                    lineRfidValue={lineRfidValue}
+                    lineGrossWt={lineGrossWt}
+                    lineNetWt={lineNetWt}
+                    lineLotItemId={lineLotItemId}
+                    lineItemKey={lineItemKey}
+                    lineItemLocalImageUrls={lineItemLocalImageUrls}
+                    lineImageUrl={lineImageUrl}
+                    productRemarks={adminReturnProductRemarks}
+                    onRemarkChange={setAdminReturnProductRemark}
+                    lotRemarkFallback={adminReturnRemark}
+                    disabled={adminReturning}
+                  />
                 </div>
+
+                <section
+                  style={{
+                    flexShrink: 0,
+                    borderTop: '1px solid #fde68a',
+                    borderBottom: '1px solid #fde68a',
+                    background: '#fffbeb',
+                    padding: '10px 14px',
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+                    Lot return remark
+                  </div>
+                  <textarea
+                    id="admin-return-remark-modal"
+                    value={adminReturnRemark}
+                    onChange={(e) => setAdminReturnRemark(e.target.value)}
+                    placeholder="Enter return remark for this lot (used when product remark is empty)…"
+                    rows={3}
+                    disabled={adminReturning}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      border: '1px solid #fcd34d',
+                      fontSize: 13,
+                      lineHeight: 1.45,
+                      color: '#0f172a',
+                      resize: 'vertical',
+                      minHeight: 72,
+                      maxHeight: 120,
+                      boxSizing: 'border-box',
+                      fontFamily: 'inherit',
+                      background: '#fff',
+                    }}
+                  />
+                </section>
 
                 <div
                   style={{
@@ -4993,7 +5842,9 @@ const SampleOutList = ({
                     onClick={handleAdminBulkReturn}
                     disabled={
                       adminReturning ||
-                      (adminReturnAllMode ? adminReturnableItems.length === 0 : adminReturnSelectedCount === 0)
+                      (adminReturnAllMode
+                        ? adminReturnableItems.length === 0
+                        : adminReturnSelectedCount === 0 || adminReturnSelectedLines.length === 0)
                     }
                     style={{
                       flex: 1.3,
@@ -5008,14 +5859,14 @@ const SampleOutList = ({
                         adminReturning ||
                         (adminReturnAllMode
                           ? adminReturnableItems.length === 0
-                          : adminReturnSelectedCount === 0)
+                          : adminReturnSelectedCount === 0 || adminReturnSelectedLines.length === 0)
                           ? '#e2e8f0'
                           : 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
                       color:
                         adminReturning ||
                         (adminReturnAllMode
                           ? adminReturnableItems.length === 0
-                          : adminReturnSelectedCount === 0)
+                          : adminReturnSelectedCount === 0 || adminReturnSelectedLines.length === 0)
                           ? '#94a3b8'
                           : '#fff',
                       fontWeight: 800,
@@ -5024,7 +5875,7 @@ const SampleOutList = ({
                         adminReturning ||
                         (adminReturnAllMode
                           ? adminReturnableItems.length === 0
-                          : adminReturnSelectedCount === 0)
+                          : adminReturnSelectedCount === 0 || adminReturnSelectedLines.length === 0)
                           ? 'not-allowed'
                           : 'pointer',
                       fontFamily: LOT_DETAIL_FONT,
@@ -5032,7 +5883,7 @@ const SampleOutList = ({
                         adminReturning ||
                         (adminReturnAllMode
                           ? adminReturnableItems.length === 0
-                          : adminReturnSelectedCount === 0)
+                          : adminReturnSelectedCount === 0 || adminReturnSelectedLines.length === 0)
                           ? 'none'
                           : '0 4px 14px rgba(234, 88, 12, 0.28)',
                     }}
@@ -5051,9 +5902,11 @@ const SampleOutList = ({
                 </div>
               </>
             )}
-          </div>
-        </div>
-      ) : null}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       {itemDetailModal && (
         <div

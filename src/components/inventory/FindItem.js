@@ -109,6 +109,21 @@ const rowGrossWtOrZero = (row) => String(pick(row, 'GrossWt', 'grossWt') || '0.0
 
 const rowNetWtOrZero = (row) => String(pick(row, 'NetWt', 'netWt') || '0.000');
 
+const pickSearchResultForTerm = (term, results) => {
+  const trimmed = String(term || '').trim();
+  if (!trimmed || !Array.isArray(results) || !results.length) return null;
+  const termLower = trimmed.toLowerCase();
+  const exact = results.find((item) => {
+    const code = String(rowItemCodeFromRaw(item) || '').trim().toLowerCase();
+    const rfid = String(item.RFIDCode || item.RFIDNumber || '').trim().toLowerCase();
+    const design = String(designNoFromItem(item) || '').trim().toLowerCase();
+    return code === termLower || rfid === termLower || design === termLower;
+  });
+  if (exact) return exact;
+  if (results.length === 1) return results[0];
+  return null;
+};
+
 const buildCheckScanPayload = (clientCode, termOrItem) => {
   const item = typeof termOrItem === 'object' && termOrItem !== null ? termOrItem : null;
   const term = item ? '' : String(termOrItem || '').trim();
@@ -212,7 +227,7 @@ const friendlyLotStatus = (lotStatus, itemStatus) => {
   if (lot.includes('pending') || lot.includes('accept')) return 'Waiting for employee to accept';
   if (item.includes('return')) return 'Returned';
   if (item.includes('out') || lot.includes('open')) return 'Out with employee';
-  if (lot.includes('closed')) return 'Closed';
+  if (lot.includes('closed') || lot.includes('completed')) return 'Completed';
   if (lotStatus) return String(lotStatus);
   if (itemStatus) return String(itemStatus);
   return '—';
@@ -271,6 +286,18 @@ const FindItem = () => {
   const [result, setResult] = useState(null);
   const [lastQuery, setLastQuery] = useState('');
   const searchTermRef = useRef('');
+  const resultsSectionRef = useRef(null);
+  const runSearchRef = useRef(null);
+  const lastAutoSearchRef = useRef('');
+
+  const AUTO_FIND_DEBOUNCE_MS = 400;
+  const MIN_AUTO_FIND_LEN = 3;
+
+  const scrollToResults = useCallback(() => {
+    requestAnimationFrame(() => {
+      resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
 
   useEffect(() => {
     warmupLocalItemImageIndex().catch(() => {});
@@ -279,37 +306,6 @@ const FindItem = () => {
   useEffect(() => {
     searchTermRef.current = itemCode;
   }, [itemCode]);
-
-  useEffect(() => {
-    const trimmed = String(itemCode || '').trim();
-    if (!trimmed) {
-      setSearchResults([]);
-      setShowSearchResults(false);
-      return undefined;
-    }
-    if (!clientCode) return undefined;
-
-    const timeoutId = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const results = await fetchLabeledStockSearchResults(clientCode, trimmed);
-        if (String(searchTermRef.current || '').trim() !== trimmed) return;
-        setSearchResults(results);
-        setShowSearchResults(results.length > 0);
-      } catch {
-        if (String(searchTermRef.current || '').trim() === trimmed) {
-          setSearchResults([]);
-          setShowSearchResults(false);
-        }
-      } finally {
-        if (String(searchTermRef.current || '').trim() === trimmed) {
-          setSearching(false);
-        }
-      }
-    }, 400);
-
-    return () => clearTimeout(timeoutId);
-  }, [itemCode, clientCode]);
 
   const runSearch = useCallback(
     async (termOrItem) => {
@@ -376,6 +372,7 @@ const FindItem = () => {
                   'Sample status not available — showing stock details only.'
               )
             );
+            scrollToResults();
             return;
           }
           setError(
@@ -384,6 +381,7 @@ const FindItem = () => {
             )
           );
           setResult({ raw: data, scanAction: 'NotFound' });
+          scrollToResults();
           return;
         }
 
@@ -398,6 +396,7 @@ const FindItem = () => {
         const mergedProduct = mergeProductDetails(scanProduct, stockRow);
 
         setResult({ raw: data, scanAction, stockRow, mergedProduct });
+        scrollToResults();
       } catch (err) {
         const msg =
           err?.response?.data?.message ||
@@ -405,26 +404,70 @@ const FindItem = () => {
           err?.message ||
           'Could not look up this item. Please try again.';
         setError(msg);
+        scrollToResults();
       } finally {
         setLoading(false);
       }
     },
-    [clientCode, itemCode]
+    [clientCode, itemCode, scrollToResults]
   );
+
+  useEffect(() => {
+    runSearchRef.current = runSearch;
+  }, [runSearch]);
+
+  useEffect(() => {
+    const trimmed = String(itemCode || '').trim();
+    if (!trimmed) {
+      lastAutoSearchRef.current = '';
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return undefined;
+    }
+    if (!clientCode) return undefined;
+
+    const timeoutId = setTimeout(async () => {
+      if (String(searchTermRef.current || '').trim() !== trimmed) return;
+      if (trimmed.length < MIN_AUTO_FIND_LEN) return;
+      if (lastAutoSearchRef.current === trimmed.toLowerCase()) return;
+
+      setSearching(true);
+      let results = [];
+      try {
+        results = await fetchLabeledStockSearchResults(clientCode, trimmed);
+        if (String(searchTermRef.current || '').trim() !== trimmed) return;
+        setSearchResults(results);
+        setShowSearchResults(results.length > 1);
+      } catch {
+        if (String(searchTermRef.current || '').trim() === trimmed) {
+          setSearchResults([]);
+          setShowSearchResults(false);
+        }
+      } finally {
+        if (String(searchTermRef.current || '').trim() === trimmed) {
+          setSearching(false);
+        }
+      }
+
+      if (String(searchTermRef.current || '').trim() !== trimmed) return;
+
+      lastAutoSearchRef.current = trimmed.toLowerCase();
+      setShowSearchResults(false);
+      const matched = pickSearchResultForTerm(trimmed, results);
+      await runSearchRef.current?.(matched || trimmed);
+    }, AUTO_FIND_DEBOUNCE_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [itemCode, clientCode]);
 
   const handleDirectSearch = async () => {
     const term = String(itemCode || '').trim();
-    if (!term) return;
+    if (!term || loading) return;
 
-    if (searchResults.length === 1) {
-      await runSearch(searchResults[0]);
-      return;
-    }
-    if (searchResults.length > 1) {
-      setShowSearchResults(true);
-      return;
-    }
-    await runSearch(term);
+    setShowSearchResults(false);
+    const matched = pickSearchResultForTerm(term, searchResults);
+    await runSearch(matched || term);
+    lastAutoSearchRef.current = term.toLowerCase();
   };
 
   const handleSubmit = (e) => {
@@ -433,7 +476,9 @@ const FindItem = () => {
   };
 
   const selectFromSearch = (item) => {
-    setItemCode(rowItemCodeFromRaw(item) || designNoFromItem(item) || itemCode);
+    const code = rowItemCodeFromRaw(item) || designNoFromItem(item) || itemCode;
+    setItemCode(code);
+    lastAutoSearchRef.current = String(code || '').trim().toLowerCase();
     runSearch(item);
   };
 
@@ -444,6 +489,7 @@ const FindItem = () => {
     setLastQuery('');
     setSearchResults([]);
     setShowSearchResults(false);
+    lastAutoSearchRef.current = '';
   };
 
   const data = result?.raw;
@@ -526,16 +572,22 @@ const FindItem = () => {
               type="text"
               value={itemCode}
               onChange={(e) => {
-                setItemCode(e.target.value);
-                setShowSearchResults(true);
+                const next = e.target.value;
+                setItemCode(next);
+                const trimmed = String(next || '').trim().toLowerCase();
+                if (!trimmed || trimmed !== lastAutoSearchRef.current) {
+                  setResult(null);
+                  setError('');
+                }
+                if (trimmed) setShowSearchResults(true);
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && itemCode.trim()) {
-                  e.preventDefault();
-                  handleDirectSearch();
-                }
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                if (!itemCode.trim() || loading) return;
+                handleDirectSearch();
               }}
-              placeholder="Scan RFID / item code / design no — checks sample in or out status…"
+              placeholder="Type or scan item code / RFID / design no — auto-finds when you stop typing…"
               autoFocus
               autoComplete="off"
               aria-autocomplete="list"
@@ -735,7 +787,12 @@ const FindItem = () => {
             Clear
           </button>
         </div>
+        <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+          Item details appear automatically after you stop typing or scanning (about half a second).
+        </p>
       </form>
+
+      <div ref={resultsSectionRef} style={{ scrollMarginTop: 16 }} />
 
       {error ? (
         <div
@@ -1020,8 +1077,7 @@ const FindItem = () => {
             lineHeight: 1.6,
           }}
         >
-          Enter an item code, RFID, design no, or scan a tag and click <strong>Find item</strong> to see jewellery
-          details and sample in/out status.
+          Type or scan an item code, RFID, or design no — details and sample status show automatically below.
         </div>
       ) : null}
 

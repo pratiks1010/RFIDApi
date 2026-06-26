@@ -7,7 +7,6 @@ import {
   FaCheckCircle,
   FaChevronLeft,
   FaChevronRight,
-  FaExclamationTriangle,
   FaInbox,
   FaSpinner,
   FaUser,
@@ -27,7 +26,10 @@ import {
   canEmployeeAcceptSampleLine,
   isRfidSamplePartiallyAcceptedLot,
   pickLotPendingAcceptanceItems,
-  pickLotAcceptedOutItems,
+  pickLotAcceptedItemsCount,
+  pickEmployeeLotStatus,
+  formatEmployeeLotBadgeText,
+  mergeAcceptLotResponse,
   isRfidSamplePartialAcceptedLot,
 } from '../../services/rfidSampleApi';
 import { getRrgoldApiBaseUrl } from '../../services/apiBaseConfig';
@@ -38,6 +40,9 @@ import {
 } from '../../services/localItemImageService';
 import { getClientCode } from '../../utils/authState';
 import { normalizeList } from '../../services/rfidUserManagementApi';
+import { lineDesignFieldValue, sortProductsByModeThenDesign } from '../../utils/designSort';
+
+const sortLotDetailItems = (items) => sortProductsByModeThenDesign(items || []);
 
 const GRID_COLUMNS = 3;
 const LOTS_PER_PAGE = 6;
@@ -62,8 +67,15 @@ const formatDate = (value) => {
 const displayLotSampleOut = (lot) =>
   displayRfidSampleDate(lot, ['sampleOutDate', 'SampleOutDate', 'outDate', 'OutDate'], formatDate);
 
-const displayLotExpectedReturn = (lot) =>
-  displayRfidSampleDate(lot, ['expectedReturnDate', 'ExpectedReturnDate'], formatDate);
+const formatDateOnly = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString(undefined, { dateStyle: 'medium' });
+};
+
+const displayLotSampleOutDate = (lot) =>
+  displayRfidSampleDate(lot, ['sampleOutDate', 'SampleOutDate', 'outDate', 'OutDate'], formatDateOnly);
 
 const formatWeight3 = (value) => {
   const n = parseFloat(value);
@@ -89,7 +101,7 @@ const isPendingItemStatus = (line) => {
 
 const lineItemCode = (line) => pick(line, 'ItemCode', 'itemCode') || '—';
 const lineRfid = (line) => pick(line, 'RFIDCode', 'RFIDNumber', 'rfidCode') || '—';
-const lineDesign = (line) => pick(line, 'DesignName', 'DesignNo', 'designName', 'Design', 'DesignId') || '—';
+const lineDesign = (line) => lineDesignFieldValue(line);
 const lineCategory = (line) => pick(line, 'CategoryName', 'categoryName', 'Category', 'category_id') || '—';
 const lineGrossWt = (line) => formatWeight3(line?.GrossWt ?? line?.grosswt ?? line?.TWt ?? 0);
 const lineNetWt = (line) => formatWeight3(line?.NetWt ?? line?.netwt ?? 0);
@@ -263,26 +275,38 @@ const formatLotStatusLabel = (status) => {
     PartialReturned: 'Partial return',
     PartiallyReturned: 'Partial return',
     PartialReturn: 'Partial return',
-    Closed: 'Closed',
+    Closed: 'Completed',
   };
   return known[s] || s.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
 };
 
-const employeeLotDisplayStatus = (lot) =>
-  pick(lot, 'EmployeeLotStatus', 'employeeLotStatus', 'LotStatus', 'lotStatus', 'Status', 'status');
-
 const formatItemStatusLabel = (status) => {
   const s = String(status || '').trim();
   if (!s || s === '—') return '—';
+  const lower = s.toLowerCase();
+  if (lower === 'pending' || lower.includes('pendingacceptance')) return 'Pending';
+  if (lower === 'out' || lower === 'sampleout') return 'Item In';
   const known = {
-    Out: 'Out',
-    SampleOut: 'Out',
     Returned: 'Returned',
     In: 'Returned',
     SampleIn: 'Returned',
     Pending: 'Pending',
   };
   return known[s] || s.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+};
+
+const getEmployeeItemStatusStyle = (status) => {
+  const statusLower = String(status || '').toLowerCase();
+  if (statusLower === 'pending' || statusLower.includes('pending')) {
+    return { bar: '#f59e0b', bg: '#fffbeb', fg: '#b45309' };
+  }
+  if (statusLower === 'out' || statusLower === 'sampleout') {
+    return { bar: '#059669', bg: '#ecfdf5', fg: '#047857' };
+  }
+  if (statusLower === 'returned' || statusLower === 'in' || statusLower.includes('return')) {
+    return { bar: '#059669', bg: '#ecfdf5', fg: '#047857' };
+  }
+  return { bar: '#94a3b8', bg: '#f8fafc', fg: '#475569' };
 };
 
 const SampleLoadingPanel = ({ title, message }) => (
@@ -321,8 +345,10 @@ const SampleLoadingPanel = ({ title, message }) => (
   </div>
 );
 
-const StatusBadge = ({ status, size = 'md' }) => {
-  const st = lotStatusStyle(status);
+const StatusBadge = ({ status, lot, size = 'md' }) => {
+  const label = lot ? formatEmployeeLotBadgeText(lot) : formatLotStatusLabel(status);
+  const statusForStyle = lot ? pickEmployeeLotStatus(lot) : status;
+  const st = lotStatusStyle(statusForStyle);
   const isXl = size === 'xl';
   const isLarge = size === 'lg' || isXl;
   return (
@@ -340,21 +366,21 @@ const StatusBadge = ({ status, size = 'md' }) => {
         display: 'inline-block',
       }}
     >
-      {formatLotStatusLabel(status)}
+      {label}
     </span>
   );
 };
 
-const DetailStatChip = ({ label, value, accent = '#0f172a' }) => (
+const DetailStatChip = ({ label, value, accent = '#0f172a', compactValue = false }) => (
   <div style={{ minWidth: 0 }}>
     <div
       style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: '#94a3b8',
+        fontSize: 10,
+        fontWeight: 700,
+        color: '#64748b',
         textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-        marginBottom: 4,
+        letterSpacing: '0.06em',
+        marginBottom: 6,
         lineHeight: 1.2,
       }}
     >
@@ -362,14 +388,16 @@ const DetailStatChip = ({ label, value, accent = '#0f172a' }) => (
     </div>
     <div
       style={{
-        fontSize: 17,
-        fontWeight: 700,
+        fontSize: compactValue ? 13 : 15,
+        fontWeight: 800,
         color: accent,
         fontVariantNumeric: 'tabular-nums',
+        letterSpacing: '-0.02em',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        lineHeight: 1.3,
+        whiteSpace: compactValue ? 'nowrap' : 'normal',
+        lineHeight: 1.25,
+        wordBreak: compactValue ? 'normal' : 'break-word',
       }}
       title={String(value)}
     >
@@ -691,21 +719,7 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
 
   const lookupKeys = getPreviewLineLookupKeys(line);
 
-  const getLineStatusStyle = (s) => {
-    const statusLower = String(s || '').toLowerCase();
-    if (statusLower === 'pending' || statusLower.includes('pending')) {
-      return { bar: '#f59e0b', bg: '#fffbeb', fg: '#b45309' };
-    }
-    if (statusLower === 'out' || statusLower === 'sampleout') {
-      return { bar: '#0284c7', bg: '#f0f9ff', fg: '#0369a1' };
-    }
-    if (statusLower === 'returned' || statusLower === 'in' || statusLower.includes('return')) {
-      return { bar: '#059669', bg: '#ecfdf5', fg: '#047857' };
-    }
-    return { bar: '#94a3b8', bg: '#f8fafc', fg: '#475569' };
-  };
-
-  const statusStyle = getLineStatusStyle(status);
+  const statusStyle = getEmployeeItemStatusStyle(status);
   const statusLabel = formatItemStatusLabel(status);
 
   return (
@@ -764,7 +778,7 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
               whiteSpace: 'nowrap',
             }}
           >
-            {itemCode}
+            {design}
           </div>
         </div>
         {selectable ? (
@@ -774,7 +788,7 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
             onChange={() => onToggle?.()}
             onClick={(e) => e.stopPropagation()}
             style={{ width: 18, height: 18, accentColor: '#0f4c81', cursor: 'pointer', flexShrink: 0 }}
-            aria-label={`Select ${itemCode}`}
+            aria-label={`Select ${design}`}
           />
         ) : null}
       </div>
@@ -855,13 +869,13 @@ const ItemSampleCard = ({ line, selected, onToggle, selectable }) => {
           </div>
           <div style={{ minWidth: 0, gridColumn: '2 / -1' }}>
             <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-              Design
+              Item
             </div>
             <div
               style={{ fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              title={design}
+              title={itemCode}
             >
-              {design}
+              {itemCode}
             </div>
           </div>
           <div style={{ minWidth: 0 }}>
@@ -1042,7 +1056,7 @@ const MyAssignedSamples = () => {
       }
       const { lot: body, items } = parseLotDetailResponse(data);
       setDetailLot(body || lot);
-      setDetailItems(items);
+      setDetailItems(sortLotDetailItems(items));
       setSelectedLineKeys(new Set());
       setAcceptRemark('');
     } catch (err) {
@@ -1064,7 +1078,7 @@ const MyAssignedSamples = () => {
       }
       const { lot: body, items } = parseLotDetailResponse(data);
       setDetailLot(body || fallbackLot);
-      setDetailItems(items);
+      setDetailItems(sortLotDetailItems(items));
       setSelectedLineKeys(new Set());
     },
     [clientCode]
@@ -1082,7 +1096,7 @@ const MyAssignedSamples = () => {
   const canAcceptLot = isEmployeeLotAcceptancePending(detailLot);
   const detailPartialAccepted = isRfidSamplePartiallyAcceptedLot(detailLot);
   const detailPendingAcceptanceCount = pickLotPendingAcceptanceItems(detailLot);
-  const detailAcceptedOutCount = pickLotAcceptedOutItems(detailLot);
+  const detailAcceptedOutCount = pickLotAcceptedItemsCount(detailLot);
 
   // Item pagination inside detail view
   const totalItemPages = useMemo(() => {
@@ -1190,7 +1204,15 @@ const MyAssignedSamples = () => {
       });
 
       if (employeeStillPending) {
-        await refreshDetailLot(Number(lotId), detailLot);
+        const { lot: mergedLot, items: mergedItems } = mergeAcceptLotResponse(
+          detailLot,
+          detailItems,
+          data,
+          { acceptedLines: selectedLines }
+        );
+        setDetailLot(mergedLot);
+        setDetailItems(sortLotDetailItems(mergedItems));
+        setSelectedLineKeys(new Set());
         setAcceptRemark('');
       } else {
         closeDetail();
@@ -1308,7 +1330,7 @@ const MyAssignedSamples = () => {
                 <option value="PendingAcceptance">Pending acceptance</option>
                 <option value="Open">Open (out)</option>
                 <option value="PartialReturned">Partial returned</option>
-                <option value="Closed">Closed</option>
+                <option value="Completed">Completed</option>
               </select>
               <button
                 type="button"
@@ -1378,11 +1400,9 @@ const MyAssignedSamples = () => {
               >
                 {paginatedLots.map((lot, idx) => {
                   const id = pick(lot, 'LotId', 'lotId', 'Id', 'id') || idx;
-                  const status = pick(lot, 'LotStatus', 'lotStatus', 'Status', 'status');
-                  const displayStatus = employeeLotDisplayStatus(lot);
                   const canAccept = isEmployeeLotAcceptancePending(lot);
                   const pendingAcceptCount = pickLotPendingAcceptanceItems(lot);
-                  const acceptedOutCount = pickLotAcceptedOutItems(lot);
+                  const acceptedOutCount = pickLotAcceptedItemsCount(lot);
                   const partialAcceptLot = isRfidSamplePartiallyAcceptedLot(lot);
                   const no = lotNo(lot);
                   const previewLines =
@@ -1427,7 +1447,7 @@ const MyAssignedSamples = () => {
                         <span style={{ fontSize: 18, fontWeight: 800, color: '#0f4c81', letterSpacing: '-0.01em' }}>
                           {no}
                         </span>
-                        <StatusBadge status={displayStatus} size="lg" />
+                        <StatusBadge lot={lot} size="lg" />
                       </div>
 
                       <LotImageSlider lines={previewLines} alt={no} height={LOT_CARD_IMAGE_HEIGHT} />
@@ -1644,8 +1664,8 @@ const MyAssignedSamples = () => {
                     {lotNo(detailLot)}
                   </h1>
                   <div style={{ marginTop: 12 }}>
-                    <StatusBadge status={employeeLotDisplayStatus(detailLot)} size="xl" />
-                    {detailPartialAccepted ? (
+                    <StatusBadge lot={detailLot} size="xl" />
+                    {detailPartialAccepted || (detailPendingAcceptanceCount > 0 && detailAcceptedOutCount > 0) ? (
                       <p style={{ margin: '8px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>
                         {detailAcceptedOutCount} accepted · {detailPendingAcceptanceCount} still pending
                         acceptance
@@ -1693,27 +1713,6 @@ const MyAssignedSamples = () => {
             </div>
           </div>
 
-          {!detailLoading &&
-          (pick(detailLot, 'IsOverdue', 'isOverdue') === true ||
-            pick(detailLot, 'IsOverdue', 'isOverdue') === 'true') ? (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '12px 24px',
-                background: 'linear-gradient(90deg, #fef2f2 0%, #fff1f2 100%)',
-                borderBottom: '1px solid #fecaca',
-                color: '#b91c1c',
-                fontSize: 14,
-                fontWeight: 700,
-              }}
-            >
-              <FaExclamationTriangle size={16} style={{ flexShrink: 0 }} />
-              Overdue — expected return was {displayLotExpectedReturn(detailLot)}
-            </div>
-          ) : null}
-
           <div style={{ padding: '20px 24px 28px' }}>
             {detailLoading ? (
               <SampleLoadingPanel
@@ -1728,9 +1727,9 @@ const MyAssignedSamples = () => {
                     display: 'grid',
                     gridTemplateColumns: isSmallScreen
                       ? 'repeat(2, minmax(0, 1fr))'
-                      : 'repeat(auto-fill, minmax(108px, 1fr))',
-                    gap: '16px 24px',
-                    padding: '4px 0 20px',
+                      : 'repeat(auto-fill, minmax(116px, 1fr))',
+                    gap: '18px 22px',
+                    padding: '16px 0 20px',
                     marginBottom: 8,
                     borderBottom: '1px solid #eef2f7',
                   }}
@@ -1738,14 +1737,14 @@ const MyAssignedSamples = () => {
                   <DetailStatChip
                     label="Products"
                     value={detailSummary.count || pick(detailLot, 'TotalItems', 'totalItems') || 0}
-                    accent="#0f4c81"
                   />
                   <DetailStatChip label="Gross Wt" value={formatWeight3(detailSummary.gross)} />
                   <DetailStatChip label="Net Wt" value={formatWeight3(detailSummary.net)} />
                   <DetailStatChip label="Pieces" value={formatPiecesValue(detailSummary.pieces)} />
                   <DetailStatChip
                     label="Out Date"
-                    value={displayLotSampleOut(detailLot)}
+                    value={displayLotSampleOutDate(detailLot)}
+                    compactValue
                   />
                   <DetailStatChip
                     label="Employee"
@@ -1754,6 +1753,7 @@ const MyAssignedSamples = () => {
                       pick(detailLot, 'PartyName', 'partyName') ||
                       '—'
                     }
+                    compactValue
                   />
                   {(detailPartialAccepted ||
                     lotPendingItems(detailLot) != null ||

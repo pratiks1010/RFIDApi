@@ -33,7 +33,31 @@ export const snapPowerAttDb10ToPreset = (raw) => {
   return best;
 };
 
+/** UI display scale: 300 = maximum power / fastest tray scan, 0 = minimum. */
+export const TRAY_POWER_DISPLAY_MAX = 300;
+
+export const attToDisplayPower = (attDb10) => {
+  const att = snapPowerAttDb10ToPreset(attDb10);
+  return TRAY_POWER_DISPLAY_MAX - att;
+};
+
+export const displayPowerToAtt = (displayValue) => {
+  const display = Number.parseInt(String(displayValue ?? '').trim(), 10);
+  const snappedDisplay = Number.isInteger(display)
+    ? Math.max(0, Math.min(TRAY_POWER_DISPLAY_MAX, display))
+    : 0;
+  return snapPowerAttDb10ToPreset(TRAY_POWER_DISPLAY_MAX - snappedDisplay);
+};
+
+const DEFAULT_CONNECTION_MODE = 'serial';
+
+const normalizeConnectionMode = (value, fallback = DEFAULT_CONNECTION_MODE) => {
+  const mode = String(value ?? fallback).trim().toLowerCase();
+  return mode === 'usb' ? 'usb' : 'serial';
+};
+
 const DEFAULT_TRAY_READER_CONFIG = {
+  connectionMode: DEFAULT_CONNECTION_MODE,
   comPrimary: '7',
   comSecondary: '8',
   baudRate: '115200',
@@ -63,6 +87,7 @@ export const getTrayReaderConfig = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem(TRAY_READER_CONFIG_KEY) || '{}');
     return {
+      connectionMode: normalizeConnectionMode(parsed?.connectionMode, DEFAULT_TRAY_READER_CONFIG.connectionMode),
       comPrimary: normalize(parsed?.comPrimary, DEFAULT_TRAY_READER_CONFIG.comPrimary),
       comSecondary: normalize(parsed?.comSecondary, DEFAULT_TRAY_READER_CONFIG.comSecondary),
       baudRate: normalize(parsed?.baudRate, DEFAULT_TRAY_READER_CONFIG.baudRate),
@@ -76,6 +101,10 @@ export const getTrayReaderConfig = () => {
 export const saveTrayReaderConfig = (partial) => {
   const current = getTrayReaderConfig();
   const payload = {
+    connectionMode: normalizeConnectionMode(
+      partial?.connectionMode ?? current.connectionMode,
+      DEFAULT_TRAY_READER_CONFIG.connectionMode
+    ),
     comPrimary: normalize(partial?.comPrimary ?? current.comPrimary, DEFAULT_TRAY_READER_CONFIG.comPrimary),
     comSecondary: normalize(partial?.comSecondary ?? current.comSecondary, DEFAULT_TRAY_READER_CONFIG.comSecondary),
     baudRate: normalize(partial?.baudRate ?? current.baudRate, DEFAULT_TRAY_READER_CONFIG.baudRate),

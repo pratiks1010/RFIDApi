@@ -458,7 +458,7 @@ const SampleIn = () => {
   const [tableSampleInRemarks, setTableSampleInRemarks] = useState('');
   const [tableSampleInSubmitting, setTableSampleInSubmitting] = useState(false);
   const historySelectAllRef = useRef(null);
-  /** API lot filter: all lots, or PartialReturned / Closed only */
+  /** API lot filter: all lots, or PartialReturned / Completed only */
   const [historyLotStatus, setHistoryLotStatus] = useState('all');
   const [historyLotsViewMode, setHistoryLotsViewMode] = useState('table');
   const [historySearch, setHistorySearch] = useState('');
@@ -1534,7 +1534,7 @@ const SampleIn = () => {
     setHistoryError(null);
     try {
       const body = { ClientCode: client };
-      if (historyLotStatus === 'PartialReturned' || historyLotStatus === 'Closed') {
+      if (historyLotStatus === 'PartialReturned' || historyLotStatus === 'Completed') {
         body.Status = historyLotStatus;
       }
       const { data } = await axios.post(getAllSampleOutListUrl(), body, {
@@ -3223,7 +3223,7 @@ const SampleIn = () => {
             >
               <option value="all">All lots (client filter only)</option>
               <option value="PartialReturned">Partial returned</option>
-              <option value="Closed">Closed (all returned)</option>
+              <option value="Completed">Completed (all returned)</option>
             </select>
               <input
               type="search"

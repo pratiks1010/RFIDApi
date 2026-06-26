@@ -44,16 +44,26 @@ import {
   isOutItemStatus,
   canEmployeeAcceptSampleLine,
   isForceReturnItem,
+  getLineReturnedItemRemark,
   countOutItemsFromLines,
   reconcileRfidSampleLotStatus,
   displayRfidSampleDate,
   pickFormattedDateField,
   extractRfidSampleOutListFromResponse,
+  mergeSampleOutListRows,
+  sortSampleOutLotsForList,
+  RFID_SAMPLE_ALL_LIST_EXTRA_STATUSES,
+  isRfidSampleLotFinished,
+  parseRfidSampleListDashboard,
   isRfidSamplePartiallyAcceptedLot,
   isRfidSampleFullyAcceptedLot,
   pickLotPendingAcceptanceItems,
   pickLotAcceptedOutItems,
+  pickAdminLotStatus,
+  formatAdminLotBadgeText,
   normalizeRfidSampleLotStatus,
+  normalizeRfidSampleLotStatusForUi,
+  formatRfidSampleLotStatusLabel,
   getLotPartialReturnSummaryUrl,
   parseLotPartialReturnSummary,
 } from '../../services/rfidSampleApi';
@@ -69,8 +79,8 @@ import {
 } from '../../services/localItemImageService';
 import GridItemImage from '../common/GridItemImage';
 import {
-  designNoFromItem,
   sortProductsByModeThenDesign,
+  lineDesignFieldValue,
 } from '../../utils/designSort';
 
 const LOT_LIST_PAGE_SIZE = 15;
@@ -93,20 +103,11 @@ const LOT_STATUS_LABELS = {
   Open: 'Open',
   PartialReturn: 'Partial return',
   PartialReturned: 'Partial return',
-  Closed: 'Closed',
+  Closed: 'Completed',
   Completed: 'Completed',
 };
 
-const humanizeLotStatus = (status) => {
-  const raw = String(status || '').trim();
-  if (!raw || raw === '—') return '—';
-  if (LOT_STATUS_LABELS[raw]) return LOT_STATUS_LABELS[raw];
-  return raw
-    .replace(/_/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
+const humanizeLotStatus = (status) => formatRfidSampleLotStatusLabel(status);
 
 const LotDetailInlineStat = ({ label, value, valueColor = '#0f172a' }) => (
   <span
@@ -343,12 +344,10 @@ const LotDetailSummaryBar = ({
   lotStatus,
   adminSelectAll,
 }) => {
-  const statusKey = String(lotStatus || '').toLowerCase();
+  const statusKey = normalizeRfidSampleLotStatus(lotStatus).replace('closed', 'completed');
   const statusTone = statusKey.includes('completed')
     ? { bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' }
-    : statusKey.includes('closed')
-      ? { bg: '#f0fdf4', fg: '#166534', bd: '#bbf7d0' }
-      : statusKey.includes('open')
+    : statusKey.includes('open')
         ? { bg: '#eff6ff', fg: '#1d4ed8', bd: '#bfdbfe' }
         : statusKey.includes('partial')
           ? { bg: '#fff7ed', fg: '#c2410c', bd: '#fed7aa' }
@@ -407,7 +406,18 @@ const LotDetailSummaryBar = ({
             border: `1px solid ${statusTone.bd}`,
           }}
         >
-          {humanizeLotStatus(lotStatus)}
+          {formatAdminLotBadgeText({
+            lotStatus,
+            Status: lotStatus,
+            LotStatus: lotStatus,
+            totalItems: itemsCount,
+            TotalItems: itemsCount,
+            acceptedItemsCount: outItems,
+            outItems,
+            OutItems: outItems,
+            pendingAcceptanceItems,
+            PendingAcceptanceItems: pendingAcceptanceItems,
+          })}
         </span>
       </div>
 
@@ -504,6 +514,11 @@ const LotDetailSummaryBar = ({
             <LotDetailInlineStat label="Gross Wt" value={grossWt} />
             <LotDetailInlineStat label="Net Wt" value={netWt} />
             <LotDetailInlineStat label="Pieces" value={pieces} />
+            <LotDetailInlineStat
+              label="Total Products"
+              value={totalProducts ?? itemsCount ?? '—'}
+              valueColor={LOT_DETAIL_BLUE}
+            />
           </div>
           <div
             style={{
@@ -514,11 +529,6 @@ const LotDetailSummaryBar = ({
               marginLeft: 'auto',
             }}
           >
-            <LotDetailInlineStat
-              label="Total Products"
-              value={totalProducts ?? itemsCount ?? '—'}
-              valueColor={LOT_DETAIL_BLUE}
-            />
             {adminSelectAll?.show ? (
               <label
                 style={{
@@ -788,9 +798,8 @@ const pageBtnStyle = (disabled) => ({
 });
 
 const lotListStatusSx = (status) => {
-  const s = String(status ?? '—').toLowerCase();
+  const s = String(normalizeRfidSampleLotStatusForUi(status) ?? '—').toLowerCase();
   if (s.includes('completed')) return { bg: '#f5f3ff', fg: '#6d28d9', bd: '#ddd6fe' };
-  if (s.includes('closed')) return { bg: '#f1f5f9', fg: '#334155', bd: '#94a3b8' };
   if (s.includes('partial')) return { bg: '#fff7ed', fg: '#9a3412', bd: '#fdba74' };
   if (s.includes('pending')) return { bg: '#fef9e7', fg: '#92650a', bd: '#e8d48b' };
   if (s.includes('open')) return { bg: '#eff6ff', fg: '#1e40af', bd: '#93c5fd' };
@@ -899,9 +908,10 @@ const LotCardStatRow = ({ children, title, withDivider = true }) => (
   </div>
 );
 
-const LotStatusPill = ({ status }) => {
-  const sx = lotListStatusSx(status);
-  const t = humanizeLotStatus(status);
+const LotStatusPill = ({ status, lot }) => {
+  const statusForStyle = lot ? pickAdminLotStatus(lot) : status;
+  const sx = lotListStatusSx(statusForStyle);
+  const t = lot ? formatAdminLotBadgeText(lot) : humanizeLotStatus(status);
   return (
     <span
       style={{
@@ -1128,7 +1138,7 @@ const LotGridCard = ({
           </div>
         </div>
         <div style={{ flexShrink: 0, paddingTop: 1 }}>
-          <LotStatusPill status={item.Status} />
+          <LotStatusPill status={item.Status} lot={item} />
         </div>
       </div>
 
@@ -1448,12 +1458,54 @@ const AdminReturnFieldCell = ({ label, value, valueColor = '#0f172a', span = 1 }
   </div>
 );
 
+const AdminReturnProductDetailLine = ({
+  line,
+  lineCategory,
+  lineProduct,
+  lineDesign,
+  lineRfidValue,
+  lineGrossWt,
+  lineNetWt,
+}) => {
+  const segments = [
+    { label: 'Category', value: lineCategory(line) },
+    { label: 'Design', value: lineDesign ? lineDesign(line) : '—' },
+    { label: 'Product', value: lineProduct(line) },
+    { label: 'RFID', value: lineRfidValue(line) },
+    { label: 'Gr', value: lineGrossWt(line) },
+    { label: 'Net', value: lineNetWt(line) },
+  ];
+  return (
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 800,
+        color: '#1e293b',
+        lineHeight: 1.5,
+        wordBreak: 'break-word',
+        fontVariantNumeric: 'tabular-nums',
+      }}
+    >
+      {segments.map((seg, idx) => (
+        <span key={seg.label}>
+          {idx > 0 ? ' · ' : null}
+          <span style={{ color: '#64748b', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+            {seg.label}{' '}
+          </span>
+          <span style={{ fontWeight: 800, color: '#0f172a' }}>{seg.value}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
 const AdminReturnProductCard = ({
   line,
   img,
   lineItemCode,
   lineCategory,
   lineProduct,
+  lineDesign,
   lineRfidValue,
   lineGrossWt,
   lineNetWt,
@@ -1504,36 +1556,37 @@ const AdminReturnProductCard = ({
           <div style={{ fontSize: 13, fontWeight: 800, color: LOT_DETAIL_BLUE, marginBottom: 3, lineHeight: 1.2 }}>
             {code}
           </div>
-          <div
-            style={{
-              fontSize: 10,
-              color: '#64748b',
-              lineHeight: 1.45,
-              marginBottom: onReviewRemarkChange ? 6 : 0,
-              wordBreak: 'break-word',
-            }}
-          >
-            {lineCategory(line)} · {lineProduct(line)} · RFID {lineRfidValue(line)} · Gr {lineGrossWt(line)} · Net{' '}
-            {lineNetWt(line)}
+          <div style={{ marginBottom: onReviewRemarkChange ? 6 : 0 }}>
+            <AdminReturnProductDetailLine
+              line={line}
+              lineCategory={lineCategory}
+              lineProduct={lineProduct}
+              lineDesign={lineDesign}
+              lineRfidValue={lineRfidValue}
+              lineGrossWt={lineGrossWt}
+              lineNetWt={lineNetWt}
+            />
           </div>
           {onReviewRemarkChange ? (
-            <input
-              type="text"
-              value={reviewRemark}
-              onChange={(e) => onReviewRemarkChange(e.target.value)}
-              placeholder={bulkRemarkFallback || 'Product review remark…'}
-              style={{
-                width: '100%',
-                padding: '6px 8px',
-                borderRadius: 7,
-                border: '1px solid #fcd34d',
-                fontSize: 11,
-                color: '#0f172a',
-                boxSizing: 'border-box',
-                fontFamily: 'inherit',
-                background: '#fffbeb',
-              }}
-            />
+            <div style={{ marginTop: 6 }}>
+              <input
+                type="text"
+                value={reviewRemark}
+                onChange={(e) => onReviewRemarkChange(e.target.value)}
+                placeholder={bulkRemarkFallback || 'Product review remark…'}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: 7,
+                  border: '1px solid #fcd34d',
+                  fontSize: 11,
+                  color: '#0f172a',
+                  boxSizing: 'border-box',
+                  fontFamily: 'inherit',
+                  background: '#fffbeb',
+                }}
+              />
+            </div>
           ) : null}
         </div>
       </div>
@@ -1615,6 +1668,7 @@ const AdminReturnProductCard = ({
           }}
         >
           <AdminReturnFieldCell label="Category" value={lineCategory(line)} />
+          <AdminReturnFieldCell label="Design" value={lineDesign ? lineDesign(line) : '—'} />
           <AdminReturnFieldCell label="Product" value={lineProduct(line)} valueColor={LOT_DETAIL_BLUE} />
           <AdminReturnFieldCell label="RFID" value={lineRfidValue(line)} />
           <AdminReturnFieldCell label="Gross Wt" value={lineGrossWt(line)} />
@@ -1651,6 +1705,8 @@ const AdminReturnProductCard = ({
     </div>
   );
 };
+
+const ADMIN_RETURN_REMARK_PAGE_SIZE = 50;
 
 const AdminReturnProductsAccordion = ({
   lines,
@@ -1708,6 +1764,39 @@ const AdminReturnProductsAccordion = ({
   );
 
   const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [remarkSearch, setRemarkSearch] = useState('');
+  const [remarkPage, setRemarkPage] = useState(1);
+
+  useEffect(() => {
+    setRemarkPage(1);
+    setRemarkSearch('');
+  }, [lines?.length]);
+
+  const filteredRemarkRows = useMemo(() => {
+    const q = remarkSearch.trim().toLowerCase();
+    if (!q) return itemRows;
+    return itemRows.filter((row) =>
+      [row.code, row.design, row.category, row.rfid, row.product, row.remark]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [itemRows, remarkSearch]);
+
+  const remarkTotalPages = Math.max(
+    1,
+    Math.ceil(filteredRemarkRows.length / ADMIN_RETURN_REMARK_PAGE_SIZE)
+  );
+
+  useEffect(() => {
+    setRemarkPage((p) => Math.min(p, remarkTotalPages));
+  }, [remarkTotalPages]);
+
+  const paginatedRemarkRows = useMemo(() => {
+    const start = (remarkPage - 1) * ADMIN_RETURN_REMARK_PAGE_SIZE;
+    return filteredRemarkRows.slice(start, start + ADMIN_RETURN_REMARK_PAGE_SIZE);
+  }, [filteredRemarkRows, remarkPage]);
 
   useEffect(() => {
     if (itemRows.length === 1 && itemRows[0].lotItemId != null) {
@@ -1749,6 +1838,16 @@ const AdminReturnProductsAccordion = ({
     });
   };
 
+  const applyLotRemarkToAll = () => {
+    const bulk = String(lotRemarkFallback || '').trim();
+    if (!bulk || !onRemarkChange) return;
+    itemRows.forEach((row) => {
+      if (row.lotItemId != null) onRemarkChange(row.lotItemId, bulk);
+    });
+  };
+
+  const useBulkRemarkTable = itemRows.length > 1;
+
   if (!itemRows.length) {
     return (
       <div style={{ padding: 16, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
@@ -1767,6 +1866,7 @@ const AdminReturnProductsAccordion = ({
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        flex: useBulkRemarkTable ? 1 : undefined,
       }}
     >
       <div
@@ -1783,30 +1883,44 @@ const AdminReturnProductsAccordion = ({
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
-            Product remarks ({itemRows.length})
+            Returning products — remarks ({itemRows.length})
           </div>
           <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
             {remarkFilledCount} with remark · {itemRows.length - remarkFilledCount} using lot default
           </div>
         </div>
         {multi ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            <button
-              type="button"
-              onClick={expandAll}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            <input
+              type="search"
+              value={remarkSearch}
+              onChange={(e) => {
+                setRemarkSearch(e.target.value);
+                setRemarkPage(1);
+              }}
+              placeholder="Search item / RFID…"
               disabled={disabled}
-              style={adminReturnMiniBtn(disabled)}
-            >
-              Expand all
-            </button>
-            <button
-              type="button"
-              onClick={collapseAll}
-              disabled={disabled}
-              style={adminReturnMiniBtn(disabled)}
-            >
-              Collapse all
-            </button>
+              style={{
+                minWidth: 140,
+                flex: '1 1 140px',
+                maxWidth: 220,
+                padding: '5px 8px',
+                borderRadius: 7,
+                border: '1px solid #e2e8f0',
+                fontSize: 11,
+                fontFamily: LOT_DETAIL_FONT,
+              }}
+            />
+            {!useBulkRemarkTable ? (
+              <>
+                <button type="button" onClick={expandAll} disabled={disabled} style={adminReturnMiniBtn(disabled)}>
+                  Expand all
+                </button>
+                <button type="button" onClick={collapseAll} disabled={disabled} style={adminReturnMiniBtn(disabled)}>
+                  Collapse all
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               onClick={applyLotRemarkToEmpty}
@@ -1814,12 +1928,154 @@ const AdminReturnProductsAccordion = ({
               style={adminReturnMiniBtn(disabled || !String(lotRemarkFallback || '').trim(), true)}
               title="Copy lot remark into empty product fields"
             >
-              Fill empty from lot
+              Fill empty
+            </button>
+            <button
+              type="button"
+              onClick={applyLotRemarkToAll}
+              disabled={disabled || !String(lotRemarkFallback || '').trim()}
+              style={adminReturnMiniBtn(disabled || !String(lotRemarkFallback || '').trim(), true)}
+              title="Apply lot remark to every product"
+            >
+              Apply to all
             </button>
           </div>
         ) : null}
       </div>
 
+      {useBulkRemarkTable ? (
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+          <div
+            style={{
+              overflow: 'auto',
+              maxHeight: 'min(420px, 52vh)',
+              borderTop: '1px solid #eef2f7',
+            }}
+          >
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: 11,
+                minWidth: 640,
+              }}
+            >
+              <thead>
+                <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                  {['#', 'Item', 'Design', 'RFID', 'Gr', 'Net', 'Product remark'].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: '7px 8px',
+                        textAlign: 'left',
+                        fontWeight: 800,
+                        color: '#64748b',
+                        borderBottom: '1px solid #e2e8f0',
+                        background: '#f8fafc',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedRemarkRows.map((row, idx) => {
+                  const rowNum = (remarkPage - 1) * ADMIN_RETURN_REMARK_PAGE_SIZE + idx + 1;
+                  return (
+                    <tr key={row.lotItemId ?? `${row.code}-${row.idx}`} style={{ background: idx % 2 ? '#fafbfc' : '#fff' }}>
+                      <td style={{ padding: '6px 8px', color: '#94a3b8', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                        {rowNum}
+                      </td>
+                      <td style={{ padding: '6px 8px', fontWeight: 800, color: LOT_DETAIL_BLUE, whiteSpace: 'nowrap' }}>
+                        {row.code}
+                      </td>
+                      <td style={{ padding: '6px 8px', color: '#475569', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.design}>
+                        {row.design}
+                      </td>
+                      <td style={{ padding: '6px 8px', color: '#475569', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        {row.rfid}
+                      </td>
+                      <td style={{ padding: '6px 8px', color: '#15803d', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        {row.gross}
+                      </td>
+                      <td style={{ padding: '6px 8px', color: '#dc2626', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        {row.net}
+                      </td>
+                      <td style={{ padding: '6px 8px', minWidth: 180 }}>
+                        <input
+                          type="text"
+                          value={productRemarks[row.lotItemId] ?? productRemarks[String(row.lotItemId)] ?? ''}
+                          onChange={(e) => onRemarkChange?.(row.lotItemId, e.target.value)}
+                          placeholder={lotRemarkFallback || 'Product remark…'}
+                          disabled={disabled}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            borderRadius: 7,
+                            border: row.remark ? '1px solid #86efac' : '1px solid #fcd34d',
+                            fontSize: 11,
+                            lineHeight: 1.35,
+                            color: '#0f172a',
+                            boxSizing: 'border-box',
+                            fontFamily: 'inherit',
+                            background: '#fff',
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {remarkTotalPages > 1 || filteredRemarkRows.length !== itemRows.length ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '8px 10px',
+                borderTop: '1px solid #eef2f7',
+                background: '#fafcff',
+                fontSize: 11,
+                color: '#64748b',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>
+                Showing {(remarkPage - 1) * ADMIN_RETURN_REMARK_PAGE_SIZE + 1}–
+                {Math.min(remarkPage * ADMIN_RETURN_REMARK_PAGE_SIZE, filteredRemarkRows.length)} of{' '}
+                {filteredRemarkRows.length}
+                {filteredRemarkRows.length !== itemRows.length ? ` (${itemRows.length} total)` : ''}
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  disabled={disabled || remarkPage <= 1}
+                  onClick={() => setRemarkPage((p) => Math.max(1, p - 1))}
+                  style={adminReturnMiniBtn(disabled || remarkPage <= 1)}
+                >
+                  Prev
+                </button>
+                <span style={{ fontWeight: 700, color: '#334155', alignSelf: 'center' }}>
+                  {remarkPage} / {remarkTotalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={disabled || remarkPage >= remarkTotalPages}
+                  onClick={() => setRemarkPage((p) => Math.min(remarkTotalPages, p + 1))}
+                  style={adminReturnMiniBtn(disabled || remarkPage >= remarkTotalPages)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : (
       <div
         style={{
           maxHeight: multi ? 'min(360px, 42vh)' : undefined,
@@ -1845,6 +2101,7 @@ const AdminReturnProductsAccordion = ({
                 lineItemCode={lineItemCode}
                 lineCategory={lineCategory}
                 lineProduct={lineProduct}
+                lineDesign={lineDesign}
                 lineRfidValue={lineRfidValue}
                 lineGrossWt={lineGrossWt}
                 lineNetWt={lineNetWt}
@@ -1940,9 +2197,13 @@ const AdminReturnProductsAccordion = ({
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                     }}
-                    title={`${row.design} · ${row.category} · RFID ${row.rfid}`}
+                    title={`${row.category} · ${row.design} · ${row.product} · RFID ${row.rfid}`}
                   >
-                    {row.design} · {row.category} · RFID {row.rfid}
+                    <span style={{ fontWeight: 800, color: '#334155' }}>{row.category}</span>
+                    {' · '}
+                    <span style={{ fontWeight: 800, color: '#334155' }}>{row.design}</span>
+                    {' · '}
+                    {row.product} · RFID {row.rfid}
                   </div>
                   {!expanded && row.remark ? (
                     <div
@@ -2012,6 +2273,7 @@ const AdminReturnProductsAccordion = ({
           );
         })}
       </div>
+      )}
     </section>
   );
 };
@@ -2051,8 +2313,8 @@ const LotDetailItemCard = ({
   const rfid = lineRfidValue(line);
   const category = lineCategory(line);
   const product = lineProduct(line);
-  const designTitle = lineDesignCardTitle(line);
-  const designName = lineDesign ? lineDesign(line) : lineDesignLabel(line);
+  const designTitle = lineDesignFieldValue(line);
+  const designName = lineDesign ? lineDesign(line) : lineDesignFieldValue(line);
   const pieces = formatPiecesDisplay(linePiecesFromMrp(line));
   const status = String(line?.ItemStatus || '—').trim() || '—';
   const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
@@ -2068,6 +2330,7 @@ const LotDetailItemCard = ({
   const sampleInDateTime = displayLineSampleInOn(line);
   const employeeName = lineEmployeeNameRaw(line, lotHeader) || '—';
   const scanMeta = pickLineScanMeta(line);
+  const returnRemarkText = getLineReturnedItemRemark(line, lotHeader);
   const img = lineItemLocalImageUrls[lineItemKey(line)] || lineImageUrl(line);
   const imageHeight = isSmallScreen ? MODAL_CARD_IMAGE_HEIGHT_SM : MODAL_CARD_IMAGE_HEIGHT;
 
@@ -2300,7 +2563,7 @@ const LotDetailItemCard = ({
             ) : null}
           </div>
         )}
-        {isForceReturnItem(line) ? (
+        {returnRemarkText ? (
           <div
             style={{
               marginTop: 8,
@@ -2330,7 +2593,7 @@ const LotDetailItemCard = ({
                 lineHeight: 1.45,
               }}
             >
-              Returned by admin
+              {returnRemarkText}
             </div>
           </div>
         ) : null}
@@ -2374,12 +2637,17 @@ const mapRfidSampleLine = (line) => {
     line.DesignNo,
     line.design_no,
     line.DesignCode,
-    line.designCode,
-    line.designId,
-    line.DesignId,
-    line.design_id,
-    itemCodeVal
+    line.designCode
   );
+  const normalizedDesignNo =
+    designNoVal && itemCodeVal && designNoVal.toLowerCase() === itemCodeVal.toLowerCase()
+      ? ''
+      : designNoVal;
+  const rawDesignName = firstNonEmptySampleField(line.designName, line.DesignName, line.Design);
+  const designNameVal =
+    rawDesignName && itemCodeVal && rawDesignName.toLowerCase() === itemCodeVal.toLowerCase()
+      ? firstNonEmptySampleField(line.designName, line.DesignName)
+      : rawDesignName;
   return {
     ...line,
     LotItemId: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
@@ -2392,9 +2660,9 @@ const mapRfidSampleLine = (line) => {
     ItemStatus: line.itemStatus ?? line.ItemStatus,
     ProductName: line.productName ?? line.ProductName,
     CategoryName: line.categoryName ?? line.CategoryName,
-    DesignName: line.designName ?? line.DesignName ?? line.Design,
-    DesignNo: designNoVal || undefined,
-    DesignId: line.designId ?? line.DesignId ?? line.design_id ?? (designNoVal || undefined),
+    DesignName: designNameVal || undefined,
+    DesignNo: normalizedDesignNo || undefined,
+    DesignId: line.designId ?? line.DesignId ?? line.design_id,
     DesignCode: line.designCode ?? line.DesignCode,
     GrossWt: line.grossWt ?? line.GrossWt,
     NetWt: line.netWt ?? line.NetWt,
@@ -2544,25 +2812,7 @@ const enrichDetailLineItem = (line, lotHeader) => {
 const enrichDetailLineItems = (items, lotHeader) =>
   sortProductsByModeThenDesign((items || []).map((line) => enrichDetailLineItem(line, lotHeader)));
 
-const lineDesignLabel = (line) => {
-  const designName = String(line?.DesignName ?? line?.designName ?? line?.Design ?? '').trim();
-  return designName || designNoFromItem(line) || '—';
-};
-
-/** Card title: item code + design name with hyphen (e.g. SAU127-FANCY TOP). */
-const lineDesignCardTitle = (line) => {
-  const itemCode = String(line?.ItemCode ?? line?.Itemcode ?? line?.itemCode ?? '').trim();
-  const designName = String(line?.DesignName ?? line?.designName ?? line?.Design ?? '').trim();
-  const designNo = designNoFromItem(line);
-
-  if (itemCode && designName && itemCode.toLowerCase() !== designName.toLowerCase()) {
-    return `${itemCode}-${designName}`;
-  }
-  if (designNo && designName && designNo.toLowerCase() !== designName.toLowerCase()) {
-    return `${designNo}-${designName}`;
-  }
-  return itemCode || designNo || designName || '—';
-};
+const lineDesignLabel = (line) => lineDesignFieldValue(line);
 
 const lineImageCacheKey = (line) => {
   const keys = getLineImageLookupKeys(line);
@@ -2688,6 +2938,18 @@ const mapRfidSampleLotRow = (entry) => {
     isPartiallyAccepted,
     EmployeeLotStatus: entry.EmployeeLotStatus ?? entry.employeeLotStatus,
     employeeLotStatus: entry.EmployeeLotStatus ?? entry.employeeLotStatus,
+    AcceptedItemsCount:
+      entry.AcceptedItemsCount ??
+      entry.acceptedItemsCount ??
+      entry.AcceptedCount ??
+      entry.acceptedCount ??
+      apiOutItems,
+    acceptedItemsCount:
+      entry.AcceptedItemsCount ??
+      entry.acceptedItemsCount ??
+      entry.AcceptedCount ??
+      entry.acceptedCount ??
+      apiOutItems,
     EmployeeReturnedItems: Number(entry.EmployeeReturnedItems ?? entry.employeeReturnedItems) || 0,
     AdminReturnedItems: Number(entry.AdminReturnedItems ?? entry.adminReturnedItems) || 0,
     ForceReturnedItems: Number(entry.ForceReturnedItems ?? entry.forceReturnedItems) || 0,
@@ -2768,7 +3030,13 @@ const SampleOutList = ({
   const [totalRecords, setTotalRecords] = useState(0);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState(null);
-  const [listDashboard, setListDashboard] = useState({ partialAccepted: 0, pendingAcceptance: 0, open: 0 });
+  const [listDashboard, setListDashboard] = useState({
+    partialAccepted: 0,
+    pendingAcceptance: 0,
+    open: 0,
+    completedThisMonth: 0,
+    closedThisMonth: 0,
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [userInfo, setUserInfo] = useState(null);
@@ -2846,7 +3114,7 @@ const SampleOutList = ({
     const lotStatusApi = statusFilter !== 'All' ? statusFilter : undefined;
     const hasDateFilter = Boolean(fromDate || toDate);
 
-    try {
+    const requestSampleOutList = async (statusForApi) => {
       let data;
       if (hasDateFilter) {
         const body = {
@@ -2855,7 +3123,7 @@ const SampleOutList = ({
           PageSize: 500,
         };
         if (partyTypeApi) body.PartyType = partyTypeApi;
-        if (lotStatusApi) body.LotStatus = lotStatusApi;
+        if (statusForApi) body.LotStatus = statusForApi;
         if (fromDate) body.FromDate = `${fromDate}T00:00:00.000Z`;
         if (toDate) body.ToDate = `${toDate}T23:59:59.999Z`;
         ({ data } = await axios.post(getAllSampleOutListUrl(), body, {
@@ -2867,7 +3135,7 @@ const SampleOutList = ({
           clientCode,
           pageNumber: 1,
           pageSize: 500,
-          lotStatus: lotStatusApi,
+          lotStatus: statusForApi,
           partyType: partyTypeApi,
         });
         try {
@@ -2882,15 +3150,52 @@ const SampleOutList = ({
             PageSize: 500,
           };
           if (partyTypeApi) body.PartyType = partyTypeApi;
-          if (lotStatusApi) body.LotStatus = lotStatusApi;
+          if (statusForApi) body.LotStatus = statusForApi;
           ({ data } = await axios.post(getAllSampleOutListUrl(), body, {
             headers,
             timeout: SAMPLE_LIST_TIMEOUT_MS,
           }));
         }
       }
-      const { rows: rawRows, totalRecords: total, dashboard } = extractRfidSampleOutListFromResponse(data);
-      const rows = normalizeSampleOutListRows(rawRows);
+      return extractRfidSampleOutListFromResponse(data);
+    };
+
+    try {
+      let rawRows;
+      let total;
+      let dashboard = parseRfidSampleListDashboard();
+
+      if (statusFilter === 'All') {
+        const statusFetches = [
+          requestSampleOutList(undefined),
+          ...RFID_SAMPLE_ALL_LIST_EXTRA_STATUSES.map((status) =>
+            requestSampleOutList(status).catch((err) => {
+              console.warn(`GetAllSampleOutList (${status}):`, err);
+              return { rows: [], totalRecords: 0, dashboard: parseRfidSampleListDashboard() };
+            })
+          ),
+        ];
+        const results = await Promise.all(statusFetches);
+        rawRows = mergeSampleOutListRows(...results.map((result) => result.rows));
+        total = rawRows.length;
+        dashboard = results.reduce(
+          (acc, result) => ({
+            partialAccepted: Math.max(acc.partialAccepted, result.dashboard.partialAccepted),
+            pendingAcceptance: Math.max(acc.pendingAcceptance, result.dashboard.pendingAcceptance),
+            open: Math.max(acc.open, result.dashboard.open),
+            completedThisMonth: Math.max(acc.completedThisMonth, result.dashboard.completedThisMonth),
+            closedThisMonth: 0,
+          }),
+          parseRfidSampleListDashboard()
+        );
+      } else {
+        const result = await requestSampleOutList(lotStatusApi);
+        rawRows = result.rows;
+        total = result.totalRecords;
+        dashboard = result.dashboard;
+      }
+
+      const rows = sortSampleOutLotsForList(normalizeSampleOutListRows(rawRows));
       setSampleOutData(rows);
       setTotalRecords(total);
       setListDashboard(dashboard);
@@ -2959,9 +3264,11 @@ const SampleOutList = ({
     let partialAccepted = 0;
     let pendingAcceptance = 0;
     let open = 0;
+    let completed = 0;
     sampleOutData.forEach((lot) => {
       const key = normalizeRfidSampleLotStatus(lot?.Status ?? lot?.LotStatus);
-      if (key === 'partialaccepted') partialAccepted += 1;
+      if (isRfidSampleLotFinished(lot)) completed += 1;
+      else if (key === 'partialaccepted') partialAccepted += 1;
       else if (key === 'pendingacceptance') pendingAcceptance += 1;
       else if (key === 'open') open += 1;
     });
@@ -2969,6 +3276,7 @@ const SampleOutList = ({
       partialAccepted: listDashboard.partialAccepted || partialAccepted,
       pendingAcceptance: listDashboard.pendingAcceptance || pendingAcceptance,
       open: listDashboard.open || open,
+      completed: completed || listDashboard.completedThisMonth || 0,
     };
   }, [sampleOutData, listDashboard]);
 
@@ -3303,7 +3611,7 @@ const SampleOutList = ({
     setAdminReturnSelectedIds(new Set());
   };
 
-  const applyAdminReturnResponse = (data) => {
+  const applyAdminReturnResponse = (data, { productRemarksByLotItemId = {} } = {}) => {
     const lotMeta = parseRfidSampleLotReturnMeta(data);
     const bulkRemark = String(data?.adminReturnRemark ?? data?.AdminReturnRemark ?? '').trim();
     const returnedMap = new Map(
@@ -3333,6 +3641,8 @@ const SampleOutList = ({
         const itemAdminReviewRemark =
           hit.adminReviewRemark ??
           hit.AdminReviewRemark ??
+          productRemarksByLotItemId[id] ??
+          productRemarksByLotItemId[String(id)] ??
           line.adminReviewRemark ??
           line.AdminReviewRemark;
         const itemReturnRemark =
@@ -3522,7 +3832,10 @@ const SampleOutList = ({
       if (data?.success === false) {
         throw new Error(data?.message || data?.Message || 'Admin bulk return failed');
       }
-      applyAdminReturnResponse(data);
+      const productRemarksByLotItemId = Object.fromEntries(
+        products.map((product) => [product.LotItemId, product.AdminReviewRemark])
+      );
+      applyAdminReturnResponse(data, { productRemarksByLotItemId });
       await fetchSampleOutList();
       const lotMeta = parseRfidSampleLotReturnMeta(data);
       const fallbackMsg =
@@ -3748,10 +4061,15 @@ const SampleOutList = ({
       PartyId: r.PartyId ?? '',
       PartyName: r.PartyName || '',
       AssignedTo: r.AssignedToUserName || '',
-      Status: r.Status || '',
+      Status: normalizeRfidSampleLotStatusForUi(r.Status || ''),
       IssueDate: displayLotSampleOutDateTime(r),
       ExpectedReturn: displayLotExpectedReturnDate(r),
-      ClosedDate: r.ClosedDate || '',
+      CompletedDate:
+        r.CompletedDate ||
+        r.completedDate ||
+        r.ClosedDate ||
+        r.closedDate ||
+        '',
       BranchId: r.BranchId ?? '',
       BranchName: r.LotBranchName || '',
       CounterId: r.CounterId ?? '',
@@ -3787,10 +4105,10 @@ const SampleOutList = ({
       r.SampleLotNo || r.SampleOutNo || '—',
       r.PartyType || '—',
       r.PartyName || '—',
-      r.Status || '—',
+      humanizeLotStatus(r.Status),
       displayLotSampleOutDateTime(r),
       displayLotExpectedReturnDate(r),
-      displayRfidSampleDate(r, ['closedDate', 'ClosedDate', 'actualReturnDate', 'ActualReturnDate'], formatDate),
+      displayRfidSampleDate(r, ['completedDate', 'CompletedDate', 'closedDate', 'ClosedDate', 'actualReturnDate', 'ActualReturnDate'], formatDate),
       r.LotBranchName || String(r.BranchId ?? '—'),
       String(r.TotalItems ?? '—'),
       String(r.ReturnedItems ?? '—'),
@@ -3806,7 +4124,7 @@ const SampleOutList = ({
           'Status',
           'Issue',
           'Due',
-          'Closed',
+          'Completed',
           'Branch',
           'Tot',
           'Ret',
@@ -3847,6 +4165,9 @@ const SampleOutList = ({
       ['SampleTransactionId', 'Sample transaction id'],
       ['Id', 'Line id'],
       ['Remarks', 'Remarks'],
+      ['AdminReviewRemark', 'Admin review remark'],
+      ['ReturnRemark', 'Return remark'],
+      ['AdminReturnRemark', 'Admin return remark'],
     ];
     const seen = new Set();
     const rows = [];
@@ -3894,12 +4215,12 @@ const SampleOutList = ({
       <h1>Sample lot ${lot}</h1>
       <table>
         <tr><td>Party</td><td>${row.PartyName || '—'} (${row.PartyType || '—'})</td></tr>
-        <tr><td>Status</td><td>${row.Status || '—'}</td></tr>
+        <tr><td>Status</td><td>${humanizeLotStatus(row.Status)}</td></tr>
         <tr><td>Issue</td><td>${displayLotSampleOutDateTime(row)}</td></tr>
         <tr><td>Expected return</td><td>${displayLotExpectedReturnDate(row)}</td></tr>
         <tr><td>Returned</td><td>${row.ReturnedItems ?? '—'}</td></tr>
         <tr><td>Items</td><td>${row.TotalItems ?? '—'} total · ${row.PendingItems ?? '—'} pending</td></tr>
-        <tr><td>Closed</td><td>${displayRfidSampleDate(row, ['closedDate', 'ClosedDate', 'actualReturnDate', 'ActualReturnDate'], formatDate)}</td></tr>
+        <tr><td>Completed</td><td>${displayRfidSampleDate(row, ['completedDate', 'CompletedDate', 'closedDate', 'ClosedDate', 'actualReturnDate', 'ActualReturnDate'], formatDate)}</td></tr>
         <tr><td>Remarks</td><td>${(row.Remarks || '—').replace(/</g, '&lt;')}</td></tr>
       </table>
       <script>window.onload=function(){window.print();window.close()}</script>
@@ -4216,7 +4537,6 @@ const SampleOutList = ({
                     <option value="Open">Open</option>
                     <option value="PartialReturn">Partial return</option>
                     <option value="PartialReturned">Partial returned (legacy)</option>
-                    <option value="Closed">Closed</option>
                     <option value="Completed">Completed</option>
                   </select>
                 </div>
@@ -4385,6 +4705,15 @@ const SampleOutList = ({
               bd: '#bfdbfe',
               filter: 'Open',
             },
+            {
+              key: 'completed',
+              label: 'Completed',
+              value: computedListDashboard.completed,
+              bg: '#f5f3ff',
+              fg: '#6d28d9',
+              bd: '#ddd6fe',
+              filter: 'Completed',
+            },
           ].map((chip) => (
             <button
               key={chip.key}
@@ -4511,7 +4840,7 @@ const SampleOutList = ({
                   ['Status', 'left'],
                   ['Issue', 'left'],
                   ['Due', 'left'],
-                  ['Closed', 'left'],
+                  ['Completed', 'left'],
                   ['Tot', 'right'],
                   ['Ret', 'right'],
                   ['Pend', 'right'],
@@ -4602,7 +4931,7 @@ const SampleOutList = ({
                         </td>
                         <td style={tdL}>{item.PartyType || '—'}</td>
                         <td style={tdL}>
-                          <LotStatusPill status={item.Status} />
+                          <LotStatusPill status={item.Status} lot={item} />
                         </td>
                         <td style={tdL}>{displayLotSampleOutDateTime(item)}</td>
                         <td style={tdL}>{displayLotExpectedReturnDate(item)}</td>
@@ -5092,7 +5421,7 @@ const SampleOutList = ({
                     >
                       Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}
                     </h3>
-                    <LotStatusPill status={detailModal.header?.Status} />
+                    <LotStatusPill status={detailModal.header?.Status} lot={detailModal.header} />
                   </div>
                   <p style={{ margin: '8px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.78)', fontWeight: 500, lineHeight: 1.45 }}>
                     Sample lot details · item return
@@ -5522,9 +5851,9 @@ const SampleOutList = ({
                 style={{
                   background: '#fff',
                   borderRadius: 16,
-                  maxWidth: 720,
+                  maxWidth: 920,
                   width: '100%',
-                  maxHeight: 'min(780px, 94vh)',
+                  maxHeight: 'min(860px, 94vh)',
                   overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
@@ -5616,18 +5945,18 @@ const SampleOutList = ({
               <>
                 <div
                   style={{
-                    padding: '10px 14px',
+                    padding: '12px 16px',
                     background: 'linear-gradient(135deg, #c2410c 0%, #ea580c 55%, #d97706 100%)',
                     color: '#fff',
                     flexShrink: 0,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
                       <div
                         style={{
-                          width: 34,
-                          height: 34,
+                          width: 36,
+                          height: 36,
                           borderRadius: 9,
                           background: 'rgba(255,255,255,0.18)',
                           border: '1px solid rgba(255,255,255,0.28)',
@@ -5635,28 +5964,25 @@ const SampleOutList = ({
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
+                          marginTop: 2,
                         }}
                       >
                         <FaUndo size={14} />
                       </div>
-                      <div style={{ minWidth: 0 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
                         <h3
                           id="admin-return-modal-title"
-                          style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.25 }}
+                          style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#fff', lineHeight: 1.25 }}
                         >
                           {adminReturnAllMode ? 'Return all out items' : 'Admin bulk sample return'}
                         </h3>
                         <p
                           style={{
-                            margin: '2px 0 0',
-                            fontSize: 11,
-                            color: 'rgba(255,255,255,0.9)',
-                            lineHeight: 1.35,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            margin: '4px 0 0',
+                            fontSize: 12,
+                            color: 'rgba(255,255,255,0.92)',
+                            lineHeight: 1.4,
                           }}
-                          title={`Lot ${detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'}`}
                         >
                           Lot {detailModal.header?.SampleLotNo || detailModal.header?.SampleOutNo || '—'} ·{' '}
                           {adminReturnAllMode
@@ -5665,6 +5991,58 @@ const SampleOutList = ({
                               ? `${adminReturnSelectedCount} selected → Completed`
                               : `${adminReturnSelectedCount} selected → PartialReturn`}
                         </p>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, max-content))',
+                            gap: '8px 16px',
+                            marginTop: 10,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                color: 'rgba(255,255,255,0.72)',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.06em',
+                                marginBottom: 2,
+                              }}
+                            >
+                              Returning
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                              {adminReturnAllMode ? adminReturnableItems.length : adminReturnSelectedCount} item(s)
+                            </div>
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                color: 'rgba(255,255,255,0.72)',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.06em',
+                                marginBottom: 2,
+                              }}
+                            >
+                              Return date
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: '#fff',
+                                lineHeight: 1.35,
+                                fontVariantNumeric: 'tabular-nums',
+                              }}
+                            >
+                              {adminReturnPreviewDateTime}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <button
@@ -5685,42 +6063,6 @@ const SampleOutList = ({
                     >
                       <FaTimes size={13} />
                     </button>
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 6,
-                      marginTop: 8,
-                      fontSize: 10,
-                      fontWeight: 700,
-                    }}
-                  >
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 999,
-                        background: 'rgba(255,255,255,0.16)',
-                        border: '1px solid rgba(255,255,255,0.22)',
-                      }}
-                    >
-                      Items: {adminReturnAllMode ? adminReturnableItems.length : adminReturnSelectedCount}
-                    </span>
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 999,
-                        background: 'rgba(255,255,255,0.16)',
-                        border: '1px solid rgba(255,255,255,0.22)',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                      title={adminReturnPreviewDateTime}
-                    >
-                      {adminReturnPreviewDateTime}
-                    </span>
                   </div>
                 </div>
 
@@ -5749,8 +6091,50 @@ const SampleOutList = ({
                       summary={adminPartialSummary}
                       loading={adminPartialSummaryLoading}
                       compact
+                      hideSummaryTable
+                      hideSummaryMessage
+                      hideReturningItemsTable
+                      remainingLabel="Remaining out"
+                      remainingTableMaxHeight={160}
                     />
                   </section>
+                  <section
+                    style={{
+                      flexShrink: 0,
+                      borderRadius: 10,
+                      border: '1px solid #fde68a',
+                      background: '#fffbeb',
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+                      Lot return remark
+                    </div>
+                    <textarea
+                      id="admin-return-remark-modal"
+                      value={adminReturnRemark}
+                      onChange={(e) => setAdminReturnRemark(e.target.value)}
+                      placeholder="Default remark for all products — use “Apply to all” on each row below…"
+                      rows={2}
+                      disabled={adminReturning}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        border: '1px solid #fcd34d',
+                        fontSize: 13,
+                        lineHeight: 1.45,
+                        color: '#0f172a',
+                        resize: 'vertical',
+                        minHeight: 56,
+                        maxHeight: 96,
+                        boxSizing: 'border-box',
+                        fontFamily: 'inherit',
+                        background: '#fff',
+                      }}
+                    />
+                  </section>
+                  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   <AdminReturnProductsAccordion
                     lines={adminReturnAllMode ? adminReturnableItems : adminReturnSelectedLines}
                     lineItemCode={lineItemCode}
@@ -5769,44 +6153,8 @@ const SampleOutList = ({
                     lotRemarkFallback={adminReturnRemark}
                     disabled={adminReturning}
                   />
-                </div>
-
-                <section
-                  style={{
-                    flexShrink: 0,
-                    borderTop: '1px solid #fde68a',
-                    borderBottom: '1px solid #fde68a',
-                    background: '#fffbeb',
-                    padding: '10px 14px',
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
-                    Lot return remark
                   </div>
-                  <textarea
-                    id="admin-return-remark-modal"
-                    value={adminReturnRemark}
-                    onChange={(e) => setAdminReturnRemark(e.target.value)}
-                    placeholder="Enter return remark for this lot (used when product remark is empty)…"
-                    rows={3}
-                    disabled={adminReturning}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      border: '1px solid #fcd34d',
-                      fontSize: 13,
-                      lineHeight: 1.45,
-                      color: '#0f172a',
-                      resize: 'vertical',
-                      minHeight: 72,
-                      maxHeight: 120,
-                      boxSizing: 'border-box',
-                      fontFamily: 'inherit',
-                      background: '#fff',
-                    }}
-                  />
-                </section>
+                </div>
 
                 <div
                   style={{

@@ -52,10 +52,8 @@ import {
   getCheckScanStatusUrl,
   getScanSampleInUrl,
   parseRfidSampleLotReturnMeta,
-  isRfidSampleLotClosed,
-  isRfidSampleLotCompleted,
+  isRfidSampleLotFinished,
   isRfidSampleLotPartialReturn,
-  formatRfidSampleLotClosedMessage,
   formatRfidSampleLotCompletedMessage,
   getLotByIdUrl,
   getLotAcceptanceStatusUrl,
@@ -67,7 +65,7 @@ import {
 import { PartialReturnSummaryPanel, PartialReturnApiItemsTable } from './partialReturnSummaryUi';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
 import { getAuthState, isSuperAdmin } from '../../utils/authState';
-import { buildDesignAwarePages, designNoFromItem, parseDesignSortKey, sortProductsByDesign } from '../../utils/designSort';
+import { buildDesignAwarePages, designNoFromItem, lineDesignFieldValue, normalizeProductDesignFields, parseDesignSortKey, sortProductsByDesign } from '../../utils/designSort';
 import { authHeaders as rfidUserAuthHeaders, rfidUserUrls } from '../../services/rfidUserManagementApi';
 
 const EMPLOYEE_MASTER_LINK_HELP =
@@ -165,6 +163,7 @@ const parseLabelledStockByTidResponse = (responseData) => {
         CategoryName: entry?.CategoryName ?? pd.CategoryName ?? pd.Category ?? '',
         ProductName: entry?.ProductName ?? pd.ProductName ?? pd.Product ?? '',
         DesignName: entry?.DesignName ?? pd.DesignName ?? pd.Design ?? '',
+        DesignNo: entry?.DesignNo ?? pd.DesignNo ?? pd.DesignCode ?? pd.design_no ?? '',
         PurityName: entry?.PurityName ?? pd.PurityName ?? pd.Purity ?? '',
       };
     });
@@ -270,7 +269,7 @@ const formatSampleLotStatusLabel = (raw) => {
     PartialReturn: 'Partial return',
     PartialReturned: 'Partial return',
     Open: 'Open',
-    Closed: 'Closed',
+    Closed: 'Completed',
     Completed: 'Completed',
     Cancelled: 'Cancelled',
   };
@@ -302,10 +301,7 @@ const pickScanSampleInResult = (inData, item, rfid, lotId) => {
 };
 
 const buildScanSampleInSuccessMessage = (result) => {
-  if (isRfidSampleLotClosed(result)) {
-    return formatRfidSampleLotClosedMessage(result.apiMessage);
-  }
-  if (isRfidSampleLotCompleted(result)) {
+  if (isRfidSampleLotFinished(result)) {
     return formatRfidSampleLotCompletedMessage(result.apiMessage);
   }
   const parts = [`Returned ${result.itemCode} — Lot ${result.lotNumber}`];
@@ -322,10 +318,7 @@ const buildScanSampleInSuccessMessage = (result) => {
 
 const buildScanSampleInLotSummaryLine = (result) => {
   const lotNo = result.lotNumber || '—';
-  if (isRfidSampleLotClosed(result)) {
-    return `Lot ${lotNo}: ${formatRfidSampleLotClosedMessage(result.apiMessage)}`;
-  }
-  if (isRfidSampleLotCompleted(result)) {
+  if (isRfidSampleLotFinished(result)) {
     return `Lot ${lotNo}: ${formatRfidSampleLotCompletedMessage(result.apiMessage)}`;
   }
   if (isRfidSampleLotPartialReturn(result)) {
@@ -353,7 +346,7 @@ const getSampleOutStatusBadgeStyle = (rawStatus) => {
   if (/cancel|reject/i.test(key)) {
     return { bg: '#fef2f2', border: '#fecaca', color: '#b91c1c' };
   }
-  if (/accept|closed/i.test(key)) {
+  if (/accept/i.test(key)) {
     return { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8' };
   }
   return { bg: '#f1f5f9', border: '#e2e8f0', color: '#475569' };
@@ -750,6 +743,7 @@ const buildProductDataFromRaw = (item, extras = {}) => {
   const scanSource =
     String(extras.scanSource ?? extras.__persistedScanSource ?? '').trim() ||
     pickItemScanSource(item);
+  const designFields = normalizeProductDesignFields(item);
   return {
     id: Date.now() + Math.floor(Math.random() * 1000),
     __scannedAt: new Date().toISOString(),
@@ -767,7 +761,10 @@ const buildProductDataFromRaw = (item, extras = {}) => {
     LabelledStockId: item.LabelledStockId || item.LabelledStockID || item.Id || item.id || '',
     category_id: item.CategoryName || item.Category || item.category_id || item.categoryName || '',
     product_id: item.ProductName || item.Product || item.product_id || item.productName || '',
-    design_id: item.DesignName || item.Design || item.design_id || item.designName || '',
+    DesignName: designFields.DesignName,
+    DesignNo: designFields.DesignNo,
+    Design: designFields.DesignName,
+    design_id: designFields.design_id,
     purity_id: item.PurityName || item.Purity || item.purity_id || item.purityName || '',
     grosswt: item.GrossWt || item.GrossWeight || item.grosswt || item.grossWt || item.TWt || '0.000',
     stonewt: item.StoneWt || item.StoneWeight || item.stonewt || item.StWt || '0.000',
@@ -804,6 +801,13 @@ const enrichItemFromCheckStatus = (item, checkData) => {
     ProductName: pickScanApiField(p, 'productName', 'ProductName') || item.ProductName,
     CategoryName: pickScanApiField(p, 'categoryName', 'CategoryName') || item.CategoryName,
     DesignName: pickScanApiField(p, 'designName', 'DesignName') || item.DesignName,
+    DesignNo: pickScanApiField(p, 'designNo', 'DesignNo', 'DesignCode') || item.DesignNo,
+    Design: pickScanApiField(p, 'designName', 'DesignName') || item.Design || item.DesignName,
+    design_id:
+      pickScanApiField(p, 'designNo', 'DesignNo', 'DesignCode') ||
+      pickScanApiField(p, 'designName', 'DesignName') ||
+      item.design_id ||
+      item.DesignName,
     PurityName: pickScanApiField(p, 'purityName', 'PurityName') || item.PurityName,
     GrossWt: pickScanApiField(p, 'grossWt', 'GrossWt') || item.GrossWt,
     NetWt: pickScanApiField(p, 'netWt', 'NetWt') || item.NetWt,
@@ -934,6 +938,23 @@ const formatSummaryPieces = (value) => {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 };
 
+const resolveSuccessTotalPieces = (header, lineItems, scannedRows) => {
+  const direct =
+    header?.TotalPieces ??
+    header?.totalPieces ??
+    header?.TotalMRP ??
+    header?.totalMrp ??
+    null;
+  if (direct != null && direct !== '') return Number(direct) || 0;
+  if (Array.isArray(scannedRows) && scannedRows.length) {
+    return summarizeScanRows(scannedRows).pieces;
+  }
+  if (Array.isArray(lineItems) && lineItems.length) {
+    return lineItems.reduce((sum, line) => sum + scanRowPieces(line), 0);
+  }
+  return null;
+};
+
 const pendingInRowGrossWt = (row) =>
   String(row?.grosswt ?? row?.GrossWt ?? row?.GrossWeight ?? row?.TWt ?? '0.000');
 
@@ -968,16 +989,17 @@ const pendingInRowImageLookupKeys = (row) => {
     Itemcode: code,
     RFIDCode: row?.RFIDNumber ?? row?.RFIDCode,
     RFID: row?.RFIDNumber,
-    DesignId: row?.design_id ?? row?.DesignId,
-    design_id: row?.design_id ?? row?.DesignId,
-    DesignName: row?.DesignName ?? row?.Design ?? row?.design_id,
-    Design: row?.DesignName ?? row?.Design,
+      DesignId: row?.design_id ?? row?.DesignId ?? row?.DesignNo,
+      design_id: row?.design_id ?? row?.DesignNo ?? row?.DesignName,
+      DesignName: row?.DesignName ?? row?.Design ?? row?.design_id ?? row?.DesignNo,
+      DesignNo: row?.DesignNo,
+      Design: row?.DesignName ?? row?.Design ?? row?.DesignNo,
   });
 };
 
 const SampleInReturnItemCard = ({ row, index }) => {
   const code = rowItemCodeFromRaw(row) || row?.Itemcode || row?.ItemCode || '—';
-  const design = designNoFromItem(row) || '—';
+  const design = lineDesignFieldValue(row);
   const rfid = String(row?.RFIDNumber ?? row?.RFIDCode ?? '').trim() || '—';
   return (
     <article
@@ -1659,9 +1681,8 @@ const SampleOut = () => {
     String(row?.CategoryName ?? row?.Category ?? row?.categoryName ?? row?.category_id ?? '').trim() || '—';
   const rowProductOrDash = (row) =>
     String(row?.product_id ?? row?.ProductName ?? row?.Product ?? '').trim() || '—';
-  const rowDesignOrDash = (row) => designNoFromItem(row) || '—';
-  const rowDesignNameOrDash = (row) =>
-    String(row?.DesignName ?? row?.designName ?? '').trim() || designNoFromItem(row) || '—';
+  const rowDesignOrDash = (row) => lineDesignFieldValue(row);
+  const rowDesignNameOrDash = (row) => lineDesignFieldValue(row);
   const currentScannerName = useMemo(() => resolveScannerDisplayName(userInfo), [userInfo]);
   const rowScannedByUser = (row) => {
     const stored = String(
@@ -2775,23 +2796,30 @@ const formatScannedTime = (date) => {
     if (key) {
       const existing = sampleOutItemsRef.current.find((r) => rowDedupKey(r) === key);
       if (existing) {
-        const msg = existing.__scanAction === 'SampleInPending' 
-           ? `Already queued for Sample In (lot ${existing.__lotNumber || '—'}).` 
-           : `Item ${itemCode || rfid || tid} is already added in the grid.`;
-        const r = fail('warning', msg);
-        if (!silent) {
-          openScanReviewModal({
-            title: 'Already added',
-            subtitle: 'This item is already in your current scan list.',
-            sections: [{ type: 'warning', heading: 'Skipped', rows: [r] }],
-          });
+        const isTrayReturnRescan =
+          source === 'tray' &&
+          (existing.__scanAction === 'SampleInPending' ||
+            (preferSampleIn && existing.__scanAction === 'SampleOut'));
+        if (!isTrayReturnRescan) {
+          const msg =
+            existing.__scanAction === 'SampleInPending'
+              ? `Already queued for Sample In (lot ${existing.__lotNumber || '—'}).`
+              : `Item ${itemCode || rfid || tid} is already added in the grid.`;
+          const r = fail('warning', msg);
+          if (!silent) {
+            openScanReviewModal({
+              title: 'Already added',
+              subtitle: 'This item is already in your current scan list.',
+              sections: [{ type: 'warning', heading: 'Skipped', rows: [r] }],
+            });
+          }
+          if (clearSearch) {
+            setSearchResults([]);
+            setShowSearchResults(false);
+            setItemCodeSearch('');
+          }
+          return r;
         }
-        if (clearSearch) {
-          setSearchResults([]);
-          setShowSearchResults(false);
-          setItemCodeSearch('');
-        }
-        return r;
       }
     }
 
@@ -3139,6 +3167,7 @@ const formatScannedTime = (date) => {
       const dedup = `${itemCode.toUpperCase()}|${tid.toUpperCase()}|${rfid.toUpperCase()}`;
       if (seen.has(dedup)) return;
       seen.add(dedup);
+      const designFields = normalizeProductDesignFields(pd);
       out.push({
         id: Date.now() + idx,
         __scannedAt:
@@ -3160,7 +3189,10 @@ const formatScannedTime = (date) => {
         LabelledStockId: pd.LabelledStockId || pd.Id || entry?.Id || '',
         category_id: pd.CategoryName || pd.Category || pd.category_id || '',
         product_id: pd.ProductName || pd.Product || pd.product_id || '',
-        design_id: pd.DesignName || pd.Design || pd.design_id || '',
+        DesignName: designFields.DesignName,
+        DesignNo: designFields.DesignNo,
+        Design: designFields.DesignName,
+        design_id: designFields.design_id,
         purity_id: pd.PurityName || pd.Purity || pd.purity_id || '',
         grosswt: pd.GrossWt || pd.GrossWeight || pd.grosswt || pd.TWt || '0.000',
         stonewt: pd.StoneWt || pd.StoneWeight || pd.stonewt || pd.StWt || '0.000',
@@ -3333,13 +3365,13 @@ const formatScannedTime = (date) => {
       });
       const preferSampleIn = inReturnMode || rescanningOutTags;
 
-      setSampleOutItems((prev) =>
-        prev.filter((item) => {
-          const key = rowDedupKey(item);
-          if (!key || !incomingKeys.has(key)) return true;
-          return item.__scanAction !== 'SampleOut' && item.__scanAction !== 'SampleInPending';
-        })
-      );
+      const prunedItems = sampleOutItemsRef.current.filter((item) => {
+        const key = rowDedupKey(item);
+        if (!key || !incomingKeys.has(key)) return true;
+        return item.__scanAction !== 'SampleOut' && item.__scanAction !== 'SampleInPending';
+      });
+      sampleOutItemsRef.current = prunedItems;
+      setSampleOutItems(prunedItems);
       setCurrentPage(1);
       const summary = await processScannedBatch(rows, {
         source: 'tray',
@@ -3763,14 +3795,12 @@ const formatScannedTime = (date) => {
         subtitleParts.push(`Partial return — ${partialLotNotes.join(' ')}`);
       }
     }
-    const allClosed = [...lotSummaryByKey.values()].every((s) =>
-      String(s.lotStatus || '').toLowerCase().includes('closed')
-    );
+    const allCompleted = [...lotSummaryByKey.values()].every((s) => isRfidSampleLotFinished(s));
     openScanReviewModal({
       title: failures.length
         ? 'Sample In — partial success'
-        : allClosed && lotSummaryByKey.size
-          ? 'Sample In complete — lot closed'
+        : allCompleted && lotSummaryByKey.size
+          ? 'Sample In complete — lot completed'
           : 'Sample In complete',
       subtitle: subtitleParts.join(' '),
       sections,
@@ -3952,6 +3982,8 @@ const formatScannedTime = (date) => {
         lotStatus: apiBody.lotStatus ?? apiBody.LotStatus ?? '',
         header,
         lineItems: enrichedLineItems,
+        totalItems: header?.TotalItems ?? submittedRows.length ?? enrichedLineItems.length,
+        totalPieces: resolveSuccessTotalPieces(header, enrichedLineItems, submittedRows),
       });
       setSampleOutNumber(createdLotNo || sampleOutNumber);
       setShowSuccessModal(true);
@@ -6608,9 +6640,13 @@ const formatScannedTime = (date) => {
           successData.sampleOutNo
         );
         const totalItems =
+          successData.totalItems ??
           successData.header?.TotalItems ??
           successData.lineItems?.length ??
           null;
+        const totalPieces =
+          successData.totalPieces ??
+          resolveSuccessTotalPieces(successData.header, successData.lineItems, null);
         const pendingItems =
           successData.header?.PendingItems ??
           (successData.lineItems?.length > 0 ? successData.lineItems.length : null);
@@ -6626,6 +6662,9 @@ const formatScannedTime = (date) => {
               ],
           totalItems != null && totalItems !== ''
             ? { label: 'Items', value: String(totalItems) }
+            : null,
+          totalPieces != null
+            ? { label: 'Pieces', value: formatSummaryPieces(totalPieces) }
             : null,
           pendingItems != null && pendingItems !== '' && String(pendingItems) !== String(totalItems)
             ? { label: 'Pending', value: String(pendingItems) }

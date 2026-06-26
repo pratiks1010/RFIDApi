@@ -1,5 +1,5 @@
-/** Design number from labelled-stock / scan row (e.g. 124g-5, 245D245-1). */
-export const designNoFromItem = (item) => {
+/** Design number from labelled-stock / scan row (e.g. 124g-5, 245D245-1). Never returns item code. */
+const lineItemCodeFromItem = (item) => {
   if (!item) return '';
   const pick = (...keys) => {
     for (const key of keys) {
@@ -10,13 +10,89 @@ export const designNoFromItem = (item) => {
     }
     return '';
   };
-  return (
-    pick('DesignNo', 'DesignNO', 'design_no', 'DesignCode') ||
-    pick('DesignId', 'design_id', 'DesignName', 'Design', 'designName') ||
-    ''
-  );
+  return pick('ItemCode', 'Itemcode', 'itemCode', 'ITEMCODE', 'Item_Code', 'ITMCode');
 };
 
+const isSameAsItemCode = (value, itemCode) => {
+  if (!value || !itemCode) return false;
+  return String(value).trim().toLowerCase() === String(itemCode).trim().toLowerCase();
+};
+
+/** Design column / card title — design code or name only, never item code. */
+export const lineDesignFieldValue = (item) => {
+  if (!item || typeof item !== 'object') return '—';
+  const merged = { ...(item.fullItemData || {}), ...item };
+  const itemCode = lineItemCodeFromItem(merged);
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = merged[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return String(value).trim();
+      }
+    }
+    return '';
+  };
+  const designNo = pick(
+    'DesignNo',
+    'DesignNO',
+    'design_no',
+    'DesignCode',
+    'designCode',
+    'DesignNumber',
+    'designNumber'
+  );
+  const designName = pick('DesignName', 'Design', 'designName', 'design_id');
+  if (designNo && !isSameAsItemCode(designNo, itemCode)) return designNo;
+  if (designName && !isSameAsItemCode(designName, itemCode)) return designName;
+  return '—';
+};
+
+/** Normalize design fields when building scan / tray rows. */
+export const normalizeProductDesignFields = (item = {}) => {
+  const merged = { ...(item.fullItemData || {}), ...item };
+  const display = lineDesignFieldValue(merged);
+  if (display === '—') {
+    return { DesignNo: '', DesignName: '', design_id: '' };
+  }
+  const itemCode = lineItemCodeFromItem(merged);
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = merged[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return String(value).trim();
+      }
+    }
+    return '';
+  };
+  const designNo = pick(
+    'DesignNo',
+    'DesignNO',
+    'design_no',
+    'DesignCode',
+    'designCode',
+    'DesignNumber',
+    'designNumber'
+  );
+  const designName = pick('DesignName', 'Design', 'designName', 'design_id');
+  const resolvedNo =
+    designNo && !isSameAsItemCode(designNo, itemCode) ? designNo : '';
+  const resolvedName =
+    designName && !isSameAsItemCode(designName, itemCode) ? designName : '';
+  const primary = resolvedNo || resolvedName;
+  return {
+    DesignNo: resolvedNo,
+    DesignName: resolvedName || resolvedNo,
+    design_id: primary,
+  };
+};
+
+export const designNoFromItem = (item) => {
+  const design = lineDesignFieldValue(item);
+  return design === '—' ? '' : design;
+};
+
+/** Card/list title: design only (no item code). */
+export const lineDesignDisplayTitle = (item) => lineDesignFieldValue(item);
 /**
  * e.g. 124g-5 → family 124g, variant 5 (keeps 124g-5 next to 124g-6).
  * e.g. 245D245-1 → family 245D245, variant 1.

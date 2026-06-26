@@ -143,39 +143,43 @@ export const normalizeRfidSampleLotStatus = (lotStatus) =>
     .toLowerCase()
     .replace(/[\s_-]+/g, '');
 
-/** Scan path — every product returned via RFID/TID/item scan. */
+/** Map legacy Closed rows to Completed for UI badges and labels. */
+export const normalizeRfidSampleLotStatusForUi = (lotStatus) => {
+  const key = normalizeRfidSampleLotStatus(lotStatus);
+  if (key === 'closed' || key === 'completed') return 'Completed';
+  const raw = String(lotStatus || '').trim();
+  return raw || '';
+};
+
+/** Lot fully returned — bind finished badge to Completed (legacy Closed counts too). */
+export const isRfidSampleLotFinished = ({ lotStatus, LotStatus, Status, status } = {}) => {
+  const key = normalizeRfidSampleLotStatus(lotStatus ?? LotStatus ?? Status ?? status);
+  return key === 'completed' || key === 'closed';
+};
+
+/** @deprecated Legacy scan path used Closed; API now returns Completed. */
 export const isRfidSampleLotClosed = ({ lotStatus } = {}) =>
   normalizeRfidSampleLotStatus(lotStatus) === 'closed';
 
-/** Admin manual finish — bulk select all Out items or CompleteLot force-close. */
+/** All products returned — scan or admin bulk return. */
 export const isRfidSampleLotCompleted = ({ lotStatus } = {}) =>
-  normalizeRfidSampleLotStatus(lotStatus) === 'completed';
+  isRfidSampleLotFinished({ lotStatus });
 
 export const isRfidSampleLotPartialReturn = ({ lotStatus } = {}) => {
   const status = normalizeRfidSampleLotStatus(lotStatus);
   return status === 'partialreturn' || status === 'partialreturned' || status === 'partiallyreturned';
 };
 
-export const isRfidSampleLotFinalized = (meta = {}) =>
-  isRfidSampleLotClosed(meta) || isRfidSampleLotCompleted(meta);
+export const isRfidSampleLotFinalized = (meta = {}) => isRfidSampleLotFinished(meta);
 
 export const formatRfidSampleLotClosedMessage = (message) =>
-  message || 'All products returned via scan. Sample lot is closed.';
+  formatRfidSampleLotCompletedMessage(message);
 
 export const formatRfidSampleLotCompletedMessage = (message) =>
-  message || 'All products force-returned by admin. Sample lot is completed.';
+  message || 'All products returned. Sample lot is completed.';
 
 export const getRfidSampleLotFinishUi = (meta = {}, { fallbackMessage } = {}) => {
-  if (isRfidSampleLotClosed(meta)) {
-    return {
-      title: 'Lot closed',
-      message: formatRfidSampleLotClosedMessage(meta.message),
-      accent: '#1d4ed8',
-      bg: '#eff6ff',
-      border: '#bfdbfe',
-    };
-  }
-  if (isRfidSampleLotCompleted(meta)) {
+  if (isRfidSampleLotFinished(meta)) {
     return {
       title: 'Lot completed',
       message: formatRfidSampleLotCompletedMessage(meta.message),
@@ -271,6 +275,23 @@ export const getLineForceReturnRemark = (line, lotHeader) => {
   return getLineAdminReviewRemark(line, lotHeader) || getLineReturnRemark(line, lotHeader);
 };
 
+/** Remark shown on any returned item card (per-product note, line note, then lot header). */
+export const getLineReturnedItemRemark = (line, lotHeader) => {
+  if (!line || typeof line !== 'object') return '';
+  const perProduct = pickAdminReviewRemark(line);
+  if (perProduct) return perProduct;
+  const lineReturn = pickLineReturnRemarkOnly(line);
+  if (lineReturn) return lineReturn;
+  if (isForceReturnItem(line) || getItemReturnedByTypeMeta(line)) {
+    return pickReturnRemark(lotHeader) || pickReturnRemark(line);
+  }
+  const status = String(line?.ItemStatus ?? line?.itemStatus ?? '').trim().toLowerCase();
+  if (status.includes('return') || status.includes('samplein') || status === 'in') {
+    return pickReturnRemark(lotHeader) || pickReturnRemark(line);
+  }
+  return '';
+};
+
 /** Line still with customer / not yet returned. */
 export const isOutItemStatus = (status) => {
   const s = String(status || '').trim().toLowerCase();
@@ -319,6 +340,192 @@ export const pickLotPendingAcceptanceItems = (lot) =>
 export const pickLotAcceptedOutItems = (lot) =>
   Number(lot?.outItems ?? lot?.OutItems ?? 0) || 0;
 
+export const pickLotAcceptedItemsCount = (lot) => {
+  if (!lot || typeof lot !== 'object') return 0;
+  const direct =
+    lot.acceptedItemsCount ??
+    lot.AcceptedItemsCount ??
+    lot.acceptedCount ??
+    lot.AcceptedCount ??
+    null;
+  if (direct != null && direct !== '') return Number(direct) || 0;
+  return pickLotAcceptedOutItems(lot);
+};
+
+export const pickLotTotalItems = (lot) =>
+  Number(lot?.totalItems ?? lot?.TotalItems ?? lot?.itemCount ?? lot?.ItemCount ?? 0) || 0;
+
+/** Employee-facing lot status (still pending until all items accepted). */
+export const pickEmployeeLotStatus = (lot) => {
+  if (!lot || typeof lot !== 'object') return '';
+  return (
+    lot.employeeLotStatus ??
+    lot.EmployeeLotStatus ??
+    lot.displayLotStatus ??
+    lot.DisplayLotStatus ??
+    lot.lotStatus ??
+    lot.LotStatus ??
+    lot.Status ??
+    lot.status ??
+    ''
+  );
+};
+
+/** Admin-facing lot status (PartialAccepted when some items accepted). */
+export const pickAdminLotStatus = (lot) => {
+  if (!lot || typeof lot !== 'object') return '';
+  return lot.lotStatus ?? lot.LotStatus ?? lot.Status ?? lot.status ?? '';
+};
+
+const RFID_SAMPLE_LOT_STATUS_LABELS = {
+  PendingAcceptance: 'Pending acceptance',
+  PartialAccepted: 'Partial accepted',
+  Open: 'Open',
+  PartialReturned: 'Partial return',
+  PartiallyReturned: 'Partial return',
+  PartialReturn: 'Partial return',
+  Closed: 'Completed',
+  Completed: 'Completed',
+};
+
+export const formatRfidSampleLotStatusLabel = (status) => {
+  const uiStatus = normalizeRfidSampleLotStatusForUi(status);
+  const raw = String(uiStatus || '').trim();
+  if (!raw || raw === '—') return '—';
+  if (RFID_SAMPLE_LOT_STATUS_LABELS[raw]) return RFID_SAMPLE_LOT_STATUS_LABELS[raw];
+  return raw.replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+};
+
+export const formatEmployeeLotBadgeText = (lot) => {
+  const statusKey = normalizeRfidSampleLotStatus(pickEmployeeLotStatus(lot));
+  if (statusKey === 'pendingacceptance') return 'Pending acceptance';
+  if (statusKey === 'partialaccepted' && pickLotPendingAcceptanceItems(lot) > 0) {
+    return 'Pending acceptance';
+  }
+  return formatRfidSampleLotStatusLabel(pickEmployeeLotStatus(lot));
+};
+
+export const formatAdminLotBadgeText = (lot) => {
+  if (!lot || typeof lot !== 'object') return '—';
+  const statusKey = normalizeRfidSampleLotStatus(pickAdminLotStatus(lot));
+  if (statusKey === 'partialaccepted') {
+    const accepted = pickLotAcceptedItemsCount(lot);
+    const total = pickLotTotalItems(lot);
+    if (total > 0) return `Partial accepted (${accepted}/${total})`;
+    return 'Partial accepted';
+  }
+  if (statusKey === 'pendingacceptance') return 'Pending acceptance';
+  return formatRfidSampleLotStatusLabel(pickAdminLotStatus(lot));
+};
+
+const acceptLotLineId = (line) => line?.Id ?? line?.id ?? line?.ItemId ?? line?.itemId ?? null;
+
+/** Merge AcceptLot response into lot + item rows without a follow-up GET. */
+export const mergeAcceptLotResponse = (lot, items, data, { acceptedLines = [] } = {}) => {
+  if (!data || typeof data !== 'object') return { lot, items: items || [] };
+
+  const pendingRemaining = Number(
+    data.pendingAcceptanceItems ?? data.PendingAcceptanceItems ?? 0
+  );
+  const acceptedCount = Number(
+    data.acceptedCount ??
+      data.AcceptedCount ??
+      data.acceptedItemsCount ??
+      data.AcceptedItemsCount ??
+      acceptedLines.length ??
+      0
+  );
+  const isPartial =
+    data.isPartialAccept === true ||
+    data.IsPartialAccept === true ||
+    normalizeRfidSampleLotStatus(data.lotStatus ?? data.LotStatus) === 'partialaccepted';
+
+  const nextLot = {
+    ...lot,
+    lotStatus: data.lotStatus ?? data.LotStatus ?? lot?.lotStatus ?? lot?.LotStatus,
+    LotStatus: data.lotStatus ?? data.LotStatus ?? lot?.LotStatus ?? lot?.lotStatus,
+    Status: data.lotStatus ?? data.LotStatus ?? lot?.Status ?? lot?.LotStatus,
+    employeeLotStatus:
+      data.employeeLotStatus ??
+      data.EmployeeLotStatus ??
+      lot?.employeeLotStatus ??
+      lot?.EmployeeLotStatus,
+    EmployeeLotStatus:
+      data.employeeLotStatus ??
+      data.EmployeeLotStatus ??
+      lot?.EmployeeLotStatus ??
+      lot?.employeeLotStatus,
+    pendingAcceptanceItems: pendingRemaining,
+    PendingAcceptanceItems: pendingRemaining,
+    acceptedItemsCount: acceptedCount,
+    AcceptedItemsCount: acceptedCount,
+    acceptedCount,
+    AcceptedCount: acceptedCount,
+    outItems: data.outItems ?? data.OutItems ?? acceptedCount ?? lot?.outItems,
+    OutItems: data.outItems ?? data.OutItems ?? acceptedCount ?? lot?.OutItems,
+    isPartialAccept: isPartial,
+    IsPartialAccept: isPartial,
+    isPartiallyAccepted: isPartial || lot?.isPartiallyAccepted || lot?.IsPartiallyAccepted,
+    IsPartiallyAccepted: isPartial || lot?.IsPartiallyAccepted || lot?.isPartiallyAccepted,
+    canEmployeeAcceptMore:
+      data.canEmployeeAcceptMore ??
+      data.CanEmployeeAcceptMore ??
+      (pendingRemaining > 0 ? true : lot?.canEmployeeAcceptMore),
+    CanEmployeeAcceptMore:
+      data.canEmployeeAcceptMore ??
+      data.CanEmployeeAcceptMore ??
+      (pendingRemaining > 0 ? true : lot?.CanEmployeeAcceptMore),
+  };
+
+  const remainingLines = data.remainingPendingItems ?? data.RemainingPendingItems;
+  const acceptedFromApi = data.acceptedItems ?? data.AcceptedItems;
+  const acceptedIdSet = new Set(
+    [
+      ...(Array.isArray(acceptedFromApi) ? acceptedFromApi : []),
+      ...(Array.isArray(acceptedLines) ? acceptedLines : []),
+    ]
+      .map((line) => acceptLotLineId(line))
+      .filter((id) => id != null)
+      .map(String)
+  );
+  const remainingIdSet = new Set(
+    (Array.isArray(remainingLines) ? remainingLines : [])
+      .map((line) => acceptLotLineId(line))
+      .filter((id) => id != null)
+      .map(String)
+  );
+
+  const nextItems = (items || []).map((line) => {
+    const idStr =
+      acceptLotLineId(line) != null ? String(acceptLotLineId(line)) : '';
+    if (idStr && acceptedIdSet.has(idStr)) {
+      return {
+        ...line,
+        ItemStatus: 'Out',
+        itemStatus: 'Out',
+        canEmployeeAccept: false,
+        CanEmployeeAccept: false,
+        isPendingAcceptance: false,
+        IsPendingAcceptance: false,
+      };
+    }
+    if (idStr && remainingIdSet.has(idStr)) {
+      return {
+        ...line,
+        ItemStatus: 'Pending',
+        itemStatus: 'Pending',
+        canEmployeeAccept: true,
+        CanEmployeeAccept: true,
+        isPendingAcceptance: true,
+        IsPendingAcceptance: true,
+      };
+    }
+    return line;
+  });
+
+  return { lot: nextLot, items: nextItems };
+};
+
 export const isRfidSampleFullyAcceptedLot = (lot) => {
   if (!lot || typeof lot !== 'object') return false;
   if (lot.isFullyAccepted === true || lot.IsFullyAccepted === true) return true;
@@ -330,10 +537,15 @@ export const isRfidSampleFullyAcceptedLot = (lot) => {
 
 export const isRfidSamplePartiallyAcceptedLot = (lot) => {
   if (isRfidSampleFullyAcceptedLot(lot)) return false;
+  const pending = pickLotPendingAcceptanceItems(lot);
+  const accepted = pickLotAcceptedItemsCount(lot);
   return (
+    lot?.isPartialAccept === true ||
+    lot?.IsPartialAccept === true ||
     lot?.isPartiallyAccepted === true ||
     lot?.IsPartiallyAccepted === true ||
-    isRfidSamplePartialAcceptedLot({ lotStatus: lot?.lotStatus ?? lot?.LotStatus ?? lot?.Status })
+    isRfidSamplePartialAcceptedLot({ lotStatus: lot?.lotStatus ?? lot?.LotStatus ?? lot?.Status }) ||
+    (pending > 0 && accepted > 0)
   );
 };
 
@@ -367,15 +579,90 @@ export const reconcileRfidSampleLotStatus = ({
     return 'Open';
   }
 
-  if (isRfidSampleLotClosed({ lotStatus: status })) return 'Closed';
-  if (isRfidSampleLotCompleted({ lotStatus: status })) return 'Completed';
+  if (isRfidSampleLotFinished({ lotStatus: status })) return 'Completed';
   if (isRfidSampleLotPartialReturn({ lotStatus: status })) return 'PartialReturn';
 
   const total = Number(totalItems) || 0;
-  if (total > 0 && returned >= total) return status || 'Closed';
+  if (total > 0 && returned >= total) return 'Completed';
 
   return status || 'Open';
 };
+
+const sampleOutLotListKey = (lot, fallbackIdx = 0) =>
+  String(
+    lot?.Id ??
+      lot?.LotId ??
+      lot?.lotId ??
+      lot?.SampleLotNo ??
+      lot?.SampleOutNo ??
+      lot?.LotNumber ??
+      lot?.lotNumber ??
+      fallbackIdx
+  );
+
+const pickSampleOutLotSortTime = (lot, preferCompleted = false) => {
+  if (!lot || typeof lot !== 'object') return 0;
+  const issueKeys = [
+    'IssueDate',
+    'issueDate',
+    'SampleOutDate',
+    'sampleOutDate',
+    'CreatedOn',
+    'createdOn',
+    'SampleOutOn',
+    'sampleOutOn',
+  ];
+  const completedKeys = [
+    'CompletedDate',
+    'completedDate',
+    'ClosedDate',
+    'closedDate',
+    'ActualReturnDate',
+    'actualReturnDate',
+    'CompletedOn',
+    'completedOn',
+    'UpdatedOn',
+    'updatedOn',
+  ];
+  const keys = preferCompleted ? [...completedKeys, ...issueKeys] : issueKeys;
+  for (let i = 0; i < keys.length; i += 1) {
+    const v = lot[keys[i]];
+    if (v === undefined || v === null || String(v).trim() === '') continue;
+    const t = new Date(v).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  return 0;
+};
+
+/** Active lots first (newest issue date), completed lots last (newest completed date). */
+export const sortSampleOutLotsForList = (lots) => {
+  const list = Array.isArray(lots) ? lots : [];
+  return [...list].sort((a, b) => {
+    const aFinished = isRfidSampleLotFinished(a);
+    const bFinished = isRfidSampleLotFinished(b);
+    if (aFinished !== bFinished) return aFinished ? 1 : -1;
+    const aTime = pickSampleOutLotSortTime(a, aFinished);
+    const bTime = pickSampleOutLotSortTime(b, bFinished);
+    if (aTime !== bTime) return bTime - aTime;
+    const aNo = String(a?.SampleLotNo ?? a?.SampleOutNo ?? a?.LotNumber ?? a?.lotNumber ?? '');
+    const bNo = String(b?.SampleLotNo ?? b?.SampleOutNo ?? b?.LotNumber ?? b?.lotNumber ?? '');
+    return bNo.localeCompare(aNo, undefined, { numeric: true });
+  });
+};
+
+/** Dedupe lots by id/number and apply list sort (completed last). */
+export const mergeSampleOutListRows = (...rowLists) => {
+  const byKey = new Map();
+  rowLists.flat().forEach((row, idx) => {
+    if (!row || typeof row !== 'object') return;
+    const key = sampleOutLotListKey(row, idx);
+    if (!byKey.has(key)) byKey.set(key, row);
+  });
+  return sortSampleOutLotsForList([...byKey.values()]);
+};
+
+/** Extra status buckets fetched when UI filter is "All" (API omits finished lots by default). */
+export const RFID_SAMPLE_ALL_LIST_EXTRA_STATUSES = ['Completed', 'Closed'];
 
 /** Dashboard counters from GetAllSampleOutList (e.g. partialAccepted, open). */
 export const parseRfidSampleListDashboard = (payload = {}) => {
@@ -387,6 +674,9 @@ export const parseRfidSampleListDashboard = (payload = {}) => {
     partialAccepted: Number(root?.partialAccepted ?? root?.PartialAccepted ?? 0) || 0,
     pendingAcceptance: Number(root?.pendingAcceptance ?? root?.PendingAcceptance ?? 0) || 0,
     open: Number(root?.open ?? root?.Open ?? 0) || 0,
+    completedThisMonth:
+      Number(root?.completedThisMonth ?? root?.CompletedThisMonth ?? 0) || 0,
+    closedThisMonth: 0,
   };
 };
 

@@ -103,6 +103,118 @@ const labelListIconActionStyle = (disabled) => ({
   cursor: disabled ? 'not-allowed' : 'pointer',
   fontSize: 11,
 });
+
+const SYNC_SAMPLE_OUT_TABLE_ACCORDION_THRESHOLD = 10;
+
+const sampleOutSyncBlockRow = (entry) => ({
+  lot:
+    String(
+      entry.sampleLotNo ||
+        entry.sampleOut?.lotNumber ||
+        entry.sampleOut?.LotNumber ||
+        ''
+    ).trim() || '—',
+  party: formatSampleOutPartyLine(entry),
+  status: formatSampleOutStatusLine(entry),
+});
+
+const SAMPLE_OUT_SYNC_BLOCK_COLUMNS = ['Lot', 'Party', 'Status'];
+
+const SampleOutSyncBlockTable = ({ entries }) => {
+  if (!entries?.length) return null;
+  const rows = entries.map(sampleOutSyncBlockRow);
+  const useAccordion = entries.length > SYNC_SAMPLE_OUT_TABLE_ACCORDION_THRESHOLD;
+  const table = (
+    <div style={{ overflowX: 'auto', maxHeight: useAccordion ? 360 : 420, overflowY: 'auto' }}>
+      <table
+        style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          fontSize: 12,
+          minWidth: 360,
+        }}
+      >
+        <thead>
+          <tr style={{ background: '#fff7ed', position: 'sticky', top: 0, zIndex: 1 }}>
+            {SAMPLE_OUT_SYNC_BLOCK_COLUMNS.map((heading) => (
+              <th
+                key={heading}
+                style={{
+                  textAlign: 'left',
+                  padding: '8px 10px',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  color: '#c2410c',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  borderBottom: '1px solid #fed7aa',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {heading}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr
+              key={`sample-out-row-${idx}`}
+              style={{ background: idx % 2 === 0 ? '#fff' : '#fffbf5' }}
+            >
+              {[row.lot, row.party, row.status].map((cell, cellIdx) => (
+                <td
+                  key={`${idx}-${cellIdx}`}
+                  style={{
+                    padding: '8px 10px',
+                    fontWeight: cellIdx === 0 ? 700 : 600,
+                    color: '#78350f',
+                    borderBottom: '1px solid #ffedd5',
+                    verticalAlign: 'top',
+                    wordBreak: 'break-word',
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  if (!useAccordion) {
+    return table;
+  }
+
+  return (
+    <details
+      style={{
+        border: '1px solid #fed7aa',
+        borderRadius: 8,
+        background: '#fff7ed',
+        overflow: 'hidden',
+      }}
+    >
+      <summary
+        style={{
+          cursor: 'pointer',
+          padding: '10px 12px',
+          fontSize: 12,
+          fontWeight: 800,
+          color: '#9a3412',
+          listStyle: 'none',
+          userSelect: 'none',
+        }}
+      >
+        View {entries.length} blocked item(s) — Lot · Party · Status
+      </summary>
+      <div style={{ padding: '0 8px 8px', background: '#fff' }}>{table}</div>
+    </details>
+  );
+};
 const IMAGE_BASE_URL = 'https://rrgold.loyalstring.co.in/';
 const TRAY_LABELLED_STOCK_BY_TID_URL = process.env.REACT_APP_TRAY_LABELLED_STOCK_BY_TID_URL
   || 'https://rrgold.loyalstring.co.in/api/ProductMaster/GetLabelledStockByTIDNumbers';
@@ -6070,188 +6182,127 @@ const LabelStockList = () => {
                           padding: '8px',
                         }}
                       >
-                        {folderAutoPushOutcome.errorDetails.map((entry, idx) => {
-                          const hasSampleOut = Boolean(entry.isSampleOutBlock);
-                          const detailFields = [
-                            ['Item Code', entry.itemCode],
-                            ['RFID', entry.rfidNumber],
-                            ['Product', entry.product],
-                            ['Category', entry.category],
-                            ['Design', entry.design],
-                            ['Purity', entry.purity],
-                            ['Gross Wt', entry.grossWt],
-                            ['Net Wt', entry.netWt],
-                            ['Branch', entry.branch],
-                            ['Counter', entry.counter],
-                            ['Box', entry.box],
-                            ['Packet', entry.packet],
-                            ['Description', entry.description],
-                          ].filter(([, value]) => value != null && String(value).trim() !== '');
-                          const rowLabel =
-                            entry.itemIndex != null
-                              ? `Item ${Number(entry.itemIndex)}`
-                              : entry.itemCode
-                                ? `Item ${entry.itemCode}`
-                                : `Failed item ${idx + 1}`;
+                        {(() => {
+                          const sampleOutEntries = folderAutoPushOutcome.errorDetails.filter(
+                            (entry) => entry.isSampleOutBlock
+                          );
+                          const otherEntries = folderAutoPushOutcome.errorDetails.filter(
+                            (entry) => !entry.isSampleOutBlock
+                          );
                           return (
-                            <div
-                              key={`sync-err-${idx}`}
-                              style={{
-                                marginBottom: idx < folderAutoPushOutcome.errorDetails.length - 1 ? 10 : 0,
-                                padding: '10px 12px',
-                                borderRadius: 8,
-                                border: hasSampleOut ? '1px solid #fdba74' : '1px solid #fecaca',
-                                background: '#fff',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  flexWrap: 'wrap',
-                                  gap: 8,
-                                  alignItems: 'center',
-                                  marginBottom: 8,
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    fontWeight: 800,
-                                    color: '#991b1b',
-                                    background: '#fee2e2',
-                                    borderRadius: 999,
-                                    padding: '2px 8px',
-                                  }}
-                                >
-                                  {rowLabel}
-                                </span>
-                                {entry.fileName ? (
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>
-                                    {entry.fileName}
-                                  </span>
-                                ) : null}
-                                {entry.isSampleOutBlock ? (
-                                  <span
+                            <>
+                              {sampleOutEntries.length ? (
+                                <SampleOutSyncBlockTable entries={sampleOutEntries} />
+                              ) : null}
+                              {otherEntries.map((entry, idx) => {
+                                const detailFields = [
+                                  ['Item Code', entry.itemCode],
+                                  ['RFID', entry.rfidNumber],
+                                  ['Design', entry.design],
+                                ].filter(([, value]) => value != null && String(value).trim() !== '');
+                                const rowLabel =
+                                  entry.itemIndex != null
+                                    ? `Item ${Number(entry.itemIndex)}`
+                                    : entry.itemCode
+                                      ? `Item ${entry.itemCode}`
+                                      : `Failed item ${idx + 1}`;
+                                return (
+                                  <div
+                                    key={`sync-err-other-${idx}`}
                                     style={{
-                                      fontSize: 10,
-                                      fontWeight: 800,
-                                      color: '#92400e',
-                                      background: '#fef3c7',
-                                      borderRadius: 999,
-                                      padding: '2px 8px',
+                                      marginTop: sampleOutEntries.length || idx > 0 ? 10 : 0,
+                                      padding: '10px 12px',
+                                      borderRadius: 8,
+                                      border: '1px solid #fecaca',
+                                      background: '#fff',
                                     }}
                                   >
-                                    Sample Out
-                                  </span>
-                                ) : null}
-                              </div>
-                              {hasSampleOut ? (
-                                <div
-                                  style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                                    gap: '8px 14px',
-                                    marginBottom: 8,
-                                    padding: '10px 12px',
-                                    borderRadius: 8,
-                                    background: '#fff7ed',
-                                    border: '1px solid #fed7aa',
-                                  }}
-                                >
-                                  <div>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
-                                      Lot
-                                    </div>
-                                    <div style={{ fontSize: 13, fontWeight: 800, color: '#9a3412' }}>
-                                      {entry.sampleLotNo || entry.sampleOut?.lotNumber || '—'}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
-                                      Party
-                                    </div>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f' }}>
-                                      {formatSampleOutPartyLine(entry)}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
-                                      Status
-                                    </div>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f' }}>
-                                      {formatSampleOutStatusLine(entry)}
-                                    </div>
-                                  </div>
-                                  {(entry.itemCode || entry.rfidNumber) && (
-                                    <div>
-                                      <div style={{ fontSize: 10, fontWeight: 700, color: '#c2410c', marginBottom: 2 }}>
-                                        Product
-                                      </div>
-                                      <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f' }}>
-                                        {[entry.itemCode, entry.rfidNumber ? `RFID ${entry.rfidNumber}` : '']
-                                          .filter(Boolean)
-                                          .join(' · ')}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : null}
-                              {!hasSampleOut && detailFields.length ? (
-                                <div
-                                  style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                                    gap: '6px 12px',
-                                    marginBottom: 8,
-                                  }}
-                                >
-                                  {detailFields.map(([label, value]) => (
-                                    <div key={`${idx}-${label}`} style={{ minWidth: 0 }}>
-                                      <div
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: 8,
+                                        alignItems: 'center',
+                                        marginBottom: detailFields.length ? 8 : 0,
+                                      }}
+                                    >
+                                      <span
                                         style={{
-                                          fontSize: 10,
-                                          fontWeight: 700,
-                                          color: '#64748b',
-                                          textTransform: 'uppercase',
-                                          letterSpacing: '0.03em',
+                                          fontSize: 11,
+                                          fontWeight: 800,
+                                          color: '#991b1b',
+                                          background: '#fee2e2',
+                                          borderRadius: 999,
+                                          padding: '2px 8px',
                                         }}
                                       >
-                                        {label}
-                                      </div>
+                                        {rowLabel}
+                                      </span>
+                                      {entry.fileName ? (
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                                          {entry.fileName}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {detailFields.length ? (
                                       <div
                                         style={{
-                                          fontSize: 12,
-                                          fontWeight: 700,
-                                          color: '#0f172a',
-                                          wordBreak: 'break-word',
-                                          lineHeight: 1.45,
+                                          display: 'grid',
+                                          gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                                          gap: '6px 12px',
+                                          marginBottom: 8,
                                         }}
                                       >
-                                        {value}
+                                        {detailFields.map(([label, value]) => (
+                                          <div key={`${idx}-${label}`} style={{ minWidth: 0 }}>
+                                            <div
+                                              style={{
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                color: '#64748b',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.03em',
+                                              }}
+                                            >
+                                              {label}
+                                            </div>
+                                            <div
+                                              style={{
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                color: '#0f172a',
+                                                wordBreak: 'break-word',
+                                                lineHeight: 1.45,
+                                              }}
+                                            >
+                                              {value}
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
+                                    ) : null}
+                                    <div
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        color: '#b91c1c',
+                                        lineHeight: 1.55,
+                                        wordBreak: 'break-word',
+                                        whiteSpace: 'pre-wrap',
+                                        padding: '8px 10px',
+                                        borderRadius: 6,
+                                        background: '#fef2f2',
+                                        border: '1px solid #fecaca',
+                                      }}
+                                    >
+                                      {entry.message || entry.text || 'Sync failed for this item.'}
                                     </div>
-                                  ))}
-                                </div>
-                              ) : null}
-                              <div
-                                style={{
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  color: '#b91c1c',
-                                  lineHeight: 1.55,
-                                  wordBreak: 'break-word',
-                                  whiteSpace: 'pre-wrap',
-                                  padding: '8px 10px',
-                                  borderRadius: 6,
-                                  background: '#fef2f2',
-                                  border: '1px solid #fecaca',
-                                }}
-                              >
-                                {entry.message || entry.text || 'Sync failed for this item.'}
-                              </div>
-                            </div>
+                                  </div>
+                                );
+                              })}
+                            </>
                           );
-                        })}
+                        })()}
                       </div>
                     ) : null}
                   </div>

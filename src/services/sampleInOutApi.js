@@ -41,7 +41,7 @@ export const getPendingSampleOutLotNosByPartyUrl = () =>
  *
  * Sample-in rows inside `Items`: `ItemStatus === "Returned"` and/or `InDate` set; still out: `Out` + `InDate` null.
  *
- * Request body (POST): `{ ClientCode }` required. Optional: `Status` (`"PartialReturned"` | `"Closed"`),
+ * Request body (POST): `{ ClientCode }` required. Optional: `Status` (`"PartialReturned"` | `"Completed"`),
  * `PartyType`, `PartyId`, `BranchId`, `FromDate`, `ToDate`.
  */
 export const getAllSampleOutListUrl = () => sampleInOutDashboardUrl('/GetAllSampleOutList');

@@ -473,10 +473,10 @@ const formatLS000533C128BPayload = (itemCode) => {
 const resolveLS000533HallmarkAmount = (item) =>
   String(
     item?.HallmarkAmount ??
-      item?.hallmarkAmount ??
-      item?.HallmarkAmt ??
-      item?.hallmarkAmt ??
-      ''
+    item?.hallmarkAmount ??
+    item?.HallmarkAmt ??
+    item?.hallmarkAmt ??
+    ''
   ).trim();
 
 /** Code128C payload: FNC1 (0x0E) + apostrophe + ItemCode (e.g. `'3085`) */
@@ -870,6 +870,72 @@ const generateLS000488Prn = (item) => {
   return prn;
 };
 
+// LS000551 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128B)
+const generateLS000551Prn = (item) => {
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  const barcodeValue = String(item.RFIDCode || item.Barcode || item.BarcodeValue || itemCode).trim();
+  const grossWt = formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
+  const netWt = formatWeight3(item.NetWt ?? item.netwt ?? item.netweight);
+  const stoneWt = formatWeight3(item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? item.StoneWeight ?? 0);
+  const totalStonePrice = formatWeight3(item.TotalStonePrice ?? item.TotalStoneAmount ?? item.totalstoneamount ?? 0);
+  const purity = prnQuote(resolveLS000533Purity(item));
+  const designLabel = prnQuote(resolveLS000533DesignLabel(item));
+  const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode || barcodeValue);
+  return `
+!PTX_SETUP
+ENGINE-WIDTH;2641:LENGTH;1065:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~PAPER;LABELS 2;MEDIA 1;CALIBRATE
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
+~CONFIG
+CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
+END
+<xpml></page></xpml><xpml><page quantity='1' pitch='27.0 mm'></xpml>~CREATE;FORM-0;76
+SCALE;DOT;203;203
+ISET;'UTF8'
+RFWTAG;16;PC
+16;H;*2400*
+STOP
+RFWTAG;64;EPC
+64;H;*${epcHex}*
+STOP
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+INV;POINT;183;192;7;7;"GWT :"
+INV;POINT;183;118;7;8;"${grossWt}"
+INV;POINT;163;192;7;7;"NWT :"
+INV;POINT;163;118;7;7;"${netWt}"
+INV;POINT;136;192;7;7;"STN :"
+INV;POINT;136;118;7;8;"${stoneWt}"
+INV;POINT;116;192;7;7;"TSTN :"
+INV;POINT;116;118;7;9;"${totalStonePrice}"
+STOP
+BARCODE
+QRCODE;INV;XD3;T2;E0;M0;I0;28;27
+"${itemCode}"
+STOP
+ALPHA
+INV;POINT;72;191;7;7;"${itemCode}"
+INV;POINT;41;192;7;7;"${purity}"
+INV;POINT;12;192;7;7;"${designLabel}"
+STOP
+END
+~EXECUTE;FORM-0;1
+<xpml></page></xpml>
+~NORMAL
+~DELETE FORM;FORM-0
+`;
+};
+
 // Main function to generate client-specific PRN
 export const generateClientPrn = (item, clientCode) => {
   const rawCode = (clientCode || '').trim().toUpperCase();
@@ -889,6 +955,8 @@ export const generateClientPrn = (item, clientCode) => {
         : generateLS000533Prn(item);
     case 'LS000544':
       return generateLS000544Prn(item);
+    case 'LS000551':
+      return generateLS000551Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection

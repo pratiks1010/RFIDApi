@@ -15,7 +15,7 @@
 // -------------------------------------------------------------------------
 
 import defaultLayout from '../data/sidebarLayout.json';
-// import { toRrgoldApiUrl } from './apiBaseConfig'; // enable when wiring the API
+import { toRrgoldApiUrl } from './apiBaseConfig';
 
 const STORAGE_PREFIX = 'sidebarLayout:';
 
@@ -50,6 +50,13 @@ export const resolveClientId = () => {
 };
 
 const storageKey = (clientId) => `${STORAGE_PREFIX}${clientId}`;
+
+const getAuthHeaders = () => ({
+  Authorization: `Bearer ${localStorage.getItem('token')}`,
+  'Content-Type': 'application/json',
+});
+
+const dynamicSidebarUrl = (clientId) => toRrgoldApiUrl(`/api/${encodeURIComponent(clientId)}/dynamicSidebar`);
 
 /** Deep clone so callers can mutate freely without touching the imported JSON. */
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
@@ -210,19 +217,19 @@ export const saveSidebarLayout = async (layout, clientId) => {
     /* storage full / unavailable */
   }
 
-  // TODO: backend persist (uncomment when the API exists).
-  // try {
-  //   await fetch(toRrgoldApiUrl('/api/sidebar-layout'), {
-  //     method: 'PUT',
-  //     headers: {
-  //       'Content-Type': 'application/json',
-  //       Authorization: `Bearer ${localStorage.getItem('token')}`,
-  //     },
-  //     body: JSON.stringify({ clientId: id, layout: normalized }),
-  //   });
-  // } catch (err) {
-  //   console.warn('sidebar-layout save failed (kept locally):', err?.message);
-  // }
+  try {
+    const response = await fetch(dynamicSidebarUrl(id), {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ClientCode: id, layout: normalized }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.warn('dynamicSidebar save failed:', response.status, body);
+    }
+  } catch (err) {
+    console.warn('dynamicSidebar save failed (kept locally):', err?.message);
+  }
 
   return normalized;
 };

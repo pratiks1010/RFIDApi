@@ -15,7 +15,7 @@
 // -------------------------------------------------------------------------
 
 import defaultLayout from '../data/dashboardLayout.json';
-// import { toRrgoldApiUrl } from './apiBaseConfig'; // enable when wiring the API
+import { toRrgoldApiUrl } from './apiBaseConfig';
 
 const STORAGE_PREFIX = 'dashboardLayout:';
 
@@ -50,6 +50,14 @@ export const resolveClientId = () => {
 };
 
 const storageKey = (clientId) => `${STORAGE_PREFIX}${clientId}`;
+
+const getAuthHeaders = () => ({
+  Authorization: `Bearer ${localStorage.getItem('token')}`,
+  'Content-Type': 'application/json',
+});
+
+// const dynamicDashboardUrl = (clientId) =>(`https://localhost:7095/api/${encodeURIComponent(clientId)}/dynamicDashboard`);
+const dynamicDashboardUrl = (clientId) => toRrgoldApiUrl(`/api/${encodeURIComponent(clientId)}/dynamicDashboard`);
 
 /** Deep clone so callers can mutate freely without touching the imported JSON. */
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
@@ -104,26 +112,34 @@ export const normalizeLayout = (layout) => {
 export const getDashboardLayout = async (clientId) => {
   const id = clientId || resolveClientId();
 
-  // 1) Local customization / offline cache.
+  // 1) Backend fetch first, then fall back to local cache or default.
+  try {
+    const response = await fetch(dynamicDashboardUrl(id), {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const normalized = normalizeLayout(data);
+      try {
+        localStorage.setItem(storageKey(id), JSON.stringify(normalized));
+      } catch {
+        /* ignore storage issues */
+      }
+      return normalized;
+    }
+    console.warn('dynamicDashboard load failed:', response.status, response.statusText);
+  } catch (err) {
+    console.warn('dynamicDashboard load failed, using cache/default:', err?.message);
+  }
+
+  // 2) Local customization / offline cache.
   try {
     const cached = localStorage.getItem(storageKey(id));
     if (cached) return normalizeLayout(JSON.parse(cached));
   } catch {
     /* ignore corrupted cache */
   }
-
-  // 2) TODO: backend fetch (uncomment when the API exists).
-  // try {
-  //   const res = await fetch(toRrgoldApiUrl(`/api/dashboard-layout?clientId=${encodeURIComponent(id)}`), {
-  //     headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-  //   });
-  //   if (res.ok) {
-  //     const data = await res.json(); // expected: { success, layout: { version, clientId, sections } }
-  //     return normalizeLayout(data.layout || data);
-  //   }
-  // } catch (err) {
-  //   console.warn('dashboard-layout fetch failed, using default:', err?.message);
-  // }
 
   // 3) Bundled default.
   const def = normalizeLayout(defaultLayout);
@@ -149,21 +165,19 @@ export const saveDashboardLayout = async (layout, clientId) => {
     /* storage full / unavailable */
   }
 
-  // TODO: backend persist (uncomment when the API exists).
-  // Request body: { clientId, layout: normalized }
-  // Response body: { success: true, layout: normalized }
-  // try {
-  //   await fetch(toRrgoldApiUrl('/api/dashboard-layout'), {
-  //     method: 'PUT',
-  //     headers: {
-  //       'Content-Type': 'application/json',
-  //       Authorization: `Bearer ${localStorage.getItem('token')}`,
-  //     },
-  //     body: JSON.stringify({ clientId: id, layout: normalized }),
-  //   });
-  // } catch (err) {
-  //   console.warn('dashboard-layout save failed (kept locally):', err?.message);
-  // }
+  try {
+    const response = await fetch(dynamicDashboardUrl(id), {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(normalized),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.warn('dynamicDashboard save failed:', response.status, body);
+    }
+  } catch (err) {
+    console.warn('dynamicDashboard save failed (kept locally):', err?.message);
+  }
 
   return normalized;
 };

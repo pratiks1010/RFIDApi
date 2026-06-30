@@ -105,9 +105,14 @@ const DashboardAnalytics = () => {
 
   useEffect(() => {
     let mounted = true;
-    getDashboardLayout()
-      .then((cfg) => { if (mounted) setDashboardLayout(cfg); })
-      .catch(() => { /* fall back to default static rendering */ });
+    const data = fetch('https://localhost:7095/api/LS000571/dynamicDashboard')
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        console.log('dynamicDashboard fetch response:', res.status, res.statusText);
+      });
+    // getDashboardLayout()
+    //   .then((cfg) => { if (mounted) setDashboardLayout(cfg); })
+    //   .catch(() => { /* fall back to default static rendering */ });
     return () => { mounted = false; };
   }, []);
 
@@ -2504,54 +2509,54 @@ const DashboardAnalytics = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, alignSelf: 'center' }}>
-        <button
-          type="button"
-          onClick={openLayoutEditor}
-          title="Customize dashboard layout"
-          style={{
-            padding: '9px 16px',
-            fontSize: 13,
-            fontWeight: 800,
-            color: '#fff',
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-            border: 'none',
-            borderRadius: 12,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            boxShadow: '0 4px 16px rgba(79, 70, 229, 0.28)',
-            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-          }}
-        >
-          <FaThLarge /> Edit Layout
-        </button>
-        <button
-          type="button"
-          onClick={handleOpenRates}
-          disabled={ratesLoading || ratesSaving}
-          style={{
-            padding: '9px 16px',
-            fontSize: 13,
-            fontWeight: 800,
-            color: '#fff',
-            background: ratesSaving
-              ? '#94a3b8'
-              : 'linear-gradient(135deg, #0d9488 0%, #0f766e 55%, #115e59 100%)',
-            border: 'none',
-            borderRadius: 12,
-            cursor: ratesLoading || ratesSaving ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            boxShadow: ratesSaving ? 'none' : '0 4px 16px rgba(13, 148, 136, 0.28)',
-            alignSelf: 'center',
-            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-          }}
-        >
-          {ratesLoading ? <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> : <FaCoins />}
-          Rates
-        </button>
+          <button
+            type="button"
+            onClick={openLayoutEditor}
+            title="Customize dashboard layout"
+            style={{
+              padding: '9px 16px',
+              fontSize: 13,
+              fontWeight: 800,
+              color: '#fff',
+              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+              border: 'none',
+              borderRadius: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: '0 4px 16px rgba(79, 70, 229, 0.28)',
+              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            }}
+          >
+            <FaThLarge /> Edit Layout
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenRates}
+            disabled={ratesLoading || ratesSaving}
+            style={{
+              padding: '9px 16px',
+              fontSize: 13,
+              fontWeight: 800,
+              color: '#fff',
+              background: ratesSaving
+                ? '#94a3b8'
+                : 'linear-gradient(135deg, #0d9488 0%, #0f766e 55%, #115e59 100%)',
+              border: 'none',
+              borderRadius: 12,
+              cursor: ratesLoading || ratesSaving ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: ratesSaving ? 'none' : '0 4px 16px rgba(13, 148, 136, 0.28)',
+              alignSelf: 'center',
+              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            }}
+          >
+            {ratesLoading ? <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> : <FaCoins />}
+            Rates
+          </button>
         </div>
       </div>
 
@@ -3062,154 +3067,154 @@ const DashboardAnalytics = () => {
             return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
           })
           .map((card) => {
-          const isCardDragging = cardDragId === card.id;
-          const isCardDragOver = cardDragOverId === card.id && cardDragId && cardDragId !== card.id;
-          return (
-          <div
-            key={card.id}
-            onDragOver={(e) => { if (cardDragId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (cardDragOverId !== card.id) setCardDragOverId(card.id); } }}
-            onDrop={(e) => { if (cardDragId) { e.preventDefault(); reorderMetricCards(cardDragId, card.id); setCardDragId(null); setCardDragOverId(null); } }}
-            style={{
-              background: card.gradient,
-              borderRadius: '16px',
-              padding: '12px 14px',
-              border: `1px solid ${isCardDragOver ? card.color : card.border}`,
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '11px',
-              position: 'relative',
-              overflow: 'hidden',
-              minWidth: 0,
-              width: '100%',
-              boxShadow: isCardDragOver ? `0 0 0 2px ${card.color}55, ${card.shadow}` : card.shadow,
-              opacity: isCardDragging ? 0.45 : 1,
-              transition:
-                'transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease',
-              cursor: 'default',
-            }}
-            onMouseEnter={(e) => {
-              if (cardDragId) return;
-              e.currentTarget.style.boxShadow = card.shadowHover;
-              e.currentTarget.style.transform = 'translateY(-3px)';
-              e.currentTarget.style.borderColor = `${card.color}44`;
-              e.currentTarget.style.background = card.gradientHover;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = card.shadow;
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = card.border;
-              e.currentTarget.style.background = card.gradient;
-            }}
-          >
-            <span
-              draggable
-              onDragStart={(e) => { setCardDragId(card.id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', card.id); } catch { /* noop */ } }}
-              onDragEnd={() => { setCardDragId(null); setCardDragOverId(null); }}
-              title="Drag to reorder"
-              aria-label="Drag to reorder"
-              className="metric-card-drag-handle"
-              style={{
-                position: 'absolute',
-                top: 7,
-                right: 7,
-                zIndex: 3,
-                cursor: 'grab',
-                color: `${card.color}99`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 18,
-                height: 18,
-                borderRadius: 5,
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = card.color; e.currentTarget.style.background = `${card.color}1a`; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = `${card.color}99`; e.currentTarget.style.background = 'transparent'; }}
-            >
-              <FaGripVertical size={11} />
-            </span>
-            <div
-              aria-hidden
-              style={{
-                position: 'absolute',
-                right: -28,
-                top: -28,
-                width: 100,
-                height: 100,
-                borderRadius: '50%',
-                background: `radial-gradient(circle at 35% 35%, ${card.color}22 0%, transparent 68%)`,
-                pointerEvents: 'none',
-                zIndex: 0,
-              }}
-            />
-            {loading && (
+            const isCardDragging = cardDragId === card.id;
+            const isCardDragOver = cardDragOverId === card.id && cardDragId && cardDragId !== card.id;
+            return (
               <div
+                key={card.id}
+                onDragOver={(e) => { if (cardDragId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (cardDragOverId !== card.id) setCardDragOverId(card.id); } }}
+                onDrop={(e) => { if (cardDragId) { e.preventDefault(); reorderMetricCards(cardDragId, card.id); setCardDragId(null); setCardDragOverId(null); } }}
                 style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background:
-                    'linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)',
-                  animation: 'metric-card-shimmer 2s infinite',
-                  pointerEvents: 'none',
-                  zIndex: 2,
+                  background: card.gradient,
+                  borderRadius: '16px',
+                  padding: '12px 14px',
+                  border: `1px solid ${isCardDragOver ? card.color : card.border}`,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '11px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  minWidth: 0,
+                  width: '100%',
+                  boxShadow: isCardDragOver ? `0 0 0 2px ${card.color}55, ${card.shadow}` : card.shadow,
+                  opacity: isCardDragging ? 0.45 : 1,
+                  transition:
+                    'transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease',
+                  cursor: 'default',
                 }}
-              />
-            )}
-            <div
-              className="metric-card-icon"
-              style={{
-                position: 'relative',
-                zIndex: 1,
-                width: '44px',
-                height: '44px',
-                borderRadius: '13px',
-                background: card.iconBg,
-                color: card.color,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                border: `1px solid ${card.color}33`,
-                boxShadow: `0 2px 8px ${card.color}18`,
-              }}
-            >
-              {card.icon ? <card.icon style={{ fontSize: '19px' }} /> : null}
-            </div>
+                onMouseEnter={(e) => {
+                  if (cardDragId) return;
+                  e.currentTarget.style.boxShadow = card.shadowHover;
+                  e.currentTarget.style.transform = 'translateY(-3px)';
+                  e.currentTarget.style.borderColor = `${card.color}44`;
+                  e.currentTarget.style.background = card.gradientHover;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = card.shadow;
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.borderColor = card.border;
+                  e.currentTarget.style.background = card.gradient;
+                }}
+              >
+                <span
+                  draggable
+                  onDragStart={(e) => { setCardDragId(card.id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', card.id); } catch { /* noop */ } }}
+                  onDragEnd={() => { setCardDragId(null); setCardDragOverId(null); }}
+                  title="Drag to reorder"
+                  aria-label="Drag to reorder"
+                  className="metric-card-drag-handle"
+                  style={{
+                    position: 'absolute',
+                    top: 7,
+                    right: 7,
+                    zIndex: 3,
+                    cursor: 'grab',
+                    color: `${card.color}99`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 18,
+                    height: 18,
+                    borderRadius: 5,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = card.color; e.currentTarget.style.background = `${card.color}1a`; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = `${card.color}99`; e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <FaGripVertical size={11} />
+                </span>
+                <div
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    right: -28,
+                    top: -28,
+                    width: 100,
+                    height: 100,
+                    borderRadius: '50%',
+                    background: `radial-gradient(circle at 35% 35%, ${card.color}22 0%, transparent 68%)`,
+                    pointerEvents: 'none',
+                    zIndex: 0,
+                  }}
+                />
+                {loading && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      background:
+                        'linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)',
+                      animation: 'metric-card-shimmer 2s infinite',
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                    }}
+                  />
+                )}
+                <div
+                  className="metric-card-icon"
+                  style={{
+                    position: 'relative',
+                    zIndex: 1,
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: '13px',
+                    background: card.iconBg,
+                    color: card.color,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    border: `1px solid ${card.color}33`,
+                    boxShadow: `0 2px 8px ${card.color}18`,
+                  }}
+                >
+                  {card.icon ? <card.icon style={{ fontSize: '19px' }} /> : null}
+                </div>
 
-            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
-              <h3
-                style={{
-                  fontSize: '17px',
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  margin: '0 0 4px 0',
-                  lineHeight: 1.2,
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                {card.prefix || ''}
-                <AnimatedNumber value={card.value} suffix={card.suffix} decimals={card.decimals} />
-              </h3>
-              <p
-                className="metric-card-label"
-                style={{
-                  fontSize: '9.5px',
-                  color: '#64748b',
-                  margin: 0,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  letterSpacing: '0.02em',
-                  lineHeight: 1.35,
-                }}
-              >
-                {card.label}
-              </p>
-            </div>
-          </div>
-          );
-        })}
+                <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
+                  <h3
+                    style={{
+                      fontSize: '17px',
+                      fontWeight: 800,
+                      color: '#0f172a',
+                      margin: '0 0 4px 0',
+                      lineHeight: 1.2,
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    {card.prefix || ''}
+                    <AnimatedNumber value={card.value} suffix={card.suffix} decimals={card.decimals} />
+                  </h3>
+                  <p
+                    className="metric-card-label"
+                    style={{
+                      fontSize: '9.5px',
+                      color: '#64748b',
+                      margin: 0,
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      letterSpacing: '0.02em',
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {card.label}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
       </div>
 
       {/* Unified dashboard widgets grid - charts + tables interleaved by config order */}
@@ -3642,7 +3647,7 @@ const DashboardAnalytics = () => {
           </div>
         </div>
 
-      {/* Detail tables share the same unified grid (interleavable with charts) */}
+        {/* Detail tables share the same unified grid (interleavable with charts) */}
         {/* Top Products */}
         <div className="analytics-bottom-panel" style={widgetStyle('topItems')}>
           <div className="analytics-bottom-panel-head">

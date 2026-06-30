@@ -94,16 +94,23 @@ export const designNoFromItem = (item) => {
 /** Card/list title: design only (no item code). */
 export const lineDesignDisplayTitle = (item) => lineDesignFieldValue(item);
 /**
+ * Splits a design number into a base "family" and a numeric "variant" so that
+ * variants of the same design stay adjacent regardless of how the scan source
+ * formats the separator. All of these resolve to family "SG1234":
+ *   SG1234-1, SG1234/2, SG1234_3, "SG1234 4"  (tray / barcode / RFID may differ)
  * e.g. 124g-5 → family 124g, variant 5 (keeps 124g-5 next to 124g-6).
  * e.g. 245D245-1 → family 245D245, variant 1.
  */
 export const parseDesignSortKey = (designNo) => {
   const full = String(designNo || '').trim();
   if (!full) return { family: '', variant: 0, full: '' };
-  const variantMatch = full.match(/^(.+)-(\d+)$/i);
+  // Accept -, /, _, or whitespace as the variant separator so the same base
+  // design groups together even when scan modes format the suffix differently.
+  const variantMatch = full.match(/^(.+?)[\s\-_/]+(\d+)$/i);
   if (variantMatch) {
     return {
-      family: variantMatch[1],
+      // Normalize the family so trailing separators / case never split a group.
+      family: variantMatch[1].trim(),
       variant: parseInt(variantMatch[2], 10) || 0,
       full,
     };
@@ -145,6 +152,43 @@ export const compareItemsByDesign = (a, b) => {
   if (byFamily !== 0) return byFamily;
   if (ka.variant !== kb.variant) return ka.variant - kb.variant;
   return localeDesign(ka.full, kb.full);
+};
+
+/**
+ * Pure design-name ordering: every item sorted by design (family → variant → full),
+ * with no scan-mode bucketing. Same design names stay adjacent and the whole list
+ * follows one continuous design-name order.
+ */
+export const sortProductsByDesignName = (items) => {
+  if (!items?.length) return [];
+  return [...items].sort(compareItemsByDesign);
+};
+
+/** Scan timestamp (ms) from a scanned row; 0 when missing/invalid. */
+const scannedAtMs = (item) => {
+  const raw = item?.__scannedAt ?? item?.scannedAt ?? item?.ScannedAt;
+  if (!raw) return 0;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : 0;
+};
+
+/**
+ * Live-scan ordering: newest-scanned items first (so the latest scan is always on
+ * top / page 1, no paging needed), and within the same scan moment keep the same
+ * design together (design-wise). Re-scanning an item bumps it to the top.
+ */
+export const sortProductsByRecencyThenDesign = (items) => {
+  if (!items?.length) return [];
+  return items
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => {
+      const byTime = scannedAtMs(b.item) - scannedAtMs(a.item);
+      if (byTime !== 0) return byTime;
+      const byDesign = compareItemsByDesign(a.item, b.item);
+      if (byDesign !== 0) return byDesign;
+      return a.idx - b.idx;
+    })
+    .map((entry) => entry.item);
 };
 
 /** Group by design family, sort families and numeric variants (124g-5 before 124g-6). */

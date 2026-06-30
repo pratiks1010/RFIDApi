@@ -895,9 +895,11 @@ const RoutesWrapper = () => {
             path="/sample-out-list"
             element={
               <AuthGuard>
-                <PageWrapper>
-                  <SampleOutList />
-                </PageWrapper>
+                <PermissionGuard adminOnly fallback="/my-samples">
+                  <PageWrapper>
+                    <SampleOutList />
+                  </PageWrapper>
+                </PermissionGuard>
               </AuthGuard>
             }
           />

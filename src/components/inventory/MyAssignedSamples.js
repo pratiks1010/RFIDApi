@@ -40,9 +40,9 @@ import {
 } from '../../services/localItemImageService';
 import { getClientCode } from '../../utils/authState';
 import { normalizeList } from '../../services/rfidUserManagementApi';
-import { lineDesignFieldValue, sortProductsByModeThenDesign } from '../../utils/designSort';
+import { lineDesignFieldValue, sortProductsByDesignName } from '../../utils/designSort';
 
-const sortLotDetailItems = (items) => sortProductsByModeThenDesign(items || []);
+const sortLotDetailItems = (items) => sortProductsByDesignName(items || []);
 
 const GRID_COLUMNS = 3;
 const LOTS_PER_PAGE = 6;

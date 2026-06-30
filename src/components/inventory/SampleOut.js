@@ -15,6 +15,8 @@ import {
   FaExclamationCircle,
   FaEye,
   FaSync,
+  FaPlay,
+  FaStop,
 } from 'react-icons/fa';
 import { useLoading } from '../../App';
 import { useNotifications } from '../../context/NotificationContext';
@@ -43,6 +45,8 @@ import {
 import TrayScanModal from '../common/TrayScanModal';
 import GridItemImage from '../common/GridItemImage';
 import { isInventoryTrayEnabled } from '../../services/trayModeService';
+import { getTrayReaderConfig, parsePowerAttDb10 } from '../../services/trayReaderConfig';
+import { getTrayTagIdentity, parseTrayTagLine } from '../../utils/trayTagParse';
 import { getApiMode, getRrgoldApiBaseUrl, getSampleApiBaseUrl, getSoniApiBaseUrl, toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
 import {
   getSubmitSampleOutUrl,
@@ -65,7 +69,7 @@ import {
 import { PartialReturnSummaryPanel, PartialReturnApiItemsTable } from './partialReturnSummaryUi';
 import { getItemImageLookupKeys, warmupLocalItemImageIndex } from '../../services/localItemImageService';
 import { getAuthState, isSuperAdmin } from '../../utils/authState';
-import { buildDesignAwarePages, designNoFromItem, lineDesignFieldValue, normalizeProductDesignFields, parseDesignSortKey, sortProductsByDesign } from '../../utils/designSort';
+import { designNoFromItem, lineDesignFieldValue, normalizeProductDesignFields, parseDesignSortKey, sortProductsByRecencyThenDesign } from '../../utils/designSort';
 import { authHeaders as rfidUserAuthHeaders, rfidUserUrls } from '../../services/rfidUserManagementApi';
 
 const EMPLOYEE_MASTER_LINK_HELP =
@@ -1183,7 +1187,14 @@ const buildPartialReturnBreakdown = (ctx, returningRows, { outOnLot, remainingAf
     const pendingLines = outLines.filter((line) => !returningIds.has(lotLineItemId(line)));
     const lotTotal = summarizeLineItems(outLines);
     const returning = returningLines.length ? summarizeLineItems(returningLines) : returningFallback;
-    const pending = pendingLines.length
+    // Prefer the matched pending lines, but only when the line IDs actually
+    // matched the returning rows (returningLines + pendingLines === lotTotal).
+    // Otherwise fall back to (lot total − returning) so Pending never shows the
+    // full lot when the returning IDs don't line up with the out lines.
+    const matchedConsistently =
+      returningLines.length > 0 &&
+      pendingLines.length === Math.max(0, outLines.length - returningLines.length);
+    const pending = matchedConsistently
       ? summarizeLineItems(pendingLines)
       : {
           items: Math.max(0, lotTotal.items - returning.items),
@@ -1630,8 +1641,15 @@ const SampleOut = () => {
   const [formValidationHint, setFormValidationHint] = useState('');
   const confirmSampleOutLockRef = useRef(false);
   const [showRfidTrayModal, setShowRfidTrayModal] = useState(false);
+  const [pageResetLoading, setPageResetLoading] = useState(false);
+  const pageResetLockRef = useRef(false);
   const [trayEnabled, setTrayEnabled] = useState(isInventoryTrayEnabled());
-  const [rfidDeviceRefreshLoading, setRfidDeviceRefreshLoading] = useState(false);
+  // Inline tray scanning (start/stop directly on this page, no popup needed).
+  const [inlineTrayScanning, setInlineTrayScanning] = useState(false);
+  const [inlineTrayBusy, setInlineTrayBusy] = useState(false);
+  const [inlineTrayTagCount, setInlineTrayTagCount] = useState(0);
+  const inlineTrayTagsRef = useRef(new Set());
+  const inlineTrayUnsubRef = useRef(null);
   const [showCustomerSidebar, setShowCustomerSidebar] = useState(false);
   const [showVendorSidebar, setShowVendorSidebar] = useState(false);
   const [showEmployeeSidebar, setShowEmployeeSidebar] = useState(false);
@@ -2761,7 +2779,6 @@ const formatScannedTime = (date) => {
       source = 'search',
       silent = false,
       quietSuccess = true,
-      preferSampleIn = false,
     } = {}
   ) => {
     const clientCode = resolveClientCodeForSampleApi(userInfo);
@@ -2796,10 +2813,11 @@ const formatScannedTime = (date) => {
     if (key) {
       const existing = sampleOutItemsRef.current.find((r) => rowDedupKey(r) === key);
       if (existing) {
+        // Only a re-read of an item already queued for Sample In refreshes it.
+        // A row already in the grid as Sample Out is a duplicate, never an
+        // automatic return — the server alone decides Sample In status.
         const isTrayReturnRescan =
-          source === 'tray' &&
-          (existing.__scanAction === 'SampleInPending' ||
-            (preferSampleIn && existing.__scanAction === 'SampleOut'));
+          source === 'tray' && existing.__scanAction === 'SampleInPending';
         if (!isTrayReturnRescan) {
           const msg =
             existing.__scanAction === 'SampleInPending'
@@ -2841,10 +2859,11 @@ const formatScannedTime = (date) => {
         .trim()
         .toLowerCase()
         .replace(/[\s_-]+/g, '');
+      // Sample In is decided ONLY by the server: an item becomes a return when
+      // the backend reports it is genuinely already sampled out (SampleIn action
+      // or a second-scan phase). We never force SampleOut -> SampleIn locally,
+      // otherwise items that were never sampled out get wrongly queued as returns.
       if (scanPhase === 'secondscan' && scanAction === 'SampleOut') {
-        scanAction = 'SampleIn';
-      }
-      if (preferSampleIn && scanAction === 'SampleOut') {
         scanAction = 'SampleIn';
       }
       const statusMsg = String(checkData?.message ?? checkData?.Message ?? '').trim();
@@ -2989,7 +3008,7 @@ const formatScannedTime = (date) => {
 
   const processScannedBatch = async (
     items,
-    { source = 'tray', showReview = true, preferSampleIn = false } = {}
+    { source = 'tray', showReview = true } = {}
   ) => {
     if (!items?.length) return { added: 0, inQueued: 0, blocked: 0, errors: 0 };
 
@@ -2998,26 +3017,19 @@ const formatScannedTime = (date) => {
     const inQueued = [];
     const blocked = [];
     const errors = [];
-    let batchPreferSampleIn = preferSampleIn;
     try {
       for (let i = 0; i < items.length; i += 1) {
         const rowSource = pickItemScanSource(items[i]) || source;
         // Sequential updates keep tray batch dedupe reliable in React state.
+        // Each tag's Sample Out vs Sample In is decided per item by the server,
+        // so one return in the batch never forces the others to return.
         // eslint-disable-next-line no-await-in-loop
         const result = await processScannedProduct(items[i], {
           clearSearch: false,
           source: rowSource,
           silent: true,
           quietSuccess: true,
-          preferSampleIn: batchPreferSampleIn,
         });
-        if (
-          !batchPreferSampleIn &&
-          result?.ok &&
-          result.productData?.__scanAction === 'SampleInPending'
-        ) {
-          batchPreferSampleIn = true;
-        }
         if (!result) continue;
         const row = {
           itemCode: result.itemCode || '—',
@@ -3153,6 +3165,87 @@ const formatScannedTime = (date) => {
     'Content-Type': 'application/json',
   });
 
+  const fetchLabelledStockProductsByIdentifiers = async (clientCode, identifiers) => {
+    const list = (identifiers || []).map((v) => String(v || '').trim()).filter(Boolean);
+    if (!clientCode || !list.length) return [];
+    const { data } = await axios.post(
+      toRrgoldApiUrl('/api/ProductMaster/GetLabelledStockByTIDNumbers'),
+      {
+        ClientCode: clientCode,
+        TIDNumbers: list,
+        TidNumbers: list,
+        TIDValues: list,
+        TidValues: list,
+        EPCValues: list,
+        EpcValues: list,
+      },
+      { headers: getTrayAuthHeaders(), timeout: 45000 }
+    );
+    return parseLabelledStockByTidResponse(data);
+  };
+
+  // The RFID device's ProductDetails omits design fields, so backfill design
+  // from the labelled-stock master for any tray row that is missing it.
+  const backfillTrayDesignFromLabelledStock = async (clientCode, rows) => {
+    if (!rows?.length) return rows;
+    const rowsMissingDesign = rows.some((row) => {
+      const design = lineDesignFieldValue(row);
+      return !design || design === '—';
+    });
+    if (!rowsMissingDesign) return rows;
+    try {
+      const identifiers = [
+        ...new Set(
+          rows
+            .flatMap((row) => [row.TIDValue, row.RFIDNumber, row.Itemcode])
+            .map((v) => String(v || '').trim())
+            .filter(Boolean)
+        ),
+      ];
+      const products = await fetchLabelledStockProductsByIdentifiers(clientCode, identifiers);
+      if (!products.length) return rows;
+      const designByKey = new Map();
+      const addKey = (value, fields) => {
+        const key = String(value || '').trim().toUpperCase();
+        if (key && !designByKey.has(key)) designByKey.set(key, fields);
+      };
+      products.forEach((product) => {
+        const fields = normalizeProductDesignFields(product);
+        if (!fields.DesignNo && !fields.DesignName) return;
+        addKey(product.TIDValue, fields);
+        addKey(product.TIDNumber, fields);
+        addKey(product.RFIDCode, fields);
+        addKey(product.RFIDNumber, fields);
+        addKey(product.ItemCode, fields);
+        addKey(product.Itemcode, fields);
+      });
+      if (!designByKey.size) return rows;
+      return rows.map((row) => {
+        const existing = lineDesignFieldValue(row);
+        if (existing && existing !== '—') return row;
+        const match =
+          designByKey.get(String(row.TIDValue || '').trim().toUpperCase()) ||
+          designByKey.get(String(row.RFIDNumber || '').trim().toUpperCase()) ||
+          designByKey.get(String(row.Itemcode || '').trim().toUpperCase());
+        if (!match) return row;
+        return {
+          ...row,
+          DesignName: match.DesignName,
+          DesignNo: match.DesignNo,
+          Design: match.DesignName,
+          design_id: match.design_id,
+          fullItemData: {
+            ...(row.fullItemData || {}),
+            DesignName: match.DesignName,
+            DesignNo: match.DesignNo,
+          },
+        };
+      });
+    } catch {
+      return rows;
+    }
+  };
+
   const mapDeviceRowsToSampleOutItems = (rows) => {
     const out = [];
     const seen = new Set();
@@ -3210,50 +3303,6 @@ const formatScannedTime = (date) => {
     return out;
   };
 
-  const fetchScannedRfidItemsFromDevice = async (notifyOnEmpty = false) => {
-    const clientCode = resolveClientCodeForSampleApi(userInfo);
-    if (!clientCode) return [];
-    try {
-      const { data } = await axios.post(
-        toRrgoldApiUrl('/api/RFIDDevice/GetAllRFIDDetails'),
-        { ClientCode: clientCode },
-        { headers: getTrayAuthHeaders() }
-      );
-      const rows = normalizeArray(data);
-      const mapped = mapDeviceRowsToSampleOutItems(rows);
-      if (!mapped.length) {
-        if (notifyOnEmpty) {
-          addNotification({
-            type: 'info',
-            title: 'No scanned stock',
-            message: 'No scanned stock found in RFID device details.',
-          });
-        }
-        return [];
-      }
-
-      await processScannedBatch(mapped, { source: 'device', showReview: notifyOnEmpty });
-      return mapped;
-    } catch (error) {
-      addNotification({
-        type: 'error',
-        title: 'Load failed',
-        message: error?.response?.data?.message || error?.message || 'Failed to load RFID scanned stock details.',
-      });
-      return [];
-    }
-  };
-
-  const handleRefreshRfidDeviceScans = async () => {
-    if (rfidDeviceRefreshLoading) return;
-    setRfidDeviceRefreshLoading(true);
-    try {
-      await fetchScannedRfidItemsFromDevice(true);
-    } finally {
-      setRfidDeviceRefreshLoading(false);
-    }
-  };
-
   /** Same API as Stock Tracking → Clear all scan data (DeleteRFIDByClientAndDevice). */
   const deleteSampleOutRfidScans = async () => {
     const clientCode = resolveClientCodeForSampleApi(userInfo);
@@ -3278,6 +3327,112 @@ const formatScannedTime = (date) => {
     await deleteSampleOutRfidScans();
   };
 
+  const hasTrayBridge = () =>
+    typeof window !== 'undefined' && !!window.electronAPI?.rfidBridgeCommand;
+
+  const teardownInlineTrayListeners = () => {
+    if (inlineTrayUnsubRef.current) {
+      try { inlineTrayUnsubRef.current(); } catch { /* ignore */ }
+      inlineTrayUnsubRef.current = null;
+    }
+  };
+
+  // Start the tray reader directly from this page using saved reader settings.
+  const startInlineTrayScan = async () => {
+    if (!hasTrayBridge()) {
+      toast.error('RFID tray reader works only in the desktop app.');
+      return;
+    }
+    if (inlineTrayScanning || inlineTrayBusy) return;
+    setInlineTrayBusy(true);
+    try {
+      const cfg = getTrayReaderConfig();
+      inlineTrayTagsRef.current = new Set();
+      setInlineTrayTagCount(0);
+      // Clear any prior server-side scan buffer so this session starts clean.
+      await handleTrayScanStart();
+
+      const addTag = (tag) => {
+        const identity = getTrayTagIdentity(tag);
+        if (!identity) return;
+        if (!inlineTrayTagsRef.current.has(identity)) {
+          inlineTrayTagsRef.current.add(identity);
+          setInlineTrayTagCount(inlineTrayTagsRef.current.size);
+        }
+      };
+      teardownInlineTrayListeners();
+      const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => addTag(tag));
+      const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
+        const parsed = parseTrayTagLine(line);
+        if (parsed) addTag(parsed);
+      });
+      inlineTrayUnsubRef.current = () => {
+        unsubTag?.();
+        unsubLine?.();
+      };
+
+      try { await window.electronAPI.rfidBridgeEnsure?.(); } catch { /* ignore */ }
+      await window.electronAPI.rfidBridgeCommand('disconnect');
+      await window.electronAPI.rfidBridgeCommand(`connect-serial ${cfg.comPrimary} ${cfg.baudRate}`);
+      await window.electronAPI.rfidBridgeCommand(`connect-serial ${cfg.comSecondary} ${cfg.baudRate}`);
+      const att = parsePowerAttDb10(cfg.powerAttDb10);
+      if (att !== null) {
+        try { await window.electronAPI.rfidBridgeCommand(`set-power ${att}`); } catch { /* optional */ }
+      }
+      await window.electronAPI.rfidBridgeCommand('start');
+      setInlineTrayScanning(true);
+      toast.info('Tray scan started — place the tray on the reader.');
+    } catch (err) {
+      teardownInlineTrayListeners();
+      setInlineTrayScanning(false);
+      toast.error(err?.message || 'Could not start the tray scan. Check reader connection.');
+    } finally {
+      setInlineTrayBusy(false);
+    }
+  };
+
+  // Stop scanning and pull all scanned tags into the grid (same pipeline as the popup).
+  const stopInlineTrayScan = async () => {
+    if (inlineTrayBusy && !inlineTrayScanning) return;
+    setInlineTrayBusy(true);
+    try {
+      if (hasTrayBridge()) {
+        try { await window.electronAPI.rfidBridgeCommand('stop'); } catch { /* ignore */ }
+      }
+      teardownInlineTrayListeners();
+      setInlineTrayScanning(false);
+
+      const identities = Array.from(inlineTrayTagsRef.current);
+      if (!identities.length) {
+        toast.info('No tags were scanned.');
+        return;
+      }
+      const scanRows = identities.map((epc) => ({
+        epc: String(epc || '').trim().toUpperCase(),
+        rfidCode: '',
+      }));
+      const result = await handleTrayFetchData(scanRows);
+      if (result && result.success === false) {
+        toast.warn(result.message || 'No products matched the scanned tray tags.');
+      } else if (result && result.message) {
+        toast.success(result.message);
+      }
+      inlineTrayTagsRef.current = new Set();
+      setInlineTrayTagCount(0);
+    } finally {
+      setInlineTrayBusy(false);
+    }
+  };
+
+  useEffect(() => () => {
+    // On unmount: detach tag listeners and stop the reader if still scanning.
+    teardownInlineTrayListeners();
+    if (hasTrayBridge()) {
+      try { window.electronAPI.rfidBridgeCommand('stop'); } catch { /* ignore */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchTrayStockRows = async (clientCode, scanRows) => {
     const epcs = scanRows.map((r) => r.epc);
     const headers = getTrayAuthHeaders();
@@ -3294,29 +3449,16 @@ const formatScannedTime = (date) => {
     };
 
     const loadFromLabelledStockApi = async () => {
-      const { data } = await axios.post(
-        toRrgoldApiUrl('/api/ProductMaster/GetLabelledStockByTIDNumbers'),
-        {
-          ClientCode: clientCode,
-          TIDNumbers: epcs,
-          TidNumbers: epcs,
-          TIDValues: epcs,
-          TidValues: epcs,
-          EPCValues: epcs,
-          EpcValues: epcs,
-        },
-        { headers, timeout: 45000 }
-      );
-      const products = parseLabelledStockByTidResponse(data);
+      const products = await fetchLabelledStockProductsByIdentifiers(clientCode, epcs);
       return enrichTrayStockRows(products, scanRows);
     };
 
     let rows = await loadFromRfidDeviceDetails();
-    if (rows.length) return rows;
+    if (rows.length) return backfillTrayDesignFromLabelledStock(clientCode, rows);
 
     await new Promise((resolve) => setTimeout(resolve, 350));
     rows = await loadFromRfidDeviceDetails();
-    if (rows.length) return rows;
+    if (rows.length) return backfillTrayDesignFromLabelledStock(clientCode, rows);
 
     rows = await loadFromLabelledStockApi();
     return rows;
@@ -3358,13 +3500,9 @@ const formatScannedTime = (date) => {
       }
 
       const incomingKeys = new Set(rows.map((row) => rowDedupKey(row)).filter(Boolean));
-      const inReturnMode = pendingInRows.length > 0;
-      const rescanningOutTags = sampleOutItems.some((item) => {
-        const key = rowDedupKey(item);
-        return key && incomingKeys.has(key) && item.__scanAction === 'SampleOut';
-      });
-      const preferSampleIn = inReturnMode || rescanningOutTags;
 
+      // Drop any prior local rows for the incoming tags so each tag is re-checked
+      // fresh against the server, which alone decides Sample Out vs Sample In.
       const prunedItems = sampleOutItemsRef.current.filter((item) => {
         const key = rowDedupKey(item);
         if (!key || !incomingKeys.has(key)) return true;
@@ -3376,9 +3514,10 @@ const formatScannedTime = (date) => {
       const summary = await processScannedBatch(rows, {
         source: 'tray',
         showReview: true,
-        preferSampleIn,
       });
-      const added = (summary?.added || 0) + (summary?.inQueued || 0);
+      const outCount = summary?.added || 0;
+      const inCount = summary?.inQueued || 0;
+      const added = outCount + inCount;
       if (added === 0) {
         return {
           success: false,
@@ -3389,12 +3528,15 @@ const formatScannedTime = (date) => {
         };
       }
       setShowRfidTrayModal(false);
-      return {
-        success: true,
-        message: preferSampleIn
-          ? `${added} of ${rows.length} tag(s) queued for Sample In return.`
-          : `${added} of ${rows.length} tag(s) loaded into the grid.`,
-      };
+      let message;
+      if (inCount > 0 && outCount === 0) {
+        message = `${inCount} of ${rows.length} tag(s) queued for Sample In return.`;
+      } else if (inCount > 0 && outCount > 0) {
+        message = `${rows.length} tag(s): ${outCount} Sample Out, ${inCount} Sample In return.`;
+      } else {
+        message = `${outCount} of ${rows.length} tag(s) loaded into the grid for Sample Out.`;
+      }
+      return { success: true, message };
     } catch (error) {
       const message =
         error?.response?.data?.message ||
@@ -3408,14 +3550,105 @@ const formatScannedTime = (date) => {
     }
   };
 
-  const handleClearScannedTrayItems = () => {
-    setSampleOutItems((prev) => prev.filter((item) => pickItemScanSource(item) !== 'tray'));
-    addNotification({
-      type: 'success',
-      title: 'Tray Data Cleared',
-      message: 'Scanned tray items removed from the grid. Use Refresh to reload from the RFID device.',
-    });
+  // Clear ALL scan data for this page (in-memory grid + server scan buffer),
+  // then hard-refresh the whole page. Guarded so rapid double-clicks can't
+  // fire the reset twice.
+  const resetSampleOutPage = async () => {
+    if (pageResetLockRef.current) return;
+    pageResetLockRef.current = true;
+    setPageResetLoading(true);
+    try {
+      // Clear local form/grid state first so a failed reload still looks clean.
+      setSampleOutItems([]);
+      sampleOutItemsRef.current = [];
+      setCurrentPage(1);
+      // Clear the server-side scan buffer so reload doesn't restore stale tags.
+      await deleteSampleOutRfidScans();
+    } catch {
+      /* still reload even if the server clear fails */
+    } finally {
+      // window.location.reload re-initialises every piece of state from scratch.
+      window.location.reload();
+    }
   };
+
+  // Refresh = pull the latest scanned RFID products from the device buffer
+  // (same GetAllRFIDDetails API as Stock Tracking) and load them into the grid,
+  // letting the server decide Sample Out vs Sample In per tag.
+  const refreshScannedRfidFromDevice = async () => {
+    if (pageResetLockRef.current || pageResetLoading) return;
+    const clientCode = resolveClientCodeForSampleApi(userInfo);
+    if (!clientCode) {
+      addNotification({
+        type: 'error',
+        title: 'Refresh scans',
+        message: 'User information not found. Please refresh the page.',
+      });
+      return;
+    }
+    setPageResetLoading(true);
+    setLoading(true);
+    try {
+      const { data } = await axios.post(
+        toRrgoldApiUrl('/api/RFIDDevice/GetAllRFIDDetails'),
+        { ClientCode: clientCode },
+        { headers: getTrayAuthHeaders() }
+      );
+      const deviceRows = normalizeRfidDeviceRows(data);
+      let mapped = mapDeviceRowsToSampleOutItems(deviceRows).map((row) => ({
+        ...row,
+        __scannedAt: row.__scannedAt || new Date().toISOString(),
+      }));
+      if (!mapped.length) {
+        addNotification({
+          type: 'info',
+          title: 'Refresh scans',
+          message: 'No scanned RFID products found. Scan items on the device, then click Refresh.',
+        });
+        return;
+      }
+      mapped = await backfillTrayDesignFromLabelledStock(clientCode, mapped);
+
+      // Drop any prior local rows for the incoming tags so each tag is re-checked
+      // fresh against the server, which alone decides Sample Out vs Sample In.
+      const incomingKeys = new Set(mapped.map((row) => rowDedupKey(row)).filter(Boolean));
+      const prunedItems = sampleOutItemsRef.current.filter((item) => {
+        const key = rowDedupKey(item);
+        if (!key || !incomingKeys.has(key)) return true;
+        return item.__scanAction !== 'SampleOut' && item.__scanAction !== 'SampleInPending';
+      });
+      sampleOutItemsRef.current = prunedItems;
+      setSampleOutItems(prunedItems);
+      setCurrentPage(1);
+
+      const summary = await processScannedBatch(mapped, { source: 'desktop', showReview: true });
+      const outCount = summary?.added || 0;
+      const inCount = summary?.inQueued || 0;
+      if (outCount + inCount === 0) {
+        addNotification({
+          type: 'info',
+          title: 'Refresh scans',
+          message:
+            summary?.blocked || summary?.errors
+              ? 'Scanned tags found but none could be added — see the review popup for details.'
+              : 'No new items added — scanned tags may already be in the list.',
+        });
+      }
+    } catch (err) {
+      addNotification({
+        type: 'error',
+        title: 'Refresh scans',
+        message:
+          err?.response?.data?.Message || err?.message || 'Failed to load scanned RFID data.',
+      });
+    } finally {
+      setLoading(false);
+      setPageResetLoading(false);
+    }
+  };
+
+  const handleClearAndReloadPage = resetSampleOutPage;
+  const handleReloadPage = refreshScannedRfidFromDevice;
 
   // Helper function to get field value or null if empty
   const getValueOrNull = (value) => {
@@ -3704,7 +3937,11 @@ const formatScannedTime = (date) => {
       const lotId = parseInt(item.__lotId, 10);
       const lotItemId = parseInt(item.__lotItemId ?? item.LotItemId ?? item.lotItemId, 10);
       try {
-        const reviewNote = String(description || '').trim() || 'Returned via unified sample screen';
+        const itemScanMode = resolveScanMode(item);
+        const defaultReturnNote = itemScanMode
+          ? `Sample in returned via ${itemScanMode}`
+          : 'Sample in returned';
+        const reviewNote = String(description || '').trim() || defaultReturnNote;
         const scanPayload = {
             ClientCode: clientCode,
             LotId: Number.isFinite(lotId) && lotId > 0 ? lotId : undefined,
@@ -4081,13 +4318,19 @@ const formatScannedTime = (date) => {
         ].some((v) => String(v || '').toLowerCase().includes(q))
       );
     }
-    return sortProductsByDesign(list);
+    return sortProductsByRecencyThenDesign(list);
   }, [sampleOutItems, tableSearch]);
   const activePageSize = ITEMS_GRID_PAGE_SIZE;
-  const tableItemPages = useMemo(
-    () => buildDesignAwarePages(filteredTableItems, activePageSize),
-    [filteredTableItems, activePageSize]
-  );
+  const tableItemPages = useMemo(() => {
+    // Keep the newest-scanned-first order intact: simple fixed-size chunks so the
+    // latest scan always lands on page 1 (no design regrouping across the list).
+    if (!filteredTableItems.length) return [];
+    const pages = [];
+    for (let i = 0; i < filteredTableItems.length; i += activePageSize) {
+      pages.push(filteredTableItems.slice(i, i + activePageSize));
+    }
+    return pages;
+  }, [filteredTableItems, activePageSize]);
   const totalPages = Math.max(1, tableItemPages.length);
   const currentItems = tableItemPages[currentPage - 1] || [];
   const startIndex = tableItemPages
@@ -4104,13 +4347,17 @@ const formatScannedTime = (date) => {
       0
     );
     const totalPiecesScanned = filteredTableItems.reduce((sum, item) => sum + rowPieces(item), 0);
+    const designSet = new Set();
     let latestScanDateTime = null;
     filteredTableItems.forEach((item) => {
+      const design = String(designNoFromItem(item) || '').trim().toUpperCase();
+      if (design) designSet.add(design);
       const dt = rowScannedDateTime(item);
       if (!dt) return;
       if (!latestScanDateTime || dt.getTime() > latestScanDateTime.getTime()) latestScanDateTime = dt;
     });
-    return { totalProducts, totalGrossWt, totalNetWt, totalPiecesScanned, latestScanDateTime };
+    const totalDesigns = designSet.size;
+    return { totalProducts, totalGrossWt, totalNetWt, totalPiecesScanned, totalDesigns, latestScanDateTime };
   }, [filteredTableItems]);
 
   const pendingOutRows = useMemo(() => pendingSampleOutOnly(sampleOutItems), [sampleOutItems]);
@@ -5157,11 +5404,72 @@ const formatScannedTime = (date) => {
                     >
                       <FaInbox style={{ fontSize: 13 }} />
                     </button>
+                    {!inlineTrayScanning ? (
+                      <button
+                        type="button"
+                        onClick={startInlineTrayScan}
+                        disabled={inlineTrayBusy}
+                        title="Start tray scan — scanned items load into the grid"
+                        style={{
+                          flex: '0 0 auto',
+                          height: 28,
+                          padding: '0 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #059669',
+                          background: inlineTrayBusy ? '#a7f3d0' : '#059669',
+                          color: '#ffffff',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: inlineTrayBusy ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {inlineTrayBusy ? (
+                          <FaSpinner className="fa-spin" style={{ fontSize: 11 }} />
+                        ) : (
+                          <FaPlay style={{ fontSize: 10 }} />
+                        )}
+                        Start scan
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={stopInlineTrayScan}
+                        disabled={inlineTrayBusy}
+                        title="Stop tray scan and load scanned items into the grid"
+                        style={{
+                          flex: '0 0 auto',
+                          height: 28,
+                          padding: '0 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #dc2626',
+                          background: '#dc2626',
+                          color: '#ffffff',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: inlineTrayBusy ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {inlineTrayBusy ? (
+                          <FaSpinner className="fa-spin" style={{ fontSize: 11 }} />
+                        ) : (
+                          <FaStop style={{ fontSize: 10 }} />
+                        )}
+                        Stop ({inlineTrayTagCount})
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={handleRefreshRfidDeviceScans}
-                      disabled={rfidDeviceRefreshLoading}
-                      title="Reload tags from RFID device into the grid"
+                      onClick={handleReloadPage}
+                      disabled={pageResetLoading}
+                      title="Load scanned RFID data from the device"
                       style={{
                         flex: '0 0 auto',
                         width: 28,
@@ -5173,17 +5481,18 @@ const formatScannedTime = (date) => {
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        cursor: rfidDeviceRefreshLoading ? 'not-allowed' : 'pointer',
-                        opacity: rfidDeviceRefreshLoading ? 0.65 : 1,
+                        cursor: pageResetLoading ? 'not-allowed' : 'pointer',
+                        opacity: pageResetLoading ? 0.65 : 1,
                         transition: 'all 0.2s ease',
                       }}
                     >
-                      <FaSync className={rfidDeviceRefreshLoading ? 'fa-spin' : ''} style={{ fontSize: 12 }} />
+                      <FaSync className={pageResetLoading ? 'fa-spin' : ''} style={{ fontSize: 12 }} />
                     </button>
                     <button
                       type="button"
-                      onClick={handleClearScannedTrayItems}
-                      title="Remove tray-scanned items from the grid only"
+                      onClick={handleClearAndReloadPage}
+                      disabled={pageResetLoading}
+                      title="Clear scanned data and refresh the page"
                       style={{
                         flex: '0 0 auto',
                         height: 28,
@@ -5194,7 +5503,8 @@ const formatScannedTime = (date) => {
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        cursor: 'pointer',
+                        cursor: pageResetLoading ? 'not-allowed' : 'pointer',
+                        opacity: pageResetLoading ? 0.65 : 1,
                         transition: 'all 0.2s ease',
                         padding: '0 10px',
                         fontSize: 10,
@@ -5396,6 +5706,13 @@ const formatScannedTime = (date) => {
                   Scanned Product:{' '}
                   <strong style={{ color: '#059669', fontWeight: 800, fontSize: isSmallScreen ? 18 : 22 }}>
                     {itemsSummary.totalProducts}
+                  </strong>
+                </span>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>
+                <span style={{ padding: '5px 10px', borderRadius: 8, background: '#f8fafc' }}>
+                  Designs:{' '}
+                  <strong style={{ color: '#7c3aed', fontWeight: 800, fontSize: isSmallScreen ? 18 : 22 }}>
+                    {itemsSummary.totalDesigns}
                   </strong>
                 </span>
                 <span style={{ color: '#cbd5e1', fontWeight: 600 }}>|</span>

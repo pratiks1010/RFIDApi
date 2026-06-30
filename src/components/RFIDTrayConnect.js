@@ -145,6 +145,7 @@ const RFIDTrayConnect = () => {
   const bridgeLineHistoryRef = useRef([]);
   const deviceRowsRef = useRef([]);
   const sdkConnectedCountRef = useRef(0);
+  const powerApplyTimerRef = useRef(null);
 
   const ingestTrayTag = useCallback((tag) => {
     const normalizedEpc = String(tag?.epc || '').trim().toUpperCase();
@@ -276,6 +277,10 @@ const RFIDTrayConnect = () => {
   useEffect(() => {
     deviceRowsRef.current = deviceRows;
   }, [deviceRows]);
+
+  useEffect(() => () => {
+    if (powerApplyTimerRef.current) clearTimeout(powerApplyTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!hasBridge) return undefined;
@@ -707,6 +712,32 @@ const RFIDTrayConnect = () => {
     }
   };
 
+  // Persist the chosen attenuation so every tray scan popup (Sample Out / In,
+  // Create Invoice) reuses the reduced power, and push it to live readers now.
+  const commitTrayPower = async (attValue, { notify = false } = {}) => {
+    const att = parsePowerAttDb10(attValue);
+    if (att === null) return;
+    saveTrayReaderConfig({ powerAttDb10: String(att) });
+    if (!hasBridge || isBusy) return;
+    try {
+      await runCommand(`set-power ${att}`);
+      if (notify) {
+        toast.success(`Transmit power set to ${attToDisplayPower(att)} (att ${att}).`);
+      }
+    } catch (_) {
+      /* surfaced by runCommand */
+    }
+  };
+
+  const handlePowerSliderChange = (displayValue) => {
+    const att = String(displayPowerToAtt(displayValue));
+    setPowerAttDb10(att);
+    if (powerApplyTimerRef.current) clearTimeout(powerApplyTimerRef.current);
+    powerApplyTimerRef.current = setTimeout(() => {
+      commitTrayPower(att, { notify: true });
+    }, 400);
+  };
+
   const saveReaderPorts = () => {
     const primaryCom = parseComNumber(comPrimary);
     const secondaryCom = parseComNumber(comSecondary);
@@ -862,13 +893,7 @@ const RFIDTrayConnect = () => {
                 max={TRAY_POWER_ATT_MAX}
                 step={50}
                 value={displayPower}
-                onChange={(e) => setPowerAttDb10(String(displayPowerToAtt(e.target.value)))}
-                onMouseUp={async (e) => {
-                  const n = parsePowerAttDb10(displayPowerToAtt(e.target.value));
-                  if (n !== null && hasBridge && !isBusy) {
-                    try { await runCommand(`set-power ${n}`); } catch (_) { /* surfaced in runCommand */ }
-                  }
-                }}
+                onChange={(e) => handlePowerSliderChange(e.target.value)}
                 disabled={!hasBridge || isBusy}
                 aria-label="Transmit power"
               />
@@ -883,7 +908,10 @@ const RFIDTrayConnect = () => {
                 <FaSyncAlt /> Read Current
               </button>
             </div>
-            <p className="tray-power-hint">{TRAY_POWER_ATT_MAX} = strongest / fastest scan &bull; 0 = weakest</p>
+            <p className="tray-power-hint">
+              Drag left to reduce power &bull; {TRAY_POWER_ATT_MAX} = strongest / fastest scan &bull; 0 = weakest.
+              Changes apply live and are saved for every tray scan.
+            </p>
           </div>
         </div>
       </div>

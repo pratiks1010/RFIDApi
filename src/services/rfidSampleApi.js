@@ -72,6 +72,112 @@ export const getAcceptLotUrl = () => rfidSampleUrl('/AcceptLot');
 /** Admin-only: bulk return Out items without employee scan. */
 export const getAdminBulkSampleReturnUrl = () => rfidSampleUrl('/AdminBulkSampleReturn');
 
+/** Admin-only: preview Excel rows for sample-in return (multipart upload). */
+export const getPreviewSampleInExcelUrl = () => rfidSampleUrl('/PreviewSampleInExcel');
+
+/** Admin-only: confirm Excel sample-in return (multipart upload). */
+export const getConfirmSampleInExcelUrl = () => rfidSampleUrl('/ConfirmSampleInExcel');
+
+export const SAMPLE_IN_EXCEL_SCAN_MODE = 'Excel';
+
+/** JWT only — axios sets multipart boundary when body is FormData. */
+export const sampleMultipartAuthHeaders = () => ({
+  Authorization: `Bearer ${localStorage.getItem('token')}`,
+});
+
+const mapSampleInExcelPreviewItem = (item) => ({
+  rowNumber: item?.rowNumber ?? item?.RowNumber,
+  designNo: item?.designNo ?? item?.DesignNo ?? '',
+  tagNo: item?.tagNo ?? item?.TagNo ?? '',
+  rfidCode: item?.rfidCode ?? item?.RfidCode ?? item?.RFIDCode ?? '',
+  excelGrossWt: item?.excelGrossWt ?? item?.ExcelGrossWt ?? '',
+  excelNetWt: item?.excelNetWt ?? item?.ExcelNetWt ?? '',
+  excelQty: item?.excelQty ?? item?.ExcelQty ?? '',
+  matched: item?.matched ?? item?.Matched ?? false,
+  canSampleIn: item?.canSampleIn ?? item?.CanSampleIn ?? false,
+  matchStatus: item?.matchStatus ?? item?.MatchStatus ?? '',
+  message: item?.message ?? item?.Message ?? '',
+  labelledStockId: item?.labelledStockId ?? item?.LabelledStockId,
+  itemCode: item?.itemCode ?? item?.ItemCode ?? '',
+  productName: item?.productName ?? item?.ProductName ?? '',
+  categoryName: item?.categoryName ?? item?.CategoryName ?? '',
+  designName: item?.designName ?? item?.DesignName ?? '',
+  purityName: item?.purityName ?? item?.PurityName ?? '',
+  grossWt: item?.grossWt ?? item?.GrossWt ?? '',
+  netWt: item?.netWt ?? item?.NetWt ?? '',
+  mrp: item?.mrp ?? item?.Mrp ?? item?.MRP ?? '',
+  counterName: item?.counterName ?? item?.CounterName ?? '',
+  lotId: item?.lotId ?? item?.LotId ?? null,
+  lotNumber: item?.lotNumber ?? item?.LotNumber ?? '',
+  lotStatus: item?.lotStatus ?? item?.LotStatus ?? '',
+  partyType: item?.partyType ?? item?.PartyType ?? '',
+  partyName: item?.partyName ?? item?.PartyName ?? '',
+  assignedToUserName: item?.assignedToUserName ?? item?.AssignedToUserName ?? '',
+  lotItemId: item?.lotItemId ?? item?.LotItemId ?? null,
+  itemStatus: item?.itemStatus ?? item?.ItemStatus ?? '',
+});
+
+const mapSampleInExcelPreviewLot = (lot) => ({
+  lotId: lot?.lotId ?? lot?.LotId,
+  lotNumber: lot?.lotNumber ?? lot?.LotNumber ?? '',
+  lotStatus: lot?.lotStatus ?? lot?.LotStatus ?? '',
+  partyType: lot?.partyType ?? lot?.PartyType ?? '',
+  partyName: lot?.partyName ?? lot?.PartyName ?? '',
+  assignedToUserName: lot?.assignedToUserName ?? lot?.AssignedToUserName ?? '',
+  readyCount: Number(lot?.readyCount ?? lot?.ReadyCount ?? 0) || 0,
+  totalOutItems: Number(lot?.totalOutItems ?? lot?.TotalOutItems ?? 0) || 0,
+  willCompleteLot: lot?.willCompleteLot ?? lot?.WillCompleteLot ?? false,
+  lotItemIds: lot?.lotItemIds ?? lot?.LotItemIds ?? [],
+});
+
+/** Normalize PreviewSampleInExcel / ConfirmSampleInExcel shared shapes. */
+export const parseSampleInExcelPreview = (payload = {}) => {
+  const root = payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? payload.data
+    : payload;
+  const items = (root?.items ?? root?.Items ?? []).map(mapSampleInExcelPreviewItem);
+  const lots = (root?.lots ?? root?.Lots ?? []).map(mapSampleInExcelPreviewLot);
+  return {
+    success: root?.success ?? root?.Success ?? payload?.success ?? payload?.Success ?? true,
+    message: String(root?.message ?? root?.Message ?? '').trim(),
+    totalRows: Number(root?.totalRows ?? root?.TotalRows ?? items.length) || 0,
+    matchedCount: Number(root?.matchedCount ?? root?.MatchedCount ?? 0) || 0,
+    readyCount: Number(root?.readyCount ?? root?.ReadyCount ?? 0) || 0,
+    notFoundCount: Number(root?.notFoundCount ?? root?.NotFoundCount ?? 0) || 0,
+    notOnSampleOutCount: Number(root?.notOnSampleOutCount ?? root?.NotOnSampleOutCount ?? 0) || 0,
+    items,
+    lots,
+  };
+};
+
+export const parseSampleInExcelConfirm = (payload = {}) => {
+  const root = payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+    ? payload.data
+    : payload;
+  const lots = (root?.lots ?? root?.Lots ?? []).map((lot) => ({
+    lotId: lot?.lotId ?? lot?.LotId,
+    lotNumber: lot?.lotNumber ?? lot?.LotNumber ?? '',
+    lotStatus: lot?.lotStatus ?? lot?.LotStatus ?? '',
+    lotCompleted: lot?.lotCompleted ?? lot?.LotCompleted ?? false,
+    returnedCount: Number(lot?.returnedCount ?? lot?.ReturnedCount ?? 0) || 0,
+    success: lot?.success ?? lot?.Success ?? true,
+    message: lot?.message ?? lot?.Message ?? '',
+    returnedLotItemIds: lot?.returnedLotItemIds ?? lot?.ReturnedLotItemIds ?? [],
+  }));
+  const skippedItems = (root?.skippedItems ?? root?.SkippedItems ?? []).map(mapSampleInExcelPreviewItem);
+  return {
+    success: root?.success ?? root?.Success ?? payload?.success ?? payload?.Success ?? true,
+    message: String(root?.message ?? root?.Message ?? '').trim(),
+    totalRows: Number(root?.totalRows ?? root?.TotalRows ?? 0) || 0,
+    returnedCount: Number(root?.returnedCount ?? root?.ReturnedCount ?? 0) || 0,
+    skippedCount: Number(root?.skippedCount ?? root?.SkippedCount ?? 0) || 0,
+    lotsAffected: Number(root?.lotsAffected ?? root?.LotsAffected ?? 0) || 0,
+    lotsCompleted: Number(root?.lotsCompleted ?? root?.LotsCompleted ?? 0) || 0,
+    lots,
+    skippedItems,
+  };
+};
+
 /** Preview returning vs remaining Out items before Sample In or admin bulk return. */
 export const getLotPartialReturnSummaryUrl = () => rfidSampleUrl('/GetLotPartialReturnSummary');
 

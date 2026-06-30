@@ -10,6 +10,7 @@ import {
   TRAY_POWER_ATT_MAX,
   TRAY_POWER_PRESET_OPTIONS
 } from '../../services/trayReaderConfig';
+import { getTrayTagIdentity, parseTrayTagLine } from '../../utils/trayTagParse';
 
 const TRAY_IDLE_TIMEOUT_WITH_TAGS_MS = 1200;
 const TRAY_IDLE_TIMEOUT_WITHOUT_TAGS_MS = 1200;
@@ -158,10 +159,16 @@ const TrayScanModal = ({
   }, [compactLayout, pageRows, pageSize]);
   useEffect(() => {
     if (!open || !hasBridge) return undefined;
+    // Use EPC-or-TID identity so TID-only tags are captured (not just EPC),
+    // matching the RFID Tray Connect page. Dropping TID-only reads was causing
+    // some tray tags to be missed during a scan.
+    const addTagIdentity = (tag) => {
+      const identity = getTrayTagIdentity(tag);
+      if (!identity) return;
+      setTags((prev) => (prev.includes(identity) ? prev : [...prev, identity]));
+    };
     const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
-      const epc = String(tag?.epc || '').trim().toUpperCase();
-      if (!epc) return;
-      setTags((prev) => (prev.includes(epc) ? prev : [...prev, epc]));
+      addTagIdentity(tag);
     });
     const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
       const lower = String(line || '').toLowerCase();
@@ -169,6 +176,10 @@ const TrayScanModal = ({
       if (lower.includes('inventory stopped')) setIsScanning(false);
       const powerMatch = String(line || '').match(/\bPOWER\s+attDb10\s*=\s*(\d+)/i);
       if (powerMatch) setPowerAttDb10(String(snapPowerAttDb10ToPreset(powerMatch[1])));
+      // Also capture tags emitted only as raw stdout "TAG ..." lines, which the
+      // structured tag event sometimes does not deliver.
+      const parsedTag = parseTrayTagLine(line);
+      if (parsedTag) addTagIdentity(parsedTag);
     });
     return () => {
       unsubTag?.();

@@ -194,6 +194,73 @@ const mergeProductDetails = (scanProduct, stockRow) => {
   return { ...stockRow, ...(scanProduct || {}) };
 };
 
+/** Fetch ALL labelled-stock rows matching a search term (item code or design no). */
+const fetchLabelledStockRowsForTerm = async (clientCode, term) => {
+  const labeledStockUrl = toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock');
+  const headers = sampleAuthHeaders();
+  const basePayload = {
+    ClientCode: clientCode,
+    CategoryId: 0,
+    ProductId: 0,
+    DesignId: 0,
+    PurityId: 0,
+    FromDate: null,
+    ToDate: null,
+    RFIDCode: '',
+    PageNumber: 1,
+    PageSize: 100,
+    BranchId: 0,
+    SearchQuery: term,
+    ItemCode: term,
+    ListType: 'ascending',
+    SortColumn: null,
+  };
+  for (const status of ['ApiActive', 'Active']) {
+    try {
+      const response = await axios.post(labeledStockUrl, { ...basePayload, Status: status }, { headers });
+      const rows = parseStockRows(response.data);
+      if (rows.length) return rows;
+    } catch {
+      /* try next status */
+    }
+  }
+  return [];
+};
+
+/** Resolve sample/scan status + product details for one stock item (no React state). */
+const resolveItemResult = async (clientCode, stockItem) => {
+  if (!clientCode || !stockItem) return null;
+  try {
+    const { data } = await axios.post(
+      getCheckScanStatusUrl(),
+      buildCheckScanPayload(clientCode, stockItem),
+      { headers: sampleAuthHeaders(), timeout: 45000 }
+    );
+    let scanAction = normalizeScanAction(data?.scanAction ?? data?.ScanAction);
+    const scanPhase = String(data?.scanPhase ?? data?.ScanPhase ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '');
+    if (scanPhase === 'secondscan' && scanAction === 'SampleOut') scanAction = 'SampleIn';
+    if (scanAction === 'NotFound' || data?.success === false) {
+      return {
+        raw: data,
+        scanAction: 'NotFound',
+        stockRow: stockItem,
+        mergedProduct: mergeProductDetails(data?.product ?? data?.Product ?? {}, stockItem),
+      };
+    }
+    return {
+      raw: data,
+      scanAction,
+      stockRow: stockItem,
+      mergedProduct: mergeProductDetails(data?.product ?? data?.Product ?? {}, stockItem),
+    };
+  } catch {
+    return { raw: null, scanAction: '—', stockRow: stockItem, mergedProduct: stockItem };
+  }
+};
+
 const normalizeScanAction = (raw) => {
   const compact = String(raw ?? '')
     .trim()
@@ -284,6 +351,7 @@ const FindItem = () => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [extraResults, setExtraResults] = useState([]);
   const [lastQuery, setLastQuery] = useState('');
   const searchTermRef = useRef('');
   const resultsSectionRef = useRef(null);
@@ -308,8 +376,11 @@ const FindItem = () => {
   }, [itemCode]);
 
   const runSearch = useCallback(
-    async (termOrItem) => {
+    async (termOrItem, options = {}) => {
       const isItem = typeof termOrItem === 'object' && termOrItem !== null;
+      const typedTerm = String(
+        options.typedTerm ?? (isItem ? '' : termOrItem ?? itemCode ?? '')
+      ).trim();
       const queryLabel = isItem
         ? rowItemCodeFromRaw(termOrItem) ||
           String(termOrItem.RFIDCode || termOrItem.RFIDNumber || '').trim() ||
@@ -331,6 +402,7 @@ const FindItem = () => {
       setLoading(true);
       setError('');
       setResult(null);
+      setExtraResults([]);
       setLastQuery(queryLabel);
       setShowSearchResults(false);
 
@@ -397,6 +469,48 @@ const FindItem = () => {
 
         setResult({ raw: data, scanAction, stockRow, mergedProduct });
         scrollToResults();
+
+        // If the search was by a design number that maps to more than one item,
+        // also load and show every other product that shares that design.
+        try {
+          const designTerm = String(
+            designNoFromItem(mergedProduct) || designNoFromItem(stockRow) || ''
+          ).trim();
+          const resultDesignLower = designTerm.toLowerCase();
+          const typedLower = typedTerm.toLowerCase();
+          // Treat it as a design search when the typed term matches the result's
+          // design number (covers both typed-term and picked-suggestion paths).
+          const searchedByDesign = !!resultDesignLower && typedLower === resultDesignLower;
+          if (searchedByDesign) {
+            const primaryItemCode = String(
+              rowItemCodeFromRaw(stockRow || mergedProduct) ||
+                pick(mergedProduct, 'itemCode', 'ItemCode', 'Itemcode')
+            )
+              .trim()
+              .toLowerCase();
+            const allRows = await fetchLabelledStockRowsForTerm(clientCode, designTerm);
+            const seen = new Set(primaryItemCode ? [primaryItemCode] : []);
+            const siblings = allRows.filter((row) => {
+              const rowDesign = String(designNoFromItem(row) || '').trim().toLowerCase();
+              if (rowDesign !== resultDesignLower) return false;
+              const rowItem = String(rowItemCodeFromRaw(row) || '').trim().toLowerCase();
+              if (!rowItem || seen.has(rowItem)) return false;
+              seen.add(rowItem);
+              return true;
+            });
+            if (siblings.length) {
+              const resolved = await Promise.all(
+                siblings.slice(0, 30).map((row) => resolveItemResult(clientCode, row))
+              );
+              const extras = resolved.filter(
+                (r) => r && (r.scanAction !== 'NotFound' || r.stockRow || r.mergedProduct)
+              );
+              if (extras.length) setExtraResults(extras);
+            }
+          }
+        } catch {
+          /* siblings are best-effort; primary result already shown */
+        }
       } catch (err) {
         const msg =
           err?.response?.data?.message ||
@@ -454,7 +568,7 @@ const FindItem = () => {
       lastAutoSearchRef.current = trimmed.toLowerCase();
       setShowSearchResults(false);
       const matched = pickSearchResultForTerm(trimmed, results);
-      await runSearchRef.current?.(matched || trimmed);
+      await runSearchRef.current?.(matched || trimmed, { typedTerm: trimmed });
     }, AUTO_FIND_DEBOUNCE_MS);
 
     return () => clearTimeout(timeoutId);
@@ -466,7 +580,7 @@ const FindItem = () => {
 
     setShowSearchResults(false);
     const matched = pickSearchResultForTerm(term, searchResults);
-    await runSearch(matched || term);
+    await runSearch(matched || term, { typedTerm: term });
     lastAutoSearchRef.current = term.toLowerCase();
   };
 
@@ -479,12 +593,13 @@ const FindItem = () => {
     const code = rowItemCodeFromRaw(item) || designNoFromItem(item) || itemCode;
     setItemCode(code);
     lastAutoSearchRef.current = String(code || '').trim().toLowerCase();
-    runSearch(item);
+    runSearch(item, { typedTerm: designNoFromItem(item) || code });
   };
 
   const clearSearch = () => {
     setItemCode('');
     setResult(null);
+    setExtraResults([]);
     setError('');
     setLastQuery('');
     setSearchResults([]);
@@ -492,40 +607,11 @@ const FindItem = () => {
     lastAutoSearchRef.current = '';
   };
 
-  const data = result?.raw;
-  const stockRow = result?.stockRow;
-  const product = result?.mergedProduct ?? data?.product ?? data?.Product ?? {};
-  const lot = data?.activeLot ?? data?.ActiveLot ?? null;
-  const scanAction = result?.scanAction ?? normalizeScanAction(data?.scanAction ?? data?.ScanAction);
-  const scanPhase = pick(data, 'scanPhase', 'ScanPhase');
-  const theme = actionTheme(scanAction, scanPhase);
-  const ThemeIcon = theme.icon;
-  const statusTitle = friendlyStatusTitle(scanAction, scanPhase);
-  const statusMessage = pick(data, 'message', 'Message') || '—';
-
-  const productItemCode = pick(product, 'itemCode', 'ItemCode', 'Itemcode') || lastQuery || '—';
-  const imageItem = { ...stockRow, ...product };
-  const apiImageUrl = getItemImageUrl(imageItem);
-  const lookupKeys = getItemImageLookupKeys({
-    ...imageItem,
-    ItemCode: productItemCode === '—' ? '' : productItemCode,
-    Itemcode: productItemCode === '—' ? '' : productItemCode,
-    RFIDCode: pick(imageItem, 'RFIDCode', 'RFIDNumber', 'rfidCode'),
-    DesignId: pick(imageItem, 'DesignId', 'design_id', 'DesignID'),
-    DesignName: pick(imageItem, 'designName', 'DesignName', 'Design'),
-  });
-  const productTitle =
-    pick(product, 'productTitle', 'ProductTitle', 'productName', 'ProductName') || '—';
-
-  const lotNumber = pick(lot, 'lotNumber', 'LotNumber') || '—';
-  const lotStatus = pick(lot, 'lotStatus', 'LotStatus', 'status', 'Status');
-  const itemStatus = pick(lot, 'itemStatus', 'ItemStatus');
-  const partyName = pick(lot, 'partyName', 'PartyName') || '—';
-  const employeeName = pick(lot, 'assignedToUserName', 'AssignedToUserName', 'employeeName', 'EmployeeName') || '—';
-
-  const grossWt = pick(product, 'grossWt', 'GrossWt');
-  const netWt = pick(product, 'netWt', 'NetWt');
-  const mrp = pick(product, 'mrp', 'MRP', 'MRPAmount');
+  const primaryData = result?.raw;
+  const primaryScanAction =
+    result?.scanAction ?? normalizeScanAction(primaryData?.scanAction ?? primaryData?.ScanAction);
+  const hasPrimaryResult =
+    !!result && (primaryScanAction !== 'NotFound' || result?.stockRow || result?.mergedProduct);
 
   return (
     <div style={{ padding: '16px 20px 32px', maxWidth: 920, margin: '0 auto' }}>
@@ -577,6 +663,7 @@ const FindItem = () => {
                 const trimmed = String(next || '').trim().toLowerCase();
                 if (!trimmed || trimmed !== lastAutoSearchRef.current) {
                   setResult(null);
+                  setExtraResults([]);
                   setError('');
                 }
                 if (trimmed) setShowSearchResults(true);
@@ -828,8 +915,51 @@ const FindItem = () => {
         </div>
       ) : null}
 
-      {!loading && result && (scanAction !== 'NotFound' || result?.stockRow || result?.mergedProduct) ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {!loading && hasPrimaryResult ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          {extraResults.length > 0 ? (
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#0f4c81' }}>
+              Showing {extraResults.length + 1} products for design{' '}
+              {designNoFromItem(result?.mergedProduct) ||
+                designNoFromItem(result?.stockRow) ||
+                lastQuery}
+            </div>
+          ) : null}
+          {[result, ...extraResults].map((res, resIdx) => {
+            const data = res?.raw;
+            const stockRow = res?.stockRow;
+            const product = res?.mergedProduct ?? data?.product ?? data?.Product ?? {};
+            const lot = data?.activeLot ?? data?.ActiveLot ?? null;
+            const scanAction = res?.scanAction ?? normalizeScanAction(data?.scanAction ?? data?.ScanAction);
+            const scanPhase = pick(data, 'scanPhase', 'ScanPhase');
+            const theme = actionTheme(scanAction, scanPhase);
+            const ThemeIcon = theme.icon;
+            const statusTitle = friendlyStatusTitle(scanAction, scanPhase);
+            const statusMessage = pick(data, 'message', 'Message') || '—';
+            const fallbackQuery = resIdx === 0 ? lastQuery : '';
+            const productItemCode = pick(product, 'itemCode', 'ItemCode', 'Itemcode') || fallbackQuery || '—';
+            const imageItem = { ...stockRow, ...product };
+            const apiImageUrl = getItemImageUrl(imageItem);
+            const lookupKeys = getItemImageLookupKeys({
+              ...imageItem,
+              ItemCode: productItemCode === '—' ? '' : productItemCode,
+              Itemcode: productItemCode === '—' ? '' : productItemCode,
+              RFIDCode: pick(imageItem, 'RFIDCode', 'RFIDNumber', 'rfidCode'),
+              DesignId: pick(imageItem, 'DesignId', 'design_id', 'DesignID'),
+              DesignName: pick(imageItem, 'designName', 'DesignName', 'Design'),
+            });
+            const productTitle =
+              pick(product, 'productTitle', 'ProductTitle', 'productName', 'ProductName') || '—';
+            const lotNumber = pick(lot, 'lotNumber', 'LotNumber') || '—';
+            const lotStatus = pick(lot, 'lotStatus', 'LotStatus', 'status', 'Status');
+            const itemStatus = pick(lot, 'itemStatus', 'ItemStatus');
+            const partyName = pick(lot, 'partyName', 'PartyName') || '—';
+            const employeeName = pick(lot, 'assignedToUserName', 'AssignedToUserName', 'employeeName', 'EmployeeName') || '—';
+            const grossWt = pick(product, 'grossWt', 'GrossWt');
+            const netWt = pick(product, 'netWt', 'NetWt');
+            const mrp = pick(product, 'mrp', 'MRP', 'MRPAmount');
+            return (
+              <div key={`find-result-${resIdx}`} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div
             style={{
               padding: '14px 16px',
@@ -1061,6 +1191,9 @@ const FindItem = () => {
               )}
             </div>
           </div>
+              </div>
+                );
+              })}
         </div>
       ) : null}
 

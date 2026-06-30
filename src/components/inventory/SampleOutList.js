@@ -24,6 +24,7 @@ import {
   FaInbox,
   FaUndo,
   FaCheckCircle,
+  FaUpload,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -33,6 +34,12 @@ import { useNavigate } from 'react-router-dom';
 import { partyTypeToApiEnum } from '../../services/sampleInOutApi';
 import {
   getAdminBulkSampleReturnUrl,
+  getPreviewSampleInExcelUrl,
+  getConfirmSampleInExcelUrl,
+  sampleMultipartAuthHeaders,
+  parseSampleInExcelPreview,
+  parseSampleInExcelConfirm,
+  SAMPLE_IN_EXCEL_SCAN_MODE,
   getAllSampleOutListUrl,
   buildGetAllSampleOutListQuery,
   getLotByIdUrl,
@@ -79,9 +86,13 @@ import {
 } from '../../services/localItemImageService';
 import GridItemImage from '../common/GridItemImage';
 import {
-  sortProductsByModeThenDesign,
+  sortProductsByDesignName,
   lineDesignFieldValue,
 } from '../../utils/designSort';
+
+// Admin force/manual return is a manual admin action — send this mode so the
+// backend logs SampleInMode as "Manual" instead of defaulting to "Tray".
+const ADMIN_RETURN_SCAN_MODE = 'Manual';
 
 const LOT_LIST_PAGE_SIZE = 15;
 const LOT_GRID_PAGE_SIZE = 6;
@@ -337,6 +348,7 @@ const LotDetailSummaryBar = ({
   netWt,
   pieces,
   totalProducts,
+  designCount,
   outDate,
   inDate,
   employee,
@@ -356,6 +368,16 @@ const LotDetailSummaryBar = ({
             : { bg: '#f8fafc', fg: '#475569', bd: '#e2e8f0' };
 
   const sectionRule = { height: 1, background: '#eef2f7', margin: '2px 0' };
+
+  // Accepted must always reconcile with the total: a freshly issued lot reports
+  // OutItems = total while every item is still pending acceptance, so derive the
+  // accepted count as (total − pending acceptance) instead of trusting OutItems.
+  const totalForAccept = Number(itemsCount);
+  const pendingForAccept = Number(pendingAcceptanceItems);
+  const acceptedItems =
+    Number.isFinite(totalForAccept) && Number.isFinite(pendingForAccept)
+      ? Math.max(0, totalForAccept - pendingForAccept)
+      : outItems;
 
   return (
     <div
@@ -466,7 +488,7 @@ const LotDetailSummaryBar = ({
             <>
               <LotDetailCountInline
                 label="Accepted"
-                value={outItems}
+                value={acceptedItems}
                 color="#0369a1"
                 bg="#e0f2fe"
               />
@@ -515,8 +537,13 @@ const LotDetailSummaryBar = ({
             <LotDetailInlineStat label="Net Wt" value={netWt} />
             <LotDetailInlineStat label="Pieces" value={pieces} />
             <LotDetailInlineStat
-              label="Total Products"
+              label="No of RFID"
               value={totalProducts ?? itemsCount ?? '—'}
+              valueColor={LOT_DETAIL_BLUE}
+            />
+            <LotDetailInlineStat
+              label="No of Design"
+              value={designCount ?? '—'}
               valueColor={LOT_DETAIL_BLUE}
             />
           </div>
@@ -710,14 +737,35 @@ const lineCanAdminReturn = (line, lotHeader) => {
   return isAdminReturnableLotStatus(lotStatus) && isOutItemStatus(line?.ItemStatus ?? line?.itemStatus);
 };
 
-const pickLineScanMeta = (line) => ({
-  sampleOutMode: line?.sampleOutMode ?? line?.SampleOutMode ?? '',
-  sampleInMode: line?.sampleInMode ?? line?.SampleInMode ?? '',
-  lastActionType: line?.lastActionType ?? line?.LastActionType ?? '',
-  lastActionMode: line?.lastActionMode ?? line?.LastActionMode ?? '',
-  sampleOutOn: line?.sampleOutOn ?? line?.SampleOutOn ?? line?.OutDate ?? line?.outDate ?? '',
-  sampleInOn: line?.sampleInOn ?? line?.SampleInOn ?? line?.InDate ?? line?.inDate ?? '',
-});
+const pickLineScanMeta = (line) => {
+  const lastActionMode = line?.lastActionMode ?? line?.LastActionMode ?? '';
+  const lastActionType = String(line?.lastActionType ?? line?.LastActionType ?? '').toLowerCase();
+  const status = String(line?.ItemStatus ?? line?.itemStatus ?? '');
+  const isOut = isOutItemStatus(status);
+  const isReturned = isReturnedLineStatus(status);
+
+  let sampleOutMode = line?.sampleOutMode ?? line?.SampleOutMode ?? '';
+  let sampleInMode = line?.sampleInMode ?? line?.SampleInMode ?? '';
+
+  // Backend often carries only the most recent action's mode (lastActionMode).
+  // For an item still OUT, that last action is the sample-out, so use it as the
+  // out mode. For a returned item, the last action mode is the sample-in mode.
+  if (!sampleOutMode && lastActionMode && (isOut || lastActionType.includes('out'))) {
+    sampleOutMode = lastActionMode;
+  }
+  if (!sampleInMode && lastActionMode && (isReturned || lastActionType.includes('in'))) {
+    sampleInMode = lastActionMode;
+  }
+
+  return {
+    sampleOutMode,
+    sampleInMode,
+    lastActionType: line?.lastActionType ?? line?.LastActionType ?? '',
+    lastActionMode,
+    sampleOutOn: line?.sampleOutOn ?? line?.SampleOutOn ?? line?.OutDate ?? line?.outDate ?? '',
+    sampleInOn: line?.sampleInOn ?? line?.SampleInOn ?? line?.InDate ?? line?.inDate ?? '',
+  };
+};
 
 const formatActivityLogWhen = (entry) => {
   const raw =
@@ -2313,8 +2361,13 @@ const LotDetailItemCard = ({
   const rfid = lineRfidValue(line);
   const category = lineCategory(line);
   const product = lineProduct(line);
+  const counterValue = line?.counter ?? line?.Counter;
+  const counterLabel = line?.counterName ?? line?.CounterName ?? '';
+  const counterDisplay =
+    counterValue !== undefined && counterValue !== null && String(counterValue).trim() !== ''
+      ? String(counterValue).trim()
+      : '';
   const designTitle = lineDesignFieldValue(line);
-  const designName = lineDesign ? lineDesign(line) : lineDesignFieldValue(line);
   const pieces = formatPiecesDisplay(linePiecesFromMrp(line));
   const status = String(line?.ItemStatus || '—').trim() || '—';
   const statusHeaderStyle = getLineItemStatusHeaderStyle(status);
@@ -2379,6 +2432,31 @@ const LotDetailItemCard = ({
               aria-label={`Select ${itemCode} for admin return`}
             />
           </label>
+        ) : null}
+        {counterDisplay ? (
+          <span
+            title={counterLabel || `Counter ${counterDisplay}`}
+            style={{
+              position: 'absolute',
+              top: 10,
+              left: adminSelectable ? 46 : 10,
+              zIndex: 3,
+              minWidth: 24,
+              textAlign: 'center',
+              fontSize: 11,
+              fontWeight: 900,
+              padding: '4px 9px',
+              borderRadius: 999,
+              background: 'rgba(15, 76, 129, 0.92)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.7)',
+              boxShadow: '0 2px 8px rgba(15,23,42,0.18)',
+              fontFamily: LOT_DETAIL_FONT,
+              letterSpacing: '0.02em',
+            }}
+          >
+            #{counterDisplay}
+          </span>
         ) : null}
         <span
           style={{
@@ -2505,7 +2583,7 @@ const LotDetailItemCard = ({
           }}
         >
           <LotDetailFieldCell label="Item" value={itemCode} valueColor={LOT_DETAIL_BLUE} />
-          <LotDetailFieldCell label="Design" value={designName} />
+          <LotDetailFieldCell label="Counter name" value={counterLabel || counterDisplay || '—'} valueColor={LOT_DETAIL_BLUE} />
           <LotDetailFieldCell label="RFID" value={rfid} />
           <LotDetailFieldCell label="Category" value={category} />
           <LotDetailFieldCell label="Product" value={product} />
@@ -2515,16 +2593,8 @@ const LotDetailItemCard = ({
           <LotDetailFieldCell label="Sample out" value={sampleOutDateTime !== '—' ? sampleOutDateTime : sampleOutDate} valueColor="#0369a1" wrap />
           <LotDetailFieldCell label="Sample in" value={sampleInDateTime !== '—' ? sampleInDateTime : sampleInDate} valueColor="#047857" wrap />
           <LotDetailFieldCell label="Employee" value={employeeName} valueColor="#0f766e" />
-          {scanMeta.sampleInMode ? (
-            <LotDetailFieldCell label="In mode" value={scanMeta.sampleInMode} valueColor="#047857" />
-          ) : scanMeta.sampleOutMode ? (
-            <LotDetailFieldCell label="Out mode" value={scanMeta.sampleOutMode} valueColor="#1d4ed8" />
-          ) : (
-            <div aria-hidden style={{ minWidth: 0 }} />
-          )}
-          {scanMeta.sampleOutMode && scanMeta.sampleInMode ? (
-            <LotDetailFieldCell label="Out mode" value={scanMeta.sampleOutMode} valueColor="#1d4ed8" span={2} />
-          ) : null}
+          <LotDetailFieldCell label="Out mode" value={scanMeta.sampleOutMode || '—'} valueColor="#1d4ed8" />
+          <LotDetailFieldCell label="In mode" value={scanMeta.sampleInMode || '—'} valueColor="#047857" />
         </div>
         {(pendingWithEmployee || returnedByMeta) && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
@@ -2603,7 +2673,7 @@ const LotDetailItemCard = ({
 };
 
 const chunkModalDetailPages = (items, pageSize) => {
-  const sorted = sortProductsByModeThenDesign(items || []);
+  const sorted = sortProductsByDesignName(items || []);
   if (!sorted.length) return [];
   const pages = [];
   for (let i = 0; i < sorted.length; i += pageSize) {
@@ -2650,6 +2720,10 @@ const mapRfidSampleLine = (line) => {
       : rawDesignName;
   return {
     ...line,
+    Counter: line.counter ?? line.Counter,
+    counter: line.counter ?? line.Counter,
+    CounterName: line.counterName ?? line.CounterName,
+    counterName: line.counterName ?? line.CounterName,
     LotItemId: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
     lotItemId: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
     Id: line.lotItemId ?? line.LotItemId ?? line.id ?? line.Id,
@@ -2810,7 +2884,7 @@ const enrichDetailLineItem = (line, lotHeader) => {
 };
 
 const enrichDetailLineItems = (items, lotHeader) =>
-  sortProductsByModeThenDesign((items || []).map((line) => enrichDetailLineItem(line, lotHeader)));
+  sortProductsByDesignName((items || []).map((line) => enrichDetailLineItem(line, lotHeader)));
 
 const lineDesignLabel = (line) => lineDesignFieldValue(line);
 
@@ -2860,7 +2934,7 @@ const mapRfidSampleLotRow = (entry) => {
     : Array.isArray(entry.items)
       ? entry.items
       : [];
-  const lineItems = sortProductsByModeThenDesign(items.map(mapRfidSampleLine));
+  const lineItems = sortProductsByDesignName(items.map(mapRfidSampleLine));
   const lotNumber = entry.LotNumber ?? entry.lotNumber ?? entry.SampleLotNo ?? entry.SampleOutNo;
   const lotStatus = entry.LotStatus ?? entry.lotStatus ?? entry.Status;
   const sampleOutDate = entry.SampleOutDate ?? entry.sampleOutDate ?? entry.IssueDate;
@@ -2976,7 +3050,7 @@ const normalizeSampleOutListRows = (raw) => {
       return {
         ...headerRest,
         LotBranchName: entry.BranchName ?? null,
-        LineItems: sortProductsByModeThenDesign(
+        LineItems: sortProductsByDesignName(
           (Array.isArray(entry.Items) ? entry.Items : []).map(mapRfidSampleLine)
         ),
       };
@@ -2984,7 +3058,7 @@ const normalizeSampleOutListRows = (raw) => {
     return {
       ...entry,
       LotBranchName: entry.BranchName ?? entry.LotBranchName ?? null,
-      LineItems: sortProductsByModeThenDesign(
+      LineItems: sortProductsByDesignName(
         (Array.isArray(entry.LineItems) ? entry.LineItems : []).map(mapRfidSampleLine)
       ),
     };
@@ -3017,6 +3091,22 @@ const branchFromUser = (userInfo) =>
   parseInt(userInfo?.BranchId ?? userInfo?.branchId ?? 1, 10) || 1;
 
 const SAMPLE_LIST_TIMEOUT_MS = 120000;
+
+const sampleInExcelStatusTone = (status) => {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'ready') return { bg: '#ecfdf5', fg: '#047857', bd: '#a7f3d0' };
+  if (key === 'alreadyreturned') return { bg: '#f1f5f9', fg: '#475569', bd: '#e2e8f0' };
+  if (key === 'pendingacceptance') return { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' };
+  return { bg: '#fef2f2', fg: '#b91c1c', bd: '#fecaca' };
+};
+
+const sampleInExcelProductRemarkKey = (item) => {
+  const ls = item?.labelledStockId;
+  if (ls !== undefined && ls !== null && String(ls).trim() !== '') return `ls:${ls}`;
+  const li = item?.lotItemId;
+  if (li !== undefined && li !== null && String(li).trim() !== '') return `li:${li}`;
+  return `row:${item?.rowNumber ?? ''}`;
+};
 
 const SampleOutList = ({
   pageTitle = 'Sample out lots',
@@ -3056,6 +3146,18 @@ const SampleOutList = ({
   const [expandedLotIds, setExpandedLotIds] = useState(() => new Set());
   const [itemDetailModal, setItemDetailModal] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importConfirmResult, setImportConfirmResult] = useState(null);
+  const [importStep, setImportStep] = useState('pick');
+  const [importPreviewLoading, setImportPreviewLoading] = useState(false);
+  const [importConfirmLoading, setImportConfirmLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importReturnRemark, setImportReturnRemark] = useState('');
+  const [importLotRemarks, setImportLotRemarks] = useState({});
+  const [importProductRemarks, setImportProductRemarks] = useState({});
+  const importFileInputRef = useRef(null);
   const [exportErrors, setExportErrors] = useState({ excel: '', pdf: '' });
   const [lotsViewMode, setLotsViewMode] = useState('grid');
   const [lineItemsViewMode, setLineItemsViewMode] = useState('grid');
@@ -3393,7 +3495,7 @@ const SampleOutList = ({
       if (!lineMatchesDetailUserFilter(line, detailItemUserFilter)) return false;
       return true;
     });
-    return sortProductsByModeThenDesign(filtered);
+    return sortProductsByDesignName(filtered);
   }, [detailModalItems, detailItemStatusFilter, detailItemUserFilter]);
 
   useEffect(() => {
@@ -3483,6 +3585,14 @@ const SampleOutList = ({
 
   const detailModalWeights = sumLineWeights(detailModalItems);
   const detailModalPieces = formatPiecesDisplay(sumLinePieces(detailModalItems));
+  const detailModalDesignCount = useMemo(() => {
+    const designs = new Set();
+    (detailModalItems || []).forEach((line) => {
+      const design = String(lineDesignFieldValue(line) || '').trim().toUpperCase();
+      if (design) designs.add(design);
+    });
+    return designs.size;
+  }, [detailModalItems]);
 
   const openDetailItemFromModal = (line) => {
     setItemDetailModal({
@@ -3760,6 +3870,7 @@ const SampleOutList = ({
         return {
           LotItemId: Number(lotItemId),
           AdminReviewRemark: perProductRemark || bulkRemark,
+          ScanMode: ADMIN_RETURN_SCAN_MODE,
         };
       })
       .filter((entry) => Number.isFinite(entry?.LotItemId) && entry.LotItemId > 0);
@@ -3776,6 +3887,7 @@ const SampleOutList = ({
         return {
           LotItemId: lotItemId,
           AdminReviewRemark: perProductRemark || bulkRemark,
+          ScanMode: ADMIN_RETURN_SCAN_MODE,
         };
       })
       .filter(Boolean);
@@ -3821,6 +3933,7 @@ const SampleOutList = ({
         ClientCode: clientCode,
         LotId: Number(lotId),
         AdminReturnRemark: bulkRemark,
+        ScanMode: ADMIN_RETURN_SCAN_MODE,
         Products: products,
       };
       if (returnAllOutItems) {
@@ -4140,9 +4253,167 @@ const SampleOutList = ({
     setShowExportModal(false);
   };
 
+  const resetImportModal = () => {
+    setImportFile(null);
+    setImportPreview(null);
+    setImportConfirmResult(null);
+    setImportStep('pick');
+    setImportPreviewLoading(false);
+    setImportConfirmLoading(false);
+    setImportError('');
+    setImportReturnRemark('');
+    setImportLotRemarks({});
+    setImportProductRemarks({});
+    if (importFileInputRef.current) importFileInputRef.current.value = '';
+  };
+
+  const openImportModal = () => {
+    resetImportModal();
+    setShowImportModal(true);
+  };
+
+  const closeImportModal = () => {
+    setShowImportModal(false);
+    resetImportModal();
+  };
+
+  const runImportPreview = async (file) => {
+    const clientCode = resolveClientCode(userInfo);
+    if (!clientCode) {
+      setImportError('Client code not found. Please log in again.');
+      return;
+    }
+    if (!file) {
+      setImportError('Choose an Excel file to preview.');
+      return;
+    }
+    setImportPreviewLoading(true);
+    setImportError('');
+    setImportConfirmResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('clientCode', clientCode);
+      formData.append('file', file);
+      const { data } = await axios.post(getPreviewSampleInExcelUrl(), formData, {
+        headers: sampleMultipartAuthHeaders(),
+        timeout: SAMPLE_LIST_TIMEOUT_MS,
+      });
+      if (data?.success === false) {
+        throw new Error(data?.message || data?.Message || 'Preview failed.');
+      }
+      const parsed = parseSampleInExcelPreview(data);
+      setImportFile(file);
+      setImportPreview(parsed);
+      setImportStep('preview');
+      const lotRemarkSeed = {};
+      (parsed.lots || []).forEach((lot) => {
+        if (lot.lotId != null) lotRemarkSeed[lot.lotId] = '';
+      });
+      setImportLotRemarks(lotRemarkSeed);
+      setImportProductRemarks({});
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.Message ||
+        err?.message ||
+        'Could not preview the Excel file.';
+      setImportError(msg);
+      setImportPreview(null);
+      setImportStep('pick');
+    } finally {
+      setImportPreviewLoading(false);
+    }
+  };
+
+  const handleImportFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    runImportPreview(file);
+  };
+
+  const runImportConfirm = async () => {
+    const clientCode = resolveClientCode(userInfo);
+    if (!clientCode || !importFile || !importPreview) return;
+    const globalRemark = String(importReturnRemark || '').trim();
+    const lotRemarkEntries = Object.entries(importLotRemarks || {})
+      .filter(([, v]) => String(v || '').trim())
+      .map(([lotId, returnRemark]) => ({
+        lotId: Number.parseInt(lotId, 10),
+        returnRemark: String(returnRemark).trim(),
+      }))
+      .filter((row) => Number.isFinite(row.lotId));
+    const productRemarkEntries = (importPreview.items || [])
+      .filter((item) => item.canSampleIn)
+      .map((item) => {
+        const key = sampleInExcelProductRemarkKey(item);
+        const remark = String(importProductRemarks[key] || '').trim();
+        if (!remark) return null;
+        if (item.labelledStockId != null) {
+          return { labelledStockId: item.labelledStockId, returnRemark: remark };
+        }
+        if (item.lotItemId != null) {
+          return { lotItemId: item.lotItemId, returnRemark: remark };
+        }
+        return null;
+      })
+      .filter(Boolean);
+    if (!globalRemark && !lotRemarkEntries.length && !productRemarkEntries.length) {
+      setImportError('Enter a return remark (or per-lot / per-product remarks) before confirming.');
+      return;
+    }
+    setImportConfirmLoading(true);
+    setImportError('');
+    try {
+      const formData = new FormData();
+      formData.append('clientCode', clientCode);
+      formData.append('file', importFile);
+      if (globalRemark) formData.append('returnRemark', globalRemark);
+      if (lotRemarkEntries.length) {
+        formData.append('lotRemarksJson', JSON.stringify(lotRemarkEntries));
+      }
+      if (productRemarkEntries.length) {
+        formData.append('productsJson', JSON.stringify(productRemarkEntries));
+      }
+      formData.append('scanMode', SAMPLE_IN_EXCEL_SCAN_MODE);
+      const readyIds = (importPreview.items || [])
+        .filter((item) => item.canSampleIn && item.labelledStockId != null)
+        .map((item) => item.labelledStockId);
+      if (readyIds.length) {
+        formData.append('labelledStockIds', readyIds.join(','));
+      }
+      const { data } = await axios.post(getConfirmSampleInExcelUrl(), formData, {
+        headers: sampleMultipartAuthHeaders(),
+        timeout: SAMPLE_LIST_TIMEOUT_MS,
+      });
+      if (data?.success === false) {
+        throw new Error(data?.message || data?.Message || 'Sample-in confirm failed.');
+      }
+      const parsed = parseSampleInExcelConfirm(data);
+      setImportConfirmResult(parsed);
+      setImportStep('done');
+      addNotification({
+        type: 'success',
+        title: 'Sample In Import',
+        message: parsed.message || `${parsed.returnedCount} product(s) returned.`,
+      });
+      fetchSampleOutList();
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.Message ||
+        err?.message ||
+        'Could not confirm sample-in from Excel.';
+      setImportError(msg);
+    } finally {
+      setImportConfirmLoading(false);
+    }
+  };
+
   const buildItemDetailPairs = (item) => {
     if (!item || typeof item !== 'object') return [];
     const preferred = [
+      ['Counter', 'Counter'],
+      ['CounterName', 'Counter label'],
       ['ItemCode', 'Item code'],
       ['ItemStatus', 'Line status'],
       ['AssignedToUserName', 'Employee'],
@@ -4448,6 +4719,30 @@ const SampleOutList = ({
               {filteredData.length} lot{filteredData.length !== 1 ? 's' : ''}
               {totalRecords > filteredData.length ? ` · ${totalRecords} from API` : ''}
             </span>
+            {isAdminUser ? (
+              <button
+                type="button"
+                onClick={openImportModal}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  border: '1px solid #059669',
+                  background: 'linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%)',
+                  color: '#047857',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  height: '34px',
+                }}
+              >
+                <FaUpload style={{ fontSize: '12px' }} />
+                Import Excel
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -5216,6 +5511,435 @@ const SampleOutList = ({
         ) : null}
       </div>
 
+      {showImportModal && (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10050,
+            padding: 16,
+            backdropFilter: 'blur(2px)',
+          }}
+          onClick={closeImportModal}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="sample-in-import-title"
+            style={{
+              background: '#fff',
+              borderRadius: 12,
+              width: 'min(980px, 96vw)',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 50px rgba(15, 23, 42, 0.2)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                padding: '14px 18px',
+                borderBottom: '1px solid #e2e8f0',
+                background: 'linear-gradient(180deg, #ecfdf5 0%, #ffffff 100%)',
+              }}
+            >
+              <div>
+                <h2 id="sample-in-import-title" style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                  Import Sample In — Excel
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>
+                  Upload Excel → preview matched lots → confirm manual sample-in return
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={closeImportModal}
+                style={{ border: 'none', background: 'transparent', fontSize: 22, cursor: 'pointer', color: '#64748b' }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
+              <input
+                ref={importFileInputRef}
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                style={{ display: 'none' }}
+                onChange={handleImportFileChange}
+              />
+
+              {importStep === 'pick' ? (
+                <div
+                  style={{
+                    border: '2px dashed #bbf7d0',
+                    borderRadius: 12,
+                    padding: '28px 20px',
+                    textAlign: 'center',
+                    background: '#f8fafc',
+                  }}
+                >
+                  <FaFileExcel style={{ fontSize: 36, color: '#059669', marginBottom: 12 }} />
+                  <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                    Choose an Excel file to preview sample-in rows
+                  </p>
+                  <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
+                    Columns: DesignNo, TagNo, misc (RFID), GrWt, NetWt, Qty, Cat5, IName, IGroup
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => importFileInputRef.current?.click()}
+                    disabled={importPreviewLoading}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '10px 18px',
+                      borderRadius: 10,
+                      border: 'none',
+                      background: '#059669',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: importPreviewLoading ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {importPreviewLoading ? <FaSpinner className="fa-spin" /> : <FaUpload />}
+                    {importPreviewLoading ? 'Previewing…' : 'Select Excel file'}
+                  </button>
+                </div>
+              ) : null}
+
+              {importStep === 'preview' && importPreview ? (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 10,
+                      marginBottom: 14,
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      background: '#f0fdf4',
+                      border: '1px solid #bbf7d0',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#047857' }}>
+                      {importPreview.message || `${importPreview.readyCount} of ${importPreview.totalRows} ready`}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>
+                      Matched: {importPreview.matchedCount} · Ready: {importPreview.readyCount} · Not found:{' '}
+                      {importPreview.notFoundCount} · Not on sample out: {importPreview.notOnSampleOutCount}
+                    </span>
+                    {importFile ? (
+                      <span style={{ fontSize: 11, color: '#475569', marginLeft: 'auto' }}>
+                        File: {importFile.name}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {importPreview.lots?.length ? (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Lots summary</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+                        {importPreview.lots.map((lot) => (
+                          <div
+                            key={lot.lotId ?? lot.lotNumber}
+                            style={{
+                              border: '1px solid #e2e8f0',
+                              borderRadius: 10,
+                              padding: '10px 12px',
+                              background: lot.willCompleteLot ? '#fffbeb' : '#fff',
+                            }}
+                          >
+                            <div style={{ fontSize: 13, fontWeight: 800, color: '#0f4c81' }}>{lot.lotNumber || '—'}</div>
+                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                              {lot.partyName || '—'} · {lot.lotStatus || '—'}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#334155', marginTop: 6 }}>
+                              Ready {lot.readyCount} / {lot.totalOutItems} out
+                            </div>
+                            {lot.willCompleteLot ? (
+                              <div style={{ fontSize: 10, fontWeight: 800, color: '#b45309', marginTop: 6 }}>
+                                Will complete lot
+                              </div>
+                            ) : null}
+                            <input
+                              type="text"
+                              placeholder="Optional lot remark"
+                              value={importLotRemarks[lot.lotId] || ''}
+                              onChange={(e) =>
+                                setImportLotRemarks((prev) => ({ ...prev, [lot.lotId]: e.target.value }))
+                              }
+                              style={{
+                                width: '100%',
+                                marginTop: 8,
+                                padding: '6px 8px',
+                                fontSize: 11,
+                                borderRadius: 6,
+                                border: '1px solid #e2e8f0',
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                      Return remark (default for all products & lots) *
+                    </label>
+                    <input
+                      type="text"
+                      value={importReturnRemark}
+                      onChange={(e) => setImportReturnRemark(e.target.value)}
+                      placeholder="e.g. Sale 29/06/2026"
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        fontSize: 12,
+                        borderRadius: 8,
+                        border: '1px solid #cbd5e1',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Preview rows</div>
+                  <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                          {['#', 'Counter', 'Design', 'RFID', 'Item', 'Category', 'Gr.Wt', 'Net.Wt', 'Qty', 'Lot', 'Status', 'Message', 'Product remark'].map(
+                            (h) => (
+                              <th key={h} style={{ padding: '8px 10px', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>
+                                {h}
+                              </th>
+                            )
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(importPreview.items || []).map((item) => {
+                          const tone = sampleInExcelStatusTone(item.matchStatus);
+                          const remarkKey = sampleInExcelProductRemarkKey(item);
+                          return (
+                            <tr
+                              key={`${item.rowNumber}-${remarkKey}`}
+                              style={{
+                                opacity: item.canSampleIn ? 1 : 0.72,
+                                background: item.canSampleIn ? '#fff' : '#fafafa',
+                              }}
+                            >
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.rowNumber}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.counterName || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.designName || item.designNo || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.rfidCode || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.itemCode || item.tagNo || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.categoryName || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.grossWt || item.excelGrossWt || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.netWt || item.excelNetWt || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.excelQty || item.mrp || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.lotNumber || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '3px 8px',
+                                    borderRadius: 999,
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    background: tone.bg,
+                                    color: tone.fg,
+                                    border: `1px solid ${tone.bd}`,
+                                  }}
+                                >
+                                  {item.matchStatus || '—'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9', maxWidth: 220 }}>{item.message || '—'}</td>
+                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9', minWidth: 140 }}>
+                                {item.canSampleIn ? (
+                                  <input
+                                    type="text"
+                                    placeholder="Optional"
+                                    value={importProductRemarks[remarkKey] || ''}
+                                    onChange={(e) =>
+                                      setImportProductRemarks((prev) => ({ ...prev, [remarkKey]: e.target.value }))
+                                    }
+                                    style={{
+                                      width: '100%',
+                                      padding: '5px 7px',
+                                      fontSize: 10,
+                                      borderRadius: 6,
+                                      border: '1px solid #e2e8f0',
+                                      boxSizing: 'border-box',
+                                    }}
+                                  />
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : null}
+
+              {importStep === 'done' && importConfirmResult ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      background: '#ecfdf5',
+                      border: '1px solid #bbf7d0',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: '#047857',
+                    }}
+                  >
+                    {importConfirmResult.message ||
+                      `${importConfirmResult.returnedCount} product(s) returned across ${importConfirmResult.lotsAffected} lot(s).`}
+                  </div>
+                  {(importConfirmResult.lots || []).map((lot) => (
+                    <div
+                      key={lot.lotId ?? lot.lotNumber}
+                      style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 10,
+                        padding: '10px 12px',
+                        background: lot.lotCompleted ? '#f0fdf4' : '#fff',
+                      }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f4c81' }}>
+                        {lot.lotNumber} — {lot.lotStatus}
+                        {lot.lotCompleted ? ' (Completed)' : ''}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                        Returned {lot.returnedCount} · {lot.message || 'OK'}
+                      </div>
+                    </div>
+                  ))}
+                  {(importConfirmResult.skippedItems || []).length ? (
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8, color: '#b91c1c' }}>Skipped rows</div>
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: '#64748b' }}>
+                        {importConfirmResult.skippedItems.map((item) => (
+                          <li key={`skip-${item.rowNumber}-${item.rfidCode}`}>
+                            Row {item.rowNumber}: {item.message || item.matchStatus}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {importError ? (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    fontSize: 12,
+                    color: '#b91c1c',
+                  }}
+                >
+                  {importError}
+                </div>
+              ) : null}
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 10,
+                padding: '12px 18px',
+                borderTop: '1px solid #e2e8f0',
+                background: '#fafafa',
+              }}
+            >
+              {importStep === 'preview' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => importFileInputRef.current?.click()}
+                    disabled={importConfirmLoading}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Change file
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runImportConfirm}
+                    disabled={importConfirmLoading || !importPreview?.readyCount}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: importConfirmLoading || !importPreview?.readyCount ? '#94a3b8' : '#059669',
+                      color: '#fff',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: importConfirmLoading || !importPreview?.readyCount ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {importConfirmLoading ? <FaSpinner className="fa-spin" /> : <FaCheckCircle />}
+                    Confirm sample in ({importPreview?.readyCount || 0})
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                onClick={closeImportModal}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {importStep === 'done' ? 'Close' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showExportModal && (
         <div
           role="presentation"
@@ -5492,6 +6216,7 @@ const SampleOutList = ({
                   grossWt={detailModalWeights.gross > 0 ? detailModalWeights.gross.toFixed(3) : '—'}
                   netWt={detailModalWeights.net > 0 ? detailModalWeights.net.toFixed(3) : '—'}
                   pieces={detailModalPieces}
+                  designCount={detailModalDesignCount}
                   outDate={displayLotSampleOutDateTime(detailModal.header)}
                   inDate={displayLotSampleInDateTime(detailModal.header, detailModalItems)}
                   employee={lotDisplayParty(detailModal.header)}

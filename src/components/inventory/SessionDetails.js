@@ -17,6 +17,43 @@ import {
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
+import GridItemImage from '../common/GridItemImage';
+
+const svCardPageBtn = (disabled) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '5px',
+  padding: '6px 12px',
+  fontSize: '12px',
+  fontWeight: 700,
+  borderRadius: '8px',
+  border: '1px solid #e2e8f0',
+  background: disabled ? '#f1f5f9' : '#ffffff',
+  color: disabled ? '#94a3b8' : '#475569',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+});
+
+const SDField = ({ label, value, valueColor = '#1e293b', span2 = false }) => (
+  <div style={{ gridColumn: span2 ? '1 / -1' : 'auto', minWidth: 0 }}>
+    <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', lineHeight: 1.2 }}>
+      {label}
+    </div>
+    <div
+      style={{
+        fontSize: '11px',
+        fontWeight: 600,
+        color: valueColor,
+        lineHeight: 1.3,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+      title={String(value)}
+    >
+      {value}
+    </div>
+  </div>
+);
 
 const SessionDetails = () => {
   const { sessionId } = useParams();
@@ -27,48 +64,169 @@ const SessionDetails = () => {
   const [sessionDetails, setSessionDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [matchedPage, setMatchedPage] = useState(1);
-  const [unmatchedPage, setUnmatchedPage] = useState(1);
-  const [matchedSearchQuery, setMatchedSearchQuery] = useState('');
-  const [unmatchedSearchQuery, setUnmatchedSearchQuery] = useState('');
-  const [tableItemsPerPage] = useState(10);
   const [userInfo, setUserInfo] = useState({});
   const [clientCode, setClientCode] = useState('');
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
 
-  // Filtered lists for Matched/Unmatched items
-  const filteredMatchedList = useMemo(() => {
-    if (!sessionDetails?.MatchedList) return [];
-    if (!matchedSearchQuery) return sessionDetails.MatchedList;
-    const lowerQuery = matchedSearchQuery.toLowerCase();
-    return sessionDetails.MatchedList.filter(item =>
-      (item.ItemCode && String(item.ItemCode).toLowerCase().includes(lowerQuery)) ||
-      (item.ProductName && String(item.ProductName).toLowerCase().includes(lowerQuery)) ||
-      (item.CategoryName && String(item.CategoryName).toLowerCase().includes(lowerQuery)) ||
-      (item.RFIDCode && String(item.RFIDCode).toLowerCase().includes(lowerQuery))
+  // Card view state
+  const [activeTab, setActiveTab] = useState('matched'); // 'matched' | 'unmatched'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [productFilter, setProductFilter] = useState('');
+  const [designFilter, setDesignFilter] = useState('');
+  const [counterFilter, setCounterFilter] = useState('');
+  const [purityFilter, setPurityFilter] = useState('');
+  const [cardPage, setCardPage] = useState(1);
+  const [previewItem, setPreviewItem] = useState(null);
+  const CARDS_PER_PAGE = 6;
+
+  const designOf = (item) =>
+    String(
+      item?.DesignName ?? item?.DesignNo ?? item?.Design ?? item?.DesignCode ?? item?.designName ?? ''
+    ).trim();
+
+  const counterOf = (item) =>
+    String(
+      item?.CounterName ?? item?.Counter ?? item?.counterName ?? item?.counter ?? ''
+    ).trim();
+
+  const purityOf = (item) =>
+    String(
+      item?.PurityName ?? item?.Purity ?? item?.purityName ?? item?.purity ?? ''
+    ).trim();
+
+  const piecesOf = (item) => {
+    const v = item?.Pieces ?? item?.Quantity ?? item?.Qty ?? item?.PieceCount ?? 0;
+    const n = parseFloat(v);
+    return Number.isNaN(n) ? 0 : n;
+  };
+
+  const matchedCount = sessionDetails?.MatchedList?.length || 0;
+  const unmatchedCount = sessionDetails?.UnmatchedList?.length || 0;
+
+  // Summary derived from the actual batch records returned by the API
+  // (MatchedList / UnmatchedList) so the counts always match what's listed
+  // below — not the server-wide Totals which can differ.
+  const summaryStats = useMemo(() => {
+    const matched = sessionDetails?.MatchedList || [];
+    const unmatched = sessionDetails?.UnmatchedList || [];
+    const all = [...matched, ...unmatched];
+    const num = (v) => {
+      const n = parseFloat(v);
+      return Number.isNaN(n) ? 0 : n;
+    };
+    const round = (n) => (Number.isInteger(n) ? n : Number(n.toFixed(2)));
+    const sumKey = (list, key) => list.reduce((acc, i) => acc + num(i[key]), 0);
+    return {
+      total: all.length,
+      matched: matched.length,
+      unmatched: unmatched.length,
+      pieces: round(all.reduce((acc, i) => acc + piecesOf(i), 0)),
+      grossWt: round(sumKey(all, 'GrossWeight')),
+      netWt: round(sumKey(all, 'NetWeight')),
+      matchWt: round(sumKey(matched, 'GrossWeight')),
+    };
+  }, [sessionDetails]);
+
+  const activeListRaw = useMemo(() => {
+    if (!sessionDetails) return [];
+    return activeTab === 'matched'
+      ? sessionDetails.MatchedList || []
+      : sessionDetails.UnmatchedList || [];
+  }, [sessionDetails, activeTab]);
+
+  // Distinct dropdown options derived from the active list
+  const distinct = (list, getValue) => {
+    const seen = new Set();
+    const out = [];
+    list.forEach((item) => {
+      const value = String(getValue(item) || '').trim();
+      if (!value || seen.has(value.toLowerCase())) return;
+      seen.add(value.toLowerCase());
+      out.push(value);
+    });
+    return out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  };
+
+  const categoryOptions = useMemo(() => distinct(activeListRaw, (i) => i.CategoryName), [activeListRaw]);
+  const productOptions = useMemo(() => distinct(activeListRaw, (i) => i.ProductName), [activeListRaw]);
+  const designOptions = useMemo(() => distinct(activeListRaw, designOf), [activeListRaw]);
+  const counterOptions = useMemo(() => distinct(activeListRaw, counterOf), [activeListRaw]);
+  const purityOptions = useMemo(() => distinct(activeListRaw, purityOf), [activeListRaw]);
+
+  // Filtered + design-sorted cards for the active tab
+  const filteredCards = useMemo(() => {
+    let list = activeListRaw;
+    if (categoryFilter) list = list.filter((i) => String(i.CategoryName || '').trim() === categoryFilter);
+    if (productFilter) list = list.filter((i) => String(i.ProductName || '').trim() === productFilter);
+    if (designFilter) list = list.filter((i) => designOf(i) === designFilter);
+    if (counterFilter) list = list.filter((i) => counterOf(i) === counterFilter);
+    if (purityFilter) list = list.filter((i) => purityOf(i) === purityFilter);
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((i) =>
+        (i.ItemCode && String(i.ItemCode).toLowerCase().includes(q)) ||
+        (i.ProductName && String(i.ProductName).toLowerCase().includes(q)) ||
+        (i.CategoryName && String(i.CategoryName).toLowerCase().includes(q)) ||
+        (i.RFIDCode && String(i.RFIDCode).toLowerCase().includes(q)) ||
+        (designOf(i) && designOf(i).toLowerCase().includes(q))
+      );
+    }
+    return [...list].sort((a, b) =>
+      designOf(a).localeCompare(designOf(b), undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [sessionDetails?.MatchedList, matchedSearchQuery]);
+  }, [activeListRaw, categoryFilter, productFilter, designFilter, counterFilter, purityFilter, searchQuery]);
 
-  const filteredUnmatchedList = useMemo(() => {
-    if (!sessionDetails?.UnmatchedList) return [];
-    if (!unmatchedSearchQuery) return sessionDetails.UnmatchedList;
-    const lowerQuery = unmatchedSearchQuery.toLowerCase();
-    return sessionDetails.UnmatchedList.filter(item =>
-      (item.ItemCode && String(item.ItemCode).toLowerCase().includes(lowerQuery)) ||
-      (item.ProductName && String(item.ProductName).toLowerCase().includes(lowerQuery)) ||
-      (item.CategoryName && String(item.CategoryName).toLowerCase().includes(lowerQuery)) ||
-      (item.RFIDCode && String(item.RFIDCode).toLowerCase().includes(lowerQuery))
-    );
-  }, [sessionDetails?.UnmatchedList, unmatchedSearchQuery]);
+  const cardTotalPages = Math.max(1, Math.ceil(filteredCards.length / CARDS_PER_PAGE));
+  const currentCards = useMemo(() => {
+    const start = (cardPage - 1) * CARDS_PER_PAGE;
+    return filteredCards.slice(start, start + CARDS_PER_PAGE);
+  }, [filteredCards, cardPage]);
 
-  // Reset pagination when search query changes
+  // Image lookup keys — design-wise first, then item code / RFID fallback
+  const imageLookupKeys = (item) => {
+    const candidates = [
+      item?.DesignName, item?.designName, item?.Design, item?.DesignNo,
+      item?.DesignCode, item?.DesignId, item?.design_id,
+      item?.ItemCode, item?.Itemcode, item?.RFIDCode, item?.rfidCode,
+    ];
+    const seen = new Set();
+    const keys = [];
+    candidates.forEach((value) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return;
+      const norm = trimmed.toLowerCase();
+      if (seen.has(norm)) return;
+      seen.add(norm);
+      keys.push(trimmed);
+    });
+    return keys;
+  };
+
+  // Reset to first page when tab / filters / search change
   useEffect(() => {
-    setMatchedPage(1);
-  }, [matchedSearchQuery]);
+    setCardPage(1);
+  }, [activeTab, searchQuery, categoryFilter, productFilter, designFilter, counterFilter, purityFilter]);
 
+  // Close the image preview with the Escape key
   useEffect(() => {
-    setUnmatchedPage(1);
-  }, [unmatchedSearchQuery]);
+    if (!previewItem) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setPreviewItem(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewItem]);
+
+  // Clear filters when switching tab so stale selections don't hide everything
+  useEffect(() => {
+    setCategoryFilter('');
+    setProductFilter('');
+    setDesignFilter('');
+    setCounterFilter('');
+    setPurityFilter('');
+    setSearchQuery('');
+  }, [activeTab]);
 
   // Get user info and client code
   useEffect(() => {
@@ -109,8 +267,21 @@ const SessionDetails = () => {
       const response = await axios.post(
         'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllStockVerificationBySession',
         {
-          ClientCode: clientCode,
-          ScanBatchId: scanBatchId
+          clientCode,
+          scanBatchId,
+          pageNumber: 1,
+          pageSize: 1000000,
+          returnAllData: true,
+          status: null,
+          counterName: null,
+          categoryName: null,
+          productName: null,
+          designName: null,
+          purityName: null,
+          companyName: null,
+          branchName: null,
+          fromDate: null,
+          toDate: null
         },
         {
           headers: {
@@ -120,7 +291,12 @@ const SessionDetails = () => {
       );
 
       console.log('Session Details Response:', response.data);
-      setSessionDetails(response.data);
+      setSessionDetails({
+        ...response.data,
+        MatchedList: response.data.MatchedList ?? response.data.matchedList ?? [],
+        UnmatchedList: response.data.UnmatchedList ?? response.data.unmatchedList ?? [],
+        Totals: response.data.Totals ?? response.data.totals ?? {}
+      });
       
     } catch (err) {
       console.error('Error fetching session details:', err);
@@ -130,17 +306,6 @@ const SessionDetails = () => {
       setLoading(false);
       setGlobalLoading(false);
     }
-  };
-
-  // Pagination helper functions
-  const getPaginatedData = (data, page, itemsPerPage) => {
-    const startIndex = (page - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return data.slice(startIndex, endIndex);
-  };
-
-  const getTotalPages = (data, itemsPerPage) => {
-    return Math.ceil(data.length / itemsPerPage);
   };
 
   // Export session details to Excel
@@ -299,32 +464,34 @@ const SessionDetails = () => {
 
   return (
     <div style={{
-      padding: '24px',
+      padding: '16px',
       fontFamily: 'Inter, system-ui, sans-serif',
       background: '#ffffff',
       minHeight: '100vh'
     }}>
-      {/* Header */}
+      {/* Header — compact, one line */}
       <div style={{
         background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-        padding: '20px 24px',
-        borderRadius: '12px',
-        marginBottom: '24px',
+        padding: '7px 14px',
+        borderRadius: '10px',
+        marginBottom: '10px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        gap: '12px',
+        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
         border: '1px solid #e5e7eb'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
           <button
             onClick={() => navigate('/stock-verification')}
             style={{
               background: '#ffffff',
               border: '1px solid #e5e7eb',
               borderRadius: '8px',
-              width: '36px',
-              height: '36px',
+              width: '32px',
+              height: '32px',
+              flexShrink: 0,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -341,14 +508,17 @@ const SessionDetails = () => {
               e.target.style.borderColor = '#e5e7eb';
             }}
           >
-            <FaArrowLeft style={{ color: '#475569', fontSize: '16px' }} />
+            <FaArrowLeft style={{ color: '#475569', fontSize: '14px' }} />
           </button>
-          <FaClipboardCheck style={{ color: '#3b82f6', fontSize: '20px' }} />
+          <FaClipboardCheck style={{ color: '#3b82f6', fontSize: '18px', flexShrink: 0 }} />
           <h2 style={{
             margin: 0,
-            fontSize: '20px',
+            fontSize: '17px',
             fontWeight: 700,
-            color: '#1e293b'
+            color: '#1e293b',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
           }}>
             Stock Verification {sessionDetails.BranchName ? `- ${sessionDetails.BranchName.trim()}` : ''}
           </h2>
@@ -356,8 +526,8 @@ const SessionDetails = () => {
         <button
           onClick={exportSessionDetails}
           style={{
-            padding: '10px 20px',
-            fontSize: '14px',
+            padding: '8px 16px',
+            fontSize: '13px',
             fontWeight: 600,
             borderRadius: '8px',
             border: '1px solid #3b82f6',
@@ -367,6 +537,7 @@ const SessionDetails = () => {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
+            flexShrink: 0,
             transition: 'all 0.2s',
             boxShadow: '0 1px 2px rgba(59, 130, 246, 0.2)'
           }}
@@ -383,784 +554,456 @@ const SessionDetails = () => {
         </button>
       </div>
 
-      {/* Summary Statistics Table */}
+      {/* Summary strip — one line */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '8px 12px',
+        marginBottom: '12px',
+        background: '#ffffff',
+        borderRadius: '10px',
+        border: '1px solid #e5e7eb',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+      }}>
+        {[
+          { label: 'Total', value: summaryStats.total, color: '#2563eb' },
+          { label: 'Matched', value: summaryStats.matched, color: '#047857' },
+          { label: 'Unmatched', value: summaryStats.unmatched, color: '#b91c1c' },
+          { label: 'Pieces', value: summaryStats.pieces, color: '#7c3aed' },
+          { label: 'Gross Wt', value: `${summaryStats.grossWt}g`, color: '#334155' },
+          { label: 'Net Wt', value: `${summaryStats.netWt}g`, color: '#334155' },
+          { label: 'Match Wt', value: `${summaryStats.matchWt}g`, color: '#334155' },
+        ].map((stat, idx) => (
+          <div key={stat.label} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '7px',
+            paddingLeft: idx === 0 ? 0 : '14px',
+            borderLeft: idx === 0 ? 'none' : '1px solid #e5e7eb',
+          }}>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{stat.label}</span>
+            <span style={{ fontSize: '19px', fontWeight: 800, color: stat.color, fontVariantNumeric: 'tabular-nums' }}>{stat.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabs + Filters + Cards */}
       <div style={{
         background: '#ffffff',
         borderRadius: '12px',
-        marginBottom: '24px',
         border: '1px solid #e5e7eb',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
         overflow: 'hidden'
       }}>
-        <div style={{
-          padding: '16px 20px',
-          background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-          borderBottom: '2px solid #e5e7eb'
-        }}>
-          <h3 style={{
-            margin: 0,
-            fontSize: '16px',
-            fontWeight: 700,
-            color: '#1e293b'
-          }}>Summary Statistics</h3>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            fontSize: '14px'
-          }}>
-            <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                <th style={{ 
-                  padding: '16px', 
-                  fontSize: '13px', 
-                  fontWeight: 600, 
-                  color: '#475569', 
-                  textAlign: 'left',
-                  borderRight: '1px solid #e5e7eb'
-                }}>Metric</th>
-                <th style={{ 
-                  padding: '16px', 
-                  fontSize: '13px', 
-                  fontWeight: 600, 
-                  color: '#475569', 
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>Total Items</th>
-                <th style={{ 
-                  padding: '16px', 
-                  fontSize: '13px', 
-                  fontWeight: 600, 
-                  color: '#475569', 
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>Matched</th>
-                <th style={{ 
-                  padding: '16px', 
-                  fontSize: '13px', 
-                  fontWeight: 600, 
-                  color: '#475569', 
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>Unmatched</th>
-                <th style={{ 
-                  padding: '16px', 
-                  fontSize: '13px', 
-                  fontWeight: 600, 
-                  color: '#475569', 
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>Total Gross Weight</th>
-                <th style={{ 
-                  padding: '16px', 
-                  fontSize: '13px', 
-                  fontWeight: 600, 
-                  color: '#475569', 
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>Total Net Weight</th>
-                <th style={{ 
-                  padding: '16px', 
-                  fontSize: '13px', 
-                  fontWeight: 600, 
-                  color: '#475569', 
-                  textAlign: 'center'
-                }}>Match Weight</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ 
-                  padding: '16px', 
-                  fontSize: '14px', 
-                  fontWeight: 600,
-                  color: '#1e293b',
-                  background: '#ffffff',
-                  borderRight: '1px solid #e5e7eb'
-                }}>Quantity</td>
-                <td style={{ 
-                  padding: '16px', 
-                  fontSize: '16px', 
-                  fontWeight: 700,
-                  color: '#3b82f6',
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>{sessionDetails.Totals?.TotalQty || 0}</td>
-                <td style={{ 
-                  padding: '16px', 
-                  fontSize: '16px', 
-                  fontWeight: 700,
-                  color: '#10b981',
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>{sessionDetails.Totals?.TotalMatchQty || 0}</td>
-                <td style={{ 
-                  padding: '16px', 
-                  fontSize: '16px', 
-                  fontWeight: 700,
-                  color: '#ef4444',
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>{sessionDetails.Totals?.TotalUnmatchQty || 0}</td>
-                <td style={{ 
-                  padding: '16px', 
-                  fontSize: '14px', 
-                  fontWeight: 600,
-                  color: '#1e293b',
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>{sessionDetails.Totals?.TotalGrossWeight || 0}g</td>
-                <td style={{ 
-                  padding: '16px', 
-                  fontSize: '14px', 
-                  fontWeight: 600,
-                  color: '#1e293b',
-                  textAlign: 'center',
-                  borderRight: '1px solid #e5e7eb'
-                }}>{sessionDetails.Totals?.TotalNetWeight || 0}g</td>
-                <td style={{ 
-                  padding: '16px', 
-                  fontSize: '14px', 
-                  fontWeight: 600,
-                  color: '#1e293b',
-                  textAlign: 'center'
-                }}>{sessionDetails.Totals?.TotalMatchGrossWeight || 0}g</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Tables Container */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: windowWidth <= 768 ? '1fr' : '1fr 1fr',
-        gap: '24px'
-      }}>
-        {/* Matched Items Table */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e5e7eb',
-          overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{
-            padding: '16px',
-            background: '#f0fdf4',
-            borderBottom: '2px solid #10b981',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <FaCheckCircle style={{ color: '#10b981', fontSize: '18px' }} />
-              <span style={{ fontSize: '16px', fontWeight: 600, color: '#475569' }}>Matched Items</span>
-              <span style={{
-                fontSize: '12px',
-                color: '#065f46',
-                background: '#d1fae5',
-                padding: '4px 12px',
-                borderRadius: '12px',
-                fontWeight: 600
-              }}>{filteredMatchedList.length} items</span>
-            </div>
-            <div style={{ position: 'relative', width: '180px' }}>
-              <FaSearch style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
-              <input 
-                type="text" 
-                placeholder="Search..." 
-                value={matchedSearchQuery}
-                onChange={(e) => setMatchedSearchQuery(e.target.value)}
+        {/* Match / Unmatch tabs */}
+        <div style={{ display: 'flex', gap: '8px', padding: '12px 14px', borderBottom: '1px solid #eef2f7', flexWrap: 'wrap' }}>
+          {[
+            { id: 'matched', label: 'Matched', count: matchedCount, color: '#10b981', dark: '#047857' },
+            { id: 'unmatched', label: 'Unmatched', count: unmatchedCount, color: '#ef4444', dark: '#b91c1c' },
+          ].map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
                 style={{
-                  width: '100%',
-                  padding: '8px 10px 8px 32px',
-                  fontSize: '12px',
-                  border: '1px solid #bbf7d0',
-                  borderRadius: '8px',
-                  outline: 'none',
-                  background: '#ffffff'
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: `1px solid ${active ? tab.color : '#e2e8f0'}`,
+                  background: active ? tab.color : '#ffffff',
+                  color: active ? '#ffffff' : '#475569',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.18s',
+                  boxShadow: active ? `0 2px 8px ${tab.color}33` : 'none',
                 }}
-              />
-            </div>
-          </div>
-          <div style={{ overflowX: 'auto', flex: 1 }}>
-            <table style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '14px',
-              minWidth: windowWidth <= 768 ? '800px' : 'auto'
-            }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Item Code</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Product Name</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Branch Name</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Category</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>RFIDCode</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap'
-                  }}>Gross Wt</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap'
-                  }}>Net Wt</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap'
-                  }}>Pieces</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMatchedList.length === 0 ? (
-                  <tr>
-                    <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
-                      {matchedSearchQuery ? 'No matches found' : 'No matched items'}
-                    </td>
-                  </tr>
-                ) : (
-                  getPaginatedData(filteredMatchedList, matchedPage, tableItemsPerPage).map((item, index) => {
-                    const globalIndex = (matchedPage - 1) * tableItemsPerPage + index;
-                    return (
-                      <tr
-                        key={item.Id || index}
-                        style={{
-                          borderBottom: '1px solid #e5e7eb',
-                          background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'}
-                      >
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.ItemCode || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.ProductName || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.BranchName || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.CategoryName || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.RFIDCode || 'RFID Tag not Attached'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b', 
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap'
-                        }}>{item.GrossWeight || 0}g</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b', 
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap'
-                        }}>{item.NetWeight || 0}g</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b', 
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap'
-                        }}>{item.Quantity || 0}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-          {/* Matched Items Pagination */}
-          {filteredMatchedList.length > tableItemsPerPage && (
-            <div style={{
-              padding: '16px',
-              borderTop: '1px solid #e5e7eb',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '12px',
-              flexWrap: 'wrap',
-              background: '#f8fafc'
-            }}>
-              <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Showing {((matchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(matchedPage * tableItemsPerPage, filteredMatchedList.length)} of {filteredMatchedList.length} items
-              </span>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button 
-                  onClick={() => setMatchedPage(prev => Math.max(1, prev - 1))}
-                  disabled={matchedPage === 1}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid #10b981',
-                    background: matchedPage === 1 ? '#f1f5f9' : '#ffffff',
-                    color: matchedPage === 1 ? '#94a3b8' : '#10b981',
-                    cursor: matchedPage === 1 ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (matchedPage !== 1) {
-                      e.target.style.background = '#10b981';
-                      e.target.style.color = '#ffffff';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (matchedPage !== 1) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.color = '#10b981';
-                    }
-                  }}
-                >
-                  <FaChevronLeft size={12} /> Previous
-                </button>
+              >
+                {tab.id === 'matched' ? <FaCheckCircle /> : <FaTimesCircle />}
+                {tab.label}
                 <span style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  background: '#ffffff',
-                  borderRadius: '6px',
-                  border: '1px solid #e5e7eb'
-                }}>
-                  {matchedPage} / {getTotalPages(filteredMatchedList, tableItemsPerPage)}
-                </span>
-                <button 
-                  onClick={() => setMatchedPage(prev => Math.min(getTotalPages(filteredMatchedList, tableItemsPerPage), prev + 1))}
-                  disabled={matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage)}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid #10b981',
-                    background: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
-                    color: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? '#94a3b8' : '#10b981',
-                    cursor: matchedPage === getTotalPages(filteredMatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (matchedPage !== getTotalPages(filteredMatchedList, tableItemsPerPage)) {
-                      e.target.style.background = '#10b981';
-                      e.target.style.color = '#ffffff';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (matchedPage !== getTotalPages(filteredMatchedList, tableItemsPerPage)) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.color = '#10b981';
-                    }
-                  }}
-                >
-                  Next <FaChevronRight size={12} />
-                </button>
-              </div>
-            </div>
-          )}
+                  padding: '1px 8px',
+                  borderRadius: '999px',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  background: active ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                  color: active ? '#ffffff' : tab.dark,
+                }}>{tab.count}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Unmatched Items Table */}
+        {/* Filters: category / product / design + search */}
         <div style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          border: '1px solid #e5e7eb',
-          overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
           display: 'flex',
-          flexDirection: 'column'
+          flexWrap: 'wrap',
+          gap: '10px',
+          padding: '12px 14px',
+          borderBottom: '1px solid #eef2f7',
+          background: '#fafcff',
         }}>
-          <div style={{
-            padding: '16px',
-            background: '#fef2f2',
-            borderBottom: '2px solid #ef4444',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <FaTimesCircle style={{ color: '#ef4444', fontSize: '18px' }} />
-              <span style={{ fontSize: '16px', fontWeight: 600, color: '#475569' }}>Unmatched Items</span>
-              <span style={{
+          {[
+            { value: categoryFilter, set: setCategoryFilter, options: categoryOptions, label: 'All Categories' },
+            { value: productFilter, set: setProductFilter, options: productOptions, label: 'All Products' },
+            { value: designFilter, set: setDesignFilter, options: designOptions, label: 'All Designs' },
+            { value: counterFilter, set: setCounterFilter, options: counterOptions, label: 'All Counters' },
+            { value: purityFilter, set: setPurityFilter, options: purityOptions, label: 'All Purities' },
+          ].map((f, idx) => (
+            <select
+              key={idx}
+              value={f.value}
+              onChange={(e) => f.set(e.target.value)}
+              style={{
+                flex: '1 1 160px',
+                minWidth: '140px',
+                padding: '9px 12px',
                 fontSize: '12px',
-                color: '#7f1d1d',
-                background: '#fee2e2',
-                padding: '4px 12px',
-                borderRadius: '12px',
-                marginLeft: 'auto',
-                fontWeight: 600
-              }}>{filteredUnmatchedList.length} items</span>
-            </div>
-            <div style={{ position: 'relative', width: '180px' }}>
-              <FaSearch style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
-              <input 
-                type="text" 
-                placeholder="Search..." 
-                value={unmatchedSearchQuery}
-                onChange={(e) => setUnmatchedSearchQuery(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px 8px 32px',
-                  fontSize: '12px',
-                  border: '1px solid #fca5a5',
-                  borderRadius: '8px',
-                  outline: 'none',
-                  background: '#ffffff'
-                }}
-              />
-            </div>
+                fontWeight: 600,
+                color: '#334155',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                background: '#ffffff',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">{f.label}</option>
+              {f.options.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          ))}
+          <div style={{ position: 'relative', flex: '2 1 220px', minWidth: '180px' }}>
+            <FaSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              placeholder="Search item, product, design, RFID…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '9px 12px 9px 34px',
+                fontSize: '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
           </div>
-          <div style={{ overflowX: 'auto', flex: 1 }}>
-            <table style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '14px',
-              minWidth: windowWidth <= 768 ? '800px' : 'auto'
-            }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Item Code</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Product Name</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Branch Name</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>Category</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap'
-                  }}>RFIDCode</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap'
-                  }}>Gross Wt</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap'
-                  }}>Net Wt</th>
-                  <th style={{ 
-                    padding: '12px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    color: '#475569', 
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap'
-                  }}>Pieces</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUnmatchedList.length === 0 ? (
-                  <tr>
-                    <td colSpan="8" style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
-                      {unmatchedSearchQuery ? 'No matches found' : 'No unmatched items'}
-                    </td>
-                  </tr>
-                ) : (
-                  getPaginatedData(filteredUnmatchedList, unmatchedPage, tableItemsPerPage).map((item, index) => {
-                    const globalIndex = (unmatchedPage - 1) * tableItemsPerPage + index;
-                    return (
-                      <tr
-                        key={item.Id || index}
-                        style={{
-                          borderBottom: '1px solid #e5e7eb',
-                          background: globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : '#f8fafc'}
-                      >
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.ItemCode || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.ProductName || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.BranchName || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.CategoryName || 'N/A'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}>{item.RFIDCode || 'RFID Tag not Attached'}</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b', 
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap'
-                        }}>{item.GrossWeight || 0}g</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b', 
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap'
-                        }}>{item.NetWeight || 0}g</td>
-                        <td style={{ 
-                          padding: '12px', 
-                          fontSize: '13px', 
-                          color: '#1e293b', 
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap'
-                        }}>{item.Quantity || 0}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+        </div>
+
+        {/* Top pagination bar */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '10px',
+          padding: '12px 14px',
+        }}>
+          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+            {filteredCards.length} {activeTab} {filteredCards.length === 1 ? 'item' : 'items'}
+            {filteredCards.length > 0 && (
+              <> · {((cardPage - 1) * CARDS_PER_PAGE) + 1}–{Math.min(cardPage * CARDS_PER_PAGE, filteredCards.length)} of {filteredCards.length} · 6 cards/page</>
+            )}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setCardPage((p) => Math.max(1, p - 1))}
+              disabled={cardPage === 1}
+              style={svCardPageBtn(cardPage === 1)}
+            >
+              <FaChevronLeft size={11} /> Previous
+            </button>
+            {Array.from({ length: Math.min(5, cardTotalPages) }, (_, i) => {
+              let page;
+              if (cardTotalPages <= 5) page = i + 1;
+              else if (cardPage <= 3) page = i + 1;
+              else if (cardPage >= cardTotalPages - 2) page = cardTotalPages - 4 + i;
+              else page = cardPage - 2 + i;
+              const active = cardPage === page;
+              return (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => setCardPage(page)}
+                  style={{
+                    minWidth: '32px',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                    border: `1px solid ${active ? '#3b82f6' : '#e2e8f0'}`,
+                    background: active ? '#3b82f6' : '#ffffff',
+                    color: active ? '#ffffff' : '#475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {page}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setCardPage((p) => Math.min(cardTotalPages, p + 1))}
+              disabled={cardPage === cardTotalPages}
+              style={svCardPageBtn(cardPage === cardTotalPages)}
+            >
+              Next <FaChevronRight size={11} />
+            </button>
           </div>
-          {/* Unmatched Items Pagination */}
-          {filteredUnmatchedList.length > tableItemsPerPage && (
+        </div>
+
+        {/* Card grid */}
+        <div style={{ padding: '4px 14px 18px' }}>
+          {currentCards.length === 0 ? (
+            <div style={{ padding: '48px', textAlign: 'center', color: '#94a3b8', fontSize: '14px', fontWeight: 600 }}>
+              {activeTab === 'matched' ? 'No matched items found' : 'No unmatched items found'}
+            </div>
+          ) : (
             <div style={{
-              padding: '16px',
-              borderTop: '1px solid #e5e7eb',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '12px',
-              flexWrap: 'wrap',
-              background: '#f8fafc'
+              display: 'grid',
+              gridTemplateColumns: windowWidth <= 640
+                ? '1fr'
+                : windowWidth <= 1024
+                  ? 'repeat(2, minmax(0, 1fr))'
+                  : 'repeat(3, minmax(0, 1fr))',
+              gap: '16px',
             }}>
-              <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Showing {((unmatchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(unmatchedPage * tableItemsPerPage, filteredUnmatchedList.length)} of {filteredUnmatchedList.length} items
-              </span>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button 
-                  onClick={() => setUnmatchedPage(prev => Math.max(1, prev - 1))}
-                  disabled={unmatchedPage === 1}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid #ef4444',
-                    background: unmatchedPage === 1 ? '#f1f5f9' : '#ffffff',
-                    color: unmatchedPage === 1 ? '#94a3b8' : '#ef4444',
-                    cursor: unmatchedPage === 1 ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (unmatchedPage !== 1) {
-                      e.target.style.background = '#ef4444';
-                      e.target.style.color = '#ffffff';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (unmatchedPage !== 1) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.color = '#ef4444';
-                    }
-                  }}
-                >
-                  <FaChevronLeft size={12} /> Previous
-                </button>
-                <span style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#475569',
-                  background: '#ffffff',
-                  borderRadius: '6px',
-                  border: '1px solid #e5e7eb'
-                }}>
-                  {unmatchedPage} / {getTotalPages(filteredUnmatchedList, tableItemsPerPage)}
-                </span>
-                <button 
-                  onClick={() => setUnmatchedPage(prev => Math.min(getTotalPages(filteredUnmatchedList, tableItemsPerPage), prev + 1))}
-                  disabled={unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage)}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: '1px solid #ef4444',
-                    background: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? '#f1f5f9' : '#ffffff',
-                    color: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? '#94a3b8' : '#ef4444',
-                    cursor: unmatchedPage === getTotalPages(filteredUnmatchedList, tableItemsPerPage) ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (unmatchedPage !== getTotalPages(filteredUnmatchedList, tableItemsPerPage)) {
-                      e.target.style.background = '#ef4444';
-                      e.target.style.color = '#ffffff';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (unmatchedPage !== getTotalPages(filteredUnmatchedList, tableItemsPerPage)) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.color = '#ef4444';
-                    }
-                  }}
-                >
-                  Next <FaChevronRight size={12} />
-                </button>
-              </div>
+              {currentCards.map((item, index) => {
+                const isMatched = activeTab === 'matched';
+                const design = designOf(item) || '—';
+                const itemCode = item.ItemCode || 'N/A';
+                const rfid = item.RFIDCode || 'RFID not attached';
+                return (
+                  <article
+                    key={item.Id || `${itemCode}-${index}`}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      background: '#ffffff',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '14px',
+                      overflow: 'hidden',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      transition: 'box-shadow 0.18s, transform 0.18s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = '0 8px 20px rgba(59,130,246,0.14)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    {/* Image (design-wise) — click to enlarge */}
+                    <div
+                      onClick={() => setPreviewItem(item)}
+                      title="Click to view image"
+                      style={{ position: 'relative', width: '100%', background: '#f1f5f9', cursor: 'zoom-in' }}
+                    >
+                      <GridItemImage
+                        lookupKeys={imageLookupKeys(item)}
+                        itemCode={itemCode}
+                        alt={design}
+                        eagerLoad
+                        wrapperStyle={{
+                          width: '100%',
+                          height: '300px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: '#f1f5f9',
+                          overflow: 'hidden',
+                        }}
+                        imgStyle={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          display: 'block',
+                        }}
+                      />
+                      <span style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '10px',
+                        padding: '3px 10px',
+                        borderRadius: '999px',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.03em',
+                        color: '#ffffff',
+                        background: isMatched ? '#10b981' : '#ef4444',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      }}>
+                        {isMatched ? 'Matched' : 'Unmatched'}
+                      </span>
+                    </div>
+
+                    {/* Card body — compact */}
+                    <div style={{ padding: '8px 10px 10px', display: 'flex', flexDirection: 'column', gap: '5px', flex: 1 }}>
+                      <div style={{
+                        fontSize: '13px',
+                        fontWeight: 800,
+                        color: '#0f172a',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }} title={design}>
+                        {design}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 10px' }}>
+                        <SDField label="Item" value={itemCode} valueColor="#2563eb" />
+                        <SDField label="Category" value={item.CategoryName || 'N/A'} />
+                        <SDField label="Product" value={item.ProductName || 'N/A'} />
+                        <SDField label="Branch" value={item.BranchName || 'N/A'} />
+                        <SDField label="RFID" value={rfid} />
+                        <SDField label="Pieces" value={item.Quantity || 0} />
+                        <SDField label="Gross Wt" value={`${item.GrossWeight || 0}g`} />
+                        <SDField label="Net Wt" value={`${item.NetWeight || 0}g`} />
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
+
+      {/* Image preview popup */}
+      {previewItem && (
+        <div
+          onClick={() => setPreviewItem(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 2000,
+            background: 'rgba(15, 23, 42, 0.82)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            animation: 'fadeIn 0.18s ease-in-out',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              maxWidth: '92vw',
+              maxHeight: '92vh',
+              background: '#ffffff',
+              borderRadius: '14px',
+              overflow: 'hidden',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.45)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setPreviewItem(null)}
+              title="Close"
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                zIndex: 2,
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                border: 'none',
+                background: 'rgba(15, 23, 42, 0.55)',
+                color: '#ffffff',
+                fontSize: '16px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <FaTimesCircle />
+            </button>
+            <div style={{
+              flex: 1,
+              minHeight: 0,
+              background: '#0f172a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <GridItemImage
+                lookupKeys={imageLookupKeys(previewItem)}
+                itemCode={previewItem.ItemCode || ''}
+                alt={designOf(previewItem) || 'Item image'}
+                eagerLoad
+                placeholder={(
+                  <div style={{ padding: '60px', color: '#cbd5e1', fontSize: '14px', fontWeight: 700 }}>
+                    No image available
+                  </div>
+                )}
+                wrapperStyle={{
+                  width: '100%',
+                  maxWidth: '80vw',
+                  maxHeight: '74vh',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                imgStyle={{
+                  maxWidth: '80vw',
+                  maxHeight: '74vh',
+                  width: 'auto',
+                  height: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            </div>
+            <div style={{
+              padding: '12px 16px',
+              borderTop: '1px solid #e5e7eb',
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '6px 16px',
+              background: '#ffffff',
+            }}>
+              <span style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
+                {designOf(previewItem) || '—'}
+              </span>
+              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+                Item: <strong style={{ color: '#2563eb' }}>{previewItem.ItemCode || 'N/A'}</strong>
+              </span>
+              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+                RFID: <strong style={{ color: '#334155' }}>{previewItem.RFIDCode || 'N/A'}</strong>
+              </span>
+              <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+                Category: <strong style={{ color: '#334155' }}>{previewItem.CategoryName || 'N/A'}</strong>
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }

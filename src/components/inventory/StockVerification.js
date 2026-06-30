@@ -90,7 +90,7 @@ const StockVerification = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'BranchName', direction: 'asc' });
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(6);
   const [totalSessions, setTotalSessions] = useState(0);
   const [userInfo, setUserInfo] = useState({});
   const [clientCode, setClientCode] = useState('');
@@ -110,6 +110,8 @@ const StockVerification = () => {
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [pageInput, setPageInput] = useState('');
   const isInitialMount = useRef(true);
+  const fetchSessionsRef = useRef(null);
+  const AUTO_REFRESH_MS = 10000;
   const [activeTab, setActiveTab] = useState('batches'); // 'batches' or 'combineReport'
   
   // Combine Report State
@@ -212,16 +214,17 @@ const StockVerification = () => {
   }, []);
 
   // Fetch sessions data
-  const fetchSessions = async (pageOverride, pageSizeOverride) => {
+  const fetchSessions = async (pageOverride, pageSizeOverride, options = {}) => {
+    const silent = options.silent === true;
     if (!clientCode) {
       console.log('No clientCode available, skipping fetch');
-      setError('Client code not found. Please login again.');
+      if (!silent) setError('Client code not found. Please login again.');
       setLoading(false);
       return;
     }
     
     try {
-    setLoading(true);
+    if (!silent) setLoading(true);
       setError(null);
 
       console.log('Fetching sessions for clientCode:', clientCode);
@@ -302,11 +305,13 @@ const StockVerification = () => {
       setTotalSessions(totalCount);
       
       if (sessionsData.length > 0) {
-        addNotification({
-          title: 'Sessions Loaded',
-          description: `Found ${sessionsData.length} verification sessions`,
-          type: 'success'
-        });
+        if (!silent) {
+          addNotification({
+            title: 'Sessions Loaded',
+            description: `Found ${sessionsData.length} verification sessions`,
+            type: 'success'
+          });
+        }
       } else {
         console.log('No sessions found in response');
       }
@@ -336,10 +341,12 @@ const StockVerification = () => {
         errorMessage = err.message;
       }
       
-      setError(errorMessage);
-      toast.error(`Error: ${errorMessage}`);
+      if (!silent) {
+        setError(errorMessage);
+        toast.error(`Error: ${errorMessage}`);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
       setRefreshing(false);
     }
   };
@@ -381,6 +388,25 @@ const StockVerification = () => {
     setRefreshing(true);
     await fetchSessions(currentPage, itemsPerPage);
   };
+
+  // Keep a ref to the latest fetcher so the polling interval never goes stale.
+  fetchSessionsRef.current = () => fetchSessions(currentPage, itemsPerPage, { silent: true });
+
+  // Real-time auto-refresh: silently re-pull the batch list on an interval so new
+  // scans / updated match counts appear without clicking Refresh. Paused while a
+  // details slider is open, on the combine-report tab, or when the tab is hidden.
+  useEffect(() => {
+    if (!clientCode) return undefined;
+    if (activeTab !== 'batches') return undefined;
+    if (showDetailsSlider) return undefined;
+
+    const tick = () => {
+      if (document.hidden) return;
+      fetchSessionsRef.current?.();
+    };
+    const intervalId = setInterval(tick, AUTO_REFRESH_MS);
+    return () => clearInterval(intervalId);
+  }, [clientCode, activeTab, showDetailsSlider]);
 
   // Handle filter reset
   const handleResetDateFilters = () => {
@@ -1747,6 +1773,15 @@ const StockVerification = () => {
               <FaCheckCircle style={{ color: SV.accent, marginRight: 4, verticalAlign: 'middle' }} />
               {totalRecords} rows · API batches {totalSessions}
             </span>
+            {activeTab === 'batches' && !showDetailsSlider ? (
+              <span
+                title={`Auto-refreshing every ${Math.round(AUTO_REFRESH_MS / 1000)}s`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#15803d', fontWeight: 800, padding: '4px 8px', borderRadius: 999, background: '#f0fdf4', border: '1px solid #bbf7d0' }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', display: 'inline-block', animation: 'svLivePulse 1.4s ease-in-out infinite' }} />
+                LIVE
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => setShowFilterPanel(true)}
@@ -2069,155 +2104,185 @@ const StockVerification = () => {
           boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
         }}
       >
-        <div style={{ overflowX: 'auto', width: '100%', background: SV.tableBg }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'separate',
-              borderSpacing: 0,
-              fontSize: isSmallScreen ? 10 : 11,
-              minWidth: 1100,
-              tableLayout: 'fixed',
-            }}
-          >
-            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
-              <tr style={{ background: SV.headerBg, boxShadow: '0 1px 0 #e4e4e7' }}>
-                <th
-                  onClick={() => handleSort('BranchName')}
-                  style={{ ...svTh, cursor: 'pointer', userSelect: 'none' }}
-                >
-                  Branch
-                  {renderSortIcon('BranchName')}
-                </th>
-                <th style={svTh}>Batch ID</th>
-                <th style={svTh}>Started</th>
-                <th style={svTh}>Ended</th>
-                <th style={{ ...svTh, textAlign: 'center' }}>Total</th>
-                <th style={{ ...svTh, textAlign: 'center' }}>Matched</th>
-                <th style={{ ...svTh, textAlign: 'center' }}>Unmatched</th>
-                <th
-                  style={{
-                    ...svTh,
-                    textAlign: 'center',
-                    position: 'sticky',
-                    right: 0,
-                    zIndex: 3,
-                    background: SV.headerBg,
-                    borderLeft: '1px solid #e4e4e7',
-                    borderRight: 'none',
-                  }}
-                >
-                  Actions
-                </th>
-              </tr>
-            </thead>
-              <tbody>
-                    {currentSessions.length === 0 ? (
-                      <tr>
-                  <td colSpan={8} style={{ ...svTd, padding: 36, textAlign: 'center', color: '#737373', borderRight: 'none' }}>
-                    No sessions found
-                  </td>
-                      </tr>
-                    ) : (
-                currentSessions.map((session, index) => {
-                  const globalIndex = (currentPage - 1) * itemsPerPage + index;
-                  return (
-                    <tr
-                      key={session.ScanBatchId || index}
+        <div style={{ padding: isSmallScreen ? 12 : 16, background: SV.tableBg }}>
+          {currentSessions.length === 0 ? (
+            <div style={{ padding: 48, textAlign: 'center', color: '#737373', fontSize: 13, fontWeight: 600 }}>
+              No batches found
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: isSmallScreen
+                  ? '1fr'
+                  : windowWidth <= 1100
+                    ? 'repeat(2, minmax(0, 1fr))'
+                    : 'repeat(3, minmax(0, 1fr))',
+                gap: isSmallScreen ? 12 : 16,
+              }}
+            >
+              {currentSessions.map((session, index) => {
+                const total = session.TotalQty || 0;
+                const matched = session.MatchQty || 0;
+                const unmatched = session.UnmatchQty || 0;
+                const fullBatchId = session.ScanBatchId || 'N/A';
+                return (
+                  <article
+                    key={session.ScanBatchId || index}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      background: '#ffffff',
+                      border: '1px solid #e4e4e7',
+                      borderRadius: 14,
+                      overflow: 'hidden',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      transition: 'box-shadow 0.18s, transform 0.18s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = '0 8px 20px rgba(13,148,136,0.16)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    {/* Card header band */}
+                    <div
                       style={{
-                        background: globalIndex % 2 === 0 ? '#ffffff' : SV.tableBg,
-                        transition: 'background 0.15s',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f0fdfa';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : SV.tableBg;
+                        background: SV.stripe,
+                        padding: '12px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
                       }}
                     >
-                      <td style={{ ...svTd, fontWeight: 700, color: '#171717' }}>{session.BranchName || 'N/A'}</td>
-                      <td style={{ ...svTd, fontFamily: 'ui-monospace, monospace', color: '#262626' }}>
-                        {session.ScanBatchId ? `${session.ScanBatchId.substring(0, 12)}…` : 'N/A'}
-                      </td>
-                      <td style={svTd}>{session.StartedOn ? formatDate(session.StartedOn) : 'N/A'}</td>
-                      <td style={svTd}>{session.EndedOn ? formatDate(session.EndedOn) : 'N/A'}</td>
-                      <td style={{ ...svTd, textAlign: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <FaCheckCircle style={{ color: '#ffffff', fontSize: 14, flexShrink: 0 }} />
                         <span
                           style={{
-                            padding: '1px 7px',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            borderRadius: 6,
-                            border: `1px solid ${SV.accent}`,
-                            background: SV.accentMuted,
-                            color: SV.accentDark,
-                            fontVariantNumeric: 'tabular-nums',
+                            color: '#ffffff',
+                            fontSize: 15,
+                            fontWeight: 800,
+                            letterSpacing: '-0.01em',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
                           }}
+                          title={session.BranchName || 'N/A'}
                         >
-                          {session.TotalQty || 0}
+                          {session.BranchName || 'N/A'}
                         </span>
-                      </td>
-                      <td style={{ ...svTd, textAlign: 'center' }}>
-                        <span
-                          style={{
-                            padding: '1px 7px',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            borderRadius: 6,
-                            border: '1px solid #86efac',
-                            background: '#f0fdf4',
-                            color: '#166534',
-                            fontVariantNumeric: 'tabular-nums',
-                          }}
-                        >
-                          {session.MatchQty || 0}
-                        </span>
-                      </td>
-                      <td style={{ ...svTd, textAlign: 'center' }}>
-                        <span
-                          style={{
-                            padding: '1px 7px',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            borderRadius: 6,
-                            border: '1px solid #fca5a5',
-                            background: '#fef2f2',
-                            color: '#b91c1c',
-                            fontVariantNumeric: 'tabular-nums',
-                          }}
-                        >
-                          {session.UnmatchQty || 0}
-                        </span>
-                      </td>
-                      <td
+                      </div>
+                      <span
                         style={{
-                          ...svTd,
-                          textAlign: 'center',
-                          position: 'sticky',
-                          right: 0,
-                          background: globalIndex % 2 === 0 ? '#ffffff' : SV.tableBg,
-                          zIndex: 1,
-                          borderLeft: '1px solid #ececec',
-                          borderRight: 'none',
+                          flexShrink: 0,
+                          padding: '2px 9px',
+                          fontSize: 10,
+                          fontWeight: 800,
+                          borderRadius: 999,
+                          background: 'rgba(255,255,255,0.22)',
+                          color: '#ffffff',
+                          fontVariantNumeric: 'tabular-nums',
                         }}
-                        className="no-print"
                       >
-                        <button
-                          type="button"
-                          onClick={() => handleViewSession(session)}
-                          style={svActionBtn}
-                          title="View session"
+                        {total} items
+                      </span>
+                    </div>
+
+                    {/* Card body */}
+                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Batch ID
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: '#0f172a',
+                            fontFamily: 'ui-monospace, monospace',
+                            wordBreak: 'break-all',
+                            lineHeight: 1.4,
+                          }}
+                          title={fullBatchId}
                         >
-                          <FaEye style={{ fontSize: 11 }} /> View
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                          {fullBatchId}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Started
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>
+                            {session.StartedOn ? formatDate(session.StartedOn) : 'N/A'}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Ended
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>
+                            {session.EndedOn ? formatDate(session.EndedOn) : 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Stat pills */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 2 }}>
+                        <div style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 10, border: `1px solid ${SV.accent}`, background: SV.accentMuted }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: SV.accentDark, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{total}</div>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: SV.accentDark, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>Total</div>
+                        </div>
+                        <div style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 10, border: '1px solid #86efac', background: '#f0fdf4' }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#166534', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{matched}</div>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>Matched</div>
+                        </div>
+                        <div style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 10, border: '1px solid #fca5a5', background: '#fef2f2' }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#b91c1c', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{unmatched}</div>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: '#b91c1c', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 3 }}>Unmatched</div>
+                        </div>
+                      </div>
+
+                      {/* View action */}
+                      <button
+                        type="button"
+                        onClick={() => handleViewSession(session)}
+                        className="no-print"
+                        style={{
+                          marginTop: 'auto',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          width: '100%',
+                          padding: '9px 12px',
+                          border: 'none',
+                          borderRadius: 10,
+                          background: SV.accent,
+                          color: '#ffffff',
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          transition: 'background 0.18s',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = SV.accentDark; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = SV.accent; }}
+                        title="View session"
+                      >
+                        <FaEye style={{ fontSize: 12 }} /> View Details
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
             {/* Pagination */}
           {totalPages > 1 && (
@@ -2260,10 +2325,10 @@ const StockVerification = () => {
                     cursor: 'pointer'
                   }}
                 >
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
+                  <option value={6}>6</option>
+                  <option value={9}>9</option>
+                  <option value={12}>12</option>
+                  <option value={24}>24</option>
                 </select>
                 <span>per page</span>
               </div>
@@ -3553,6 +3618,11 @@ const StockVerification = () => {
         @keyframes slideInRight {
           from { transform: translateX(100%); }
           to { transform: translateX(0); }
+        }
+        @keyframes svLivePulse {
+          0% { transform: scale(0.85); opacity: 0.55; }
+          50% { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(0.85); opacity: 0.55; }
         }
         @media (max-width: 768px) {
           .table-responsive {

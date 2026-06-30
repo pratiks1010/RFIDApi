@@ -13,13 +13,9 @@ export const canAccessMenuItem = (item) => {
 
   if (state.isSubUser && item.path === '/my-samples') return true;
   if (!state.isSubUser && item.path === '/my-samples') return false;
+  // Sample Out List is admin-only — never show it on sub-user (employee) screens.
   if (item.path === '/sample-out-list') {
-    if (!state.isSubUser) return true;
-    return (
-      hasPermission('CanSampleOut') ||
-      hasPermission('CanViewReports') ||
-      hasPermission('CanSampleIn')
-    );
+    return !state.isSubUser;
   }
 
   if (!state.isSubUser) return true;

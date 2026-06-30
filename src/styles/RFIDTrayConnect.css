@@ -767,6 +767,369 @@
   padding: 8px 10px;
 }
 
+/* ------------------------------------------------------------------ */
+/* Redesigned layout (v2) — header brand, config cards, power slider,  */
+/* action buttons, stat cards, table card headers and empty states.    */
+/* ------------------------------------------------------------------ */
+
+.tray-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tray-header-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 18px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.28);
+}
+
+.tray-live-chevron {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.tray-bridge-warning {
+  border-radius: 12px;
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 10px 14px;
+}
+
+/* Config cards (Serial Ports + Transmit Power) */
+.tray-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.tray-config-card {
+  border: 1px solid #e5ebf7;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 14px 16px 16px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tray-config-card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.tray-config-card-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 16px;
+}
+
+.tray-config-card-icon--serial {
+  background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+  box-shadow: 0 5px 12px rgba(79, 70, 229, 0.28);
+}
+
+.tray-config-card-icon--power {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 5px 12px rgba(217, 119, 6, 0.28);
+}
+
+.tray-config-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.tray-config-card-desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.tray-serial-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tray-serial-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+/* Transmit power slider */
+.tray-power-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tray-power-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.tray-power-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 6px;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.tray-power-slider:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.tray-power-slider-value {
+  flex: 0 0 auto;
+  min-width: 42px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: #1d4ed8;
+}
+
+.tray-power-read-btn {
+  flex: 0 0 auto;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.tray-power-read-btn:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.tray-power-read-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tray-power-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* Action toolbar button color variants used by the redesign */
+.tray-btn-save { background: #0f766e; box-shadow: 0 3px 10px rgba(15, 118, 110, 0.22); }
+.tray-btn-devices { background: #7c3aed; box-shadow: 0 3px 10px rgba(124, 58, 237, 0.22); }
+
+/* Stat cards */
+.tray-stat-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e5ebf7;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 16px 18px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.tray-stat-card-watermark {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  font-size: 46px;
+  color: #0f172a;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+.tray-stat-card-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+.tray-stat-card-icon--blue { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); }
+.tray-stat-card-icon--green { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
+.tray-stat-card-icon--purple { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); }
+
+.tray-stat-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #1e293b;
+  line-height: 1.1;
+}
+
+.tray-stat-label {
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* Table card headers + empty states */
+.tray-card-header-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tray-card-header-icon {
+  color: #2563eb;
+  font-size: 15px;
+}
+
+.tray-card-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tray-empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 34px 16px;
+  text-align: center;
+}
+
+.tray-empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: #2563eb;
+  background: #eff6ff;
+  margin-bottom: 4px;
+}
+
+.tray-empty-icon--devices {
+  color: #7c3aed;
+  background: #f5f3ff;
+}
+
+.tray-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.tray-empty-desc {
+  margin: 0;
+  font-size: 12.5px;
+  color: #94a3b8;
+}
+
+/* Activity logs (full-width footer) */
+.tray-logs-card {
+  border: 1px solid #e5ebf7;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tray-logs-body {
+  background: linear-gradient(180deg, #0b1324 0%, #111b32 100%);
+  color: #e2e8f0;
+  padding: 12px 14px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tray-log-entry,
+.tray-log-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.tray-log-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+}
+
+.tray-log-dot--error { background: #f87171; }
+.tray-log-dot--warn { background: #fbbf24; }
+.tray-log-dot--info { background: #60a5fa; }
+
+.tray-log-time {
+  flex: 0 0 auto;
+  color: #94a3b8;
+}
+
+.tray-log-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+  color: #e2e8f0;
+}
+
+@media (max-width: 992px) {
+  .tray-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tray-serial-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 1300px) {
   .tray-content-grid {
     grid-template-columns: 1fr;

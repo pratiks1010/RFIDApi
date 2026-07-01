@@ -71,6 +71,64 @@ formDataAxios.interceptors.request.use(
 
 const PAGE_SIZE_OPTIONS = [15, 20, 25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 20;
+
+// Default table columns for the labelled stock list. `key` is the data field used
+// for lookup/sorting/formatting (never changed by the user); `label` is the display
+// name (renameable); `visible` controls show/hide; order in the array controls position.
+const COLUMN_CONFIG_STORAGE_KEY = 'labelStockList.columnConfig.v1';
+const DEFAULT_COLUMNS = [
+  { key: 'srNo', label: 'Sr No', width: '50px', visible: true },
+  { key: 'HallmarkAmount', label: 'Hallmark Amt', width: '100px', visible: true },
+  { key: 'ItemCode', label: 'Item Code', width: '100px', visible: true },
+  { key: 'RFIDCode', label: 'RFID Code', width: '100px', visible: true },
+  { key: 'ProductName', label: 'Product', width: '120px', visible: true },
+  { key: 'CategoryName', label: 'Category', width: '100px', visible: true },
+  { key: 'DesignName', label: 'Design', width: '100px', visible: true },
+  { key: 'PurityName', label: 'Purity', width: '80px', visible: true },
+  { key: 'GrossWt', label: 'Gross Wt', width: '85px', visible: true },
+  { key: 'StoneWt', label: 'Stone Wt', width: '85px', visible: true },
+  { key: 'DiamondWt', label: 'Diamond Wt', width: '90px', visible: true },
+  { key: 'NetWt', label: 'Net Wt', width: '85px', visible: true },
+  { key: 'Qty', label: 'Qty', width: '70px', visible: true },
+  { key: 'Description', label: 'Description', width: '180px', visible: true },
+  { key: 'Branch', label: 'Branch', width: '100px', visible: true },
+  { key: 'BoxName', label: 'Box', width: '90px', visible: true },
+];
+
+// Merge a saved column config with the defaults: keep the saved order/visibility/label,
+// drop keys that no longer exist, and append any newly added default columns at the end.
+const buildColumnConfig = (saved) => {
+  const defaultsByKey = new Map(DEFAULT_COLUMNS.map((col) => [col.key, col]));
+  const result = [];
+  const seen = new Set();
+  if (Array.isArray(saved)) {
+    saved.forEach((savedCol) => {
+      const base = defaultsByKey.get(savedCol?.key);
+      if (!base || seen.has(base.key)) return;
+      seen.add(base.key);
+      result.push({
+        key: base.key,
+        width: base.width,
+        label: typeof savedCol.label === 'string' && savedCol.label.trim() ? savedCol.label : base.label,
+        visible: savedCol.visible !== false,
+      });
+    });
+  }
+  DEFAULT_COLUMNS.forEach((col) => {
+    if (!seen.has(col.key)) result.push({ ...col });
+  });
+  return result;
+};
+
+const loadColumnConfig = () => {
+  try {
+    const raw = localStorage.getItem(COLUMN_CONFIG_STORAGE_KEY);
+    if (raw) return buildColumnConfig(JSON.parse(raw));
+  } catch (e) {
+    // ignore malformed storage and fall back to defaults
+  }
+  return buildColumnConfig(null);
+};
 const labelListPageBtnStyle = (disabled) => ({
   padding: '5px 11px',
   fontSize: 12,
@@ -207,6 +265,8 @@ const LabelStockList = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState({ title: '', message: '' });
   const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [columnConfig, setColumnConfig] = useState(loadColumnConfig);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [filterValues, setFilterValues] = useState({
     counterName: 'All',
     productId: 'All', // Store the actual selected value
@@ -3497,25 +3557,53 @@ const LabelStockList = () => {
     }
   }, [apiFilterData.counters, apiFilterData.branches, apiFilterData.products, apiFilterData.categories, apiFilterData.designs]);
 
-  // Restrict columns to only the specified fields, in this order
-  const columns = [
-    { key: 'srNo', label: 'Sr No', width: '50px' },
-    { key: 'HallmarkAmount', label: 'Hallmark Amt', width: '100px' },
-    { key: 'ItemCode', label: 'Item Code', width: '100px' },
-    { key: 'RFIDCode', label: 'RFID Code', width: '100px' },
-    { key: 'ProductName', label: 'Product', width: '120px' },
-    { key: 'CategoryName', label: 'Category', width: '100px' },
-    { key: 'DesignName', label: 'Design', width: '100px' },
-    { key: 'PurityName', label: 'Purity', width: '80px' },
-    { key: 'GrossWt', label: 'Gross Wt', width: '85px' },
-    { key: 'StoneWt', label: 'Stone Wt', width: '85px' },
-    { key: 'DiamondWt', label: 'Diamond Wt', width: '90px' },
-    { key: 'NetWt', label: 'Net Wt', width: '85px' },
-    { key: 'Qty', label: 'Qty', width: '70px' },
-    { key: 'Description', label: 'Description', width: '180px' },
-    { key: 'Branch', label: 'Branch', width: '100px' },
-    { key: 'BoxName', label: 'Box', width: '90px' }
-  ];
+  // Visible columns in the user-selected order. Order, visibility and labels are
+  // managed via the Columns settings modal and persisted to localStorage.
+  const columns = useMemo(
+    () => columnConfig.filter((col) => col.visible !== false),
+    [columnConfig]
+  );
+
+  // Minimum table width derived from visible columns so that, when few columns are
+  // shown, the table fits within the container (View/Print stay visible without
+  // horizontal scrolling). Extra 140px accounts for the checkbox + View + Print cells.
+  const tableMinWidth = useMemo(() => {
+    const sum = columns.reduce((acc, col) => acc + (parseInt(col.width, 10) || 90), 0);
+    return sum + 140;
+  }, [columns]);
+
+  // Column settings helpers (used by the Columns modal)
+  const moveColumn = (index, direction) => {
+    setColumnConfig((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const toggleColumnVisibility = (key) => {
+    setColumnConfig((prev) =>
+      prev.map((col) => (col.key === key ? { ...col, visible: col.visible === false } : col))
+    );
+  };
+
+  const renameColumn = (key, label) => {
+    setColumnConfig((prev) =>
+      prev.map((col) => (col.key === key ? { ...col, label } : col))
+    );
+  };
+
+  const resetColumnConfig = () => setColumnConfig(buildColumnConfig(null));
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLUMN_CONFIG_STORAGE_KEY, JSON.stringify(columnConfig));
+    } catch (e) {
+      // ignore storage write errors (e.g. quota / private mode)
+    }
+  }, [columnConfig]);
 
   const generateAndShowReport = () => {
     // Group data by Counter Name, Category and Product Name, and sum weights
@@ -3982,6 +4070,16 @@ const LabelStockList = () => {
             color: #A0AEC0;
           }
 
+          /* Compact the label stock toolbar so search + actions fit on one line at 100% zoom */
+          .label-toolbar { gap: 8px !important; }
+          .label-toolbar-actions { gap: 6px !important; }
+          .label-toolbar-actions > button {
+            padding: 6px 9px !important;
+            font-size: 10.5px !important;
+            gap: 5px !important;
+          }
+          .label-toolbar-actions > button svg { font-size: 10.5px !important; }
+
           .error-message {
             color: #FF4B4B;
             font-size: 12px;
@@ -4272,15 +4370,24 @@ const LabelStockList = () => {
             paddingTop: '12px',
             borderTop: '1px solid #f1f5f9'
           }}
+            className="label-toolbar"
             role="toolbar"
             aria-label="Action buttons toolbar"
           >
+            {/* Left group: keeps Search + Active Only together at the same place regardless of button wrapping */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              flexWrap: 'wrap',
+              flex: windowWidth <= 768 ? '1 1 100%' : '0 1 auto'
+            }}>
             {/* Search Input */}
             <div style={{
               position: 'relative',
               flex: '0 1 auto',
-              minWidth: windowWidth <= 768 ? '100%' : '250px',
-              maxWidth: windowWidth <= 768 ? '100%' : '350px'
+              minWidth: windowWidth <= 768 ? '100%' : '190px',
+              maxWidth: windowWidth <= 768 ? '100%' : '260px'
             }}>
               <FaSearch style={{
                 position: 'absolute',
@@ -4360,6 +4467,7 @@ const LabelStockList = () => {
                 Active Only
               </span>
             </div>
+            </div>
 
             {/* Buttons Container - Right Aligned */}
             <div style={{
@@ -4370,6 +4478,7 @@ const LabelStockList = () => {
               marginLeft: 'auto',
               minWidth: 'fit-content'
             }}
+              className="label-toolbar-actions"
               role="group"
               aria-label="Action buttons group"
             >
@@ -4646,6 +4755,30 @@ const LabelStockList = () => {
               >
                 <FaFilePdf style={{ fontSize: 11, color: '#475569' }} />
                 <span>Report</span>
+              </button>
+
+              {/* Columns Button - opens column settings modal */}
+              <button
+                onClick={() => setShowColumnSettings(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  height: 30,
+                }}
+                title="Show/hide, reorder and rename table columns"
+              >
+                <FaList style={{ fontSize: 11, color: '#475569' }} />
+                <span>Columns</span>
               </button>
 
               {/* Filter Button - toggles inline filter section below */}
@@ -5159,7 +5292,7 @@ const LabelStockList = () => {
             >
               <table style={{
                 width: '100%',
-                minWidth: '1400px',
+                minWidth: `${tableMinWidth}px`,
                 borderCollapse: 'separate',
                 borderSpacing: 0,
                 fontSize: isSmallScreen ? 10 : 11,
@@ -7463,6 +7596,190 @@ const LabelStockList = () => {
           loadButtonLabel={trayFetchLoading ? 'Fetching...' : 'Load Data'}
           compactLayout
         />
+
+        {showColumnSettings && (
+          <div
+            onClick={() => setShowColumnSettings(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(15,23,42,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 4000,
+              padding: 16,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: '#ffffff',
+                borderRadius: 12,
+                width: 'min(460px, 96vw)',
+                maxHeight: '88vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 16px',
+                  borderBottom: '1px solid #e5e7eb',
+                  background: '#f8fafc',
+                }}
+              >
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#0f172a' }}>Manage Columns</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                    Show/hide, reorder and rename table columns
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowColumnSettings(false)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    color: '#475569',
+                    display: 'inline-flex',
+                    padding: 4,
+                  }}
+                  title="Close"
+                >
+                  <FaTimes style={{ fontSize: 14 }} />
+                </button>
+              </div>
+
+              <div style={{ padding: '8px 12px', fontSize: 11, color: '#64748b', borderBottom: '1px solid #f1f5f9' }}>
+                {columns.length} of {columnConfig.length} columns visible
+              </div>
+
+              <div style={{ overflowY: 'auto', padding: '8px 12px', flex: 1 }}>
+                {columnConfig.map((col, index) => (
+                  <div
+                    key={col.key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 4px',
+                      borderBottom: '1px solid #f1f5f9',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={col.visible !== false}
+                      onChange={() => toggleColumnVisibility(col.key)}
+                      title="Show/hide this column"
+                      style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#b91c1c', flexShrink: 0 }}
+                    />
+                    <input
+                      type="text"
+                      value={col.label}
+                      onChange={(e) => renameColumn(col.key, e.target.value)}
+                      placeholder={col.key}
+                      title="Edit the column display name"
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: 30,
+                        padding: '0 8px',
+                        fontSize: 12,
+                        border: '1px solid #cbd5e1',
+                        borderRadius: 6,
+                        color: '#0f172a',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      <button
+                        onClick={() => moveColumn(index, -1)}
+                        disabled={index === 0}
+                        title="Move up"
+                        style={{
+                          ...labelListIconActionStyle(index === 0),
+                          width: 26,
+                          height: 26,
+                        }}
+                      >
+                        <FaSortAmountUp style={{ fontSize: 11 }} />
+                      </button>
+                      <button
+                        onClick={() => moveColumn(index, 1)}
+                        disabled={index === columnConfig.length - 1}
+                        title="Move down"
+                        style={{
+                          ...labelListIconActionStyle(index === columnConfig.length - 1),
+                          width: 26,
+                          height: 26,
+                        }}
+                      >
+                        <FaSortAmountDown style={{ fontSize: 11 }} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  padding: '10px 16px',
+                  borderTop: '1px solid #e5e7eb',
+                  background: '#f8fafc',
+                }}
+              >
+                <button
+                  onClick={resetColumnConfig}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 32,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FaSync style={{ fontSize: 11 }} />
+                  Reset to default
+                </button>
+                <button
+                  onClick={() => setShowColumnSettings(false)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 32,
+                    padding: '0 16px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: '1px solid #991b1b',
+                    background: 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 };

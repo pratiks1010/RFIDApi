@@ -225,6 +225,7 @@ const UploadRFID = () => {
             handleRemoveFile();
           }
         } else {
+          // Non-success status: show error and let the user retry or remove the file.
           let errorMessage = `Upload failed with status: ${xhr.status}`;
           try {
             if (xhr.responseText) {
@@ -234,17 +235,35 @@ const UploadRFID = () => {
           } catch (e) {
             // If response is not JSON, use default message
           }
-          throw new Error(errorMessage);
+          setError('Upload failed: ' + errorMessage + '. Please try again or remove the file and upload a new one.');
+          setUploadProgress(0);
         }
         setUploading(false);
       });
 
-      // Handle errors
+      // Handle network errors
       xhr.addEventListener('error', () => {
-        throw new Error('Network error occurred during upload');
+        setError('Network error occurred during upload. Please try again or remove the file and upload a new one.');
+        setUploadProgress(0);
+        setUploading(false);
+      });
+
+      // Handle timeout
+      xhr.addEventListener('timeout', () => {
+        setError('Upload timed out. Please try again or remove the file and upload a new one.');
+        setUploadProgress(0);
+        setUploading(false);
+      });
+
+      // Handle user/programmatic abort
+      xhr.addEventListener('abort', () => {
+        setError('Upload was cancelled. Please try again or remove the file and upload a new one.');
+        setUploadProgress(0);
+        setUploading(false);
       });
 
       // Open and send request
+      xhr.timeout = 120000; // 2 minutes safety timeout so it never spins forever
       xhr.open('POST', API_URL);
       xhr.setRequestHeader('Authorization', `Bearer ${localStorage.getItem('token')}`);
       xhr.send(formData);

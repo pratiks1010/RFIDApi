@@ -72,109 +72,115 @@ export const getAcceptLotUrl = () => rfidSampleUrl('/AcceptLot');
 /** Admin-only: bulk return Out items without employee scan. */
 export const getAdminBulkSampleReturnUrl = () => rfidSampleUrl('/AdminBulkSampleReturn');
 
-/** Admin-only: preview Excel rows for sample-in return (multipart upload). */
-export const getPreviewSampleInExcelUrl = () => rfidSampleUrl('/PreviewSampleInExcel');
+/** Admin-only: preview design-based Excel sample-in (JSON body with designNumbers[]). */
+export const getAdminExcelSampleInPreviewUrl = () => rfidSampleUrl('/AdminExcelSampleInPreview');
 
-/** Admin-only: confirm Excel sample-in return (multipart upload). */
-export const getConfirmSampleInExcelUrl = () => rfidSampleUrl('/ConfirmSampleInExcel');
+/** Admin-only: execute design-based Excel sample-in bulk manual return. */
+export const getAdminExcelSampleInUrl = () => rfidSampleUrl('/AdminExcelSampleIn');
 
-export const SAMPLE_IN_EXCEL_SCAN_MODE = 'Excel';
-
-/** JWT only — axios sets multipart boundary when body is FormData. */
-export const sampleMultipartAuthHeaders = () => ({
-  Authorization: `Bearer ${localStorage.getItem('token')}`,
+const mapAdminExcelSampleInRow = (row) => ({
+  rowNumber: row?.rowNumber ?? row?.RowNumber,
+  matched: row?.matched ?? row?.Matched ?? false,
+  canReturn: row?.canReturn ?? row?.CanReturn ?? false,
+  error: row?.error ?? row?.Error ?? null,
+  lotItemId: row?.lotItemId ?? row?.LotItemId ?? null,
+  labelledStockId: row?.labelledStockId ?? row?.LabelledStockId ?? null,
+  lotId: row?.lotId ?? row?.LotId ?? null,
+  lotNumber: row?.lotNumber ?? row?.LotNumber ?? '',
+  lotStatus: row?.lotStatus ?? row?.LotStatus ?? '',
+  partyType: row?.partyType ?? row?.PartyType ?? '',
+  partyName: row?.partyName ?? row?.PartyName ?? '',
+  assignedToUserName: row?.assignedToUserName ?? row?.AssignedToUserName ?? '',
+  employeeName: row?.employeeName ?? row?.EmployeeName ?? row?.assignedToUserName ?? row?.AssignedToUserName ?? '',
+  sampleOutOn: row?.sampleOutOn ?? row?.SampleOutOn ?? '',
+  sampleOutOnFormatted: row?.sampleOutOnFormatted ?? row?.SampleOutOnFormatted ?? '',
+  acceptedOn: row?.acceptedOn ?? row?.AcceptedOn ?? '',
+  acceptedOnFormatted: row?.acceptedOnFormatted ?? row?.AcceptedOnFormatted ?? '',
+  sampleOutDate: row?.sampleOutDate ?? row?.SampleOutDate ?? '',
+  sampleOutDateFormatted: row?.sampleOutDateFormatted ?? row?.SampleOutDateFormatted ?? '',
+  expectedReturnDate: row?.expectedReturnDate ?? row?.ExpectedReturnDate ?? '',
+  expectedReturnDateFormatted: row?.expectedReturnDateFormatted ?? row?.ExpectedReturnDateFormatted ?? '',
+  itemCode: row?.itemCode ?? row?.ItemCode ?? '',
+  rfidCode: row?.rfidCode ?? row?.RfidCode ?? row?.RFIDCode ?? '',
+  designName: row?.designName ?? row?.DesignName ?? '',
+  productName: row?.productName ?? row?.ProductName ?? '',
+  categoryName: row?.categoryName ?? row?.CategoryName ?? '',
+  purityName: row?.purityName ?? row?.PurityName ?? '',
+  itemStatus: row?.itemStatus ?? row?.ItemStatus ?? '',
+  grossWt: row?.grossWt ?? row?.GrossWt ?? '',
+  netWt: row?.netWt ?? row?.NetWt ?? '',
+  pcs: row?.pcs ?? row?.Pcs ?? '',
+  size: row?.size ?? row?.Size ?? '',
+  counterName: row?.counterName ?? row?.CounterName ?? '',
+  searchedDesign: row?.searchedDesign ?? row?.SearchedDesign ?? '',
 });
 
-const mapSampleInExcelPreviewItem = (item) => ({
-  rowNumber: item?.rowNumber ?? item?.RowNumber,
-  designNo: item?.designNo ?? item?.DesignNo ?? '',
-  tagNo: item?.tagNo ?? item?.TagNo ?? '',
+const mapAdminExcelSampleInReturnedProduct = (item) => ({
+  lotItemId: item?.lotItemId ?? item?.LotItemId ?? null,
+  lotNumber: item?.lotNumber ?? item?.LotNumber ?? '',
+  employeeName: item?.employeeName ?? item?.EmployeeName ?? '',
+  designName: item?.designName ?? item?.DesignName ?? '',
   rfidCode: item?.rfidCode ?? item?.RfidCode ?? item?.RFIDCode ?? '',
-  excelGrossWt: item?.excelGrossWt ?? item?.ExcelGrossWt ?? '',
-  excelNetWt: item?.excelNetWt ?? item?.ExcelNetWt ?? '',
-  excelQty: item?.excelQty ?? item?.ExcelQty ?? '',
-  matched: item?.matched ?? item?.Matched ?? false,
-  canSampleIn: item?.canSampleIn ?? item?.CanSampleIn ?? false,
-  matchStatus: item?.matchStatus ?? item?.MatchStatus ?? '',
-  message: item?.message ?? item?.Message ?? '',
-  labelledStockId: item?.labelledStockId ?? item?.LabelledStockId,
-  itemCode: item?.itemCode ?? item?.ItemCode ?? '',
   productName: item?.productName ?? item?.ProductName ?? '',
   categoryName: item?.categoryName ?? item?.CategoryName ?? '',
-  designName: item?.designName ?? item?.DesignName ?? '',
-  purityName: item?.purityName ?? item?.PurityName ?? '',
   grossWt: item?.grossWt ?? item?.GrossWt ?? '',
   netWt: item?.netWt ?? item?.NetWt ?? '',
-  mrp: item?.mrp ?? item?.Mrp ?? item?.MRP ?? '',
   counterName: item?.counterName ?? item?.CounterName ?? '',
-  lotId: item?.lotId ?? item?.LotId ?? null,
-  lotNumber: item?.lotNumber ?? item?.LotNumber ?? '',
-  lotStatus: item?.lotStatus ?? item?.LotStatus ?? '',
-  partyType: item?.partyType ?? item?.PartyType ?? '',
-  partyName: item?.partyName ?? item?.PartyName ?? '',
-  assignedToUserName: item?.assignedToUserName ?? item?.AssignedToUserName ?? '',
-  lotItemId: item?.lotItemId ?? item?.LotItemId ?? null,
-  itemStatus: item?.itemStatus ?? item?.ItemStatus ?? '',
+  sampleOutOnFormatted: item?.sampleOutOnFormatted ?? item?.SampleOutOnFormatted ?? '',
+  sampleInOn: item?.sampleInOn ?? item?.SampleInOn ?? '',
+  sampleInOnFormatted: item?.sampleInOnFormatted ?? item?.SampleInOnFormatted ?? '',
 });
 
-const mapSampleInExcelPreviewLot = (lot) => ({
-  lotId: lot?.lotId ?? lot?.LotId,
-  lotNumber: lot?.lotNumber ?? lot?.LotNumber ?? '',
-  lotStatus: lot?.lotStatus ?? lot?.LotStatus ?? '',
-  partyType: lot?.partyType ?? lot?.PartyType ?? '',
-  partyName: lot?.partyName ?? lot?.PartyName ?? '',
-  assignedToUserName: lot?.assignedToUserName ?? lot?.AssignedToUserName ?? '',
-  readyCount: Number(lot?.readyCount ?? lot?.ReadyCount ?? 0) || 0,
-  totalOutItems: Number(lot?.totalOutItems ?? lot?.TotalOutItems ?? 0) || 0,
-  willCompleteLot: lot?.willCompleteLot ?? lot?.WillCompleteLot ?? false,
-  lotItemIds: lot?.lotItemIds ?? lot?.LotItemIds ?? [],
-});
-
-/** Normalize PreviewSampleInExcel / ConfirmSampleInExcel shared shapes. */
-export const parseSampleInExcelPreview = (payload = {}) => {
+/** Normalize AdminExcelSampleInPreview response. */
+export const parseAdminExcelSampleInPreview = (payload = {}) => {
   const root = payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
     ? payload.data
     : payload;
-  const items = (root?.items ?? root?.Items ?? []).map(mapSampleInExcelPreviewItem);
-  const lots = (root?.lots ?? root?.Lots ?? []).map(mapSampleInExcelPreviewLot);
+  const rows = (root?.rows ?? root?.Rows ?? []).map(mapAdminExcelSampleInRow);
   return {
     success: root?.success ?? root?.Success ?? payload?.success ?? payload?.Success ?? true,
     message: String(root?.message ?? root?.Message ?? '').trim(),
-    totalRows: Number(root?.totalRows ?? root?.TotalRows ?? items.length) || 0,
+    totalRows: Number(root?.totalRows ?? root?.TotalRows ?? rows.length) || 0,
     matchedCount: Number(root?.matchedCount ?? root?.MatchedCount ?? 0) || 0,
-    readyCount: Number(root?.readyCount ?? root?.ReadyCount ?? 0) || 0,
-    notFoundCount: Number(root?.notFoundCount ?? root?.NotFoundCount ?? 0) || 0,
-    notOnSampleOutCount: Number(root?.notOnSampleOutCount ?? root?.NotOnSampleOutCount ?? 0) || 0,
-    items,
-    lots,
+    canReturnCount: Number(root?.canReturnCount ?? root?.CanReturnCount ?? 0) || 0,
+    errorCount: Number(root?.errorCount ?? root?.ErrorCount ?? 0) || 0,
+    canProceed: root?.canProceed ?? root?.CanProceed ?? false,
+    rows,
   };
 };
 
-export const parseSampleInExcelConfirm = (payload = {}) => {
+/** Normalize AdminExcelSampleIn execute response. */
+export const parseAdminExcelSampleInResult = (payload = {}) => {
   const root = payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
     ? payload.data
     : payload;
-  const lots = (root?.lots ?? root?.Lots ?? []).map((lot) => ({
+  const lotResults = (root?.lotResults ?? root?.LotResults ?? []).map((lot) => ({
     lotId: lot?.lotId ?? lot?.LotId,
     lotNumber: lot?.lotNumber ?? lot?.LotNumber ?? '',
     lotStatus: lot?.lotStatus ?? lot?.LotStatus ?? '',
     lotCompleted: lot?.lotCompleted ?? lot?.LotCompleted ?? false,
     returnedCount: Number(lot?.returnedCount ?? lot?.ReturnedCount ?? 0) || 0,
-    success: lot?.success ?? lot?.Success ?? true,
-    message: lot?.message ?? lot?.Message ?? '',
-    returnedLotItemIds: lot?.returnedLotItemIds ?? lot?.ReturnedLotItemIds ?? [],
   }));
-  const skippedItems = (root?.skippedItems ?? root?.SkippedItems ?? []).map(mapSampleInExcelPreviewItem);
+  const returnedProducts = (
+    root?.returnedProducts ??
+    root?.ReturnedProducts ??
+    root?.products ??
+    root?.Products ??
+    root?.items ??
+    root?.Items ??
+    []
+  ).map(mapAdminExcelSampleInReturnedProduct);
   return {
     success: root?.success ?? root?.Success ?? payload?.success ?? payload?.Success ?? true,
     message: String(root?.message ?? root?.Message ?? '').trim(),
-    totalRows: Number(root?.totalRows ?? root?.TotalRows ?? 0) || 0,
-    returnedCount: Number(root?.returnedCount ?? root?.ReturnedCount ?? 0) || 0,
-    skippedCount: Number(root?.skippedCount ?? root?.SkippedCount ?? 0) || 0,
-    lotsAffected: Number(root?.lotsAffected ?? root?.LotsAffected ?? 0) || 0,
-    lotsCompleted: Number(root?.lotsCompleted ?? root?.LotsCompleted ?? 0) || 0,
-    lots,
-    skippedItems,
+    totalReturned: Number(root?.totalReturned ?? root?.TotalReturned ?? 0) || 0,
+    lotsProcessed: Number(root?.lotsProcessed ?? root?.LotsProcessed ?? 0) || 0,
+    adminReturnRemark: root?.adminReturnRemark ?? root?.AdminReturnRemark ?? '',
+    sampleInMode: root?.sampleInMode ?? root?.SampleInMode ?? '',
+    sampleInDate: root?.sampleInDate ?? root?.SampleInDate ?? '',
+    sampleInDateFormatted: root?.sampleInDateFormatted ?? root?.SampleInDateFormatted ?? '',
+    lotResults,
+    returnedProducts,
   };
 };
 

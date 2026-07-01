@@ -34,12 +34,10 @@ import { useNavigate } from 'react-router-dom';
 import { partyTypeToApiEnum } from '../../services/sampleInOutApi';
 import {
   getAdminBulkSampleReturnUrl,
-  getPreviewSampleInExcelUrl,
-  getConfirmSampleInExcelUrl,
-  sampleMultipartAuthHeaders,
-  parseSampleInExcelPreview,
-  parseSampleInExcelConfirm,
-  SAMPLE_IN_EXCEL_SCAN_MODE,
+  getAdminExcelSampleInPreviewUrl,
+  getAdminExcelSampleInUrl,
+  parseAdminExcelSampleInPreview,
+  parseAdminExcelSampleInResult,
   getAllSampleOutListUrl,
   buildGetAllSampleOutListQuery,
   getLotByIdUrl,
@@ -3092,21 +3090,273 @@ const branchFromUser = (userInfo) =>
 
 const SAMPLE_LIST_TIMEOUT_MS = 120000;
 
-const sampleInExcelStatusTone = (status) => {
-  const key = String(status || '').trim().toLowerCase();
-  if (key === 'ready') return { bg: '#ecfdf5', fg: '#047857', bd: '#a7f3d0' };
-  if (key === 'alreadyreturned') return { bg: '#f1f5f9', fg: '#475569', bd: '#e2e8f0' };
-  if (key === 'pendingacceptance') return { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a' };
-  return { bg: '#fef2f2', fg: '#b91c1c', bd: '#fecaca' };
+const normalizeExcelHeaderKey = (raw) =>
+  String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-./]+/g, '');
+
+const findExcelColumnIndex = (headers, aliases) => {
+  for (let i = 0; i < headers.length; i += 1) {
+    const key = normalizeExcelHeaderKey(headers[i]);
+    if (aliases.some((alias) => key === alias || key.endsWith(alias))) return i;
+  }
+  return -1;
 };
 
-const sampleInExcelProductRemarkKey = (item) => {
-  const ls = item?.labelledStockId;
-  if (ls !== undefined && ls !== null && String(ls).trim() !== '') return `ls:${ls}`;
-  const li = item?.lotItemId;
-  if (li !== undefined && li !== null && String(li).trim() !== '') return `li:${li}`;
-  return `row:${item?.rowNumber ?? ''}`;
+/** Parse DesignNo + remark columns from uploaded Excel for AdminExcelSampleInPreview. */
+const formatExcelBillDateOut = (raw) => {
+  if (raw == null || raw === '') return '';
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const parsed = XLSX.SSF?.parse_date_code?.(raw);
+    if (parsed) {
+      const pad = (n) => String(n).padStart(2, '0');
+      const yy = String(parsed.y).slice(-2);
+      return `${pad(parsed.d)}/${pad(parsed.m)}/${yy}`;
+    }
+  }
+  const text = String(raw).trim();
+  if (!text) return '';
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(text)) {
+    const parts = text.split('/');
+    if (parts.length === 3) {
+      const dd = parts[0].padStart(2, '0');
+      const mm = parts[1].padStart(2, '0');
+      const yy = parts[2].length === 4 ? parts[2].slice(-2) : parts[2].padStart(2, '0');
+      return `${dd}/${mm}/${yy}`;
+    }
+  }
+  return text;
 };
+
+const buildExcelProductRemark = ({ vTypeOut, billDateOut, billNoOut, pNameOut } = {}) => {
+  const vType = String(vTypeOut || '').trim();
+  const date = formatExcelBillDateOut(billDateOut);
+  const billNo = String(billNoOut ?? '').trim();
+  const pName = String(pNameOut || '').trim().toLowerCase();
+  if (!vType && !date && !billNo && !pName) return '';
+  return `${vType || '—'} - ${date || '—'} / ${billNo || '—'} / ${pName || '—'}`;
+};
+
+const normalizeExcelRfidKey = (value) => String(value || '').trim().toUpperCase();
+
+const normalizeExcelDesignKey = (value) => String(value || '').trim().toUpperCase();
+
+const toDatetimeLocalValue = (d = new Date()) => {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const dedupeAdminExcelPreviewRows = (rows = []) => {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const lotItemId = row?.lotItemId;
+    if (lotItemId != null) {
+      const key = `id:${Number(lotItemId)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }
+    const rfid = normalizeExcelRfidKey(row?.rfidCode);
+    const design = normalizeExcelDesignKey(row?.designName || row?.searchedDesign);
+    const fallback = `row:${design}:${rfid}:${row?.rowNumber ?? ''}`;
+    if (seen.has(fallback)) return false;
+    seen.add(fallback);
+    return true;
+  });
+};
+
+const uniqueDesignNumbersForPreview = (designNumbers = []) => {
+  const seen = new Set();
+  const unique = [];
+  designNumbers.forEach((design) => {
+    const key = normalizeExcelDesignKey(design);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    unique.push(String(design).trim());
+  });
+  return unique;
+};
+
+const buildImportProductRemarks = (previewRows, excelRows = []) => {
+  const remarks = {};
+  const excelByPair = new Map();
+  excelRows.forEach((excelRow) => {
+    const designKey = normalizeExcelDesignKey(excelRow.designNo);
+    const rfidKey = normalizeExcelRfidKey(excelRow.rfidCode);
+    if (!designKey) return;
+    const pairKey = rfidKey ? `${designKey}|${rfidKey}` : designKey;
+    if (!excelByPair.has(pairKey)) excelByPair.set(pairKey, excelRow);
+    if (!excelByPair.has(designKey)) excelByPair.set(designKey, excelRow);
+  });
+
+  previewRows.forEach((row) => {
+    if (!row?.canReturn || row.lotItemId == null) return;
+    const designKey = normalizeExcelDesignKey(row.designName || row.searchedDesign);
+    const rfidKey = normalizeExcelRfidKey(row.rfidCode);
+    const excelRow =
+      excelByPair.get(`${designKey}|${rfidKey}`) ||
+      excelByPair.get(designKey) ||
+      null;
+    const remark = excelRow?.remark || buildExcelProductRemark(excelRow || {});
+    if (remark) remarks[row.lotItemId] = remark;
+  });
+  return remarks;
+};
+
+const parseDesignNumbersFromExcelFile = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const sheetName = wb.SheetNames[0];
+        if (!sheetName) {
+          reject(new Error('Excel workbook has no sheets.'));
+          return;
+        }
+        const sheet = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (!rows.length) {
+          reject(new Error('Excel sheet is empty.'));
+          return;
+        }
+        const headers = rows[0].map((h) => String(h ?? '').trim());
+        const designIdx = findExcelColumnIndex(headers, ['designno', 'designnumber', 'design']);
+        if (designIdx < 0) {
+          reject(new Error('Design No column not found. Expected header: DesignNo or Design No.'));
+          return;
+        }
+        const miscIdx = findExcelColumnIndex(headers, ['misc', 'rfid', 'rfidcode', 'rfidtag', 'epc']);
+        const vTypeIdx = findExcelColumnIndex(headers, ['vtypeout', 'vtype', 'transactiontype']);
+        const billDateIdx = findExcelColumnIndex(headers, ['billdateout', 'billdate', 'dateout']);
+        const billNoIdx = findExcelColumnIndex(headers, ['billnoout', 'billno', 'billnumberout']);
+        const pNameIdx = findExcelColumnIndex(headers, ['pnameout', 'partyout', 'partynameout', 'employeeout']);
+        const designNumbers = [];
+        const rfidCodes = [];
+        const excelRows = [];
+        for (let r = 1; r < rows.length; r += 1) {
+          const row = rows[r];
+          if (!Array.isArray(row)) continue;
+          const designNo = String(row[designIdx] ?? '').trim();
+          if (!designNo) continue;
+          const rfidCode = miscIdx >= 0 ? String(row[miscIdx] ?? '').trim() : '';
+          const vTypeOut = vTypeIdx >= 0 ? String(row[vTypeIdx] ?? '').trim() : '';
+          const billDateOut = billDateIdx >= 0 ? row[billDateIdx] : '';
+          const billNoOut = billNoIdx >= 0 ? row[billNoIdx] : '';
+          const pNameOut = pNameIdx >= 0 ? String(row[pNameIdx] ?? '').trim() : '';
+          const remark = buildExcelProductRemark({ vTypeOut, billDateOut, billNoOut, pNameOut });
+          designNumbers.push(designNo);
+          if (rfidCode) rfidCodes.push(rfidCode);
+          excelRows.push({
+            rowNumber: r + 1,
+            designNo,
+            rfidCode,
+            vTypeOut,
+            billDateOut,
+            billNoOut,
+            pNameOut,
+            remark,
+          });
+        }
+        if (!designNumbers.length) {
+          reject(new Error('No design numbers found in the DesignNo column.'));
+          return;
+        }
+        resolve({
+          designNumbers,
+          uniqueDesignNumbers: uniqueDesignNumbersForPreview(designNumbers),
+          rfidCodes,
+          excelRows,
+          rowCount: designNumbers.length,
+          uniqueDesignCount: new Set(designNumbers.map((d) => d.toUpperCase())).size,
+        });
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error('Could not parse Excel file.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Could not read the Excel file.'));
+    reader.readAsArrayBuffer(file);
+  });
+
+const adminExcelImportRowTone = (row) => {
+  if (row?.canReturn) return { bg: '#ecfdf5', fg: '#047857', bd: '#a7f3d0', label: 'Ready' };
+  if (row?.matched) return { bg: '#fffbeb', fg: '#b45309', bd: '#fde68a', label: 'Cannot return' };
+  return { bg: '#fef2f2', fg: '#b91c1c', bd: '#fecaca', label: 'Not found' };
+};
+
+const datetimeLocalToApiIso = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+const mergeAdminExcelReturnedRows = (previewRows, returnedProducts = []) => {
+  const byLotItemId = new Map(
+    returnedProducts
+      .filter((item) => item?.lotItemId != null)
+      .map((item) => [Number(item.lotItemId), item])
+  );
+  return previewRows.map((row) => {
+    const fromApi = byLotItemId.get(Number(row.lotItemId));
+    return fromApi ? { ...row, ...fromApi } : row;
+  });
+};
+
+const getAdminExcelImportCellValue = (row, colKey, { remarkText = '' } = {}) => {
+  switch (colKey) {
+    case 'lotNumber':
+      return row.lotNumber;
+    case 'employeeName':
+      return row.employeeName || row.partyName;
+    case 'designName':
+      return row.designName || row.searchedDesign;
+    case 'sampleOutOnFormatted':
+      return row.sampleOutOnFormatted || row.acceptedOnFormatted || row.sampleOutDateFormatted;
+    case 'expectedReturnDateFormatted':
+      return row.expectedReturnDateFormatted;
+    case 'sampleInOnFormatted':
+      return row.sampleInOnFormatted;
+    case 'remark':
+      return remarkText || row.adminReturnRemark;
+    default:
+      return row[colKey];
+  }
+};
+
+const ADMIN_EXCEL_IMPORT_PREVIEW_COLUMNS = [
+  { key: 'lotNumber', label: 'Sample lot', minWidth: 88 },
+  { key: 'employeeName', label: 'Employee', minWidth: 88 },
+  { key: 'designName', label: 'Design No', minWidth: 100 },
+  { key: 'rfidCode', label: 'RFID', minWidth: 72 },
+  { key: 'productName', label: 'Product', minWidth: 88 },
+  { key: 'categoryName', label: 'Category', minWidth: 80 },
+  { key: 'grossWt', label: 'Gr.Wt', minWidth: 56, align: 'right' },
+  { key: 'netWt', label: 'Net Wt', minWidth: 56, align: 'right' },
+  { key: 'counterName', label: 'Counter', minWidth: 72 },
+  { key: 'sampleOutOnFormatted', label: 'Sample out', minWidth: 130, nowrap: true },
+  { key: 'status', label: 'Status', minWidth: 88 },
+  { key: 'remark', label: 'Remark', minWidth: 220, editable: true },
+];
+
+const ADMIN_EXCEL_IMPORT_DONE_COLUMNS = [
+  { key: 'lotNumber', label: 'Sample lot', minWidth: 88 },
+  { key: 'employeeName', label: 'Employee', minWidth: 88 },
+  { key: 'designName', label: 'Design No', minWidth: 100 },
+  { key: 'rfidCode', label: 'RFID', minWidth: 72 },
+  { key: 'productName', label: 'Product', minWidth: 88 },
+  { key: 'categoryName', label: 'Category', minWidth: 80 },
+  { key: 'grossWt', label: 'Gr.Wt', minWidth: 56, align: 'right' },
+  { key: 'netWt', label: 'Net Wt', minWidth: 56, align: 'right' },
+  { key: 'counterName', label: 'Counter', minWidth: 72 },
+  { key: 'sampleOutOnFormatted', label: 'Sample out', minWidth: 130, nowrap: true },
+  { key: 'sampleInOnFormatted', label: 'Sample in', minWidth: 130, nowrap: true },
+  { key: 'status', label: 'Status', minWidth: 88 },
+  { key: 'remark', label: 'Remark', minWidth: 120 },
+];
 
 const SampleOutList = ({
   pageTitle = 'Sample out lots',
@@ -3148,15 +3398,17 @@ const SampleOutList = ({
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
+  const [importParseMeta, setImportParseMeta] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
   const [importConfirmResult, setImportConfirmResult] = useState(null);
   const [importStep, setImportStep] = useState('pick');
   const [importPreviewLoading, setImportPreviewLoading] = useState(false);
   const [importConfirmLoading, setImportConfirmLoading] = useState(false);
   const [importError, setImportError] = useState('');
-  const [importReturnRemark, setImportReturnRemark] = useState('');
-  const [importLotRemarks, setImportLotRemarks] = useState({});
   const [importProductRemarks, setImportProductRemarks] = useState({});
+  const [importSampleInDate, setImportSampleInDate] = useState(() => toDatetimeLocalValue());
+  const [importReturnedRows, setImportReturnedRows] = useState([]);
+  const [importProgressPct, setImportProgressPct] = useState(0);
   const importFileInputRef = useRef(null);
   const [exportErrors, setExportErrors] = useState({ excel: '', pdf: '' });
   const [lotsViewMode, setLotsViewMode] = useState('grid');
@@ -4255,15 +4507,17 @@ const SampleOutList = ({
 
   const resetImportModal = () => {
     setImportFile(null);
+    setImportParseMeta(null);
     setImportPreview(null);
     setImportConfirmResult(null);
+    setImportReturnedRows([]);
+    setImportProgressPct(0);
     setImportStep('pick');
     setImportPreviewLoading(false);
     setImportConfirmLoading(false);
     setImportError('');
-    setImportReturnRemark('');
-    setImportLotRemarks({});
     setImportProductRemarks({});
+    setImportSampleInDate(toDatetimeLocalValue());
     if (importFileInputRef.current) importFileInputRef.current.value = '';
   };
 
@@ -4291,26 +4545,39 @@ const SampleOutList = ({
     setImportError('');
     setImportConfirmResult(null);
     try {
-      const formData = new FormData();
-      formData.append('clientCode', clientCode);
-      formData.append('file', file);
-      const { data } = await axios.post(getPreviewSampleInExcelUrl(), formData, {
-        headers: sampleMultipartAuthHeaders(),
-        timeout: SAMPLE_LIST_TIMEOUT_MS,
-      });
+      const parsedExcel = await parseDesignNumbersFromExcelFile(file);
+      const { data } = await axios.post(
+        getAdminExcelSampleInPreviewUrl(),
+        {
+          clientCode,
+          designNumbers: parsedExcel.uniqueDesignNumbers?.length
+            ? parsedExcel.uniqueDesignNumbers
+            : parsedExcel.designNumbers,
+        },
+        { headers: sampleAuthHeaders(), timeout: SAMPLE_LIST_TIMEOUT_MS }
+      );
       if (data?.success === false) {
         throw new Error(data?.message || data?.Message || 'Preview failed.');
       }
-      const parsed = parseSampleInExcelPreview(data);
+      const parsed = parseAdminExcelSampleInPreview(data);
+      const dedupedRows = dedupeAdminExcelPreviewRows(parsed.rows || []);
+      const dedupedPreview = {
+        ...parsed,
+        rows: dedupedRows,
+        canReturnCount: dedupedRows.filter((row) => row.canReturn).length,
+        matchedCount: dedupedRows.filter((row) => row.matched).length,
+        errorCount: dedupedRows.filter((row) => !row.canReturn).length,
+      };
+      const productRemarks = buildImportProductRemarks(
+        dedupedRows.filter((row) => row.canReturn),
+        parsedExcel.excelRows || []
+      );
       setImportFile(file);
-      setImportPreview(parsed);
+      setImportParseMeta(parsedExcel);
+      setImportPreview(dedupedPreview);
+      setImportProductRemarks(productRemarks);
+      setImportSampleInDate(toDatetimeLocalValue());
       setImportStep('preview');
-      const lotRemarkSeed = {};
-      (parsed.lots || []).forEach((lot) => {
-        if (lot.lotId != null) lotRemarkSeed[lot.lotId] = '';
-      });
-      setImportLotRemarks(lotRemarkSeed);
-      setImportProductRemarks({});
     } catch (err) {
       const msg =
         err?.response?.data?.message ||
@@ -4319,6 +4586,7 @@ const SampleOutList = ({
         'Could not preview the Excel file.';
       setImportError(msg);
       setImportPreview(null);
+      setImportParseMeta(null);
       setImportStep('pick');
     } finally {
       setImportPreviewLoading(false);
@@ -4333,68 +4601,77 @@ const SampleOutList = ({
 
   const runImportConfirm = async () => {
     const clientCode = resolveClientCode(userInfo);
-    if (!clientCode || !importFile || !importPreview) return;
-    const globalRemark = String(importReturnRemark || '').trim();
-    const lotRemarkEntries = Object.entries(importLotRemarks || {})
-      .filter(([, v]) => String(v || '').trim())
-      .map(([lotId, returnRemark]) => ({
-        lotId: Number.parseInt(lotId, 10),
-        returnRemark: String(returnRemark).trim(),
-      }))
-      .filter((row) => Number.isFinite(row.lotId));
-    const productRemarkEntries = (importPreview.items || [])
-      .filter((item) => item.canSampleIn)
-      .map((item) => {
-        const key = sampleInExcelProductRemarkKey(item);
-        const remark = String(importProductRemarks[key] || '').trim();
-        if (!remark) return null;
-        if (item.labelledStockId != null) {
-          return { labelledStockId: item.labelledStockId, returnRemark: remark };
-        }
-        if (item.lotItemId != null) {
-          return { lotItemId: item.lotItemId, returnRemark: remark };
-        }
-        return null;
-      })
-      .filter(Boolean);
-    if (!globalRemark && !lotRemarkEntries.length && !productRemarkEntries.length) {
-      setImportError('Enter a return remark (or per-lot / per-product remarks) before confirming.');
+    if (!clientCode || !importPreview) return;
+    const readyRows = dedupeAdminExcelPreviewRows(
+      (importPreview.rows || []).filter((row) => row.canReturn)
+    );
+    const missingRemarkRows = readyRows.filter((row) => {
+      const remark = String(
+        importProductRemarks[row.lotItemId] ?? importProductRemarks[String(row.lotItemId)] ?? ''
+      ).trim();
+      return !remark;
+    });
+    if (missingRemarkRows.length) {
+      setImportError('Every ready product needs a remark before sample in.');
       return;
     }
+    const lotItemIds = readyRows
+      .map((row) => Number(row.lotItemId))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (!lotItemIds.length) {
+      setImportError('No returnable products in preview. Fix Excel or check sample-out status.');
+      return;
+    }
+    const products = readyRows.map((row) => ({
+      lotItemId: Number(row.lotItemId),
+      adminReturnRemark: String(
+        importProductRemarks[row.lotItemId] ?? importProductRemarks[String(row.lotItemId)] ?? ''
+      ).trim(),
+    }));
+    const adminReturnRemark = products[0]?.adminReturnRemark || 'Excel sample in';
     setImportConfirmLoading(true);
     setImportError('');
+    setImportStep('processing');
+    setImportProgressPct(6);
+    const progressTimer = setInterval(() => {
+      setImportProgressPct((prev) => (prev >= 88 ? prev : prev + 5));
+    }, 140);
     try {
-      const formData = new FormData();
-      formData.append('clientCode', clientCode);
-      formData.append('file', importFile);
-      if (globalRemark) formData.append('returnRemark', globalRemark);
-      if (lotRemarkEntries.length) {
-        formData.append('lotRemarksJson', JSON.stringify(lotRemarkEntries));
-      }
-      if (productRemarkEntries.length) {
-        formData.append('productsJson', JSON.stringify(productRemarkEntries));
-      }
-      formData.append('scanMode', SAMPLE_IN_EXCEL_SCAN_MODE);
-      const readyIds = (importPreview.items || [])
-        .filter((item) => item.canSampleIn && item.labelledStockId != null)
-        .map((item) => item.labelledStockId);
-      if (readyIds.length) {
-        formData.append('labelledStockIds', readyIds.join(','));
-      }
-      const { data } = await axios.post(getConfirmSampleInExcelUrl(), formData, {
-        headers: sampleMultipartAuthHeaders(),
-        timeout: SAMPLE_LIST_TIMEOUT_MS,
-      });
+      const sampleInDateIso = datetimeLocalToApiIso(importSampleInDate) || datetimeLocalToApiIso(toDatetimeLocalValue());
+      const executeBody = {
+        clientCode,
+        adminReturnRemark,
+        scanMode: ADMIN_RETURN_SCAN_MODE,
+        lotItemIds,
+        sampleInDate: sampleInDateIso,
+        products,
+      };
+      const { data } = await axios.post(
+        getAdminExcelSampleInUrl(),
+        executeBody,
+        { headers: sampleAuthHeaders(), timeout: SAMPLE_LIST_TIMEOUT_MS }
+      );
       if (data?.success === false) {
         throw new Error(data?.message || data?.Message || 'Sample-in confirm failed.');
       }
-      const parsed = parseSampleInExcelConfirm(data);
+      const parsed = parseAdminExcelSampleInResult(data);
+      setImportProgressPct(100);
+      setImportReturnedRows(
+        mergeAdminExcelReturnedRows(readyRows, parsed.returnedProducts).map((row) => ({
+          ...row,
+          adminReturnRemark:
+            importProductRemarks[row.lotItemId] ??
+            importProductRemarks[String(row.lotItemId)] ??
+            row.adminReturnRemark ??
+            adminReturnRemark,
+        }))
+      );
       setImportConfirmResult(parsed);
       setImportStep('done');
       addNotification({
         type: 'success',
         title: 'Sample In Import',
-        message: parsed.message || `${parsed.returnedCount} product(s) returned.`,
+        message: parsed.message || `${parsed.totalReturned} product(s) returned.`,
       });
       fetchSampleOutList();
     } catch (err) {
@@ -4404,7 +4681,9 @@ const SampleOutList = ({
         err?.message ||
         'Could not confirm sample-in from Excel.';
       setImportError(msg);
+      setImportStep('preview');
     } finally {
+      clearInterval(progressTimer);
       setImportConfirmLoading(false);
     }
   };
@@ -5533,7 +5812,7 @@ const SampleOutList = ({
             style={{
               background: '#fff',
               borderRadius: 12,
-              width: 'min(980px, 96vw)',
+              width: 'min(1100px, 98vw)',
               maxHeight: '92vh',
               display: 'flex',
               flexDirection: 'column',
@@ -5542,6 +5821,28 @@ const SampleOutList = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            <style>{`
+              @keyframes sampleInImportPop {
+                0% { transform: scale(0.6); opacity: 0; }
+                70% { transform: scale(1.08); opacity: 1; }
+                100% { transform: scale(1); opacity: 1; }
+              }
+              @keyframes sampleInProgressShine {
+                0% { background-position: 200% 0; }
+                100% { background-position: -200% 0; }
+              }
+            `}</style>
+            <style>{`
+              @keyframes sampleInImportPop {
+                0% { transform: scale(0.6); opacity: 0; }
+                70% { transform: scale(1.08); opacity: 1; }
+                100% { transform: scale(1); opacity: 1; }
+              }
+              @keyframes sampleInProgressShine {
+                0% { background-position: 200% 0; }
+                100% { background-position: -200% 0; }
+              }
+            `}</style>
             <div
               style={{
                 display: 'flex',
@@ -5555,10 +5856,10 @@ const SampleOutList = ({
             >
               <div>
                 <h2 id="sample-in-import-title" style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
-                  Import Sample In — Excel
+                  Import Sample In — Excel (by Design)
                 </h2>
                 <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>
-                  Upload Excel → preview matched lots → confirm manual sample-in return
+                  Upload Excel → review matched products → check remarks → sample in all
                 </p>
               </div>
               <button
@@ -5594,9 +5895,32 @@ const SampleOutList = ({
                   <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
                     Choose an Excel file to preview sample-in rows
                   </p>
-                  <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                    Columns: DesignNo, TagNo, misc (RFID), GrWt, NetWt, Qty, Cat5, IName, IGroup
+                  <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748b', lineHeight: 1.55 }}>
+                    Upload your Excel as-is. We read the <strong>DesignNo</strong> column and send all design numbers
+                    to the preview API. Extra columns (Id, TagNo, Misc, VTypeOut, etc.) are ignored for matching.
                   </p>
+                  <div
+                    style={{
+                      margin: '0 auto 16px',
+                      maxWidth: 520,
+                      textAlign: 'left',
+                      fontSize: 11,
+                      color: '#475569',
+                      background: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>Excel column used</div>
+                    <div><strong>DesignNo</strong> → preview match</div>
+                    <div><strong>Misc</strong> → match RFID to product row</div>
+                    <div><strong>VTypeOut, BillDateOut, BillNoOut, PNameOut</strong> → auto remark per product</div>
+                    <div style={{ marginTop: 6, color: '#64748b' }}>
+                      Example remark: Split/Merge - 30/06/26 / 1340 / swami
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={() => importFileInputRef.current?.click()}
@@ -5623,231 +5947,539 @@ const SampleOutList = ({
 
               {importStep === 'preview' && importPreview ? (
                 <>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 10,
-                      marginBottom: 14,
-                      padding: '12px 14px',
-                      borderRadius: 10,
-                      background: '#f0fdf4',
-                      border: '1px solid #bbf7d0',
-                    }}
-                  >
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#047857' }}>
-                      {importPreview.message || `${importPreview.readyCount} of ${importPreview.totalRows} ready`}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>
-                      Matched: {importPreview.matchedCount} · Ready: {importPreview.readyCount} · Not found:{' '}
-                      {importPreview.notFoundCount} · Not on sample out: {importPreview.notOnSampleOutCount}
-                    </span>
-                    {importFile ? (
-                      <span style={{ fontSize: 11, color: '#475569', marginLeft: 'auto' }}>
-                        File: {importFile.name}
-                      </span>
-                    ) : null}
-                  </div>
+                  {(() => {
+                    const readyRows = dedupeAdminExcelPreviewRows(
+                      (importPreview.rows || []).filter((row) => row.canReturn)
+                    );
+                    const failed = (importPreview.rows || []).filter((row) => !row.canReturn);
+                    const matchedRows = (importPreview.rows || []).filter((row) => row.matched);
+                    const ready = readyRows.length;
+                    const bannerOk = ready > 0;
+                    const sumWt = (rows, key) =>
+                      rows.reduce((acc, row) => acc + (parseFloat(row?.[key]) || 0), 0);
+                    const foundDesignKeys = new Set(
+                      matchedRows
+                        .map((row) => String(row.designName || row.searchedDesign || '').trim().toLowerCase())
+                        .filter(Boolean)
+                    );
+                    const totalFoundDesigns = foundDesignKeys.size || importPreview.matchedCount || 0;
+                    const weightRows = readyRows.length ? readyRows : matchedRows;
+                    const totalGrossWt = sumWt(weightRows, 'grossWt');
+                    const totalNetWt = sumWt(weightRows, 'netWt');
+                    const fmtWt = (n) => (Number.isFinite(n) && n > 0 ? n.toFixed(3) : '0.000');
+                    const statItems = [
+                      { label: 'Excel', value: importParseMeta?.rowCount ?? 0, tone: '#64748b' },
+                      { label: 'Found design', value: totalFoundDesigns, tone: '#0369a1' },
+                      { label: 'Ready', value: ready, tone: '#047857' },
+                      { label: 'Failed', value: importPreview.errorCount || failed.length, tone: '#b91c1c' },
+                      { label: 'Total Gr.Wt', value: fmtWt(totalGrossWt), tone: '#0f172a' },
+                      { label: 'Total Net Wt', value: fmtWt(totalNetWt), tone: '#0f172a' },
+                    ];
+                    return (
+                      <>
+                        <div
+                          style={{
+                            width: '100%',
+                            marginBottom: 12,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            background: bannerOk ? '#f0fdf4' : '#fef2f2',
+                            border: `1px solid ${bannerOk ? '#bbf7d0' : '#fecaca'}`,
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: bannerOk ? '#047857' : '#b91c1c', flex: 1, lineHeight: 1.4 }}>
+                              {bannerOk
+                                ? importPreview.message || `${ready} product(s) ready for sample in`
+                                : `${importPreview.matchedCount || 0} matched, ${importPreview.errorCount || failed.length} failed. Fix errors before sample in.`}
+                            </span>
+                            {importFile ? (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  color: '#475569',
+                                  background: '#fff',
+                                  border: '1px solid #e2e8f0',
+                                  borderRadius: 6,
+                                  padding: '2px 8px',
+                                  maxWidth: 180,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={importFile.name}
+                              >
+                                {importFile.name}
+                              </span>
+                            ) : null}
+                          </div>
 
-                  {importPreview.lots?.length ? (
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Lots summary</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
-                        {importPreview.lots.map((lot) => (
                           <div
-                            key={lot.lotId ?? lot.lotNumber}
                             style={{
-                              border: '1px solid #e2e8f0',
-                              borderRadius: 10,
-                              padding: '10px 12px',
-                              background: lot.willCompleteLot ? '#fffbeb' : '#fff',
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 6,
                             }}
                           >
-                            <div style={{ fontSize: 13, fontWeight: 800, color: '#0f4c81' }}>{lot.lotNumber || '—'}</div>
-                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                              {lot.partyName || '—'} · {lot.lotStatus || '—'}
-                            </div>
-                            <div style={{ fontSize: 11, color: '#334155', marginTop: 6 }}>
-                              Ready {lot.readyCount} / {lot.totalOutItems} out
-                            </div>
-                            {lot.willCompleteLot ? (
-                              <div style={{ fontSize: 10, fontWeight: 800, color: '#b45309', marginTop: 6 }}>
-                                Will complete lot
+                            {statItems.map((chip) => (
+                              <div
+                                key={chip.label}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'baseline',
+                                  gap: 6,
+                                  padding: '4px 10px',
+                                  borderRadius: 999,
+                                  background: '#fff',
+                                  border: '1px solid #e2e8f0',
+                                  fontSize: 11,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                <span style={{ color: '#64748b', fontWeight: 600 }}>{chip.label}</span>
+                                <span style={{ fontWeight: 800, color: chip.tone, fontVariantNumeric: 'tabular-nums' }}>
+                                  {chip.value}
+                                </span>
                               </div>
-                            ) : null}
+                            ))}
+                          </div>
+                        </div>
+
+                        {ready > 0 ? (
+                          <div
+                            style={{
+                              marginBottom: 12,
+                              padding: '10px 12px',
+                              borderRadius: 10,
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                            }}
+                          >
+                            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                              Sample in date & time
+                            </label>
                             <input
-                              type="text"
-                              placeholder="Optional lot remark"
-                              value={importLotRemarks[lot.lotId] || ''}
-                              onChange={(e) =>
-                                setImportLotRemarks((prev) => ({ ...prev, [lot.lotId]: e.target.value }))
-                              }
+                              type="datetime-local"
+                              value={importSampleInDate}
+                              onChange={(e) => setImportSampleInDate(e.target.value)}
                               style={{
                                 width: '100%',
-                                marginTop: 8,
-                                padding: '6px 8px',
-                                fontSize: 11,
-                                borderRadius: 6,
-                                border: '1px solid #e2e8f0',
+                                maxWidth: 280,
+                                padding: '8px 11px',
+                                fontSize: 13,
+                                borderRadius: 8,
+                                border: '1px solid #cbd5e1',
                                 boxSizing: 'border-box',
+                                background: '#fff',
                               }}
                             />
+                            <div style={{ marginTop: 6, fontSize: 10, color: '#64748b' }}>
+                              Defaults to current date & time. Remark for each product comes from Excel (VTypeOut, BillDateOut, BillNoOut, PNameOut).
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
+                        ) : null}
 
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
-                      Return remark (default for all products & lots) *
-                    </label>
-                    <input
-                      type="text"
-                      value={importReturnRemark}
-                      onChange={(e) => setImportReturnRemark(e.target.value)}
-                      placeholder="e.g. Sale 29/06/2026"
+                        {readyRows.length > 0 ? (
+                          <>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>
+                              Ready products ({readyRows.length})
+                            </div>
+                            <div
+                              style={{
+                                overflow: 'auto',
+                                maxHeight: 'min(42vh, 380px)',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 10,
+                                marginBottom: failed.length ? 14 : 0,
+                              }}
+                            >
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                <thead>
+                                  <tr style={{ background: '#f1f5f9', textAlign: 'left', position: 'sticky', top: 0, zIndex: 1 }}>
+                                    {ADMIN_EXCEL_IMPORT_PREVIEW_COLUMNS.map((col) => (
+                                      <th
+                                        key={col.key}
+                                        style={{
+                                          padding: '9px 10px',
+                                          fontWeight: 700,
+                                          color: '#475569',
+                                          whiteSpace: col.nowrap ? 'nowrap' : 'nowrap',
+                                          minWidth: col.minWidth,
+                                          textAlign: col.align || 'left',
+                                          borderBottom: '1px solid #e2e8f0',
+                                        }}
+                                      >
+                                        {col.label}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {readyRows.map((row, idx) => {
+                                    const tone = adminExcelImportRowTone(row);
+                                    const lotItemId = row.lotItemId;
+                                    const remarkText = String(
+                                      importProductRemarks[lotItemId] ??
+                                        importProductRemarks[String(lotItemId)] ??
+                                        ''
+                                    );
+                                    const cell = (value, extra = {}) => (
+                                      <td
+                                        style={{
+                                          padding: '8px 10px',
+                                          borderTop: '1px solid #f1f5f9',
+                                          color: '#334155',
+                                          ...extra,
+                                        }}
+                                      >
+                                        {value || '—'}
+                                      </td>
+                                    );
+                                    return (
+                                      <tr key={`ready-${row.rowNumber}-${row.lotItemId ?? idx}`} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                        {ADMIN_EXCEL_IMPORT_PREVIEW_COLUMNS.map((col) => {
+                                          if (col.key === 'status') {
+                                            return (
+                                              <td key={`${row.lotItemId}-status`} style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>
+                                                <span
+                                                  style={{
+                                                    display: 'inline-block',
+                                                    padding: '3px 8px',
+                                                    borderRadius: 999,
+                                                    fontSize: 10,
+                                                    fontWeight: 800,
+                                                    whiteSpace: 'nowrap',
+                                                    background: tone.bg,
+                                                    color: tone.fg,
+                                                    border: `1px solid ${tone.bd}`,
+                                                  }}
+                                                >
+                                                  {tone.label}
+                                                </span>
+                                              </td>
+                                            );
+                                          }
+                                          if (col.key === 'remark') {
+                                            return (
+                                              <td key={`${row.lotItemId}-remark`} style={{ padding: '6px 8px', borderTop: '1px solid #f1f5f9', minWidth: 220 }}>
+                                                <input
+                                                  type="text"
+                                                  value={remarkText}
+                                                  onChange={(e) =>
+                                                    setImportProductRemarks((prev) => ({
+                                                      ...prev,
+                                                      [lotItemId]: e.target.value,
+                                                    }))
+                                                  }
+                                                  placeholder="VType - date / bill / party"
+                                                  style={{
+                                                    width: '100%',
+                                                    minWidth: 200,
+                                                    padding: '6px 8px',
+                                                    fontSize: 11,
+                                                    borderRadius: 6,
+                                                    border: '1px solid #cbd5e1',
+                                                    boxSizing: 'border-box',
+                                                    background: '#fff',
+                                                  }}
+                                                />
+                                              </td>
+                                            );
+                                          }
+                                          const value = getAdminExcelImportCellValue(row, col.key, { remarkText });
+                                          const extra =
+                                            col.key === 'lotNumber'
+                                              ? { fontWeight: 700, color: '#0f4c81' }
+                                              : col.key === 'employeeName'
+                                                ? { fontWeight: 600, color: '#0f766e' }
+                                                : col.align === 'right'
+                                                  ? { textAlign: 'right', fontVariantNumeric: 'tabular-nums' }
+                                                  : col.nowrap
+                                                    ? { whiteSpace: 'nowrap' }
+                                                    : {};
+                                          return cell(value, extra);
+                                        })}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </>
+                        ) : null}
+
+                        {failed.length > 0 ? (
+                          <div
+                            style={{
+                              marginTop: readyRows.length ? 0 : 4,
+                              padding: '12px 14px',
+                              borderRadius: 10,
+                              background: '#fff',
+                              border: '1px solid #fecaca',
+                            }}
+                          >
+                            <div style={{ fontSize: 12, fontWeight: 800, color: '#b91c1c', marginBottom: 10 }}>
+                              Not found on sample out ({failed.length})
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'min(36vh, 320px)', overflowY: 'auto' }}>
+                              {failed.map((row, idx) => (
+                                <div
+                                  key={`fail-${row.rowNumber}-${idx}`}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 10,
+                                    padding: '8px 10px',
+                                    borderRadius: 8,
+                                    background: '#fef2f2',
+                                    border: '1px solid #fee2e2',
+                                  }}
+                                >
+                                  <FaExclamationTriangle style={{ color: '#dc2626', marginTop: 2, flexShrink: 0 }} />
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#991b1b' }}>
+                                      {row.searchedDesign || row.designName || `Row ${row.rowNumber}`}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 2, lineHeight: 1.45 }}>
+                                      {row.error || 'No sample out product found for this design.'}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })()}
+                </>
+              ) : null}
+
+              {importStep === 'processing' ? (
+                <div style={{ padding: '28px 12px', textAlign: 'center' }}>
+                  <FaSpinner style={{ fontSize: 36, color: '#059669', animation: 'spin 0.9s linear infinite', marginBottom: 16 }} />
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>Sample in progress…</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 18 }}>
+                    Returning products and updating sample lots
+                  </div>
+                  <div
+                    style={{
+                      width: '100%',
+                      height: 10,
+                      borderRadius: 999,
+                      background: '#e2e8f0',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
                       style={{
+                        height: '100%',
+                        width: `${importProgressPct}%`,
+                        borderRadius: 999,
+                        transition: 'width 0.35s ease',
+                        background: 'linear-gradient(90deg, #059669, #34d399, #059669)',
+                        backgroundSize: '200% 100%',
+                        animation: 'sampleInProgressShine 1.2s linear infinite',
+                      }}
+                    />
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: '#047857' }}>{importProgressPct}%</div>
+                </div>
+              ) : null}
+
+              {importStep === 'done' && importConfirmResult ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ textAlign: 'center', padding: '8px 0 4px' }}>
+                    <div
+                      style={{
+                        width: 72,
+                        height: 72,
+                        margin: '0 auto 12px',
+                        borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+                        border: '2px solid #6ee7b7',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        animation: 'sampleInImportPop 0.55s ease-out',
+                      }}
+                    >
+                      <FaCheckCircle style={{ fontSize: 40, color: '#059669' }} />
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#047857', marginBottom: 4 }}>Sample In Done!</div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>
+                      {importConfirmResult.message ||
+                        `${importConfirmResult.totalReturned} product(s) returned across ${importConfirmResult.lotsProcessed} lot(s).`}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, width: '100%' }}>
+                    {[
+                      { label: 'Products returned', value: importConfirmResult.totalReturned, tone: '#047857' },
+                      { label: 'Lots processed', value: importConfirmResult.lotsProcessed, tone: '#0369a1' },
+                      {
+                        label: 'Sample in date',
+                        value: importConfirmResult.sampleInDateFormatted || importConfirmResult.sampleInDate || 'Server time',
+                        tone: '#0f766e',
+                        small: true,
+                      },
+                      { label: 'Remarks', value: 'Per product from Excel', tone: '#0f172a', small: true },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: 8,
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          textAlign: 'center',
+                        }}
+                      >
+                        <div style={{ fontSize: 10, color: '#64748b', fontWeight: 600, marginBottom: 4 }}>{item.label}</div>
+                        <div
+                          style={{
+                            fontSize: item.small ? 12 : 22,
+                            fontWeight: 800,
+                            color: item.tone,
+                            lineHeight: 1.3,
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {item.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      width: '100%',
+                      height: 8,
+                      borderRadius: 999,
+                      background: '#e2e8f0',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
                         width: '100%',
-                        padding: '8px 10px',
-                        fontSize: 12,
-                        borderRadius: 8,
-                        border: '1px solid #cbd5e1',
-                        boxSizing: 'border-box',
+                        borderRadius: 999,
+                        background: 'linear-gradient(90deg, #059669, #34d399)',
+                        transition: 'width 0.6s ease',
                       }}
                     />
                   </div>
 
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Preview rows</div>
-                  <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                          {['#', 'Counter', 'Design', 'RFID', 'Item', 'Category', 'Gr.Wt', 'Net.Wt', 'Qty', 'Lot', 'Status', 'Message', 'Product remark'].map(
-                            (h) => (
-                              <th key={h} style={{ padding: '8px 10px', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>
-                                {h}
-                              </th>
-                            )
-                          )}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(importPreview.items || []).map((item) => {
-                          const tone = sampleInExcelStatusTone(item.matchStatus);
-                          const remarkKey = sampleInExcelProductRemarkKey(item);
-                          return (
-                            <tr
-                              key={`${item.rowNumber}-${remarkKey}`}
-                              style={{
-                                opacity: item.canSampleIn ? 1 : 0.72,
-                                background: item.canSampleIn ? '#fff' : '#fafafa',
-                              }}
-                            >
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.rowNumber}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.counterName || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.designName || item.designNo || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.rfidCode || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.itemCode || item.tagNo || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.categoryName || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.grossWt || item.excelGrossWt || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.netWt || item.excelNetWt || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.excelQty || item.mrp || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>{item.lotNumber || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>
-                                <span
+                  {(importConfirmResult.lotResults || []).length ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {(importConfirmResult.lotResults || []).map((lot) => (
+                        <div
+                          key={lot.lotId ?? lot.lotNumber}
+                          style={{
+                            flex: '1 1 140px',
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            background: lot.lotCompleted ? '#ecfdf5' : '#fff',
+                            border: `1px solid ${lot.lotCompleted ? '#bbf7d0' : '#e2e8f0'}`,
+                            fontSize: 11,
+                          }}
+                        >
+                          <div style={{ fontWeight: 800, color: '#0f4c81' }}>{lot.lotNumber}</div>
+                          <div style={{ color: '#64748b', marginTop: 2 }}>
+                            {lot.lotStatus} · {lot.returnedCount} returned
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {importReturnedRows.length ? (
+                    <>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
+                        Returned products — check lot & remark
+                      </div>
+                      <div
+                        style={{
+                          overflow: 'auto',
+                          maxHeight: 'min(40vh, 360px)',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 10,
+                        }}
+                      >
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: '#f1f5f9', textAlign: 'left', position: 'sticky', top: 0, zIndex: 1 }}>
+                              {ADMIN_EXCEL_IMPORT_DONE_COLUMNS.map((col) => (
+                                <th
+                                  key={`done-${col.key}`}
                                   style={{
-                                    display: 'inline-block',
-                                    padding: '3px 8px',
-                                    borderRadius: 999,
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    background: tone.bg,
-                                    color: tone.fg,
-                                    border: `1px solid ${tone.bd}`,
+                                    padding: '9px 10px',
+                                    fontWeight: 700,
+                                    color: '#475569',
+                                    whiteSpace: 'nowrap',
+                                    minWidth: col.minWidth,
+                                    textAlign: col.align || 'left',
+                                    borderBottom: '1px solid #e2e8f0',
                                   }}
                                 >
-                                  {item.matchStatus || '—'}
-                                </span>
-                              </td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9', maxWidth: 220 }}>{item.message || '—'}</td>
-                              <td style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9', minWidth: 140 }}>
-                                {item.canSampleIn ? (
-                                  <input
-                                    type="text"
-                                    placeholder="Optional"
-                                    value={importProductRemarks[remarkKey] || ''}
-                                    onChange={(e) =>
-                                      setImportProductRemarks((prev) => ({ ...prev, [remarkKey]: e.target.value }))
-                                    }
-                                    style={{
-                                      width: '100%',
-                                      padding: '5px 7px',
-                                      fontSize: 10,
-                                      borderRadius: 6,
-                                      border: '1px solid #e2e8f0',
-                                      boxSizing: 'border-box',
-                                    }}
-                                  />
-                                ) : (
-                                  '—'
-                                )}
-                              </td>
+                                  {col.label}
+                                </th>
+                              ))}
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : null}
-
-              {importStep === 'done' && importConfirmResult ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div
-                    style={{
-                      padding: '12px 14px',
-                      borderRadius: 10,
-                      background: '#ecfdf5',
-                      border: '1px solid #bbf7d0',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: '#047857',
-                    }}
-                  >
-                    {importConfirmResult.message ||
-                      `${importConfirmResult.returnedCount} product(s) returned across ${importConfirmResult.lotsAffected} lot(s).`}
-                  </div>
-                  {(importConfirmResult.lots || []).map((lot) => (
-                    <div
-                      key={lot.lotId ?? lot.lotNumber}
-                      style={{
-                        border: '1px solid #e2e8f0',
-                        borderRadius: 10,
-                        padding: '10px 12px',
-                        background: lot.lotCompleted ? '#f0fdf4' : '#fff',
-                      }}
-                    >
-                      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f4c81' }}>
-                        {lot.lotNumber} — {lot.lotStatus}
-                        {lot.lotCompleted ? ' (Completed)' : ''}
+                          </thead>
+                          <tbody>
+                            {importReturnedRows.map((row, idx) => {
+                              const remarkText =
+                                row.adminReturnRemark ||
+                                importProductRemarks[row.lotItemId] ||
+                                importProductRemarks[String(row.lotItemId)] ||
+                                '—';
+                              const cell = (value, extra = {}) => (
+                                <td
+                                  style={{
+                                    padding: '8px 10px',
+                                    borderTop: '1px solid #f1f5f9',
+                                    ...extra,
+                                  }}
+                                >
+                                  {value || '—'}
+                                </td>
+                              );
+                              return (
+                                <tr key={`done-row-${row.lotItemId ?? idx}`} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                                  {ADMIN_EXCEL_IMPORT_DONE_COLUMNS.map((col) => {
+                                    if (col.key === 'status') {
+                                      return (
+                                        <td key={`done-${row.lotItemId}-status`} style={{ padding: '8px 10px', borderTop: '1px solid #f1f5f9' }}>
+                                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#047857', fontWeight: 700, fontSize: 11 }}>
+                                            <FaCheckCircle size={12} /> Done
+                                          </span>
+                                        </td>
+                                      );
+                                    }
+                                    const value = getAdminExcelImportCellValue(row, col.key, { remarkText });
+                                    const extra =
+                                      col.key === 'lotNumber'
+                                        ? { fontWeight: 700, color: '#0f4c81' }
+                                        : col.key === 'employeeName'
+                                          ? { fontWeight: 600, color: '#0f766e' }
+                                          : col.align === 'right'
+                                            ? { textAlign: 'right' }
+                                            : col.nowrap
+                                              ? { whiteSpace: 'nowrap' }
+                                              : col.key === 'remark'
+                                                ? { fontSize: 11, color: '#475569' }
+                                                : {};
+                                    return cell(value, extra);
+                                  })}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                        Returned {lot.returnedCount} · {lot.message || 'OK'}
-                      </div>
-                    </div>
-                  ))}
-                  {(importConfirmResult.skippedItems || []).length ? (
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8, color: '#b91c1c' }}>Skipped rows</div>
-                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: '#64748b' }}>
-                        {importConfirmResult.skippedItems.map((item) => (
-                          <li key={`skip-${item.rowNumber}-${item.rfidCode}`}>
-                            Row {item.rowNumber}: {item.message || item.matchStatus}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                    </>
                   ) : null}
                 </div>
               ) : null}
@@ -5900,7 +6532,7 @@ const SampleOutList = ({
                   <button
                     type="button"
                     onClick={runImportConfirm}
-                    disabled={importConfirmLoading || !importPreview?.readyCount}
+                    disabled={importConfirmLoading || !importPreview?.canReturnCount}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -5908,21 +6540,47 @@ const SampleOutList = ({
                       padding: '8px 16px',
                       borderRadius: 8,
                       border: 'none',
-                      background: importConfirmLoading || !importPreview?.readyCount ? '#94a3b8' : '#059669',
+                      background: importConfirmLoading || !importPreview?.canReturnCount ? '#94a3b8' : '#059669',
                       color: '#fff',
                       fontSize: 12,
                       fontWeight: 700,
-                      cursor: importConfirmLoading || !importPreview?.readyCount ? 'not-allowed' : 'pointer',
+                      cursor: importConfirmLoading || !importPreview?.canReturnCount ? 'not-allowed' : 'pointer',
                     }}
                   >
                     {importConfirmLoading ? <FaSpinner className="fa-spin" /> : <FaCheckCircle />}
-                    Confirm sample in ({importPreview?.readyCount || 0})
+                    Sample in all ({importPreview?.canReturnCount || 0})
                   </button>
                 </>
+              ) : null}
+              {importStep === 'done' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeImportModal();
+                    fetchSampleOutList();
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#0f4c81',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FaInbox size={13} />
+                  View sample lots
+                </button>
               ) : null}
               <button
                 type="button"
                 onClick={closeImportModal}
+                disabled={importStep === 'processing'}
                 style={{
                   padding: '8px 14px',
                   borderRadius: 8,
@@ -5930,7 +6588,8 @@ const SampleOutList = ({
                   background: '#fff',
                   fontSize: 12,
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: importStep === 'processing' ? 'not-allowed' : 'pointer',
+                  opacity: importStep === 'processing' ? 0.6 : 1,
                 }}
               >
                 {importStep === 'done' ? 'Close' : 'Cancel'}

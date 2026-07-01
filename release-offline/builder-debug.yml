@@ -96,8 +96,8 @@ nsis:
     !addincludedir "C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\build"
     !include "C:\Users\sagar\OneDrive\Desktop\RFID API Dashboard\RFID API React (2)\RFID API React\build-resources\installer-rfid-prereqs.nsh"
     !addplugindir /x86-unicode "C:\Users\sagar\AppData\Local\electron-builder\Cache\nsis\nsis-resources-3.4.1-nsis-resources-3.4.1\plugins\x86-unicode"
-    !include "C:\Users\sagar\AppData\Local\Temp\t-aKr4U1\2-messages.nsh"
-    !include "C:\Users\sagar\AppData\Local\Temp\t-aKr4U1\3-messages.nsh"
+    !include "C:\Users\sagar\AppData\Local\Temp\t-VLijHQ\2-messages.nsh"
+    !include "C:\Users\sagar\AppData\Local\Temp\t-VLijHQ\3-messages.nsh"
 
     Var newStartMenuLink
     Var oldStartMenuLink

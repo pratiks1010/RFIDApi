@@ -1650,6 +1650,11 @@ const SampleOut = () => {
   const [inlineTrayTagCount, setInlineTrayTagCount] = useState(0);
   const inlineTrayTagsRef = useRef(new Set());
   const inlineTrayUnsubRef = useRef(null);
+  const startInlineTrayScanRef = useRef(null);
+  const stopInlineTrayScanRef = useRef(null);
+  const trayKeyboardRef = useRef({});
+  const scanReviewOkRef = useRef(null);
+  const INLINE_TRAY_IDLE_MS = 1200;
   const [showCustomerSidebar, setShowCustomerSidebar] = useState(false);
   const [showVendorSidebar, setShowVendorSidebar] = useState(false);
   const [showEmployeeSidebar, setShowEmployeeSidebar] = useState(false);
@@ -3423,6 +3428,73 @@ const formatScannedTime = (date) => {
       setInlineTrayBusy(false);
     }
   };
+
+  startInlineTrayScanRef.current = startInlineTrayScan;
+  stopInlineTrayScanRef.current = stopInlineTrayScan;
+
+  trayKeyboardRef.current = {
+    trayEnabled,
+    scanReviewModal,
+    inlineTrayScanning,
+    inlineTrayBusy,
+    showRfidTrayModal,
+    showConfirmSampleIn,
+    showConfirmSampleOut,
+    scanChecking,
+    loading,
+  };
+
+  const isTrayTypingTarget = (el) => {
+    if (!el) return false;
+    const tag = String(el.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+  };
+
+  // Space bar fast cycle: start scan → stop & load → close review popup → start again.
+  useEffect(() => {
+    if (!trayEnabled) return undefined;
+    const onKeyDown = (e) => {
+      if (e.code !== 'Space' && e.key !== ' ') return;
+      if (e.repeat) return;
+      if (isTrayTypingTarget(e.target)) return;
+
+      const s = trayKeyboardRef.current;
+      if (!s.trayEnabled) return;
+      if (s.showRfidTrayModal || s.showConfirmSampleIn || s.showConfirmSampleOut) return;
+      if (s.scanChecking || s.loading) return;
+
+      e.preventDefault();
+
+      if (s.scanReviewModal) {
+        setScanReviewModal(null);
+        return;
+      }
+      if (s.inlineTrayBusy) return;
+
+      if (s.inlineTrayScanning) {
+        stopInlineTrayScanRef.current?.();
+        return;
+      }
+      startInlineTrayScanRef.current?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [trayEnabled]);
+
+  // Auto-finish tray scan when tags stop arriving (backup if user does not press Space).
+  useEffect(() => {
+    if (!inlineTrayScanning || inlineTrayBusy || inlineTrayTagCount === 0) return undefined;
+    const timer = setTimeout(() => {
+      stopInlineTrayScanRef.current?.();
+    }, INLINE_TRAY_IDLE_MS);
+    return () => clearTimeout(timer);
+  }, [inlineTrayScanning, inlineTrayBusy, inlineTrayTagCount]);
+
+  useEffect(() => {
+    if (!scanReviewModal) return undefined;
+    const timer = requestAnimationFrame(() => scanReviewOkRef.current?.focus());
+    return () => cancelAnimationFrame(timer);
+  }, [scanReviewModal]);
 
   useEffect(() => () => {
     // On unmount: detach tag listeners and stop the reader if still scanning.
@@ -5409,7 +5481,7 @@ const formatScannedTime = (date) => {
                         type="button"
                         onClick={startInlineTrayScan}
                         disabled={inlineTrayBusy}
-                        title="Start tray scan — scanned items load into the grid"
+                        title="Start tray scan (Space)"
                         style={{
                           flex: '0 0 auto',
                           height: 28,
@@ -5439,7 +5511,7 @@ const formatScannedTime = (date) => {
                         type="button"
                         onClick={stopInlineTrayScan}
                         disabled={inlineTrayBusy}
-                        title="Stop tray scan and load scanned items into the grid"
+                        title="Stop tray scan and load into grid (Space)"
                         style={{
                           flex: '0 0 auto',
                           height: 28,
@@ -5465,6 +5537,21 @@ const formatScannedTime = (date) => {
                         Stop ({inlineTrayTagCount})
                       </button>
                     )}
+                    <span
+                      title="Space — start scan · stop & load · close result popup"
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: '#64748b',
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        background: '#f1f5f9',
+                        border: '1px solid #e2e8f0',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Space
+                    </span>
                     <button
                       type="button"
                       onClick={handleReloadPage}
@@ -6548,76 +6635,89 @@ const formatScannedTime = (date) => {
         const modalTone = scanReviewModalTone(scanReviewModal.sections);
         const toneTheme = SCAN_POPUP_THEME[modalTone] || SCAN_POPUP_THEME.info;
         const isErrorModal = modalTone === 'error';
+        const isSuccessModal = modalTone === 'success';
+        const headerBg = isErrorModal
+          ? 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)'
+          : isSuccessModal
+            ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)'
+            : 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)';
+        const closeReviewModal = () => setScanReviewModal(null);
         return (
         <div
           className="scan-review-overlay"
           style={{
             position: 'fixed',
             inset: 0,
-            background: isErrorModal ? 'rgba(127, 29, 29, 0.45)' : 'rgba(15, 23, 42, 0.55)',
+            background: isErrorModal ? 'rgba(127, 29, 29, 0.5)' : 'rgba(15, 23, 42, 0.58)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 10080,
-            padding: 16,
+            padding: 20,
             animation: 'scanOverlayIn 0.25s ease-out',
           }}
-          onClick={() => setScanReviewModal(null)}
+          onClick={closeReviewModal}
         >
           <div
             className={isErrorModal ? 'scan-review-dialog scan-review-dialog--error' : 'scan-review-dialog'}
             style={{
               background: '#fff',
-              borderRadius: 14,
-              maxWidth: 560,
+              borderRadius: 18,
+              maxWidth: 680,
               width: '100%',
-              maxHeight: '88vh',
+              maxHeight: '90vh',
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
               boxShadow: isErrorModal
-                ? '0 24px 48px rgba(220, 38, 38, 0.22)'
-                : '0 24px 48px rgba(0,0,0,0.2)',
-              border: isErrorModal ? `2px solid ${toneTheme.border}` : 'none',
+                ? '0 28px 56px rgba(220, 38, 38, 0.28)'
+                : '0 28px 56px rgba(15, 23, 42, 0.22)',
+              border: `2px solid ${toneTheme.border}`,
               animation: 'scanModalIn 0.32s cubic-bezier(0.34, 1.4, 0.64, 1)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
               style={{
-                padding: '18px 20px 12px',
-                borderBottom: `1px solid ${isErrorModal ? '#fecaca' : '#e2e8f0'}`,
-                background: isErrorModal ? '#fef2f2' : '#fff',
+                padding: '22px 24px 18px',
+                borderBottom: `1px solid ${toneTheme.border}`,
+                background: headerBg,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
-                  {isErrorModal ? (
-                    <div
-                      className="scan-error-icon-pulse"
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: '50%',
-                        background: '#fee2e2',
-                        border: `2px solid ${toneTheme.border}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                        animation: 'scanErrorIconIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                      }}
-                    >
-                      <FaExclamationCircle size={20} color={toneTheme.icon} />
-                    </div>
-                  ) : null}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 14,
+                      background: '#fff',
+                      border: `2px solid ${toneTheme.border}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: '0 4px 12px rgba(15, 23, 42, 0.08)',
+                      animation: isErrorModal ? 'scanErrorIconIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)' : undefined,
+                    }}
+                  >
+                    {isErrorModal ? (
+                      <FaExclamationCircle size={26} color={toneTheme.icon} />
+                    ) : isSuccessModal ? (
+                      <FaCheckCircle size={26} color={toneTheme.icon} />
+                    ) : (
+                      <FaInbox size={24} color={toneTheme.icon} />
+                    )}
+                  </div>
                   <div style={{ minWidth: 0 }}>
                     <h2
                       style={{
                         margin: 0,
-                        fontSize: 18,
+                        fontSize: 24,
                         fontWeight: 800,
-                        color: isErrorModal ? '#991b1b' : '#0f172a',
+                        color: toneTheme.fg,
+                        letterSpacing: '-0.02em',
+                        lineHeight: 1.25,
                       }}
                     >
                       {scanReviewModal.title}
@@ -6625,10 +6725,11 @@ const formatScannedTime = (date) => {
                     {scanReviewModal.subtitle ? (
                       <p
                         style={{
-                          margin: '6px 0 0',
-                          fontSize: 12,
-                          color: isErrorModal ? '#b91c1c' : '#64748b',
-                          lineHeight: 1.55,
+                          margin: '8px 0 0',
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: isErrorModal ? '#b91c1c' : '#475569',
+                          lineHeight: 1.45,
                         }}
                       >
                         {scanReviewModal.subtitle}
@@ -6638,20 +6739,27 @@ const formatScannedTime = (date) => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setScanReviewModal(null)}
+                  onClick={closeReviewModal}
+                  aria-label="Close"
                   style={{
                     border: 'none',
-                    background: 'none',
+                    background: 'rgba(255,255,255,0.7)',
+                    borderRadius: 8,
+                    width: 36,
+                    height: 36,
                     cursor: 'pointer',
-                    color: isErrorModal ? '#b91c1c' : '#64748b',
+                    color: '#64748b',
                     flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   <FaTimes size={18} />
                 </button>
               </div>
             </div>
-            <div style={{ padding: '12px 16px 16px', overflowY: 'auto', flex: 1 }}>
+            <div style={{ padding: '16px 20px 20px', overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
               {(scanReviewModal.sections || []).map((section, si) => {
                 const theme = SCAN_POPUP_THEME[section.type] || SCAN_POPUP_THEME.info;
                 const rows = section.rows || [];
@@ -6661,51 +6769,70 @@ const formatScannedTime = (date) => {
                   <div
                     key={`scan-sec-${si}`}
                     style={{
-                      marginBottom: 12,
+                      marginBottom: 14,
                       border: `1px solid ${theme.border}`,
-                      borderRadius: 10,
+                      borderRadius: 14,
                       overflow: 'hidden',
-                      background: theme.bg,
+                      background: '#fff',
+                      boxShadow: '0 2px 10px rgba(15, 23, 42, 0.06)',
                       animation: isErrorSection ? 'scanErrorShake 0.55s ease 0.15s' : undefined,
                     }}
                   >
                     <div
                       style={{
-                        padding: '8px 12px',
-                        fontSize: 12,
+                        padding: '12px 16px',
+                        fontSize: 15,
                         fontWeight: 800,
                         color: theme.fg,
                         borderBottom: `1px solid ${theme.border}`,
+                        background: theme.bg,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 6,
+                        gap: 8,
                       }}
                     >
-                      {isErrorSection ? <FaExclamationCircle size={13} color={theme.icon} /> : null}
+                      {isErrorSection ? (
+                        <FaExclamationCircle size={16} color={theme.icon} />
+                      ) : section.type === 'success' ? (
+                        <FaCheckCircle size={16} color={theme.icon} />
+                      ) : null}
                       {section.heading}
                     </div>
-                    <ul style={{ margin: 0, padding: '10px 12px', listStyle: 'none', fontSize: 12 }}>
+                    <ul style={{ margin: 0, padding: '12px 14px', listStyle: 'none' }}>
                       {rows.slice(0, cap).map((row, ri) => (
                         <li
                           key={`${si}-${ri}-${row.itemCode}`}
                           style={{
-                            padding: '8px 0',
-                            borderBottom: ri < Math.min(rows.length, cap) - 1 ? `1px solid ${theme.border}` : 'none',
+                            padding: '12px 14px',
+                            marginBottom: ri < Math.min(rows.length, cap) - 1 ? 8 : 0,
+                            borderRadius: 10,
+                            border: `1px solid ${theme.border}`,
+                            background: theme.bg,
                             color: theme.fg,
-                            lineHeight: 1.55,
+                            lineHeight: 1.5,
                           }}
                         >
-                          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 4, letterSpacing: '-0.01em' }}>
                             {row.itemCode}
                             {row.rfid && row.rfid !== '—' ? (
-                              <span style={{ fontWeight: 600, opacity: 0.88 }}> · RFID {row.rfid}</span>
+                              <span style={{ fontWeight: 700, fontSize: 15, opacity: 0.9 }}>
+                                {' '}
+                                · RFID {row.rfid}
+                              </span>
                             ) : null}
                           </div>
-                          <div style={{ opacity: 0.95 }}>{row.message}</div>
+                          <div style={{ fontSize: 14, fontWeight: 600, opacity: 0.92 }}>{row.message}</div>
                         </li>
                       ))}
                       {rows.length > cap ? (
-                        <li style={{ padding: '8px 0 0', color: theme.fg, fontWeight: 700 }}>
+                        <li
+                          style={{
+                            padding: '10px 14px',
+                            color: theme.fg,
+                            fontWeight: 700,
+                            fontSize: 14,
+                          }}
+                        >
                           + {rows.length - cap} more — use grid filter to find items
                         </li>
                       ) : null}
@@ -6716,28 +6843,76 @@ const formatScannedTime = (date) => {
             </div>
             <div
               style={{
-                padding: '12px 16px',
-                borderTop: `1px solid ${isErrorModal ? '#fecaca' : '#e2e8f0'}`,
-                textAlign: 'right',
-                background: isErrorModal ? '#fffbfb' : '#fff',
+                padding: '16px 20px',
+                borderTop: `1px solid ${toneTheme.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                background: '#fff',
               }}
             >
+              {trayEnabled ? (
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>
+                  Press{' '}
+                  <kbd
+                    style={{
+                      display: 'inline-block',
+                      padding: '3px 10px',
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      background: '#f1f5f9',
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: '#0f172a',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    Space
+                  </kbd>{' '}
+                  for next scan
+                </span>
+              ) : (
+                <span />
+              )}
               <button
+                ref={scanReviewOkRef}
                 type="button"
-                onClick={() => setScanReviewModal(null)}
+                onClick={closeReviewModal}
                 style={{
-                  padding: '10px 20px',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: isErrorModal ? '1px solid #dc2626' : '1px solid #cbd5e1',
-                  background: isErrorModal ? '#dc2626' : '#fff',
-                  color: isErrorModal ? '#fff' : '#0f172a',
+                  padding: '12px 28px',
+                  fontSize: 16,
+                  fontWeight: 800,
+                  borderRadius: 10,
+                  border: 'none',
+                  background: isErrorModal
+                    ? 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
+                    : 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                  color: '#fff',
                   cursor: 'pointer',
-                  boxShadow: isErrorModal ? '0 4px 12px rgba(220, 38, 38, 0.28)' : 'none',
+                  boxShadow: isErrorModal
+                    ? '0 6px 16px rgba(220, 38, 38, 0.32)'
+                    : '0 6px 16px rgba(5, 150, 105, 0.32)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 10,
                 }}
               >
-                {isErrorModal ? 'Got It' : 'OK'}
+                {isErrorModal ? 'Got It' : 'Continue'}
+                {trayEnabled ? (
+                  <kbd
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 5,
+                      background: 'rgba(255,255,255,0.22)',
+                      fontSize: 13,
+                      fontWeight: 800,
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    Space
+                  </kbd>
+                ) : null}
               </button>
             </div>
           </div>

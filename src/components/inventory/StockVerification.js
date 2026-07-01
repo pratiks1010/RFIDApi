@@ -30,6 +30,10 @@ import {
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useLoading } from '../../App';
+import {
+  fetchFullStockVerificationSession,
+  getSessionListDisplayQty,
+} from '../../utils/stockVerificationSessionUtils';
 
 /** Teal theme — distinct from Sample Out (red) / Sample In palettes */
 const SV = {
@@ -582,47 +586,13 @@ const StockVerification = () => {
   const fetchSessionDetails = async (scanBatchId) => {
     try {
       setDetailsLoading(true);
-      
-      const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllStockVerificationBySession',
-        {
-          clientCode,
-          scanBatchId,
-          pageNumber: 1,
-          pageSize: 1000,
-          returnAllData: false,
-          status: null,
-          counterName: null,
-          categoryName: null,
-          productName: null,
-          designName: null,
-          purityName: null,
-          companyName: null,
-          branchName: null,
-          fromDate: null,
-          toDate: null
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
 
-      console.log('Session Details Response:', response.data);
-      const normalizedDetails = {
-        ...response.data,
-        ScanBatchId: response.data.ScanBatchId ?? response.data.scanBatchId,
-        SessionId: response.data.SessionId ?? response.data.sessionId,
-        SessionNumber: response.data.SessionNumber ?? response.data.sessionNumber,
-        BatchName: response.data.BatchName ?? response.data.batchName,
-        BranchId: response.data.BranchId ?? response.data.branchId,
-        BranchName: response.data.BranchName ?? response.data.branchName,
-        TotalSessions: response.data.TotalSessions ?? response.data.totalSessions,
-        MatchedList: response.data.MatchedList ?? response.data.matchedList ?? [],
-        UnmatchedList: response.data.UnmatchedList ?? response.data.unmatchedList ?? [],
-        Totals: response.data.Totals ?? response.data.totals ?? {}
-      };
+      const token = localStorage.getItem('token');
+      const normalizedDetails = await fetchFullStockVerificationSession(clientCode, scanBatchId, {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      });
+
+      console.log('Session Details Response:', normalizedDetails);
       setSessionDetails(normalizedDetails);
       
     } catch (err) {
@@ -2706,7 +2676,7 @@ const StockVerification = () => {
                           padding: '2px 8px',
                           borderRadius: '12px',
                             fontWeight: 600
-                          }}>{filteredMatchedList.length} items</span>
+                          }}>{getSessionListDisplayQty(filteredMatchedList)} items</span>
                           </div>
                         <div style={{ position: 'relative', width: '150px' }}>
                           <FaSearch style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
@@ -2855,7 +2825,7 @@ const StockVerification = () => {
                           padding: '2px 8px',
                           borderRadius: '12px',
                             fontWeight: 600
-                          }}>{filteredUnmatchedList.length} items</span>
+                          }}>{getSessionListDisplayQty(filteredUnmatchedList)} items</span>
                           </div>
                         <div style={{ position: 'relative', width: '150px' }}>
                           <FaSearch style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />

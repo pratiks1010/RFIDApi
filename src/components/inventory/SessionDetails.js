@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { toast } from 'react-toastify';
 import * as XLSX from 'xlsx';
 import { 
@@ -17,6 +16,10 @@ import {
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
+import {
+  fetchFullStockVerificationSession,
+  getSessionListDisplayQty,
+} from '../../utils/stockVerificationSessionUtils';
 
 const SessionDetails = () => {
   const { sessionId } = useParams();
@@ -105,22 +108,14 @@ const SessionDetails = () => {
       setLoading(true);
       setGlobalLoading(true);
       setError(null);
-      
-      const response = await axios.post(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllStockVerificationBySession',
-        {
-          ClientCode: clientCode,
-          ScanBatchId: scanBatchId
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
 
-      console.log('Session Details Response:', response.data);
-      setSessionDetails(response.data);
+      const token = localStorage.getItem('token');
+      const session = await fetchFullStockVerificationSession(clientCode, scanBatchId, {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      });
+
+      console.log('Session Details Response:', session);
+      setSessionDetails(session);
       
     } catch (err) {
       console.error('Error fetching session details:', err);
@@ -170,8 +165,10 @@ const SessionDetails = () => {
         ['Match Weight:', `${sessionDetails.Totals?.TotalMatchGrossWeight || 0}g`],
         [''],
         ['Export Details'],
-        ['Matched Items Count:', sessionDetails.MatchedList?.length || 0],
-        ['Unmatched Items Count:', sessionDetails.UnmatchedList?.length || 0]
+        ['Matched rows:', sessionDetails.MatchedList?.length || 0],
+        ['Unmatched rows:', sessionDetails.UnmatchedList?.length || 0],
+        ['Matched qty:', sessionDetails.Totals?.TotalMatchQty || 0],
+        ['Unmatched qty:', sessionDetails.Totals?.TotalUnmatchQty || 0]
       ];
 
       const summaryWS = XLSX.utils.aoa_to_sheet(summaryData);
@@ -568,7 +565,7 @@ const SessionDetails = () => {
                 padding: '4px 12px',
                 borderRadius: '12px',
                 fontWeight: 600
-              }}>{filteredMatchedList.length} items</span>
+              }}>{getSessionListDisplayQty(filteredMatchedList)} items</span>
             </div>
             <div style={{ position: 'relative', width: '180px' }}>
               <FaSearch style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
@@ -765,7 +762,7 @@ const SessionDetails = () => {
               background: '#f8fafc'
             }}>
               <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Showing {((matchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(matchedPage * tableItemsPerPage, filteredMatchedList.length)} of {filteredMatchedList.length} items
+                Showing {((matchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(matchedPage * tableItemsPerPage, filteredMatchedList.length)} of {filteredMatchedList.length} rows ({getSessionListDisplayQty(filteredMatchedList)} qty)
               </span>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 
@@ -879,7 +876,7 @@ const SessionDetails = () => {
                 borderRadius: '12px',
                 marginLeft: 'auto',
                 fontWeight: 600
-              }}>{filteredUnmatchedList.length} items</span>
+              }}>{getSessionListDisplayQty(filteredUnmatchedList)} items</span>
             </div>
             <div style={{ position: 'relative', width: '180px' }}>
               <FaSearch style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
@@ -1076,7 +1073,7 @@ const SessionDetails = () => {
               background: '#f8fafc'
             }}>
               <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Showing {((unmatchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(unmatchedPage * tableItemsPerPage, filteredUnmatchedList.length)} of {filteredUnmatchedList.length} items
+                Showing {((unmatchedPage - 1) * tableItemsPerPage) + 1} to {Math.min(unmatchedPage * tableItemsPerPage, filteredUnmatchedList.length)} of {filteredUnmatchedList.length} rows ({getSessionListDisplayQty(filteredUnmatchedList)} qty)
               </span>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button 

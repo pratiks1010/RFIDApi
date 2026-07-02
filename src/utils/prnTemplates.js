@@ -229,12 +229,31 @@ const resolveLS000606BarcodePayload = (itemCode) => {
   return `${String.fromCharCode(14)}&${prefix}${String.fromCharCode(14)}'${suffix}`;
 };
 
-const resolveLS000606EpcHex = (item) => {
+const resolveLS000606EpcMemory = (item) => {
   const source = String(item.ItemCode || item.RFIDCode || '').trim();
-  let rawEpcHex = stringToHex(source);
-  if (rawEpcHex.length < 16) rawEpcHex = rawEpcHex.padStart(16, '0');
-  if (rawEpcHex.length > 16) rawEpcHex = rawEpcHex.substring(0, 16);
-  return rawEpcHex;
+  let hexEpc = stringToHex(source).replace(/[^0-9A-F]/g, '');
+
+  if (!hexEpc) {
+    return { epcBits: 48, pcValue: '*1800*', epcHex: '000000000000' };
+  }
+
+  if (hexEpc.length > 12) {
+    hexEpc = hexEpc.substring(0, 12);
+  }
+
+  if (hexEpc.length % 4 !== 0) {
+    const remainder = hexEpc.length % 4;
+    const padLength = 4 - remainder;
+    hexEpc = hexEpc.padStart(hexEpc.length + padLength, '0');
+  }
+
+  const epcBytes = hexEpc.length / 2;
+  const epcBits = epcBytes * 8;
+  const epcWords = epcBits / 16;
+  const pcDecimal = epcWords << 11;
+  const pcValue = `*${pcDecimal.toString(16).toUpperCase().padStart(4, '0')}*`;
+
+  return { epcBits, pcValue, epcHex: hexEpc };
 };
 
 const generateLS000606Prn = (item) => {
@@ -251,7 +270,7 @@ const generateLS000606Prn = (item) => {
   const makingCharge = prnQuote(resolveLS000606MakingCharge(item));
   const purity = prnQuote(String(item.PurityName || item.Purity || item.purity || '').trim());
   const barcodePayload = prnQuote(resolveLS000606BarcodePayload(itemCode));
-  const epcHex = resolveLS000606EpcHex(item);
+  const { epcBits, pcValue, epcHex } = resolveLS000606EpcMemory(item);
   const pcsLabel = isSilver ? 'S.PCS :' : 'D.PCS :';
   const pcsValue = isSilver ? stonePcs : diamondPcs;
   const purityLine = isSilver ? `\nINV;POINT;56;360;7;7;"${purity}"` : '';
@@ -277,10 +296,10 @@ END
 SCALE;DOT;203;203
 ISET;'UTF8'
 RFWTAG;16;PC
-16;H;*2400*
+16;H;${pcValue}
 STOP
-RFWTAG;64;EPC
-64;H;*${epcHex}*
+RFWTAG;${epcBits};EPC
+${epcBits};H;*${epcHex}*
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA
@@ -314,7 +333,6 @@ END
 ~DELETE FORM;FORM-0
 `;
 };
-
 // Generate PRN for LS000443 - Gold Category (matches client sample layout)
 const generateLS000443GoldPrn = (item) => {
   const itemCode = item.ItemCode || '';

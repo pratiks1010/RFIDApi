@@ -17,8 +17,9 @@ describe('LS000606 PRN generation', () => {
   it('generates a gold label PRN for LS000606', () => {
     const prn = generateClientPrn(baseItem, 'LS000606');
 
-    expect(prn).toContain('RFWTAG;64;EPC');
-    expect(prn).toContain('*4E53505931303634*');
+    expect(prn).toContain('RFWTAG;48;EPC');
+    expect(prn).toContain('16;H;*1800*');
+    expect(prn).toContain('*4E5350593130*');
     expect(prn).toContain('G DORLE');
     expect(prn).toContain('AASHIRWAD ALANKAR');
     expect(prn).toContain('15/-');
@@ -37,8 +38,9 @@ describe('LS000606 PRN generation', () => {
       'LS000606'
     );
 
-    expect(prn).toContain('RFWTAG;64;EPC');
-    expect(prn).toContain('*4E444F5230303539*');
+    expect(prn).toContain('RFWTAG;48;EPC');
+    expect(prn).toContain('16;H;*1800*');
+    expect(prn).toContain('*4E444F523030*');
     expect(prn).toContain('S PAYAL');
     expect(prn).toContain('916 HM');
   });

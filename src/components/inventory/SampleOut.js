@@ -225,6 +225,137 @@ const normalizeScanRows = (scanned) => {
     .filter(Boolean);
 };
 
+const looksLikeTrayEpc = (value) => {
+  const text = String(value || '').trim().toUpperCase();
+  return text.length >= 20 && /^[0-9A-F]+$/.test(text);
+};
+
+const RFID_CODE_LOOKUP_URL =
+  process.env.REACT_APP_RFID_EPC_LOOKUP_URL || toSoniApiUrl('/api/RFIDDashboard/GetRFIDCodesByEPCValues');
+
+const extractRfidMappingFromEpcLookup = (raw) => {
+  const normalizeRows = (value) => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.Items)) return value.Items;
+    if (value && typeof value === 'object') {
+      return Object.entries(value).map(([epc, rfid]) => ({ EPCValue: epc, RFIDCode: rfid }));
+    }
+    return [];
+  };
+
+  const rowSources = [
+    raw?.items,
+    raw?.Items,
+    raw?.Data?.items,
+    raw?.Data?.Items,
+    raw?.data?.items,
+    raw?.data?.Items,
+    raw?.Result?.items,
+    raw?.Result?.Items,
+    raw?.result?.items,
+    raw?.result?.Items,
+    raw?.Data,
+    raw?.data,
+    raw?.Result,
+    raw?.result,
+    raw,
+  ];
+  const rows = rowSources.map(normalizeRows).find((sourceRows) => sourceRows.length > 0) || [];
+
+  const map = {};
+  rows.forEach((item) => {
+    const epc = String(
+      item?.EPCValue ||
+        item?.EpcValue ||
+        item?.epcValue ||
+        item?.EPC ||
+        item?.epc ||
+        item?.TIDNumber ||
+        item?.TidNumber ||
+        item?.tidNumber ||
+        item?.RequestedIdentifier ||
+        ''
+    )
+      .trim()
+      .toUpperCase();
+    const rfid = String(
+      item?.RFIDCode ||
+        item?.RfidCode ||
+        item?.rfidCode ||
+        item?.RFIDNumber ||
+        item?.RfidNumber ||
+        item?.rfidNumber ||
+        item?.RFID ||
+        item?.rfid ||
+        item?.Barcode ||
+        item?.BarCode ||
+        item?.barcode ||
+        item?.TagCode ||
+        ''
+    ).trim();
+    if (epc && rfid && !looksLikeTrayEpc(rfid)) {
+      map[epc] = rfid;
+    }
+  });
+  return map;
+};
+
+const fetchRfidCodesByEpcValues = async (clientCode, epcValues, headers) => {
+  const normalized = [
+    ...new Set(
+      (epcValues || [])
+        .map((item) => String(item || '').trim().toUpperCase())
+        .filter(Boolean)
+    ),
+  ];
+  if (!normalized.length) return {};
+
+  const { data } = await axios.post(
+    RFID_CODE_LOOKUP_URL,
+    {
+      ClientCode: clientCode || undefined,
+      EPCValues: normalized,
+    },
+    { headers, timeout: 45000 }
+  );
+  return extractRfidMappingFromEpcLookup(data);
+};
+
+const enrichScanRowsWithRfidLookup = async (clientCode, scanRows, headers) => {
+  const epcs = (scanRows || []).map((row) => normalizeTrayTagKey(row?.epc)).filter(Boolean);
+  if (!epcs.length) return scanRows || [];
+
+  let mapping = {};
+  try {
+    mapping = await fetchRfidCodesByEpcValues(clientCode, epcs, headers);
+  } catch {
+    mapping = {};
+  }
+
+  return (scanRows || []).map((row) => {
+    const epc = normalizeTrayTagKey(row?.epc);
+    const fromLookup = String(mapping[epc] || '').trim();
+    const existing = String(row?.rfidCode || row?.RFIDCode || '').trim();
+    let rfidCode = '';
+    if (fromLookup && !looksLikeTrayEpc(fromLookup)) rfidCode = fromLookup;
+    else if (existing && !looksLikeTrayEpc(existing)) rfidCode = existing;
+    return { ...row, epc, rfidCode };
+  });
+};
+
+const pickNotFoundTrayRfidLabel = (scan) => {
+  const candidates = [scan?.rfidCode, scan?.RFIDCode, scan?.RFIDNumber, scan?.rfid].map((value) =>
+    String(value || '').trim()
+  );
+  for (const candidate of candidates) {
+    if (candidate && !looksLikeTrayEpc(candidate)) {
+      return candidate.toUpperCase();
+    }
+  }
+  return '';
+};
+
 const normalizeTrayTagKey = (value) => String(value || '').trim().toUpperCase();
 
 const collectMatchedTrayTagKeys = (matchedRows = []) => {
@@ -262,12 +393,15 @@ const buildTrayNotFoundReviewRows = (scanRows = [], matchedRows = []) => {
     if (!tagKeys.length) return;
     if (tagKeys.some((key) => matchedKeys.has(key))) return;
 
-    const displayTag = rfid || epc;
-    if (seen.has(displayTag)) return;
-    seen.add(displayTag);
+    const dedupeKey = epc || rfid;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+
+    const rfidLabel = pickNotFoundTrayRfidLabel(scan);
 
     notFound.push({
-      itemCode: `RFID ${displayTag}`,
+      itemCode: '—',
+      rfid: rfidLabel || 'Unknown',
       message: 'Not found in labelled inventory.',
     });
   });
@@ -3150,11 +3284,11 @@ const formatScannedTime = (date) => {
       };
 
       const sections = [
+        capRows(resolvedNotFound, 'Not found in inventory', 'error'),
         capRows(outAdded, 'Sample Out', 'success'),
         capRows(inQueued, 'Sample In queued', 'info'),
         capRows(blocked, 'Blocked', 'warning'),
         capRows(errors, 'Errors', 'error'),
-        capRows(resolvedNotFound, 'Not found in inventory', 'error'),
       ].filter(Boolean);
 
       const hasOut = outAdded.length > 0;
@@ -3628,14 +3762,16 @@ const formatScannedTime = (date) => {
   };
 
   const handleTrayFetchData = async (scanned) => {
-    const scanRows = normalizeScanRows(scanned);
-    const epcs = scanRows.map((r) => r.epc);
+    let scanRows = normalizeScanRows(scanned);
     const clientCode = resolveClientCodeForSampleApi(userInfo);
-    if (!clientCode || !epcs.length) {
+    if (!clientCode || !scanRows.length) {
       return { success: false, message: 'No RFID tags to load.' };
     }
     setLoading(true);
     try {
+      const trayHeaders = getTrayAuthHeaders();
+      scanRows = await enrichScanRowsWithRfidLookup(clientCode, scanRows, trayHeaders);
+      const epcs = scanRows.map((r) => r.epc);
       const payload = scanRows.map((row) => ({
         ClientCode: clientCode,
         DeviceId: SAMPLE_OUT_TRAY_DEVICE_ID,
@@ -3646,7 +3782,7 @@ const formatScannedTime = (date) => {
       await axios.post(
         toRrgoldApiUrl('/api/RFIDDevice/AddRFID'),
         payload,
-        { headers: getTrayAuthHeaders() }
+        { headers: trayHeaders }
       );
 
       const rows = (await fetchTrayStockRows(clientCode, scanRows)).map((row) => ({
@@ -6933,13 +7069,21 @@ const formatScannedTime = (date) => {
                           }}
                         >
                           <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 4, letterSpacing: '-0.01em' }}>
-                            {row.itemCode}
-                            {row.rfid && row.rfid !== '—' ? (
-                              <span style={{ fontWeight: 700, fontSize: 15, opacity: 0.9 }}>
-                                {' '}
-                                · RFID {row.rfid}
-                              </span>
-                            ) : null}
+                            {row.itemCode && row.itemCode !== '—' ? (
+                              <>
+                                {row.itemCode}
+                                {row.rfid && row.rfid !== '—' ? (
+                                  <span style={{ fontWeight: 700, fontSize: 15, opacity: 0.9 }}>
+                                    {' '}
+                                    · RFID {row.rfid}
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : row.rfid && row.rfid !== '—' ? (
+                              <>RFID {row.rfid}</>
+                            ) : (
+                              '—'
+                            )}
                           </div>
                           <div style={{ fontSize: 14, fontWeight: 600, opacity: 0.92 }}>{row.message}</div>
                         </li>

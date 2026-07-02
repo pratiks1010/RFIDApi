@@ -3141,6 +3141,7 @@ const buildExcelProductRemark = ({ vTypeOut, billDateOut, billNoOut, pNameOut } 
 const normalizeExcelRfidKey = (value) =>
   String(value || '')
     .trim()
+    .replace(/^rfid\s*/i, '')
     .replace(/\s+/g, '')
     .replace(/[^a-zA-Z0-9]/g, '')
     .toUpperCase();
@@ -3157,7 +3158,9 @@ const normalizeExcelItemCodeKey = (value) => {
 const findExcelRowForPreviewProduct = (previewRow, excelRows, usedExcelRowNumbers) => {
   const designKey = normalizeExcelDesignKey(previewRow?.designName || previewRow?.searchedDesign);
   const rfidKey = normalizeExcelRfidKey(previewRow?.rfidCode);
-  const itemKey = normalizeExcelItemCodeKey(previewRow?.itemCode);
+  const itemKey = normalizeExcelItemCodeKey(
+    previewRow?.itemCode ?? previewRow?.ItemCode ?? previewRow?.itemcode
+  );
 
   const isUnused = (excelRow) => !usedExcelRowNumbers.has(excelRow.rowNumber);
 
@@ -3198,19 +3201,28 @@ const findExcelRowForPreviewProduct = (previewRow, excelRows, usedExcelRowNumber
   );
 };
 
-const buildImportProductRemarks = (previewRows, excelRows = []) => {
+const attachExcelRemarksToPreviewRows = (previewRows, excelRows = []) => {
   const remarks = {};
   const usedExcelRowNumbers = new Set();
 
-  previewRows.forEach((row) => {
-    if (!row?.canReturn || row.lotItemId == null) return;
+  const rows = (previewRows || []).map((row) => {
+    if (!row?.canReturn || row.lotItemId == null) return row;
     const excelRow = findExcelRowForPreviewProduct(row, excelRows, usedExcelRowNumbers);
     if (excelRow) usedExcelRowNumbers.add(excelRow.rowNumber);
-    const remark = excelRow?.remark || buildExcelProductRemark(excelRow || {});
+    const remark = String(excelRow?.remark || buildExcelProductRemark(excelRow || {})).trim();
     if (remark) remarks[row.lotItemId] = remark;
+    return {
+      ...row,
+      excelRemark: remark,
+      excelRowNumber: excelRow?.rowNumber ?? null,
+    };
   });
-  return remarks;
+
+  return { remarks, rows };
 };
+
+const buildImportProductRemarks = (previewRows, excelRows = []) =>
+  attachExcelRemarksToPreviewRows(previewRows, excelRows).remarks;
 
 const buildAdminExcelImportProductsPayload = (readyRows, productRemarks, scanMode) =>
   (readyRows || [])
@@ -3386,7 +3398,7 @@ const getAdminExcelImportCellValue = (row, colKey, { remarkText = '' } = {}) => 
     case 'sampleInOnFormatted':
       return row.sampleInOnFormatted;
     case 'remark':
-      return remarkText || row.adminReturnRemark;
+      return remarkText || row.excelRemark || row.adminReturnRemark;
     default:
       return row[colKey];
   }
@@ -3397,6 +3409,7 @@ const ADMIN_EXCEL_IMPORT_PREVIEW_COLUMNS = [
   { key: 'employeeName', label: 'Employee', minWidth: 88 },
   { key: 'designName', label: 'Design No', minWidth: 100 },
   { key: 'rfidCode', label: 'RFID', minWidth: 72 },
+  { key: 'remark', label: 'Remark (Excel)', minWidth: 280, editable: true },
   { key: 'productName', label: 'Product', minWidth: 88 },
   { key: 'categoryName', label: 'Category', minWidth: 80 },
   { key: 'grossWt', label: 'Gr.Wt', minWidth: 56, align: 'right' },
@@ -3404,14 +3417,27 @@ const ADMIN_EXCEL_IMPORT_PREVIEW_COLUMNS = [
   { key: 'counterName', label: 'Counter', minWidth: 72 },
   { key: 'sampleOutOnFormatted', label: 'Sample out', minWidth: 130, nowrap: true },
   { key: 'status', label: 'Status', minWidth: 88 },
-  { key: 'remark', label: 'Remark', minWidth: 220, editable: true },
 ];
+
+const ADMIN_EXCEL_IMPORT_REMARK_CELL_STYLE = (hasRemark) => ({
+  width: '100%',
+  minWidth: 260,
+  padding: '7px 9px',
+  fontSize: 11,
+  fontWeight: hasRemark ? 600 : 500,
+  borderRadius: 6,
+  border: hasRemark ? '1px solid #86efac' : '1px solid #fcd34d',
+  boxSizing: 'border-box',
+  background: hasRemark ? '#f0fdf4' : '#fffbeb',
+  color: hasRemark ? '#14532d' : '#92400e',
+});
 
 const ADMIN_EXCEL_IMPORT_DONE_COLUMNS = [
   { key: 'lotNumber', label: 'Sample lot', minWidth: 88 },
   { key: 'employeeName', label: 'Employee', minWidth: 88 },
   { key: 'designName', label: 'Design No', minWidth: 100 },
   { key: 'rfidCode', label: 'RFID', minWidth: 72 },
+  { key: 'remark', label: 'Remark (Excel)', minWidth: 280 },
   { key: 'productName', label: 'Product', minWidth: 88 },
   { key: 'categoryName', label: 'Category', minWidth: 80 },
   { key: 'grossWt', label: 'Gr.Wt', minWidth: 56, align: 'right' },
@@ -3420,7 +3446,6 @@ const ADMIN_EXCEL_IMPORT_DONE_COLUMNS = [
   { key: 'sampleOutOnFormatted', label: 'Sample out', minWidth: 130, nowrap: true },
   { key: 'sampleInOnFormatted', label: 'Sample in', minWidth: 130, nowrap: true },
   { key: 'status', label: 'Status', minWidth: 88 },
-  { key: 'remark', label: 'Remark', minWidth: 120 },
 ];
 
 const SampleOutList = ({
@@ -4626,17 +4651,23 @@ const SampleOutList = ({
       }
       const parsed = parseAdminExcelSampleInPreview(data);
       const dedupedRows = dedupeAdminExcelPreviewRows(parsed.rows || []);
+      const readyPreviewRows = dedupedRows.filter((row) => row.canReturn);
+      const { remarks: productRemarks, rows: rowsWithExcelRemarks } = attachExcelRemarksToPreviewRows(
+        readyPreviewRows,
+        parsedExcel.excelRows || []
+      );
       const dedupedPreview = {
         ...parsed,
-        rows: dedupedRows,
+        rows: dedupedRows.map((row) => {
+          const enriched = rowsWithExcelRemarks.find(
+            (entry) => Number(entry.lotItemId) === Number(row.lotItemId)
+          );
+          return enriched ? { ...row, ...enriched } : row;
+        }),
         canReturnCount: dedupedRows.filter((row) => row.canReturn).length,
         matchedCount: dedupedRows.filter((row) => row.matched).length,
         errorCount: dedupedRows.filter((row) => !row.canReturn).length,
       };
-      const productRemarks = buildImportProductRemarks(
-        dedupedRows.filter((row) => row.canReturn),
-        parsedExcel.excelRows || []
-      );
       setImportFile(file);
       setImportParseMeta(parsedExcel);
       setImportPreview(dedupedPreview);
@@ -6167,6 +6198,21 @@ const SampleOutList = ({
                             </div>
                             <div
                               style={{
+                                marginBottom: 8,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                background: '#eff6ff',
+                                border: '1px solid #bfdbfe',
+                                fontSize: 11,
+                                color: '#1e40af',
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              Each product remark is read from your Excel row (VTypeOut, BillDateOut, BillNoOut, PNameOut)
+                              and matched by <strong>RFID (Misc)</strong> or <strong>TagNo</strong>. Edit any remark before sample in.
+                            </div>
+                            <div
+                              style={{
                                 overflow: 'auto',
                                 maxHeight: 'min(42vh, 380px)',
                                 border: '1px solid #e2e8f0',
@@ -6202,8 +6248,10 @@ const SampleOutList = ({
                                     const remarkText = String(
                                       importProductRemarks[lotItemId] ??
                                         importProductRemarks[String(lotItemId)] ??
+                                        row.excelRemark ??
                                         ''
                                     );
+                                    const hasExcelRemark = !!String(row.excelRemark || '').trim();
                                     const cell = (value, extra = {}) => (
                                       <td
                                         style={{
@@ -6241,8 +6289,17 @@ const SampleOutList = ({
                                             );
                                           }
                                           if (col.key === 'remark') {
+                                            const remarkFilled = !!remarkText.trim();
                                             return (
-                                              <td key={`${row.lotItemId}-remark`} style={{ padding: '6px 8px', borderTop: '1px solid #f1f5f9', minWidth: 220 }}>
+                                              <td
+                                                key={`${row.lotItemId}-remark`}
+                                                style={{
+                                                  padding: '6px 8px',
+                                                  borderTop: '1px solid #f1f5f9',
+                                                  minWidth: 280,
+                                                  verticalAlign: 'top',
+                                                }}
+                                              >
                                                 <input
                                                   type="text"
                                                   value={remarkText}
@@ -6252,18 +6309,19 @@ const SampleOutList = ({
                                                       [lotItemId]: e.target.value,
                                                     }))
                                                   }
-                                                  placeholder="VType - date / bill / party"
-                                                  style={{
-                                                    width: '100%',
-                                                    minWidth: 200,
-                                                    padding: '6px 8px',
-                                                    fontSize: 11,
-                                                    borderRadius: 6,
-                                                    border: '1px solid #cbd5e1',
-                                                    boxSizing: 'border-box',
-                                                    background: '#fff',
-                                                  }}
+                                                  placeholder="No Excel remark — add manually"
+                                                  title={remarkText || 'Remark from Excel VTypeOut / BillDateOut / BillNoOut / PNameOut'}
+                                                  style={ADMIN_EXCEL_IMPORT_REMARK_CELL_STYLE(remarkFilled)}
                                                 />
+                                                {hasExcelRemark ? (
+                                                  <div style={{ marginTop: 4, fontSize: 10, color: '#15803d', fontWeight: 700 }}>
+                                                    Excel row {row.excelRowNumber || '—'}
+                                                  </div>
+                                                ) : !remarkFilled ? (
+                                                  <div style={{ marginTop: 4, fontSize: 10, color: '#b45309', fontWeight: 600 }}>
+                                                    Could not match Excel row — check RFID / TagNo
+                                                  </div>
+                                                ) : null}
                                               </td>
                                             );
                                           }

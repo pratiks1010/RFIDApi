@@ -649,15 +649,15 @@ const ProductDetailsPage = () => {
   const isMobile = windowWidth <= 768;
   const imageSize = isMobile ? 150 : 210;
 
- const cardStyle = {
-  background: '#fff',
-  padding: 18,
-  borderRadius: 18,
-  border: '1px solid #e2e8f0',
-  boxShadow: '0 8px 24px rgba(15,23,42,0.06)',
-  minWidth: 0,
-  transition: 'transform 0.25s ease, box-shadow 0.25s ease',
-};
+  const cardStyle = {
+    background: '#fff',
+    padding: 18,
+    borderRadius: 18,
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 8px 24px rgba(15,23,42,0.06)',
+    minWidth: 0,
+    transition: 'transform 0.25s ease, box-shadow 0.25s ease',
+  };
 
   return (
     <div
@@ -1087,7 +1087,7 @@ const ProductDetailsPage = () => {
                     <InfoRow label="Diamond Wt" value={`${formatValue(product.DiamondWt, 'number')} ct`} />
                   </>
                 )}
-              </div> 
+              </div>
             </div>
 
             <div className="pdp-card" style={cardStyle}>
@@ -1189,7 +1189,7 @@ const ProductDetailsPage = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
                     <thead style={{ position: 'sticky', top: 0, background: '#ede9fe', zIndex: 1 }}>
                       <tr>
-                        {['Name', 'Shape', 'Color', 'Clarity', 'Wt', 'Amt'].map((h) => (
+                        {['Name', 'pec', 'set', 'Shape', 'Color', 'Clarity', 'Wt', 'Amt'].map((h) => (
                           <th key={h} style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 700, color: '#5b21b6' }}>
                             {h}
                           </th>
@@ -1200,6 +1200,8 @@ const ProductDetailsPage = () => {
                       {product.Diamonds.map((d, i) => (
                         <tr key={i} style={{ background: i % 2 === 0 ? '#f5f3ff' : '#fff' }}>
                           <td style={{ padding: '5px 8px', color: '#1e293b' }}>{d.DiamondName || ''}</td>
+                          <td style={{ padding: '5px 8px', color: '#1e293b' }}>{d.DiamondPieces || ''}</td>
+                          <td style={{ padding: '5px 8px', color: '#1e293b' }}>{d.SettingType || ''}</td>
                           <td style={{ padding: '5px 8px', color: '#1e293b' }}>{d.DiamondShape || ''}</td>
                           <td style={{ padding: '5px 8px', color: '#1e293b' }}>{d.DiamondColour || ''}</td>
                           <td style={{ padding: '5px 8px', color: '#1e293b' }}>{d.DiamondClarity || ''}</td>

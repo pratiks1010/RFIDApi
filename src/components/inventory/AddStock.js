@@ -1605,11 +1605,15 @@ const AddStock = () => {
     const diamondNumericFields = ['DiamondWeight', 'DiamondSellRate', 'DiamondPieces', 'DiamondSize', 'DiamondPurchaseAmount', 'DiamondMargin', 'TotalDiamondWeight'];
 
     const getStoneBaseKey = (key) => {
-      const m = key.match(/^(Stone\w+)(?:_(\d+))?$/);
+      if (!key) return null;
+      // Accept keys like: StoneName, StoneName_2, StoneName 2, StoneName2
+      const m = key.toString().trim().match(/^(Stone[A-Za-z0-9]*?)(?:[_\s]*(\d+))?$/i);
       return m ? { baseKey: m[1], index: m[2] ? parseInt(m[2], 10) : 1 } : null;
     };
     const getDiamondBaseKey = (key) => {
-      const m = key.match(/^(Diamond\w+)(?:_(\d+))?$/);
+      if (!key) return null;
+      // Accept keys like: DiamondWeight, DiamondWeight_2, DiamondWeight 2, DiamondWeight2
+      const m = key.toString().trim().match(/^(Diamond[A-Za-z0-9]*?)(?:[_\s]*(\d+))?$/i);
       return m ? { baseKey: m[1], index: m[2] ? parseInt(m[2], 10) : 1 } : null;
     };
     const isStoneField = (key) => getStoneBaseKey(key) !== null;
@@ -1725,6 +1729,7 @@ const AddStock = () => {
           }
         }
       });
+
 
       // Template expansion: auto-fill 2nd, 3rd, ... stone/diamond from Excel columns like "Stone Name 2", "Stone Weight 2"
       const stoneBaseMapped = stoneBaseKeys.some(bk => mappings[bk]);

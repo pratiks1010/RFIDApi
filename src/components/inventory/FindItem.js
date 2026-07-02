@@ -69,7 +69,7 @@ const buildLabeledStockSearchPayload = (clientCode, term, extra = {}) => ({
   ClientCode: clientCode,
   Search: String(term || '').trim(),
   PageNumber: 1,
-  PageSize: 20,
+  PageSize: 100,
   Status: 'all',
   ...extra,
 });
@@ -122,6 +122,24 @@ const pickSearchResultForTerm = (term, results) => {
   if (exact) return exact;
   if (results.length === 1) return results[0];
   return null;
+};
+
+const designKeyFromRow = (row) => String(designNoFromItem(row) || '').trim().toLowerCase();
+
+const filterRowsByDesignTerm = (rows, designTerm) => {
+  const key = String(designTerm || '').trim().toLowerCase();
+  if (!key || !Array.isArray(rows)) return [];
+  return rows.filter((row) => designKeyFromRow(row) === key);
+};
+
+const dedupeStockRowsByItemCode = (rows) => {
+  const seen = new Set();
+  return (rows || []).filter((row) => {
+    const code = String(rowItemCodeFromRaw(row) || '').trim().toLowerCase();
+    if (!code || seen.has(code)) return false;
+    seen.add(code);
+    return true;
+  });
 };
 
 const buildCheckScanPayload = (clientCode, termOrItem) => {
@@ -348,7 +366,6 @@ const FindItem = () => {
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [extraResults, setExtraResults] = useState([]);
@@ -356,10 +373,14 @@ const FindItem = () => {
   const searchTermRef = useRef('');
   const resultsSectionRef = useRef(null);
   const runSearchRef = useRef(null);
-  const lastAutoSearchRef = useRef('');
+  const runDesignSearchRef = useRef(null);
+  const runMultiItemSearchRef = useRef(null);
+  const runAutoFindRef = useRef(null);
+  const completedAutoSearchRef = useRef('');
+  const autoFindRequestIdRef = useRef(0);
 
-  const AUTO_FIND_DEBOUNCE_MS = 400;
-  const MIN_AUTO_FIND_LEN = 3;
+  const AUTO_FIND_DEBOUNCE_MS = 350;
+  const MIN_AUTO_FIND_LEN = 2;
 
   const scrollToResults = useCallback(() => {
     requestAnimationFrame(() => {
@@ -404,7 +425,6 @@ const FindItem = () => {
       setResult(null);
       setExtraResults([]);
       setLastQuery(queryLabel);
-      setShowSearchResults(false);
 
       const lookupCode = isItem ? rowItemCodeFromRaw(termOrItem) : queryLabel;
 
@@ -526,74 +546,255 @@ const FindItem = () => {
     [clientCode, itemCode, scrollToResults]
   );
 
+  const runMultiItemSearch = useCallback(
+    async (term, stockItems, options = {}) => {
+      const queryLabel = String(term || '').trim();
+      if (!clientCode || !queryLabel) return;
+
+      const requestId = ++autoFindRequestIdRef.current;
+      setLoading(true);
+      setError('');
+      setResult(null);
+      setExtraResults([]);
+      setLastQuery(queryLabel);
+
+      try {
+        const uniqueRows = dedupeStockRowsByItemCode(stockItems);
+        if (!uniqueRows.length) {
+          if (requestId !== autoFindRequestIdRef.current) return;
+          setError('No matching products found.');
+          scrollToResults();
+          return;
+        }
+
+        const resolved = await Promise.all(
+          uniqueRows.slice(0, 50).map((row) => resolveItemResult(clientCode, row))
+        );
+        if (requestId !== autoFindRequestIdRef.current) return;
+
+        const valid = resolved.filter(
+          (entry) => entry && (entry.scanAction !== 'NotFound' || entry.stockRow || entry.mergedProduct)
+        );
+        if (!valid.length) {
+          await runSearchRef.current?.(uniqueRows[0] || queryLabel, {
+            typedTerm: options.typedTerm ?? queryLabel,
+          });
+          return;
+        }
+
+        setResult(valid[0]);
+        if (valid.length > 1) setExtraResults(valid.slice(1));
+        scrollToResults();
+      } catch (err) {
+        if (requestId !== autoFindRequestIdRef.current) return;
+        const msg =
+          err?.response?.data?.message ||
+          err?.response?.data?.Message ||
+          err?.message ||
+          'Could not look up these items. Please try again.';
+        setError(msg);
+        scrollToResults();
+      } finally {
+        if (requestId === autoFindRequestIdRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [clientCode, scrollToResults]
+  );
+
+  const runDesignSearch = useCallback(
+    async (designTerm, options = {}) => {
+      const designKey = String(designTerm || '').trim();
+      if (!clientCode || !designKey) return;
+
+      let rows = dedupeStockRowsByItemCode(options.stockRows);
+      if (!rows.length) {
+        try {
+          const fetched = await fetchLabelledStockRowsForTerm(clientCode, designKey);
+          rows = dedupeStockRowsByItemCode(filterRowsByDesignTerm(fetched, designKey));
+          if (!rows.length) rows = dedupeStockRowsByItemCode(fetched);
+        } catch {
+          rows = [];
+        }
+      }
+
+      await runMultiItemSearchRef.current?.(designKey, rows, {
+        typedTerm: options.typedTerm ?? designKey,
+      });
+    },
+    [clientCode]
+  );
+
+  const runAutoFind = useCallback(
+    async (term, prefetchedResults = null) => {
+      const trimmed = String(term || '').trim();
+      if (!clientCode || !trimmed) return;
+
+      const requestId = ++autoFindRequestIdRef.current;
+      setSearching(true);
+      setLoading(true);
+      setError('');
+
+      let results = Array.isArray(prefetchedResults) ? prefetchedResults : null;
+      if (!results) {
+        try {
+          results = await fetchLabeledStockSearchResults(clientCode, trimmed);
+        } catch {
+          results = [];
+        }
+      }
+
+      if (requestId !== autoFindRequestIdRef.current) {
+        setSearching(false);
+        setLoading(false);
+        return;
+      }
+      if (String(searchTermRef.current || '').trim() !== trimmed) {
+        setSearching(false);
+        setLoading(false);
+        return;
+      }
+
+      setSearching(false);
+      setSearchResults(results);
+
+      const termLower = trimmed.toLowerCase();
+      const exactDesignMatches = filterRowsByDesignTerm(results, trimmed);
+
+      if (exactDesignMatches.length >= 1) {
+        await runDesignSearchRef.current?.(trimmed, {
+          typedTerm: trimmed,
+          stockRows: exactDesignMatches,
+        });
+        if (requestId === autoFindRequestIdRef.current) {
+          completedAutoSearchRef.current = trimmed.toLowerCase();
+        }
+        return;
+      }
+
+      try {
+        const fetched = await fetchLabelledStockRowsForTerm(clientCode, trimmed);
+        if (requestId !== autoFindRequestIdRef.current) {
+          setSearching(false);
+          setLoading(false);
+          return;
+        }
+        if (String(searchTermRef.current || '').trim() !== trimmed) {
+          setSearching(false);
+          setLoading(false);
+          return;
+        }
+
+        const byDesign = dedupeStockRowsByItemCode(filterRowsByDesignTerm(fetched, trimmed));
+        if (byDesign.length >= 1) {
+          await runDesignSearchRef.current?.(trimmed, {
+            typedTerm: trimmed,
+            stockRows: byDesign,
+          });
+          if (requestId === autoFindRequestIdRef.current) {
+            completedAutoSearchRef.current = trimmed.toLowerCase();
+          }
+          return;
+        }
+      } catch {
+        /* continue with other strategies */
+      }
+
+      if (results.length > 1) {
+        const designs = [...new Set(results.map(designKeyFromRow).filter(Boolean))];
+        if (designs.length === 1 && designs[0] === termLower) {
+          await runDesignSearchRef.current?.(trimmed, {
+            typedTerm: trimmed,
+            stockRows: results,
+          });
+        } else {
+          await runMultiItemSearchRef.current?.(trimmed, results, { typedTerm: trimmed });
+        }
+        if (requestId === autoFindRequestIdRef.current) {
+          completedAutoSearchRef.current = trimmed.toLowerCase();
+        }
+        return;
+      }
+
+      const matched = pickSearchResultForTerm(trimmed, results);
+      if (matched) {
+        await runSearchRef.current?.(matched, { typedTerm: trimmed });
+        if (requestId === autoFindRequestIdRef.current) {
+          completedAutoSearchRef.current = trimmed.toLowerCase();
+        }
+        return;
+      }
+
+      if (results.length === 1) {
+        await runSearchRef.current?.(results[0], { typedTerm: trimmed });
+        if (requestId === autoFindRequestIdRef.current) {
+          completedAutoSearchRef.current = trimmed.toLowerCase();
+        }
+        return;
+      }
+
+      await runSearchRef.current?.(trimmed, { typedTerm: trimmed });
+      if (requestId === autoFindRequestIdRef.current) {
+        completedAutoSearchRef.current = trimmed.toLowerCase();
+      }
+    },
+    [clientCode]
+  );
+
   useEffect(() => {
     runSearchRef.current = runSearch;
-  }, [runSearch]);
+    runDesignSearchRef.current = runDesignSearch;
+    runMultiItemSearchRef.current = runMultiItemSearch;
+    runAutoFindRef.current = runAutoFind;
+  }, [runSearch, runDesignSearch, runMultiItemSearch, runAutoFind]);
 
   useEffect(() => {
     const trimmed = String(itemCode || '').trim();
     if (!trimmed) {
-      lastAutoSearchRef.current = '';
+      completedAutoSearchRef.current = '';
+      autoFindRequestIdRef.current += 1;
       setSearchResults([]);
-      setShowSearchResults(false);
+      setSearching(false);
+      setLoading(false);
       return undefined;
     }
     if (!clientCode) return undefined;
 
-    const timeoutId = setTimeout(async () => {
+    let pendingTimer;
+    if (trimmed.length >= MIN_AUTO_FIND_LEN && completedAutoSearchRef.current !== trimmed.toLowerCase()) {
+      pendingTimer = setTimeout(() => {
+        if (
+          String(searchTermRef.current || '').trim() === trimmed &&
+          completedAutoSearchRef.current !== trimmed.toLowerCase()
+        ) {
+          setSearching(true);
+        }
+      }, 120);
+    }
+
+    const timeoutId = setTimeout(() => {
       if (String(searchTermRef.current || '').trim() !== trimmed) return;
       if (trimmed.length < MIN_AUTO_FIND_LEN) return;
-      if (lastAutoSearchRef.current === trimmed.toLowerCase()) return;
-
-      setSearching(true);
-      let results = [];
-      try {
-        results = await fetchLabeledStockSearchResults(clientCode, trimmed);
-        if (String(searchTermRef.current || '').trim() !== trimmed) return;
-        setSearchResults(results);
-        setShowSearchResults(results.length > 1);
-      } catch {
-        if (String(searchTermRef.current || '').trim() === trimmed) {
-          setSearchResults([]);
-          setShowSearchResults(false);
-        }
-      } finally {
-        if (String(searchTermRef.current || '').trim() === trimmed) {
-          setSearching(false);
-        }
-      }
-
-      if (String(searchTermRef.current || '').trim() !== trimmed) return;
-
-      lastAutoSearchRef.current = trimmed.toLowerCase();
-      setShowSearchResults(false);
-      const matched = pickSearchResultForTerm(trimmed, results);
-      await runSearchRef.current?.(matched || trimmed, { typedTerm: trimmed });
+      if (completedAutoSearchRef.current === trimmed.toLowerCase()) return;
+      runAutoFindRef.current?.(trimmed);
     }, AUTO_FIND_DEBOUNCE_MS);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      if (pendingTimer) clearTimeout(pendingTimer);
+      clearTimeout(timeoutId);
+    };
   }, [itemCode, clientCode]);
 
   const handleDirectSearch = async () => {
     const term = String(itemCode || '').trim();
-    if (!term || loading) return;
-
-    setShowSearchResults(false);
-    const matched = pickSearchResultForTerm(term, searchResults);
-    await runSearch(matched || term, { typedTerm: term });
-    lastAutoSearchRef.current = term.toLowerCase();
+    if (!term || loading || searching) return;
+    completedAutoSearchRef.current = '';
+    await runAutoFind(term, searchResults.length ? searchResults : null);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    handleDirectSearch();
-  };
-
-  const selectFromSearch = (item) => {
-    const code = rowItemCodeFromRaw(item) || designNoFromItem(item) || itemCode;
-    setItemCode(code);
-    lastAutoSearchRef.current = String(code || '').trim().toLowerCase();
-    runSearch(item, { typedTerm: designNoFromItem(item) || code });
   };
 
   const clearSearch = () => {
@@ -603,8 +804,9 @@ const FindItem = () => {
     setError('');
     setLastQuery('');
     setSearchResults([]);
-    setShowSearchResults(false);
-    lastAutoSearchRef.current = '';
+    setSearching(false);
+    setLoading(false);
+    completedAutoSearchRef.current = '';
   };
 
   const primaryData = result?.raw;
@@ -661,24 +863,19 @@ const FindItem = () => {
                 const next = e.target.value;
                 setItemCode(next);
                 const trimmed = String(next || '').trim().toLowerCase();
-                if (!trimmed || trimmed !== lastAutoSearchRef.current) {
+                if (trimmed !== completedAutoSearchRef.current) {
+                  completedAutoSearchRef.current = '';
+                  autoFindRequestIdRef.current += 1;
                   setResult(null);
                   setExtraResults([]);
                   setError('');
+                  setSearching(false);
+                  setLoading(false);
                 }
-                if (trimmed) setShowSearchResults(true);
               }}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter') return;
-                e.preventDefault();
-                if (!itemCode.trim() || loading) return;
-                handleDirectSearch();
-              }}
-              placeholder="Type or scan item code / RFID / design no — auto-finds when you stop typing…"
+              placeholder="Type or scan item code / RFID / design no — results show automatically…"
               autoFocus
               autoComplete="off"
-              aria-autocomplete="list"
-              aria-expanded={showSearchResults && !!itemCode.trim()}
               style={{
                 width: '100%',
                 padding: '12px 36px 12px 36px',
@@ -691,12 +888,10 @@ const FindItem = () => {
               onFocus={(e) => {
                 e.target.style.borderColor = '#3b82f6';
                 e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.12)';
-                if (itemCode.trim()) setShowSearchResults(true);
               }}
               onBlur={(e) => {
                 e.target.style.borderColor = '#cbd5e1';
                 e.target.style.boxShadow = 'none';
-                setTimeout(() => setShowSearchResults(false), 200);
               }}
             />
             {(searching || loading) && (
@@ -712,133 +907,11 @@ const FindItem = () => {
                 }}
               />
             )}
-            {showSearchResults && itemCode.trim() && (
-              <div
-                role="listbox"
-                aria-label="Item, RFID, and design suggestions"
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  top: 'calc(100% + 6px)',
-                  zIndex: 1200,
-                  background: '#fff',
-                  border: '1px solid #e2e8f0',
-                  borderTop: '3px solid #3b82f6',
-                  borderRadius: 10,
-                  boxShadow: '0 12px 32px rgba(15, 23, 42, 0.12)',
-                  maxHeight: 280,
-                  overflowY: 'auto',
-                }}
-              >
-                {searching && (
-                  <div style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>
-                    Searching labeled stock…
-                  </div>
-                )}
-                {!searching && !loading && searchResults.length === 0 && (
-                  <div style={{ padding: '10px 12px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-                    No in-stock match. Press <strong>Enter</strong> to check live sample status (Sample Out vs Sample
-                    In).
-                  </div>
-                )}
-                {!searching && searchResults.length === 1 && (
-                  <div
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: 11,
-                      color: '#2563eb',
-                      background: '#eff6ff',
-                      borderBottom: '1px solid #dbeafe',
-                      fontWeight: 600,
-                    }}
-                  >
-                    1 match — click to view or press <strong>Enter</strong>
-                  </div>
-                )}
-                {!searching && searchResults.length > 1 && (
-                  <div
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: 11,
-                      color: '#64748b',
-                      background: '#f8fafc',
-                      borderBottom: '1px solid #e2e8f0',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {searchResults.length} matches — click one to view details
-                  </div>
-                )}
-                {!searching &&
-                  searchResults.map((item, idx) => (
-                    <div
-                      key={`${item.LabelledStockId ?? item.Id ?? 'row'}-${rowItemCodeFromRaw(item) || idx}`}
-                      role="option"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => selectFromSearch(item)}
-                      style={{
-                        padding: '10px 12px',
-                        cursor: 'pointer',
-                        borderBottom: idx < searchResults.length - 1 ? '1px solid #f1f5f9' : 'none',
-                        fontSize: 11,
-                        transition: 'background 0.15s ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f8fafc';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#fff';
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontWeight: 700,
-                          color: '#0f172a',
-                          fontSize: 13,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {rowDesignNameOrDash(item)}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: '#64748b',
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '4px 10px',
-                          lineHeight: 1.4,
-                        }}
-                      >
-                        <span>
-                          Item: <strong style={{ color: '#334155' }}>{rowItemCodeFromRaw(item) || '—'}</strong>
-                        </span>
-                        <span style={{ color: '#cbd5e1' }}>·</span>
-                        <span>
-                          RFID: <strong style={{ color: '#334155' }}>{rowRfidOrDash(item)}</strong>
-                        </span>
-                        <span style={{ color: '#cbd5e1' }}>·</span>
-                        <span>
-                          Category: <strong style={{ color: '#334155' }}>{rowCategoryOrDash(item)}</strong>
-                        </span>
-                        <span style={{ color: '#cbd5e1' }}>·</span>
-                        <span>
-                          Gr.Wt: <strong style={{ color: '#334155' }}>{rowGrossWtOrZero(item)}</strong>
-                        </span>
-                        <span style={{ color: '#cbd5e1' }}>·</span>
-                        <span>
-                          Net.Wt: <strong style={{ color: '#334155' }}>{rowNetWtOrZero(item)}</strong>
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
           </div>
           <button
-            type="submit"
-            disabled={loading || !clientCode}
+            type="button"
+            onClick={handleDirectSearch}
+            disabled={loading || searching || !clientCode || !itemCode.trim()}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -855,7 +928,7 @@ const FindItem = () => {
             }}
           >
             {loading ? <FaSpinner style={{ animation: 'spin 0.8s linear infinite' }} /> : <FaSearch />}
-            {loading ? 'Searching…' : 'Find item'}
+            {loading || searching ? 'Searching…' : 'Find item'}
           </button>
           <button
             type="button"
@@ -875,7 +948,7 @@ const FindItem = () => {
           </button>
         </div>
         <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
-          Item details appear automatically after you stop typing or scanning (about half a second).
+          Products appear automatically below when you stop typing — no Enter key needed.
         </p>
       </form>
 
@@ -898,7 +971,7 @@ const FindItem = () => {
         </div>
       ) : null}
 
-      {loading ? (
+      {(loading || searching) && !hasPrimaryResult ? (
         <div
           style={{
             padding: 48,
@@ -910,19 +983,23 @@ const FindItem = () => {
         >
           <FaSpinner size={28} style={{ color: '#0f4c81', animation: 'spin 0.9s linear infinite' }} />
           <p style={{ margin: '16px 0 0', fontSize: 14, color: '#64748b', fontWeight: 600 }}>
-            Looking up item…
+            {searching ? 'Searching stock…' : 'Loading item details…'}
           </p>
         </div>
       ) : null}
 
-      {!loading && hasPrimaryResult ? (
+      {!loading && !searching && hasPrimaryResult ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
           {extraResults.length > 0 ? (
             <div style={{ fontSize: 13, fontWeight: 700, color: '#0f4c81' }}>
-              Showing {extraResults.length + 1} products for design{' '}
+              Showing {extraResults.length + 1} product{extraResults.length + 1 === 1 ? '' : 's'}
               {designNoFromItem(result?.mergedProduct) ||
-                designNoFromItem(result?.stockRow) ||
-                lastQuery}
+              designNoFromItem(result?.stockRow) ||
+              lastQuery
+                ? ` for design ${designNoFromItem(result?.mergedProduct) ||
+                    designNoFromItem(result?.stockRow) ||
+                    lastQuery}`
+                : ''}
             </div>
           ) : null}
           {[result, ...extraResults].map((res, resIdx) => {
@@ -1197,7 +1274,7 @@ const FindItem = () => {
         </div>
       ) : null}
 
-      {!loading && !result && !error ? (
+      {!loading && !searching && !result && !error ? (
         <div
           style={{
             padding: '40px 24px',
@@ -1210,7 +1287,7 @@ const FindItem = () => {
             lineHeight: 1.6,
           }}
         >
-          Type or scan an item code, RFID, or design no — details and sample status show automatically below.
+          Type or scan an item code, RFID, or design no — matching products show here automatically.
         </div>
       ) : null}
 

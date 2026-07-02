@@ -3138,9 +3138,97 @@ const buildExcelProductRemark = ({ vTypeOut, billDateOut, billNoOut, pNameOut } 
   return `${vType || '—'} - ${date || '—'} / ${billNo || '—'} / ${pName || '—'}`;
 };
 
-const normalizeExcelRfidKey = (value) => String(value || '').trim().toUpperCase();
+const normalizeExcelRfidKey = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase();
 
 const normalizeExcelDesignKey = (value) => String(value || '').trim().toUpperCase();
+
+const normalizeExcelItemCodeKey = (value) => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const numeric = text.replace(/^0+/, '');
+  return (numeric || text).toUpperCase();
+};
+
+const findExcelRowForPreviewProduct = (previewRow, excelRows, usedExcelRowNumbers) => {
+  const designKey = normalizeExcelDesignKey(previewRow?.designName || previewRow?.searchedDesign);
+  const rfidKey = normalizeExcelRfidKey(previewRow?.rfidCode);
+  const itemKey = normalizeExcelItemCodeKey(previewRow?.itemCode);
+
+  const isUnused = (excelRow) => !usedExcelRowNumbers.has(excelRow.rowNumber);
+
+  if (rfidKey) {
+    const byDesignRfid = excelRows.find(
+      (excelRow) =>
+        isUnused(excelRow) &&
+        normalizeExcelDesignKey(excelRow.designNo) === designKey &&
+        normalizeExcelRfidKey(excelRow.rfidCode) === rfidKey
+    );
+    if (byDesignRfid) return byDesignRfid;
+
+    const byRfid = excelRows.find(
+      (excelRow) => isUnused(excelRow) && normalizeExcelRfidKey(excelRow.rfidCode) === rfidKey
+    );
+    if (byRfid) return byRfid;
+  }
+
+  if (itemKey) {
+    const byDesignItem = excelRows.find(
+      (excelRow) =>
+        isUnused(excelRow) &&
+        normalizeExcelDesignKey(excelRow.designNo) === designKey &&
+        normalizeExcelItemCodeKey(excelRow.tagNo) === itemKey
+    );
+    if (byDesignItem) return byDesignItem;
+
+    const byItem = excelRows.find(
+      (excelRow) => isUnused(excelRow) && normalizeExcelItemCodeKey(excelRow.tagNo) === itemKey
+    );
+    if (byItem) return byItem;
+  }
+
+  return (
+    excelRows.find(
+      (excelRow) => isUnused(excelRow) && normalizeExcelDesignKey(excelRow.designNo) === designKey
+    ) || null
+  );
+};
+
+const buildImportProductRemarks = (previewRows, excelRows = []) => {
+  const remarks = {};
+  const usedExcelRowNumbers = new Set();
+
+  previewRows.forEach((row) => {
+    if (!row?.canReturn || row.lotItemId == null) return;
+    const excelRow = findExcelRowForPreviewProduct(row, excelRows, usedExcelRowNumbers);
+    if (excelRow) usedExcelRowNumbers.add(excelRow.rowNumber);
+    const remark = excelRow?.remark || buildExcelProductRemark(excelRow || {});
+    if (remark) remarks[row.lotItemId] = remark;
+  });
+  return remarks;
+};
+
+const buildAdminExcelImportProductsPayload = (readyRows, productRemarks, scanMode) =>
+  (readyRows || [])
+    .map((row) => {
+      const lotItemId = Number(row.lotItemId);
+      if (!Number.isFinite(lotItemId) || lotItemId <= 0) return null;
+      const remark = String(
+        productRemarks[lotItemId] ?? productRemarks[String(lotItemId)] ?? ''
+      ).trim();
+      if (!remark) return null;
+      return {
+        LotItemId: lotItemId,
+        AdminReviewRemark: remark,
+        AdminReturnRemark: remark,
+        ScanMode: scanMode,
+      };
+    })
+    .filter(Boolean);
 
 const toDatetimeLocalValue = (d = new Date()) => {
   const pad = (n) => String(n).padStart(2, '0');
@@ -3178,32 +3266,6 @@ const uniqueDesignNumbersForPreview = (designNumbers = []) => {
   return unique;
 };
 
-const buildImportProductRemarks = (previewRows, excelRows = []) => {
-  const remarks = {};
-  const excelByPair = new Map();
-  excelRows.forEach((excelRow) => {
-    const designKey = normalizeExcelDesignKey(excelRow.designNo);
-    const rfidKey = normalizeExcelRfidKey(excelRow.rfidCode);
-    if (!designKey) return;
-    const pairKey = rfidKey ? `${designKey}|${rfidKey}` : designKey;
-    if (!excelByPair.has(pairKey)) excelByPair.set(pairKey, excelRow);
-    if (!excelByPair.has(designKey)) excelByPair.set(designKey, excelRow);
-  });
-
-  previewRows.forEach((row) => {
-    if (!row?.canReturn || row.lotItemId == null) return;
-    const designKey = normalizeExcelDesignKey(row.designName || row.searchedDesign);
-    const rfidKey = normalizeExcelRfidKey(row.rfidCode);
-    const excelRow =
-      excelByPair.get(`${designKey}|${rfidKey}`) ||
-      excelByPair.get(designKey) ||
-      null;
-    const remark = excelRow?.remark || buildExcelProductRemark(excelRow || {});
-    if (remark) remarks[row.lotItemId] = remark;
-  });
-  return remarks;
-};
-
 const parseDesignNumbersFromExcelFile = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -3228,6 +3290,7 @@ const parseDesignNumbersFromExcelFile = (file) =>
           reject(new Error('Design No column not found. Expected header: DesignNo or Design No.'));
           return;
         }
+        const tagNoIdx = findExcelColumnIndex(headers, ['tagno', 'tag', 'itemcode', 'itemno']);
         const miscIdx = findExcelColumnIndex(headers, ['misc', 'rfid', 'rfidcode', 'rfidtag', 'epc']);
         const vTypeIdx = findExcelColumnIndex(headers, ['vtypeout', 'vtype', 'transactiontype']);
         const billDateIdx = findExcelColumnIndex(headers, ['billdateout', 'billdate', 'dateout']);
@@ -3241,6 +3304,7 @@ const parseDesignNumbersFromExcelFile = (file) =>
           if (!Array.isArray(row)) continue;
           const designNo = String(row[designIdx] ?? '').trim();
           if (!designNo) continue;
+          const tagNo = tagNoIdx >= 0 ? String(row[tagNoIdx] ?? '').trim() : '';
           const rfidCode = miscIdx >= 0 ? String(row[miscIdx] ?? '').trim() : '';
           const vTypeOut = vTypeIdx >= 0 ? String(row[vTypeIdx] ?? '').trim() : '';
           const billDateOut = billDateIdx >= 0 ? row[billDateIdx] : '';
@@ -3252,6 +3316,7 @@ const parseDesignNumbersFromExcelFile = (file) =>
           excelRows.push({
             rowNumber: r + 1,
             designNo,
+            tagNo,
             rfidCode,
             vTypeOut,
             billDateOut,
@@ -4622,13 +4687,18 @@ const SampleOutList = ({
       setImportError('No returnable products in preview. Fix Excel or check sample-out status.');
       return;
     }
-    const products = readyRows.map((row) => ({
-      lotItemId: Number(row.lotItemId),
-      adminReturnRemark: String(
-        importProductRemarks[row.lotItemId] ?? importProductRemarks[String(row.lotItemId)] ?? ''
-      ).trim(),
-    }));
-    const adminReturnRemark = products[0]?.adminReturnRemark || 'Excel sample in';
+    const products = buildAdminExcelImportProductsPayload(
+      readyRows,
+      importProductRemarks,
+      ADMIN_RETURN_SCAN_MODE
+    );
+    if (!products.length) {
+      setImportError('Every ready product needs a remark before sample in.');
+      return;
+    }
+    const adminReturnRemark =
+      String(products[0]?.AdminReturnRemark || products[0]?.AdminReviewRemark || '').trim() ||
+      'Excel sample in';
     setImportConfirmLoading(true);
     setImportError('');
     setImportStep('processing');
@@ -4639,12 +4709,23 @@ const SampleOutList = ({
     try {
       const sampleInDateIso = datetimeLocalToApiIso(importSampleInDate) || datetimeLocalToApiIso(toDatetimeLocalValue());
       const executeBody = {
+        ClientCode: clientCode,
         clientCode,
+        AdminReturnRemark: adminReturnRemark,
         adminReturnRemark,
+        ScanMode: ADMIN_RETURN_SCAN_MODE,
         scanMode: ADMIN_RETURN_SCAN_MODE,
+        LotItemIds: lotItemIds,
         lotItemIds,
+        SampleInDate: sampleInDateIso,
         sampleInDate: sampleInDateIso,
-        products,
+        Products: products,
+        products: products.map((entry) => ({
+          lotItemId: entry.LotItemId,
+          adminReturnRemark: entry.AdminReturnRemark,
+          adminReviewRemark: entry.AdminReviewRemark,
+          scanMode: entry.ScanMode,
+        })),
       };
       const { data } = await axios.post(
         getAdminExcelSampleInUrl(),

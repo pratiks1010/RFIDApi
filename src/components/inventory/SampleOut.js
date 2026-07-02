@@ -225,6 +225,72 @@ const normalizeScanRows = (scanned) => {
     .filter(Boolean);
 };
 
+const normalizeTrayTagKey = (value) => String(value || '').trim().toUpperCase();
+
+const collectMatchedTrayTagKeys = (matchedRows = []) => {
+  const keys = new Set();
+  (matchedRows || []).forEach((row) => {
+    [
+      row?.TIDValue,
+      row?.TIDNumber,
+      row?.epc,
+      row?.RFIDNumber,
+      row?.RFIDCode,
+      row?.RFID,
+      row?.fullItemData?.TIDValue,
+      row?.fullItemData?.TIDNumber,
+      row?.fullItemData?.RFIDCode,
+      row?.fullItemData?.RFIDNumber,
+    ].forEach((value) => {
+      const key = normalizeTrayTagKey(value);
+      if (key) keys.add(key);
+    });
+  });
+  return keys;
+};
+
+/** Scanned tray tags that did not match any labelled-stock / device row. */
+const buildTrayNotFoundReviewRows = (scanRows = [], matchedRows = []) => {
+  const matchedKeys = collectMatchedTrayTagKeys(matchedRows);
+  const seen = new Set();
+  const notFound = [];
+
+  (scanRows || []).forEach((scan) => {
+    const epc = normalizeTrayTagKey(scan?.epc);
+    const rfid = normalizeTrayTagKey(scan?.rfidCode);
+    const tagKeys = [epc, rfid].filter(Boolean);
+    if (!tagKeys.length) return;
+    if (tagKeys.some((key) => matchedKeys.has(key))) return;
+
+    const displayTag = rfid || epc;
+    if (seen.has(displayTag)) return;
+    seen.add(displayTag);
+
+    notFound.push({
+      itemCode: `RFID ${displayTag}`,
+      message: 'Not found in labelled inventory.',
+    });
+  });
+
+  return notFound;
+};
+
+const buildTrayScanReviewSubtitle = ({ scannedCount, foundCount, notFoundCount, processedCount }) => {
+  const scanned = Number(scannedCount) || 0;
+  const found = Number(foundCount) || 0;
+  const notFound = Number(notFoundCount) || 0;
+  const processed = Number(processedCount) || 0;
+
+  if (scanned > 0) {
+    const parts = [`${scanned} tag(s) scanned`];
+    if (found > 0) parts.push(`${found} found in inventory`);
+    if (notFound > 0) parts.push(`${notFound} not found`);
+    return parts.join(' · ');
+  }
+  if (processed > 0) return `${processed} tag(s) processed.`;
+  return '';
+};
+
 const pageBtnStyleItems = (disabled) => ({
   padding: '6px 12px',
   fontSize: 11,
@@ -891,9 +957,12 @@ const formatBlockedScanMessage = (rawMessage, itemCode, checkData) => {
 
 const scanReviewModalTone = (sections) => {
   const types = (sections || []).map((s) => s.type);
-  if (types.includes('error')) return 'error';
+  const hasSuccess = types.includes('success');
+  const hasError = types.includes('error');
+  if (hasSuccess && hasError) return 'warning';
+  if (hasError) return 'error';
   if (types.includes('warning')) return 'warning';
-  if (types.includes('success')) return 'success';
+  if (hasSuccess) return 'success';
   return 'info';
 };
 
@@ -3013,9 +3082,11 @@ const formatScannedTime = (date) => {
 
   const processScannedBatch = async (
     items,
-    { source = 'tray', showReview = true } = {}
+    { source = 'tray', showReview = true, scannedTags = null, notFoundRows = null } = {}
   ) => {
-    if (!items?.length) return { added: 0, inQueued: 0, blocked: 0, errors: 0 };
+    if (!items?.length && !(notFoundRows?.length || scannedTags?.length)) {
+      return { added: 0, inQueued: 0, blocked: 0, errors: 0, notFound: 0 };
+    }
 
     setScanChecking(true);
     const outAdded = [];
@@ -3047,16 +3118,24 @@ const formatScannedTime = (date) => {
         else errors.push(row);
       }
 
+      const resolvedNotFound =
+        notFoundRows ??
+        (Array.isArray(scannedTags) ? buildTrayNotFoundReviewRows(scannedTags, items) : []);
+      const scannedCount = Array.isArray(scannedTags) ? scannedTags.length : 0;
+      const foundCount = items.length;
+      const notFoundCount = resolvedNotFound.length;
+
       if (!showReview) {
         return {
           added: outAdded.length,
           inQueued: inQueued.length,
           blocked: blocked.length,
           errors: errors.length,
+          notFound: notFoundCount,
         };
       }
 
-      const total = items.length;
+      const total = scannedCount || items.length + notFoundCount;
       const compact = total > BULK_REVIEW_DETAIL_CAP;
       const capRows = (rows, heading, type) => {
         if (!rows.length) return null;
@@ -3075,18 +3154,29 @@ const formatScannedTime = (date) => {
         capRows(inQueued, 'Sample In queued', 'info'),
         capRows(blocked, 'Blocked', 'warning'),
         capRows(errors, 'Errors', 'error'),
+        capRows(resolvedNotFound, 'Not found in inventory', 'error'),
       ].filter(Boolean);
 
+      const hasOut = outAdded.length > 0;
+      const hasIn = inQueued.length > 0;
+      const hasNotFound = notFoundCount > 0;
       const trayTitle =
-        inQueued.length > 0 && outAdded.length === 0
-          ? 'Tray scan — Sample In return'
-          : outAdded.length > 0 && inQueued.length === 0
-            ? 'Tray scan — Sample Out'
-            : 'Tray scan complete';
+        hasNotFound && !hasOut && !hasIn
+          ? 'Tray scan — tags not in inventory'
+          : hasIn && !hasOut
+            ? 'Tray scan — Sample In return'
+            : hasOut && !hasIn
+              ? 'Tray scan — Sample Out'
+              : 'Tray scan complete';
 
       openScanReviewModal({
         title: trayTitle,
-        subtitle: `${total} tag(s) processed.`,
+        subtitle: buildTrayScanReviewSubtitle({
+          scannedCount,
+          foundCount,
+          notFoundCount,
+          processedCount: items.length,
+        }),
         sections: sections.length
           ? sections
           : [{ type: 'info', heading: 'No changes', rows: [{ itemCode: '—', message: 'Nothing was added.' }] }],
@@ -3096,6 +3186,7 @@ const formatScannedTime = (date) => {
         inQueued: inQueued.length,
         blocked: blocked.length,
         errors: errors.length,
+        notFound: notFoundCount,
       };
     } finally {
       setScanChecking(false);
@@ -3564,7 +3655,30 @@ const formatScannedTime = (date) => {
         __persistedScanSource: 'tray',
         __scannedAt: row.__scannedAt || new Date().toISOString(),
       }));
+      const notFoundRows = buildTrayNotFoundReviewRows(scanRows, rows);
+
       if (!rows.length) {
+        if (notFoundRows.length) {
+          openScanReviewModal({
+            title: 'Tray scan — tags not in inventory',
+            subtitle: buildTrayScanReviewSubtitle({
+              scannedCount: scanRows.length,
+              foundCount: 0,
+              notFoundCount: notFoundRows.length,
+            }),
+            sections: [
+              {
+                type: 'error',
+                heading: `Not found in inventory (${notFoundRows.length})`,
+                rows: notFoundRows,
+              },
+            ],
+          });
+          return {
+            success: false,
+            message: `${notFoundRows.length} of ${scanRows.length} tag(s) not found in labelled inventory.`,
+          };
+        }
         return {
           success: false,
           message: 'No stock matched scanned tags. Check tags are labelled in stock master.',
@@ -3586,11 +3700,14 @@ const formatScannedTime = (date) => {
       const summary = await processScannedBatch(rows, {
         source: 'tray',
         showReview: true,
+        scannedTags: scanRows,
+        notFoundRows,
       });
       const outCount = summary?.added || 0;
       const inCount = summary?.inQueued || 0;
+      const notFoundCount = summary?.notFound || notFoundRows.length || 0;
       const added = outCount + inCount;
-      if (added === 0) {
+      if (added === 0 && notFoundCount === 0) {
         return {
           success: false,
           message:
@@ -3602,13 +3719,16 @@ const formatScannedTime = (date) => {
       setShowRfidTrayModal(false);
       let message;
       if (inCount > 0 && outCount === 0) {
-        message = `${inCount} of ${rows.length} tag(s) queued for Sample In return.`;
+        message = `${inCount} of ${scanRows.length} tag(s) queued for Sample In return.`;
       } else if (inCount > 0 && outCount > 0) {
-        message = `${rows.length} tag(s): ${outCount} Sample Out, ${inCount} Sample In return.`;
+        message = `${scanRows.length} tag(s): ${outCount} Sample Out, ${inCount} Sample In return.`;
       } else {
-        message = `${outCount} of ${rows.length} tag(s) loaded into the grid for Sample Out.`;
+        message = `${outCount} of ${scanRows.length} tag(s) loaded into the grid for Sample Out.`;
       }
-      return { success: true, message };
+      if (notFoundCount > 0) {
+        message += ` ${notFoundCount} tag(s) not found in inventory.`;
+      }
+      return { success: added > 0, message };
     } catch (error) {
       const message =
         error?.response?.data?.message ||

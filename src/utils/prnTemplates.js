@@ -170,6 +170,151 @@ END
   return `&${barcodeValue.substring(0, 3)}'${barcodeValue.substring(3)}`;
 };*/
 
+const resolveLS000606Category = (item) =>
+  String(item.Category || item.CategoryName || item.ProductId || item.ProductType || '')
+    .trim()
+    .toUpperCase();
+
+const resolveLS000606DesignLabel = (item) =>
+  String(item.DesignName || item.Design || item.design || item.design_name || '').trim();
+
+const resolveLS000606ProductName = (item) =>
+  String(item.ProductName || item.CategoryName || item.Description || item.description || '').trim();
+
+const resolveLS000606GrossWt = (item) =>
+  formatWeight3(item.GrossWt ?? item.GrossWeight ?? item.grosswt ?? item.TWt);
+
+const resolveLS000606NetWt = (item) =>
+  formatWeight3(item.NetWt ?? item.NetWeight ?? item.netwt ?? item.GrossWt ?? item.TWt ?? 0);
+
+const resolveLS000606StoneWt = (item) => {
+  const raw = item.TotalStoneWeight ?? item.StoneWt ?? item.stonewt ?? item.StoneWeight ?? 0;
+  const n = parseFloat(raw);
+  if (Number.isNaN(n) || n <= 0) return '0.00';
+  return formatWeight3(n);
+};
+
+const resolveLS000606DiamondPcs = (item) => {
+  const raw =
+    item.TotalDiamondPieces ??
+    item.DiamondPcs ??
+    item.DiamondPieces ??
+    item.TotalStonePieces ??
+    item.StonePcs ??
+    item.Pieces ??
+    item.pieces ??
+    item.Pcs ??
+    0;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? '0' : String(n);
+};
+
+const resolveLS000606StonePcs = (item) => {
+  const raw = item.TotalStonePieces ?? item.StonePcs ?? item.StonePieces ?? 1;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? '1' : String(n);
+};
+
+const resolveLS000606MakingCharge = (item) => {
+  const raw = item.MakingCharge ?? item.Making ?? item.MakingChg ?? item.MRP ?? item.FixedAmt ?? 0;
+  const text = String(raw ?? '').trim();
+  return text ? `${text}/-` : '0/-';
+};
+
+const resolveLS000606BarcodePayload = (itemCode) => {
+  const code = String(itemCode || '').trim();
+  if (!code) return '';
+  const prefix = code.substring(0, Math.min(4, code.length));
+  const suffix = code.substring(prefix.length);
+  return `${String.fromCharCode(14)}&${prefix}${String.fromCharCode(14)}'${suffix}`;
+};
+
+const resolveLS000606EpcHex = (item) => {
+  const source = String(item.ItemCode || item.RFIDCode || '').trim();
+  let rawEpcHex = stringToHex(source);
+  if (rawEpcHex.length < 16) rawEpcHex = rawEpcHex.padStart(16, '0');
+  if (rawEpcHex.length > 16) rawEpcHex = rawEpcHex.substring(0, 16);
+  return rawEpcHex;
+};
+
+const generateLS000606Prn = (item) => {
+  const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
+  const category = resolveLS000606Category(item);
+  const isSilver = category === 'SILVER' || category.includes('SILVER');
+  const designLabel = prnQuote(resolveLS000606DesignLabel(item));
+  const productName = prnQuote(resolveLS000606ProductName(item));
+  const grossWt = prnQuote(resolveLS000606GrossWt(item));
+  const netWt = prnQuote(resolveLS000606NetWt(item));
+  const stoneWt = prnQuote(resolveLS000606StoneWt(item));
+  const diamondPcs = prnQuote(resolveLS000606DiamondPcs(item));
+  const stonePcs = prnQuote(resolveLS000606StonePcs(item));
+  const makingCharge = prnQuote(resolveLS000606MakingCharge(item));
+  const purity = prnQuote(String(item.PurityName || item.Purity || item.purity || '').trim());
+  const barcodePayload = prnQuote(resolveLS000606BarcodePayload(itemCode));
+  const epcHex = resolveLS000606EpcHex(item);
+  const pcsLabel = isSilver ? 'S.PCS :' : 'D.PCS :';
+  const pcsValue = isSilver ? stonePcs : diamondPcs;
+  const purityLine = isSilver ? `\nINV;POINT;56;360;7;7;"${purity}"` : '';
+
+  return `<xpml><page quantity='0' pitch='18.0 mm'></xpml>!PTX_SETUP
+ENGINE-WIDTH;3941:LENGTH;710:MIRROR;0.
+PTX_END
+~PAPER;ROTATE 0
+~CONFIG
+UPC DESCENDERS;0
+END
+~PAPER;LABELS 2;MEDIA 1
+~PAPER;FEED SHIFT 0;INTENSITY 15;SPEED IPS 2;SLEW IPS 2;TYPE 0
+~PAPER;CUT 0;PAUSE 0;TEAR 0
+~CONFIG
+CHECK DYNAMIC BCD;0
+SLASH ZERO;0
+UPPERCASE;0
+AUTO WRAP;0
+HOST FORM LENGTH;1
+END
+<xpml></page></xpml><xpml><page quantity='1' pitch='18.0 mm'></xpml>~CREATE;FORM-0;51
+SCALE;DOT;203;203
+ISET;'UTF8'
+RFWTAG;16;PC
+16;H;*2400*
+STOP
+RFWTAG;64;EPC
+64;H;*${epcHex}*
+STOP
+FONT;FACE 92250;BOLD 0;SLANT 0
+ALPHA
+INV;POINT;109;775;7;7;"${designLabel}"
+INV;POINT;79;775;7;7;"G.WT :"
+INV;POINT;53;775;7;7;"S.WT :"
+INV;POINT;23;775;7;7;"N.WT :"
+INV;POINT;79;720;7;7;"${grossWt}"
+INV;POINT;53;720;7;7;"${stoneWt}"
+INV;POINT;23;720;7;7;"${netWt}"
+INV;POINT;79;640;7;7;"${pcsLabel}"
+INV;POINT;53;640;7;7;"PCS :"
+INV;POINT;23;640;7;7;"MAK @"
+INV;POINT;79;570;7;7;"${pcsValue}"
+INV;POINT;53;580;7;7;"${stonePcs}"
+INV;POINT;23;581;7;7;"${makingCharge}"
+INV;POINT;102;499;7;7;"${productName}"
+STOP
+BARCODE
+C128B;INV;XRD1:1:2:2:3:3:4:4;H3.7;55;370
+"${barcodePayload}"
+STOP
+ALPHA
+INV;POINT;19;477;7;7;"${itemCode}"
+${purityLine}
+STOP
+END
+~EXECUTE;FORM-0;1
+<xpml></page></xpml>
+~NORMAL
+~DELETE FORM;FORM-0
+`;
+};
+
 // Generate PRN for LS000443 - Gold Category (matches client sample layout)
 const generateLS000443GoldPrn = (item) => {
   const itemCode = item.ItemCode || '';
@@ -957,6 +1102,8 @@ export const generateClientPrn = (item, clientCode) => {
       return generateLS000544Prn(item);
     case 'LS000551':
       return generateLS000551Prn(item);
+    case 'LS000606':
+      return generateLS000606Prn(item);
     case 'LS000443':
       // Check category for LS000443 - Gold, Silver, or Diamond
       // Also check ProductId for category detection

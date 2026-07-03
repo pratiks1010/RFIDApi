@@ -17,7 +17,43 @@ const stringToHex = (str) => {
     .toUpperCase();
 };
 
+/** Split item code into prefix/suffix for Code128 composite barcodes (FNC1 + apostrophe). */
+const splitItemCodeForBarcode = (code) => {
+  const trimmed = String(code || '').trim();
+  if (!trimmed) return { prefix: '', suffix: '' };
 
+  // Letter prefix + numeric suffix — SJ126, SJ001234, NSPY1064, S34, SJ25
+  const alphaNumeric = trimmed.match(/^([A-Za-z]+)(\d+)$/);
+  if (alphaNumeric) {
+    return { prefix: alphaNumeric[1].toUpperCase(), suffix: alphaNumeric[2] };
+  }
+
+  // Letter prefix + mixed remainder
+  const alphaRest = trimmed.match(/^([A-Za-z]+)(.+)$/);
+  if (alphaRest?.[2]) {
+    return { prefix: alphaRest[1].toUpperCase(), suffix: alphaRest[2] };
+  }
+
+  // Fallback: split after first 3 characters when long enough
+  if (trimmed.length > 3) {
+    return { prefix: trimmed.substring(0, 3), suffix: trimmed.substring(3) };
+  }
+
+  return { prefix: trimmed, suffix: '' };
+};
+
+/** Code128B composite payload: FNC1 + & + prefix + FNC1 + ' + suffix (or plain &code when no suffix). */
+const formatCode128CompositePayload = (itemCode) => {
+  const code = String(itemCode || '').trim();
+  if (!code) return '';
+  const fnc1 = String.fromCharCode(14);
+  const { prefix, suffix } = splitItemCodeForBarcode(code);
+
+  if (suffix) {
+    return `${fnc1}&${prefix}${fnc1}'${suffix}`;
+  }
+  return `${fnc1}&${code}`;
+};
 
 
 // Calculate EPC bit length and PC value from actual hex length (no zero padding)
@@ -221,39 +257,11 @@ const resolveLS000606MakingCharge = (item) => {
   return text ? `${text}/-` : '0/-';
 };
 
-const resolveLS000606BarcodePayload = (itemCode) => {
-  const code = String(itemCode || '').trim();
-  if (!code) return '';
-  const prefix = code.substring(0, Math.min(4, code.length));
-  const suffix = code.substring(prefix.length);
-  return `${String.fromCharCode(14)}&${prefix}${String.fromCharCode(14)}'${suffix}`;
-};
+const resolveLS000606BarcodePayload = (itemCode) => formatCode128CompositePayload(itemCode);
 
 const resolveLS000606EpcMemory = (item) => {
   const source = String(item.ItemCode || item.RFIDCode || '').trim();
-  let hexEpc = stringToHex(source).replace(/[^0-9A-F]/g, '');
-
-  if (!hexEpc) {
-    return { epcBits: 48, pcValue: '*1800*', epcHex: '000000000000' };
-  }
-
-  if (hexEpc.length > 12) {
-    hexEpc = hexEpc.substring(0, 12);
-  }
-
-  if (hexEpc.length % 4 !== 0) {
-    const remainder = hexEpc.length % 4;
-    const padLength = 4 - remainder;
-    hexEpc = hexEpc.padStart(hexEpc.length + padLength, '0');
-  }
-
-  const epcBytes = hexEpc.length / 2;
-  const epcBits = epcBytes * 8;
-  const epcWords = epcBits / 16;
-  const pcDecimal = epcWords << 11;
-  const pcValue = `*${pcDecimal.toString(16).toUpperCase().padStart(4, '0')}*`;
-
-  return { epcBits, pcValue, epcHex: hexEpc };
+  return calculateEpcMemory(stringToHex(source));
 };
 
 const generateLS000606Prn = (item) => {
@@ -348,15 +356,12 @@ const generateLS000443GoldPrn = (item) => {
     rawEpcHex = rawEpcHex.substring(0, 20);
   }
 
-  // Format barcode: & prefix + first 2 chars + apostrophe + rest (e.g., BG00012833 -> &BG'00012833)
-  let formattedBarcode = barcodeValue;
-  if (barcodeValue.length > 2) {
-    const prefix = barcodeValue.substring(0, 2);
-    const suffix = barcodeValue.substring(2);
-    formattedBarcode = `&${prefix}'${suffix}`;
-  } else {
-    formattedBarcode = `&${barcodeValue}`;
-  }
+  // Format barcode: & prefix + alpha prefix + apostrophe + numeric suffix
+  const formattedBarcode = (() => {
+    const { prefix, suffix } = splitItemCodeForBarcode(barcodeValue);
+    if (suffix) return `&${prefix}'${suffix}`;
+    return `&${barcodeValue}`;
+  })();
 
   return `!PTX_SETUP
 ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
@@ -642,12 +647,25 @@ const resolveLS000533HallmarkAmount = (item) =>
     ''
   ).trim();
 
-/** Code128C payload: FNC1 (0x0E) + apostrophe + ItemCode (e.g. `'3085`) */
+/** Code128C payload: FNC1 (0x0E) + apostrophe + numeric pairs from item code */
 const formatLS000533C128CPayload = (item) => {
   const itemCode = String(item.ItemCode || item.RFIDCode || '').trim();
-  let digits = /^\d+$/.test(itemCode) ? itemCode : itemCode.replace(/\D/g, '');
-  if (!digits) digits = '0';
-  return `${String.fromCharCode(14)}'${digits}`;
+  if (!itemCode) return `${String.fromCharCode(14)}'00`;
+
+  // Pure numeric codes use C128C directly
+  if (/^\d+$/.test(itemCode)) {
+    const digits = itemCode.length % 2 === 0 ? itemCode : `0${itemCode}`;
+    return `${String.fromCharCode(14)}'${digits}`;
+  }
+
+  // Alphanumeric codes: encode numeric suffix, or full code via C128B-style payload
+  const { suffix } = splitItemCodeForBarcode(itemCode);
+  if (suffix && /^\d+$/.test(suffix)) {
+    const digits = suffix.length % 2 === 0 ? suffix : `0${suffix}`;
+    return `${String.fromCharCode(14)}'${digits}`;
+  }
+
+  return formatLS000533C128BPayload(itemCode);
 };
 
 /** Hallmark amount for LS000533 QR text */
@@ -697,10 +715,7 @@ const formatLS000533QrPayload = (item) => formatLS000533StoneQrPayload(item);
 /** Fixed 80-bit EPC for LS000533 stone client template (matches sample *2C00* + RFWTAG;80;EPC) */
 const resolveLS000533StoneEpcHex = (item) => {
   const epcSource = String(item.RFIDCode || item.ItemCode || '').trim();
-  let rawEpcHex = stringToHex(epcSource);
-  if (rawEpcHex.length < 20) rawEpcHex = rawEpcHex.padStart(20, '0');
-  if (rawEpcHex.length > 20) rawEpcHex = rawEpcHex.substring(0, 20);
-  return rawEpcHex;
+  return calculateEpcMemory(stringToHex(epcSource)).epcHex;
 };
 
 // LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128B)
@@ -944,15 +959,12 @@ const generateLS000443SilverPrn = (item) => {
   const grossWt = item.GrossWt || item.GrossWeight || '0.610';
   const { epcHex: rawEpcHex } = calculateEpcMemory(stringToHex(barcodeValue));
 
-  // Format barcode: & prefix + first 3 chars + apostrophe + rest (e.g., SLR25000333 -> &SLR'25000333)
-  let formattedBarcode = barcodeValue;
-  if (barcodeValue.length > 3) {
-    const prefix = barcodeValue.substring(0, 3);
-    const suffix = barcodeValue.substring(3);
-    formattedBarcode = `&${prefix}'${suffix}`;
-  } else {
-    formattedBarcode = `&${barcodeValue}`;
-  }
+  // Format barcode: & prefix + alpha prefix + apostrophe + suffix
+  const formattedBarcode = (() => {
+    const { prefix, suffix } = splitItemCodeForBarcode(barcodeValue);
+    if (suffix) return `&${prefix}'${suffix}`;
+    return `&${barcodeValue}`;
+  })();
 
   return `!PTX_SETUP
 ENGINE-WIDTH;2838:LENGTH;1380:MIRROR;0.
@@ -1066,10 +1078,10 @@ END
 SCALE;DOT;203;203
 ISET;'UTF8'
 RFWTAG;16;PC
-16;H;*2400*
+16;H;${pcValue}
 STOP
-RFWTAG;64;EPC
-64;H;*${epcHex}*
+RFWTAG;${epcBits};EPC
+${epcBits};H;*${epcHex}*
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA

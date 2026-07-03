@@ -3,8 +3,11 @@ import axios from 'axios';
 import { FaPlug, FaLock, FaInfoCircle, FaSync, FaSpinner, FaCheckCircle, FaExclamationCircle, FaCloudUploadAlt, FaEdit, FaImage, FaTimes } from 'react-icons/fa';
 import { HiChip, HiDocumentText, HiLightningBolt } from 'react-icons/hi';
 import { getTestService, getStockOnHand, hasGatiAuthToken } from './tamannaahBSGatiService';
+import {
+  postStockVerificationReconcile,
+  SAVE_RFID_TRANSACTION_URL,
+} from './tamannaahReconcileService';
 
-const LOYALSTRING_SAVE_URL = 'https://soni.loyalstring.co.in/api/ProductMaster/SaveRFIDTransactionDetails';
 const UPDATE_EXISTING_API = 'https://soni.loyalstring.co.in/api/ProductMaster/UpdateExistingProducts';
 const PUSH_CHUNK_SIZE = 50;
 
@@ -112,6 +115,30 @@ const ThirdPartySoftwareIntegration = () => {
   const [updateProgress, setUpdateProgress] = useState(0);
   const [updateResult, setUpdateResult] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [reconcileModal, setReconcileModal] = useState(null);
+
+  const buildItemCodeMeta = useCallback(() => {
+    const map = new Map();
+    stockData.forEach((row) => {
+      const code = String(row.ItemCode ?? '').trim();
+      if (!code) return;
+      if (!map.has(code)) {
+        map.set(code, {
+          itemCode: code,
+          productName: row.ProductName ?? row.ProductCode ?? '—',
+          rfid: row.RFIDCode ?? '—',
+        });
+      }
+    });
+    return map;
+  }, [stockData]);
+
+  const collectPresentItemCodes = useCallback(() => {
+    const codes = stockData
+      .map((row) => String(row.ItemCode ?? '').trim())
+      .filter(Boolean);
+    return [...new Set(codes)];
+  }, [stockData]);
 
   useEffect(() => {
     const code = getClientCodeFromAuth();
@@ -159,16 +186,7 @@ const ThirdPartySoftwareIntegration = () => {
     }
   };
 
-  const pushToLoyalstring = async () => {
-    if (!stockData.length || !clientCode) {
-      setPushResult({ success: false, message: 'No data to push or client code missing.' });
-      return;
-    }
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setPushResult({ success: false, message: 'Please log in again.' });
-      return;
-    }
+  const runSaveRfidPush = async (token) => {
     setPushLoading(true);
     setPushResult(null);
     setPushProgress(0);
@@ -183,7 +201,7 @@ const ThirdPartySoftwareIntegration = () => {
       const chunk = payloads.slice(i, i + PUSH_CHUNK_SIZE);
       const chunkNum = Math.floor(i / PUSH_CHUNK_SIZE) + 1;
       try {
-        const res = await axios.post(LOYALSTRING_SAVE_URL, chunk, {
+        const res = await axios.post(SAVE_RFID_TRANSACTION_URL, chunk, {
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -216,6 +234,85 @@ const ThirdPartySoftwareIntegration = () => {
       total,
       errors: errors.length ? errors : null,
     });
+  };
+
+  const pushToLoyalstring = async () => {
+    if (!stockData.length || !clientCode) {
+      setPushResult({ success: false, message: 'No data to push or client code missing.' });
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setPushResult({ success: false, message: 'Please log in again.' });
+      return;
+    }
+
+    const presentItemCodes = collectPresentItemCodes();
+    if (!presentItemCodes.length) {
+      setPushResult({ success: false, message: 'No item codes in loaded stock to reconcile.' });
+      return;
+    }
+
+    setPushLoading(true);
+    setPushResult(null);
+    setReconcileModal({ phase: 'loading' });
+
+    const remark = `Gati API push ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+
+    try {
+      const reconcile = await postStockVerificationReconcile(
+        {
+          presentItemCodes,
+          branchId: null,
+          counterId: null,
+          categoryId: null,
+          productId: null,
+          designId: null,
+          remark,
+        },
+        token
+      );
+
+      const meta = buildItemCodeMeta();
+      setPushLoading(false);
+      setReconcileModal({
+        phase: 'review',
+        token,
+        presentCount: presentItemCodes.length,
+        reconcile,
+        soldRows: reconcile.sold.map((code) => meta.get(code) || { itemCode: code, productName: '—', rfid: '—' }),
+        notFoundRows: reconcile.notFound.map((code) => meta.get(code) || { itemCode: code, productName: '—', rfid: '—' }),
+      });
+    } catch (err) {
+      setPushLoading(false);
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.Message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Stock verification reconcile failed.';
+      setReconcileModal({
+        phase: 'error',
+        token,
+        error: typeof msg === 'string' ? msg : 'Stock verification reconcile failed.',
+        presentCount: presentItemCodes.length,
+      });
+    }
+  };
+
+  const continuePushAfterReconcile = async () => {
+    const token = reconcileModal?.token || localStorage.getItem('token');
+    setReconcileModal(null);
+    if (!token) {
+      setPushResult({ success: false, message: 'Please log in again.' });
+      return;
+    }
+    await runSaveRfidPush(token);
+  };
+
+  const cancelReconcileModal = () => {
+    setReconcileModal(null);
+    setPushLoading(false);
   };
 
   const updateStocksDetails = async () => {
@@ -351,6 +448,141 @@ const ThirdPartySoftwareIntegration = () => {
 
   return (
     <>
+    {reconcileModal && (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 2100,
+          background: 'rgba(15, 23, 42, 0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}
+        onClick={() => reconcileModal.phase !== 'loading' && cancelReconcileModal()}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            width: '100%',
+            maxWidth: 560,
+            maxHeight: '85vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            background: '#fff',
+            borderRadius: 14,
+            boxShadow: '0 24px 48px rgba(0,0,0,0.2)',
+            border: '1px solid #e2e8f0',
+          }}
+        >
+          <div style={{ padding: '18px 20px', borderBottom: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b' }}>
+              Stock verification reconcile
+            </h3>
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748b', lineHeight: 1.45 }}>
+              Compared {reconcileModal.presentCount ?? 0} item codes from Gati with active inventory before push.
+            </p>
+          </div>
+
+          <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
+            {reconcileModal.phase === 'loading' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#475569', fontSize: 14 }}>
+                <FaSpinner size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                Running StockVerificationReconcile…
+              </div>
+            )}
+
+            {reconcileModal.phase === 'error' && (
+              <div style={{ padding: 12, background: '#fef2f2', borderRadius: 8, border: '1px solid #fecaca', color: '#991b1b', fontSize: 13 }}>
+                {reconcileModal.error}
+              </div>
+            )}
+
+            {reconcileModal.phase === 'review' && reconcileModal.reconcile && (
+              <>
+                {reconcileModal.reconcile.message && (
+                  <p style={{ margin: '0 0 12px', fontSize: 13, color: '#334155' }}>
+                    {reconcileModal.reconcile.message}
+                  </p>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+                  <SummaryPill label="Sent (present)" value={reconcileModal.presentCount} color="#6366f1" />
+                  <SummaryPill
+                    label="Marked sold"
+                    value={reconcileModal.reconcile.markedSoldCount ?? reconcileModal.soldRows?.length ?? 0}
+                    color="#dc2626"
+                  />
+                  <SummaryPill label="Not found" value={reconcileModal.notFoundRows?.length ?? 0} color="#d97706" />
+                </div>
+
+                {(reconcileModal.soldRows?.length ?? 0) > 0 && (
+                  <ReconcileList
+                    title="Marked as Sold (not in Gati stock list)"
+                    tone="sold"
+                    rows={reconcileModal.soldRows}
+                  />
+                )}
+
+                {(reconcileModal.notFoundRows?.length ?? 0) > 0 && (
+                  <ReconcileList
+                    title="Not found in inventory"
+                    tone="missing"
+                    rows={reconcileModal.notFoundRows}
+                  />
+                )}
+
+                {!reconcileModal.soldRows?.length && !reconcileModal.notFoundRows?.length && (
+                  <div style={{ padding: 12, background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0', fontSize: 13, color: '#166534' }}>
+                    All {reconcileModal.presentCount} item codes matched active stock. No items marked sold.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            {reconcileModal.phase !== 'loading' && (
+              <>
+                <button
+                  type="button"
+                  onClick={cancelReconcileModal}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    background: '#fff',
+                    color: '#475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={continuePushAfterReconcile}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: 'none',
+                    borderRadius: 8,
+                    background: '#6366f1',
+                    color: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Continue push to Loyalstring
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     {imagePreview && (
       <div
         onClick={() => setImagePreview(null)}
@@ -533,7 +765,7 @@ const ThirdPartySoftwareIntegration = () => {
             <button
               type="button"
               onClick={pushToLoyalstring}
-              disabled={stockLoading || pushLoading || stockData.length === 0}
+              disabled={stockLoading || pushLoading || stockData.length === 0 || Boolean(reconcileModal)}
               style={{
                 padding: '8px 16px',
                 fontSize: 13,
@@ -861,6 +1093,65 @@ const ThirdPartySoftwareIntegration = () => {
     </>
   );
 };
+
+const SummaryPill = ({ label, value, color }) => (
+  <div style={{ padding: '10px 12px', borderRadius: 10, background: `${color}10`, border: `1px solid ${color}30`, textAlign: 'center' }}>
+    <div style={{ fontSize: 20, fontWeight: 700, color }}>{value ?? 0}</div>
+    <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginTop: 2 }}>{label}</div>
+  </div>
+);
+
+const ReconcileList = ({ title, tone, rows }) => (
+  <div style={{ marginBottom: 14 }}>
+    <div style={{
+      fontSize: 12,
+      fontWeight: 700,
+      textTransform: 'uppercase',
+      letterSpacing: '0.04em',
+      color: tone === 'sold' ? '#b91c1c' : '#b45309',
+      marginBottom: 8,
+    }}>
+      {title} ({rows.length})
+    </div>
+    <div style={{
+      maxHeight: 160,
+      overflowY: 'auto',
+      border: `1px solid ${tone === 'sold' ? '#fecaca' : '#fde68a'}`,
+      borderRadius: 8,
+      background: tone === 'sold' ? '#fffafb' : '#fffbeb',
+    }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: tone === 'sold' ? '#fef2f2' : '#fef3c7' }}>
+            <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600 }}>Item code</th>
+            <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600 }}>Product</th>
+            <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600 }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.itemCode} style={{ borderTop: '1px solid #f1f5f9' }}>
+              <td style={{ padding: '8px 10px', fontWeight: 600 }}>{row.itemCode}</td>
+              <td style={{ padding: '8px 10px', color: '#475569' }}>{row.productName}</td>
+              <td style={{ padding: '8px 10px' }}>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: tone === 'sold' ? '#fee2e2' : '#fef3c7',
+                  color: tone === 'sold' ? '#b91c1c' : '#b45309',
+                }}>
+                  {tone === 'sold' ? 'Sold' : 'Not found'}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
 
 const Card = ({ icon, title, description, color }) => (
   <div

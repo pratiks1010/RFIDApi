@@ -50,6 +50,7 @@ import CreateMasters from './components/CreateMasters';
 import DownloadApiDoc from './components/DownloadApiDoc';
 import DownloadResources from './components/DownloadResources';
 import ProfileMenuPage from './components/ProfileMenuPage';
+import ChangePasswordPage from './components/ChangePasswordPage';
 import FingerprintSettingsPage from './components/FingerprintSettingsPage';
 import PasskeySettingsPage from './components/PasskeySettingsPage';
 import FaceSettingsPage from './components/FaceSettingsPage';
@@ -217,6 +218,7 @@ const useAuthProtection = () => {
         '/download-resources',
         '/single-use-tags',
         '/profile-menu',
+        '/change-password',
         '/fingerprint-register',
         '/face-register',
         '/passkey-settings',
@@ -250,7 +252,8 @@ const useAuthProtection = () => {
     }
 
     // If admin is authenticated but tries to access user routes
-    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/offline-api-settings', '/download-folder-settings'].includes(currentPath)) {
+    if (isAdminAuth && !isAuth && ['/dashboard', '/analytics', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu',
+        '/change-password', '/fingerprint-register', '/face-register', '/passkey-settings', '/offline-api-settings', '/download-folder-settings'].includes(currentPath)) {
       navigate('/admin-dashboard', { replace: true });
     }
   }, [location.pathname, navigate]);
@@ -301,6 +304,7 @@ const useAuthProtection = () => {
         '/download-resources',
         '/single-use-tags',
         '/profile-menu',
+        '/change-password',
         '/fingerprint-register',
         '/face-register',
         '/passkey-settings',
@@ -508,7 +512,8 @@ const AuthGuard = ({ children }) => {
       }
 
       // Protected user routes
-      const userRoutes = ['/my-samples', '/sample-out-list', '/find-item', '/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
+      const userRoutes = ['/my-samples', '/sample-out-list', '/find-item', '/analytics', '/dashboard', '/create-masters', '/api-documentation', '/rfid-integration', '/label-stock', '/product-details', '/invoice-stock', '/rfid-label', '/rfid-devices', '/stock-tracking', '/rfid-tags', '/tag-usage', '/rfid-utility', '/rfid-utility/tray-connect', '/rfid-utility/auto-push-stock', '/rfid-utility/map-fields', '/rfid-utility/template', '/rfid-utility/item-images', '/rfid-utility/about-sparkle', '/stock-verification', '/stock-transfer', '/upload-rfid', '/rfid-transactions', '/rfid-app-download', '/third-party-integration', '/feronia-integration', '/kumar916-stock-master', '/download-api-doc', '/download-resources', '/single-use-tags', '/profile-menu',
+        '/change-password', '/fingerprint-register', '/face-register', '/passkey-settings', '/rfid-sample-in-out', '/offline-api-settings', '/download-folder-settings'];
 
       // Admin routes
       const adminRoutes = ['/admin-dashboard'];
@@ -795,6 +800,16 @@ const RoutesWrapper = () => {
               <AuthGuard>
                 <PageWrapper>
                   <SingleUseTags />
+                </PageWrapper>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/change-password"
+            element={
+              <AuthGuard>
+                <PageWrapper>
+                  <ChangePasswordPage />
                 </PageWrapper>
               </AuthGuard>
             }

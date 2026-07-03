@@ -19,11 +19,11 @@ export const PLAYGROUND_AUTH_REGISTER_BODY = {
 
 /** Login.js forgot-password modal → POST …/AuthForgotPassword */
 export const PLAYGROUND_AUTH_FORGOT_PASSWORD_BODY = {
-  LoginName: 'your_username',
-  ClientCode: 'LS000123',
-  CurrentPassword: 'current_password',
-  NewPassword: 'new_password',
-  ConfirmPassword: 'new_password',
+  loginName: 'your_username',
+  clientCode: 'LS000123',
+  currentPassword: 'current_password',
+  newPassword: 'new_password',
+  confirmPassword: 'new_password',
 };
 
 /** rfidService.buildPayloadFromData / Add Stock / Auto Push — POST …/SaveRFIDTransactionDetails (array) */

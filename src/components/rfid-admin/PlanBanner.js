@@ -1,55 +1,62 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import { rfidUserUrls } from '../../services/rfidUserManagementApi';
-import { authHeaders } from '../../services/rfidUserManagementApi';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { fetchMyRFIDPlan } from '../../services/rfidUserManagementApi';
 
 const PlanBanner = ({ onPlanLoaded }) => {
   const [plan, setPlan] = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await axios.get(rfidUserUrls.getMyRFIDPlan(), { headers: authHeaders() });
-        if (!cancelled) {
-          setPlan(res.data);
-          onPlanLoaded?.(res.data);
-        }
-      } catch (_) {
-        if (!cancelled) setPlan(null);
-      }
-    })();
-    return () => { cancelled = true; };
+  const load = useCallback(async () => {
+    try {
+      const data = await fetchMyRFIDPlan();
+      setPlan(data);
+      onPlanLoaded?.(data);
+    } catch (_) {
+      setPlan(null);
+    }
   }, [onPlanLoaded]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (!plan) return null;
 
-  const used = plan.CurrentSubUsers ?? plan.currentSubUsers ?? 0;
-  const max = plan.MaxSubUsers ?? plan.maxSubUsers ?? 0;
-  const remaining = plan.RemainingSubUsers ?? plan.remainingSubUsers ?? Math.max(0, max - used);
-  const expired = plan.IsExpired ?? plan.isExpired;
+  const used = plan.currentSubUsers ?? 0;
+  const max = plan.maxSubUsers ?? 0;
+  const remaining = plan.remainingSubUsers ?? Math.max(0, max - used);
+  const expired = plan.isExpired;
   const warn = expired || remaining === 0;
+
+  const expiryLabel = plan.planExpiryDate
+    ? new Date(plan.planExpiryDate).toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
+    : null;
 
   return (
     <div className={`rfid-plan-banner${warn ? ' warning' : ''}`}>
-      <span>
-        <strong>Plan:</strong> {plan.PlanName || '—'}
-        {' · '}
-        <strong>Sub-users:</strong> {used}/{max}
-        {plan.PlanExpiryDate && (
-          <>
-            {' · '}
-            <strong>Expires:</strong>{' '}
-            {new Date(plan.PlanExpiryDate).toLocaleDateString('en-GB', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-            })}
-          </>
+      <div className="rfid-plan-stats">
+        <span className="rfid-plan-stat">
+          Plan <strong>{plan.planName || '—'}</strong>
+        </span>
+        <span className="rfid-plan-stat">
+          Sub-users <strong>{used}/{max}</strong>
+        </span>
+        {expiryLabel && (
+          <span className="rfid-plan-stat">
+            Expires <strong>{expiryLabel}</strong>
+          </span>
         )}
-      </span>
-      {expired && <span>Plan expired — cannot add users.</span>}
-      {!expired && remaining === 0 && <span>Sub-user limit reached.</span>}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {expired && <span className="rfid-plan-warn">Plan expired — cannot add users</span>}
+        {!expired && remaining === 0 && <span className="rfid-plan-warn">Sub-user limit reached</span>}
+        <Link to="/rfid-admin/my-plan" className="rfid-btn rfid-btn-sm rfid-btn-ghost" style={{ textDecoration: 'none' }}>
+          Manage plan
+        </Link>
+      </div>
     </div>
   );
 };
@@ -62,8 +69,8 @@ export const useRfidPlan = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await axios.get(rfidUserUrls.getMyRFIDPlan(), { headers: authHeaders() });
-        if (!cancelled) setPlan(res.data);
+        const data = await fetchMyRFIDPlan();
+        if (!cancelled) setPlan(data);
       } catch (_) {
         if (!cancelled) setPlan(null);
       } finally {
@@ -75,15 +82,15 @@ export const useRfidPlan = () => {
 
   const canAddUser = () => {
     if (!plan) return true;
-    if (plan.IsExpired || plan.isExpired) return false;
-    const remaining = plan.RemainingSubUsers ?? plan.remainingSubUsers;
+    if (plan.isExpired) return false;
+    const remaining = plan.remainingSubUsers;
     if (remaining !== undefined && remaining !== null) return remaining > 0;
-    const used = plan.CurrentSubUsers ?? plan.currentSubUsers ?? 0;
-    const max = plan.MaxSubUsers ?? plan.maxSubUsers ?? 0;
+    const used = plan.currentSubUsers ?? 0;
+    const max = plan.maxSubUsers ?? 0;
     return used < max;
   };
 
-  return { plan, loading, canAddUser: canAddUser() };
+  return { plan, loading, canAddUser: canAddUser(), reloadPlan: fetchMyRFIDPlan };
 };
 
 export default PlanBanner;

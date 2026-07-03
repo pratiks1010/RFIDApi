@@ -19,6 +19,8 @@ export const getRfidApiBaseUrl = () =>
 export const getAuthApiBaseUrl = () => getRfidApiBaseUrl();
 
 export const getAuthLoginUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthLogin`;
+
+/** Public — change password (parent + sub-users). No Bearer token. */
 export const getAuthForgotPasswordUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthForgotPassword`;
 
 /**

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import RfidAdminPage from './RfidAdminPage';
+import FormFooter from './FormFooter';
 import {
   authHeaders,
   extractApiMessage,
@@ -41,12 +42,7 @@ const SubUserBranches = () => {
 
         if (hasAll) {
           setAllBranches(true);
-          setRows(
-            branchList.map((b) => ({
-              ...b,
-              assigned: true,
-            }))
-          );
+          setRows(branchList.map((b) => ({ ...b, assigned: true })));
         } else {
           setAllBranches(false);
           setRows(
@@ -98,34 +94,50 @@ const SubUserBranches = () => {
   return (
     <RfidAdminPage
       title="Branch Access"
-      subtitle={userName ? `Employee: ${userName}` : ''}
+      subtitle={userName ? `Configure branches for ${userName}` : ''}
       backTo="/rfid-admin/users"
+      backLabel="User Management"
     >
       <div className="rfid-card">
         {loading ? (
           <div className="rfid-empty">Loading branches…</div>
         ) : (
           <div className="rfid-form-body">
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={allBranches}
-                onChange={(e) => {
-                  setAllBranches(e.target.checked);
-                  if (e.target.checked) {
-                    setRows((prev) => prev.map((r) => ({ ...r, assigned: true })));
-                  }
+            <div className="rfid-section-header">
+              <div>
+                <h3 className="rfid-section-title">Branch access</h3>
+                <p className="rfid-section-desc">Choose which store branches this employee can access.</p>
+              </div>
+            </div>
+            <div className="rfid-segmented">
+              <button
+                type="button"
+                className={`rfid-segment${allBranches ? ' active' : ''}`}
+                onClick={() => {
+                  setAllBranches(true);
+                  setRows((prev) => prev.map((r) => ({ ...r, assigned: true })));
                 }}
-              />
-              <strong>All branches</strong>
-              <span style={{ color: '#64748b', fontSize: '0.85rem' }}>(sends null — full access)</span>
-            </label>
-            {!allBranches && (
-              <div className="rfid-table-wrap">
-                <table className="rfid-table rfid-branch-table">
+              >
+                All branches
+              </button>
+              <button
+                type="button"
+                className={`rfid-segment${!allBranches ? ' active' : ''}`}
+                onClick={() => setAllBranches(false)}
+              >
+                Selected only
+              </button>
+            </div>
+            {allBranches ? (
+              <div className="rfid-branch-all-note">
+                Full access to every branch linked to your account.
+              </div>
+            ) : (
+              <div className="rfid-table-wrap rfid-branch-table">
+                <table className="rfid-table">
                   <thead>
                     <tr>
-                      <th style={{ width: 48 }}>Assigned</th>
+                      <th style={{ width: 48 }} aria-label="Assigned" />
                       <th>Branch</th>
                       <th>Code</th>
                     </tr>
@@ -135,35 +147,38 @@ const SubUserBranches = () => {
                       const id = b.BranchId ?? b.branchId ?? b.Id ?? b.id;
                       const name = b.BranchName ?? b.branchName ?? b.Name ?? '—';
                       const code = b.BranchCode ?? b.branchCode ?? b.Code ?? '—';
+                      const checked = Boolean(b.assigned);
                       return (
-                        <tr key={id} className="rfid-branch-row">
-                          <td>
+                        <tr
+                          key={id}
+                          className={`rfid-branch-row${checked ? ' selected' : ''}`}
+                          onClick={() => toggleRow(id)}
+                        >
+                          <td onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
-                              checked={Boolean(b.assigned)}
+                              checked={checked}
                               onChange={() => toggleRow(id)}
                             />
                           </td>
                           <td>{name}</td>
-                          <td>{code}</td>
+                          <td><span className="rfid-code">{code}</span></td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
                 {rows.length === 0 && (
-                  <p className="rfid-empty">No branches returned from API.</p>
+                  <p className="rfid-empty rfid-empty-sm">No branches returned from API.</p>
                 )}
               </div>
             )}
-            <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-              <button type="button" className="rfid-btn rfid-btn-primary" onClick={submit} disabled={saving}>
-                {saving ? 'Saving…' : 'Save branch access'}
-              </button>
-              <button type="button" className="rfid-btn rfid-btn-ghost" onClick={() => navigate('/rfid-admin/users')}>
-                Cancel
-              </button>
-            </div>
+            <FormFooter
+              onCancel={() => navigate('/rfid-admin/users')}
+              onSubmit={submit}
+              submitLabel="Save branch access"
+              saving={saving}
+            />
           </div>
         )}
       </div>

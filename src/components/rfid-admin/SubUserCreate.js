@@ -4,7 +4,12 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import RfidAdminPage from './RfidAdminPage';
 import PlanBanner, { useRfidPlan } from './PlanBanner';
-import { emptyPermissions, PERMISSION_LABELS, PERMISSION_KEYS, ROLE_OPTIONS } from '../../constants/rfidPermissions';
+import FormStepper from './FormStepper';
+import FormFooter from './FormFooter';
+import PermissionsPanel from './PermissionsPanel';
+import BranchAccessPanel from './BranchAccessPanel';
+import PasswordField from './PasswordField';
+import { emptyPermissions, PERMISSION_KEYS, ROLE_OPTIONS } from '../../constants/rfidPermissions';
 import { getClientCode, permissionsToApiPayload } from '../../utils/authState';
 import { getGetAllBranchMasterUrl } from '../../services/memberOnboardingApi';
 import {
@@ -26,6 +31,7 @@ const SubUserCreate = () => {
   const [branches, setBranches] = useState([]);
   const [branchMode, setBranchMode] = useState('all');
   const [selectedBranchIds, setSelectedBranchIds] = useState([]);
+  const [errors, setErrors] = useState({});
   const [form, setForm] = useState({
     UserName: '',
     Password: '',
@@ -81,7 +87,6 @@ const SubUserCreate = () => {
       ...prev,
       Permissions: { ...prev.Permissions, [key]: !prev.Permissions[key] },
     }));
-
   const toggleBranch = (id) => {
     const n = Number(id);
     setSelectedBranchIds((prev) =>
@@ -94,18 +99,26 @@ const SubUserCreate = () => {
       ? modules.map((m) => m.Key || m.key).filter((k) => k && PERMISSION_KEYS.includes(k))
       : PERMISSION_KEYS;
 
-  const validateTab = () => {
-    if (tab === 0) {
-      if (!form.UserName.trim()) {
-        toast.error('Employee ID is required');
-        return false;
-      }
-      if (!form.Password || form.Password.length < 6) {
-        toast.error('Password is required (min 6 characters)');
-        return false;
-      }
+  const validateBasic = () => {
+    const next = {};
+    if (!form.UserName.trim()) {
+      next.userName = 'Login username is required';
     }
+    if (!form.Password || form.Password.length < 6) {
+      next.password = 'Password is required (minimum 6 characters)';
+    }
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const validateTab = () => {
+    if (tab === 0) return validateBasic();
     return true;
+  };
+
+  const goToTab = (i) => {
+    if (i > tab && !validateTab()) return;
+    setTab(i);
   };
 
   const nextTab = () => {
@@ -143,162 +156,101 @@ const SubUserCreate = () => {
   return (
     <RfidAdminPage
       title="Add Employee"
-      subtitle="Employee ID is used at login (LoginName)"
+      subtitle="Create a dashboard login. Login username is used at sign-in."
       backTo="/rfid-admin/users"
       backLabel="User Management"
     >
       <PlanBanner />
       <div className="rfid-card">
-        <div className="rfid-step-dots" style={{ padding: '16px 20px 0' }}>
-          {TABS.map((_, i) => (
-            <div
-              key={TABS[i]}
-              className={`rfid-step-dot${i < tab ? ' done' : ''}${i === tab ? ' current' : ''}`}
-            />
-          ))}
-        </div>
-        <div className="rfid-tabs">
-          {TABS.map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              className={`rfid-tab${tab === i ? ' active' : ''}`}
-              onClick={() => (i <= tab || validateTab()) && setTab(i)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <FormStepper
+          steps={TABS}
+          current={tab}
+          onStepClick={goToTab}
+        />
         <div className="rfid-form-body">
           {tab === 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
-              <div className="rfid-field">
-                <label>Employee ID *</label>
-                <input
-                  value={form.UserName}
-                  onChange={(e) => update('UserName', e.target.value)}
-                  placeholder="e.g. EMP178353"
-                />
-              </div>
-              <div className="rfid-field">
-                <label>Password *</label>
-                <input
-                  type="password"
-                  value={form.Password}
-                  onChange={(e) => update('Password', e.target.value)}
-                  placeholder="Staff@123"
-                />
-              </div>
-              <div className="rfid-field">
-                <label>Email</label>
-                <input
-                  type="email"
-                  value={form.Email}
-                  onChange={(e) => update('Email', e.target.value)}
-                  placeholder="emp@shop.com"
-                />
-              </div>
-              <div className="rfid-field">
-                <label>Role</label>
-                <select value={form.RoleType} onChange={(e) => update('RoleType', e.target.value)}>
-                  {ROLE_OPTIONS.map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-          {tab === 1 && (
-            <div className="rfid-perm-grid">
-              {permKeys.map((key) => (
-                <label key={key} className="rfid-perm-item">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.Permissions[key])}
-                    onChange={() => togglePerm(key)}
-                  />
-                  <span>{PERMISSION_LABELS[key] || key}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          {tab === 2 && (
             <>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    checked={branchMode === 'all'}
-                    onChange={() => setBranchMode('all')}
-                  />
-                  All branches
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    checked={branchMode === 'selected'}
-                    onChange={() => setBranchMode('selected')}
-                  />
-                  Selected branches only
-                </label>
+              <div className="rfid-section-header">
+                <div>
+                  <h3 className="rfid-section-title">Account details</h3>
+                  <p className="rfid-section-desc">Set the login credentials and role for this employee.</p>
+                </div>
               </div>
-              {branchMode === 'selected' && (
-                <div className="rfid-table-wrap rfid-branch-table">
-                  <table className="rfid-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: 48 }} />
-                        <th>Branch</th>
-                        <th>Code</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {branches.map((b) => {
-                        const id = b.Id ?? b.id ?? b.BranchId ?? b.branchId;
-                        const name = b.BranchName ?? b.branchName ?? b.Name ?? '—';
-                        const code = b.BranchCode ?? b.branchCode ?? b.Code ?? '—';
-                        return (
-                          <tr key={id} className="rfid-branch-row">
-                            <td>
-                              <input
-                                type="checkbox"
-                                checked={selectedBranchIds.includes(Number(id))}
-                                onChange={() => toggleBranch(id)}
-                              />
-                            </td>
-                            <td>{name}</td>
-                            <td>{code}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {branches.length === 0 && (
-                    <p className="rfid-empty" style={{ padding: 24 }}>No branches loaded for client.</p>
+              <div className="rfid-form-grid">
+                <div className={`rfid-field${errors.userName ? ' has-error' : ''}`}>
+                  <label>Login username *</label>
+                  <input
+                    value={form.UserName}
+                    onChange={(e) => {
+                      update('UserName', e.target.value);
+                      if (errors.userName) setErrors((p) => ({ ...p, userName: undefined }));
+                    }}
+                    placeholder="e.g. EMP178353 or staff.name"
+                    autoComplete="off"
+                  />
+                  {errors.userName ? (
+                    <p className="rfid-field-error">{errors.userName}</p>
+                  ) : (
+                    <p className="rfid-field-hint">This is the username used to sign in to the dashboard</p>
                   )}
                 </div>
-              )}
+                <PasswordField
+                  label="Password *"
+                  value={form.Password}
+                  onChange={(e) => {
+                    update('Password', e.target.value);
+                    if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+                  }}
+                  placeholder="Staff@123"
+                  defaultVisible
+                  error={errors.password}
+                />
+                <div className="rfid-field">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    value={form.Email}
+                    onChange={(e) => update('Email', e.target.value)}
+                    placeholder="emp@shop.com"
+                  />
+                </div>
+                <div className="rfid-field">
+                  <label>Role</label>
+                  <select value={form.RoleType} onChange={(e) => update('RoleType', e.target.value)}>
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </>
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
-            <button type="button" className="rfid-btn rfid-btn-ghost" onClick={() => navigate('/rfid-admin/users')}>
-              Cancel
-            </button>
-            {tab < TABS.length - 1 ? (
-              <button type="button" className="rfid-btn rfid-btn-primary" onClick={nextTab}>
-                Next
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="rfid-btn rfid-btn-primary"
-                onClick={submit}
-                disabled={saving || !canAddUser}
-              >
-                {saving ? 'Creating…' : 'Create User'}
-              </button>
-            )}
-          </div>
+          {tab === 1 && (
+            <PermissionsPanel
+              permKeys={permKeys}
+              permissions={form.Permissions}
+              onToggle={togglePerm}
+            />
+          )}
+          {tab === 2 && (
+            <BranchAccessPanel
+              branchMode={branchMode}
+              onModeChange={setBranchMode}
+              branches={branches}
+              selectedBranchIds={selectedBranchIds}
+              onToggleBranch={toggleBranch}
+            />
+          )}
+          <FormFooter
+            showBack={tab > 0}
+            onBack={() => setTab((t) => t - 1)}
+            onCancel={() => navigate('/rfid-admin/users')}
+            onNext={tab < TABS.length - 1 ? nextTab : undefined}
+            onSubmit={tab === TABS.length - 1 ? submit : undefined}
+            submitLabel="Create User"
+            saving={saving}
+            submitDisabled={!canAddUser}
+          />
         </div>
       </div>
     </RfidAdminPage>

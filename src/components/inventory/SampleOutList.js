@@ -35,9 +35,7 @@ import { partyTypeToApiEnum } from '../../services/sampleInOutApi';
 import {
   getAdminBulkSampleReturnUrl,
   getAdminExcelSampleInPreviewUrl,
-  getAdminExcelSampleInUrl,
   parseAdminExcelSampleInPreview,
-  parseAdminExcelSampleInResult,
   getAllSampleOutListUrl,
   buildGetAllSampleOutListQuery,
   getLotByIdUrl,
@@ -3237,10 +3235,34 @@ const buildAdminExcelImportProductsPayload = (readyRows, productRemarks, scanMod
         LotItemId: lotItemId,
         AdminReviewRemark: remark,
         AdminReturnRemark: remark,
+        ReturnRemark: remark,
         ScanMode: scanMode,
       };
     })
     .filter(Boolean);
+
+const groupImportReadyRowsByLotId = (readyRows = []) => {
+  const groups = new Map();
+  (readyRows || []).forEach((row) => {
+    const lotId = Number(row?.lotId ?? row?.LotId);
+    if (!Number.isFinite(lotId) || lotId <= 0) return;
+    if (!groups.has(lotId)) groups.set(lotId, []);
+    groups.get(lotId).push(row);
+  });
+  return groups;
+};
+
+const normalizeBulkReturnProducts = (payload = {}) => {
+  const list =
+    payload?.returnedProducts ??
+    payload?.ReturnedProducts ??
+    payload?.products ??
+    payload?.Products ??
+    payload?.items ??
+    payload?.Items ??
+    [];
+  return Array.isArray(list) ? list : [];
+};
 
 const toDatetimeLocalValue = (d = new Date()) => {
   const pad = (n) => String(n).padStart(2, '0');
@@ -4100,9 +4122,13 @@ const SampleOutList = ({
         const itemReturnRemark =
           hit.returnRemark ??
           hit.ReturnRemark ??
-          bulkRemark ??
+          hit.adminReturnRemark ??
+          hit.AdminReturnRemark ??
+          productRemarksByLotItemId[id] ??
+          productRemarksByLotItemId[String(id)] ??
           line.returnRemark ??
-          line.ReturnRemark;
+          line.ReturnRemark ??
+          bulkRemark;
         return {
           ...line,
           ItemStatus: hit.itemStatus ?? hit.ItemStatus ?? 'Returned',
@@ -4114,8 +4140,8 @@ const SampleOutList = ({
           adminReviewRemark: itemAdminReviewRemark,
           ReturnRemark: itemReturnRemark,
           returnRemark: itemReturnRemark,
-          AdminReturnRemark: bulkRemark || line.adminReturnRemark || line.AdminReturnRemark,
-          adminReturnRemark: bulkRemark || line.adminReturnRemark || line.AdminReturnRemark,
+          AdminReturnRemark: itemAdminReviewRemark || itemReturnRemark || line.adminReturnRemark || line.AdminReturnRemark,
+          adminReturnRemark: itemAdminReviewRemark || itemReturnRemark || line.adminReturnRemark || line.AdminReturnRemark,
           SampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.SampleInMode,
           sampleInMode: hit.sampleInMode ?? hit.SampleInMode ?? line.sampleInMode,
           LastActionType: hit.lastActionType ?? hit.LastActionType ?? line.LastActionType,
@@ -4727,9 +4753,17 @@ const SampleOutList = ({
       setImportError('Every ready product needs a remark before sample in.');
       return;
     }
-    const adminReturnRemark =
-      String(products[0]?.AdminReturnRemark || products[0]?.AdminReviewRemark || '').trim() ||
-      'Excel sample in';
+    const rowsMissingLot = readyRows.filter((row) => {
+      const lotId = Number(row?.lotId ?? row?.LotId);
+      return !Number.isFinite(lotId) || lotId <= 0;
+    });
+    if (rowsMissingLot.length) {
+      setImportError('Some products are missing lot id. Close and re-open import preview.');
+      return;
+    }
+    const productRemarksByLotItemId = Object.fromEntries(
+      products.map((entry) => [entry.LotItemId, entry.AdminReviewRemark])
+    );
     setImportConfirmLoading(true);
     setImportError('');
     setImportStep('processing');
@@ -4739,51 +4773,115 @@ const SampleOutList = ({
     }, 140);
     try {
       const sampleInDateIso = datetimeLocalToApiIso(importSampleInDate) || datetimeLocalToApiIso(toDatetimeLocalValue());
-      const executeBody = {
-        ClientCode: clientCode,
-        clientCode,
-        AdminReturnRemark: adminReturnRemark,
-        adminReturnRemark,
-        ScanMode: ADMIN_RETURN_SCAN_MODE,
-        scanMode: ADMIN_RETURN_SCAN_MODE,
-        LotItemIds: lotItemIds,
-        lotItemIds,
-        SampleInDate: sampleInDateIso,
-        sampleInDate: sampleInDateIso,
-        Products: products,
-        products: products.map((entry) => ({
-          lotItemId: entry.LotItemId,
-          adminReturnRemark: entry.AdminReturnRemark,
-          adminReviewRemark: entry.AdminReviewRemark,
-          scanMode: entry.ScanMode,
-        })),
-      };
-      const { data } = await axios.post(
-        getAdminExcelSampleInUrl(),
-        executeBody,
-        { headers: sampleAuthHeaders(), timeout: SAMPLE_LIST_TIMEOUT_MS }
-      );
-      if (data?.success === false) {
-        throw new Error(data?.message || data?.Message || 'Sample-in confirm failed.');
+      const lotGroups = groupImportReadyRowsByLotId(readyRows);
+      const lotResults = [];
+      const returnedProducts = [];
+      const failures = [];
+      let totalReturned = 0;
+
+      for (const [lotId, lotRows] of lotGroups.entries()) {
+        const lotProducts = buildAdminExcelImportProductsPayload(
+          lotRows,
+          importProductRemarks,
+          ADMIN_RETURN_SCAN_MODE
+        );
+        if (!lotProducts.length) continue;
+
+        const lotBulkRemark =
+          String(lotProducts[0]?.AdminReviewRemark || lotProducts[0]?.AdminReturnRemark || '').trim() ||
+          'Excel sample in';
+
+        const bulkPayload = {
+          ClientCode: clientCode,
+          LotId: Number(lotId),
+          AdminReturnRemark: lotBulkRemark,
+          ScanMode: ADMIN_RETURN_SCAN_MODE,
+          Products: lotProducts.map(({ LotItemId, AdminReviewRemark, ScanMode }) => ({
+            LotItemId,
+            AdminReviewRemark,
+            ScanMode,
+          })),
+        };
+        if (sampleInDateIso) {
+          bulkPayload.SampleInDate = sampleInDateIso;
+          bulkPayload.sampleInDate = sampleInDateIso;
+        }
+
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const { data } = await axios.post(getAdminBulkSampleReturnUrl(), bulkPayload, {
+            headers: sampleAuthHeaders(),
+            timeout: SAMPLE_LIST_TIMEOUT_MS,
+          });
+          if (data?.success === false) {
+            throw new Error(data?.message || data?.Message || `Sample in failed for lot ${lotId}.`);
+          }
+          const lotMeta = parseRfidSampleLotReturnMeta(data);
+          const lotReturned = normalizeBulkReturnProducts(data);
+          totalReturned += lotReturned.length || lotProducts.length;
+          returnedProducts.push(...lotReturned);
+          lotResults.push({
+            lotId: Number(lotId),
+            lotNumber: lotRows[0]?.lotNumber || lotMeta.lotNumber || '',
+            lotStatus: lotMeta.lotStatus || '',
+            lotCompleted: lotMeta.lotCompleted ?? false,
+            returnedCount: lotReturned.length || lotProducts.length,
+          });
+        } catch (lotErr) {
+          failures.push({
+            lotId: Number(lotId),
+            lotNumber: lotRows[0]?.lotNumber || String(lotId),
+            message:
+              lotErr?.response?.data?.message ||
+              lotErr?.response?.data?.Message ||
+              lotErr?.message ||
+              `Could not sample in lot ${lotId}.`,
+          });
+        }
       }
-      const parsed = parseAdminExcelSampleInResult(data);
+
+      if (!totalReturned && failures.length) {
+        throw new Error(failures.map((f) => f.message).join(' '));
+      }
+
+      const parsed = {
+        success: failures.length === 0,
+        message:
+          failures.length === 0
+            ? `${totalReturned} product(s) returned with individual Excel remarks.`
+            : `${totalReturned} product(s) returned. ${failures.length} lot(s) failed.`,
+        totalReturned,
+        lotsProcessed: lotResults.length,
+        sampleInDate: sampleInDateIso,
+        sampleInDateFormatted: sampleInDateIso,
+        lotResults,
+        returnedProducts,
+        failures,
+      };
+
       setImportProgressPct(100);
       setImportReturnedRows(
-        mergeAdminExcelReturnedRows(readyRows, parsed.returnedProducts).map((row) => ({
-          ...row,
-          adminReturnRemark:
-            importProductRemarks[row.lotItemId] ??
-            importProductRemarks[String(row.lotItemId)] ??
+        mergeAdminExcelReturnedRows(readyRows, returnedProducts).map((row) => {
+          const lotItemId = row.lotItemId;
+          const remark =
+            productRemarksByLotItemId[lotItemId] ??
+            productRemarksByLotItemId[String(lotItemId)] ??
             row.adminReturnRemark ??
-            adminReturnRemark,
-        }))
+            row.adminReviewRemark ??
+            '';
+          return {
+            ...row,
+            adminReturnRemark: remark,
+            adminReviewRemark: remark,
+          };
+        })
       );
       setImportConfirmResult(parsed);
       setImportStep('done');
       addNotification({
-        type: 'success',
+        type: failures.length ? 'warning' : 'success',
         title: 'Sample In Import',
-        message: parsed.message || `${parsed.totalReturned} product(s) returned.`,
+        message: parsed.message,
       });
       fetchSampleOutList();
     } catch (err) {

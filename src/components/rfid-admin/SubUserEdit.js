@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import RfidAdminPage from './RfidAdminPage';
+import FormFooter from './FormFooter';
+import PasswordField from './PasswordField';
 import { ROLE_OPTIONS } from '../../constants/rfidPermissions';
 import {
   authHeaders,
@@ -73,8 +75,10 @@ const SubUserEdit = () => {
 
   if (loading) {
     return (
-      <RfidAdminPage title="Edit Employee" backTo="/rfid-admin/users">
-        <div className="rfid-empty">Loading…</div>
+      <RfidAdminPage title="Edit Employee" backTo="/rfid-admin/users" backLabel="User Management">
+        <div className="rfid-card">
+          <div className="rfid-empty">Loading employee…</div>
+        </div>
       </RfidAdminPage>
     );
   }
@@ -82,14 +86,21 @@ const SubUserEdit = () => {
   return (
     <RfidAdminPage
       title="Edit Employee"
-      subtitle="Password optional — leave blank to keep current"
+      subtitle="Update login details. Leave password blank to keep the current one."
       backTo="/rfid-admin/users"
+      backLabel="User Management"
     >
       <div className="rfid-card">
         <form className="rfid-form-body" onSubmit={submit}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16, maxWidth: 720 }}>
+          <div className="rfid-section-header">
+            <div>
+              <h3 className="rfid-section-title">Account details</h3>
+              <p className="rfid-section-desc">Modify credentials and role for this employee.</p>
+            </div>
+          </div>
+          <div className="rfid-form-grid">
             <div className="rfid-field">
-              <label>Employee ID</label>
+              <label>Login username</label>
               <input
                 value={form.UserName}
                 onChange={(e) => setForm((p) => ({ ...p, UserName: e.target.value }))}
@@ -103,14 +114,13 @@ const SubUserEdit = () => {
                 onChange={(e) => setForm((p) => ({ ...p, Email: e.target.value }))}
               />
             </div>
-            <div className="rfid-field">
-              <label>New password (optional)</label>
-              <input
-                type="password"
-                value={form.Password}
-                onChange={(e) => setForm((p) => ({ ...p, Password: e.target.value }))}
-              />
-            </div>
+            <PasswordField
+              label="New password (optional)"
+              value={form.Password}
+              onChange={(e) => setForm((p) => ({ ...p, Password: e.target.value }))}
+              placeholder="Leave blank to keep current"
+              defaultVisible
+            />
             <div className="rfid-field">
               <label>Role</label>
               <select
@@ -123,21 +133,19 @@ const SubUserEdit = () => {
               </select>
             </div>
           </div>
-          <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: 8 }}>
-            Update{' '}
-            <Link to={`/rfid-admin/users/${userId}/permissions`} style={{ color: '#0f4c81' }}>permissions</Link>
+          <div className="rfid-edit-links">
+            Manage{' '}
+            <Link to={`/rfid-admin/users/${userId}/permissions`}>module permissions</Link>
             {' or '}
-            <Link to={`/rfid-admin/users/${userId}/branches`} style={{ color: '#0f4c81' }}>branch access</Link>
+            <Link to={`/rfid-admin/users/${userId}/branches`}>branch access</Link>
             {' separately.'}
-          </p>
-          <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-            <button type="submit" className="rfid-btn rfid-btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : 'Save changes'}
-            </button>
-            <button type="button" className="rfid-btn rfid-btn-ghost" onClick={() => navigate('/rfid-admin/users')}>
-              Cancel
-            </button>
           </div>
+          <FormFooter
+            onCancel={() => navigate('/rfid-admin/users')}
+            onSubmit={submit}
+            submitLabel="Save changes"
+            saving={saving}
+          />
         </form>
       </div>
     </RfidAdminPage>

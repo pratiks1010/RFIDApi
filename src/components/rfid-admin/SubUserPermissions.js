@@ -3,7 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import RfidAdminPage from './RfidAdminPage';
-import { emptyPermissions, PERMISSION_KEYS, PERMISSION_LABELS } from '../../constants/rfidPermissions';
+import FormFooter from './FormFooter';
+import PermissionsPanel from './PermissionsPanel';
+import { emptyPermissions, PERMISSION_KEYS } from '../../constants/rfidPermissions';
 import { permissionsToApiPayload } from '../../utils/authState';
 import {
   authHeaders,
@@ -76,42 +78,27 @@ const SubUserPermissions = () => {
   return (
     <RfidAdminPage
       title="Module Permissions"
-      subtitle={userName ? `Employee: ${userName}` : ''}
+      subtitle={userName ? `Configure access for ${userName}` : ''}
       backTo="/rfid-admin/users"
+      backLabel="User Management"
     >
       <div className="rfid-card">
         {loading ? (
-          <div className="rfid-empty">Loading…</div>
+          <div className="rfid-empty">Loading permissions…</div>
         ) : (
           <div className="rfid-form-body">
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <button type="button" className="rfid-btn rfid-btn-ghost" onClick={() => selectAll(true)}>
-                Enable all
-              </button>
-              <button type="button" className="rfid-btn rfid-btn-ghost" onClick={() => selectAll(false)}>
-                Disable all
-              </button>
-            </div>
-            <div className="rfid-perm-grid">
-              {PERMISSION_KEYS.map((key) => (
-                <label key={key} className="rfid-perm-item">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(permissions[key])}
-                    onChange={() => toggle(key)}
-                  />
-                  <span>{PERMISSION_LABELS[key] || key}</span>
-                </label>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-              <button type="button" className="rfid-btn rfid-btn-primary" onClick={submit} disabled={saving}>
-                {saving ? 'Saving…' : 'Save permissions'}
-              </button>
-              <button type="button" className="rfid-btn rfid-btn-ghost" onClick={() => navigate('/rfid-admin/users')}>
-                Cancel
-              </button>
-            </div>
+            <PermissionsPanel
+              permKeys={PERMISSION_KEYS}
+              permissions={permissions}
+              onToggle={toggle}
+              onSelectAll={selectAll}
+            />
+            <FormFooter
+              onCancel={() => navigate('/rfid-admin/users')}
+              onSubmit={submit}
+              submitLabel="Save permissions"
+              saving={saving}
+            />
           </div>
         )}
       </div>

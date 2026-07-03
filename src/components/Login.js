@@ -4,7 +4,8 @@ import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
-import { getAuthForgotPasswordUrl, getAuthLoginUrl } from '../services/authApiConfig';
+import { getAuthLoginUrl } from '../services/authApiConfig';
+import { changeAuthPassword } from '../services/authPasswordService';
 import { buildAuthStateFromLogin, persistAuthState } from '../utils/authState';
 import { getApiMode } from '../services/apiBaseConfig';
 import OfflineApiBaseSettingsForm from './OfflineApiBaseSettingsForm';
@@ -596,16 +597,15 @@ const Login = () => {
 
   const submitForgotPassword = async () => {
     if (forgotPasswordLoading) return;
-    const payload = {
-      LoginName: forgotPasswordData.LoginName.trim(),
-      ClientCode: forgotPasswordData.ClientCode.trim().toUpperCase(),
-      CurrentPassword: forgotPasswordData.CurrentPassword,
-      NewPassword: forgotPasswordData.NewPassword,
-      ConfirmPassword: forgotPasswordData.ConfirmPassword,
-    };
 
-    if (!payload.LoginName || !payload.ClientCode || !payload.CurrentPassword || !payload.NewPassword || !payload.ConfirmPassword) {
-      toast.error('LoginName, ClientCode, CurrentPassword, NewPassword and ConfirmPassword are required.', {
+    const loginName = forgotPasswordData.LoginName.trim();
+    const clientCode = forgotPasswordData.ClientCode.trim().toUpperCase();
+    const currentPassword = forgotPasswordData.CurrentPassword;
+    const newPassword = forgotPasswordData.NewPassword;
+    const confirmPassword = forgotPasswordData.ConfirmPassword;
+
+    if (!loginName || !clientCode || !currentPassword || !newPassword) {
+      toast.error('Login username, client code, current password, and new password are required.', {
         position: 'top-right',
         autoClose: 3000,
         theme: 'colored',
@@ -613,8 +613,17 @@ const Login = () => {
       return;
     }
 
-    if (payload.NewPassword !== payload.ConfirmPassword) {
-      toast.error('NewPassword and ConfirmPassword must match.', {
+    if (confirmPassword && newPassword !== confirmPassword) {
+      toast.error('New password and confirm password must match.', {
+        position: 'top-right',
+        autoClose: 3000,
+        theme: 'colored',
+      });
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      toast.error('New password must be different from the current password.', {
         position: 'top-right',
         autoClose: 3000,
         theme: 'colored',
@@ -624,16 +633,21 @@ const Login = () => {
 
     setForgotPasswordLoading(true);
     try {
-      const response = await axios.post(getAuthForgotPasswordUrl(), payload, { skipAuthRedirect: true });
-      const successMessage = response?.data?.Message || 'Password changed successfully.';
-      toast.success(successMessage, {
+      const result = await changeAuthPassword({
+        loginName,
+        clientCode,
+        currentPassword,
+        newPassword,
+        confirmPassword: confirmPassword || undefined,
+      });
+      toast.success(result.message, {
         position: 'top-right',
         autoClose: 2800,
         theme: 'colored',
       });
       setFormData((prev) => ({
         ...prev,
-        LoginName: payload.LoginName,
+        LoginName: loginName,
         Password: '',
       }));
       setForgotPasswordSuccess(true);
@@ -641,18 +655,7 @@ const Login = () => {
         resetForgotPasswordPrompt();
       }, 1200);
     } catch (err) {
-      const errorPayload = err?.response?.data;
-      let errorMessage = err?.message || 'Unable to change password.';
-
-      if (Array.isArray(errorPayload) && errorPayload.length) {
-        errorMessage = errorPayload.map((item) => item?.description || item?.code).filter(Boolean).join(' ');
-      } else if (typeof errorPayload === 'string') {
-        errorMessage = errorPayload;
-      } else if (errorPayload?.Message || errorPayload?.message) {
-        errorMessage = errorPayload?.Message || errorPayload?.message;
-      }
-
-      toast.error(errorMessage, {
+      toast.error(err?.message || 'Unable to change password.', {
         position: 'top-right',
         autoClose: 4200,
         theme: 'colored',
@@ -1362,7 +1365,7 @@ const Login = () => {
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '0.92rem', fontWeight: 700 }}>Change password</h3>
               </div>
               <p style={{ margin: '0 0 10px', color: '#64748b', fontSize: '0.73rem', lineHeight: 1.4 }}>
-                Enter your username, client code, current password, and new password.
+                Enter login username, client code, current password, and new password. You will sign in again after change.
               </p>
               {forgotPasswordSuccess ? (
                 <div style={{ padding: '8px 0 4px', textAlign: 'center' }}>
@@ -1399,7 +1402,7 @@ const Login = () => {
                     name="LoginName"
                     value={forgotPasswordData.LoginName}
                     onChange={handleForgotPasswordChange}
-                    placeholder="Username"
+                    placeholder="Login username"
                     style={{ ...modalInputStyle, fontSize: '0.78rem', padding: '9px 11px', borderRadius: 9, marginBottom: 9, background: '#fbfdff' }}
                   />
                   <input
@@ -1431,7 +1434,7 @@ const Login = () => {
                     name="ConfirmPassword"
                     value={forgotPasswordData.ConfirmPassword}
                     onChange={handleForgotPasswordChange}
-                    placeholder="Confirm new password"
+                    placeholder="Confirm new password (optional)"
                     style={{ ...modalInputStyle, fontSize: '0.78rem', padding: '9px 11px', borderRadius: 9, marginBottom: 8, background: '#fbfdff' }}
                   />
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 2 }}>
@@ -1777,7 +1780,7 @@ const Login = () => {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.7rem', marginTop: 2 }}>
-                    <span style={{ color: '#64748b' }}>Forgot password?</span>
+                    <span style={{ color: '#64748b' }}>Need to change password?</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -1792,7 +1795,7 @@ const Login = () => {
                       }}
                       style={{ background: 'none', border: 'none', color: '#6366f1', fontWeight: 600, cursor: 'pointer', padding: 0 }}
                     >
-                      Reset
+                      Change
                     </button>
                   </div>
 

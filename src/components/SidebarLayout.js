@@ -36,7 +36,7 @@ import {
 } from 'react-icons/fa';
 import { isSuperAdmin } from '../utils/authState';
 import { filterMenuItems } from '../utils/permissionAccess';
-import { rfidUserUrls, authHeaders } from '../services/rfidUserManagementApi';
+import { fetchMyRFIDPlan } from '../services/rfidUserManagementApi';
 import {
   HiDocumentText,
   HiCheckCircle,
@@ -156,10 +156,8 @@ const SidebarLayout = ({ children }) => {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
-        const response = await axios.get(rfidUserUrls.getMyRFIDPlan(), {
-          headers: authHeaders(),
-        });
-        setRfidPlanInfo(response?.data || null);
+        const data = await fetchMyRFIDPlan();
+        setRfidPlanInfo(data);
       } catch (_) {
         setRfidPlanInfo(null);
       }

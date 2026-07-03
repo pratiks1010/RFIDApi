@@ -15,7 +15,84 @@ export const rfidUserUrls = {
   getEmployeesForSubUser: () => toSoniApiUrl('/api/RFIDUserManagement/GetEmployeesForSubUser'),
   convertEmployeeToSubUser: () => toSoniApiUrl('/api/RFIDUserManagement/ConvertEmployeeToSubUser'),
   linkSubUserToEmployee: () => toSoniApiUrl('/api/RFIDUserManagement/LinkSubUserToEmployee'),
-  getMyRFIDPlan: () => toSoniApiUrl('/api/ProductMaster/GetMyRFIDPlan'),
+  getMyRFIDPlan: () => toSoniApiUrl('/api/RFIDUserManagement/GetMyRFIDPlan'),
+  /** Legacy read endpoint — same data shape */
+  getMyRFIDPlanLegacy: () => toSoniApiUrl('/api/ProductMaster/GetMyRFIDPlan'),
+  changeRFIDPlan: () => toSoniApiUrl('/api/RFIDUserManagement/ChangeRFIDPlan'),
+};
+
+/** Unwrap { success, data } or raw plan object; normalize camel + Pascal keys */
+export const normalizePlan = (raw) => {
+  const src = raw?.data ?? raw?.Data ?? raw;
+  if (!src || typeof src !== 'object') return null;
+  const planName = src.planName ?? src.PlanName ?? '';
+  const maxSubUsers = src.maxSubUsers ?? src.MaxSubUsers ?? 0;
+  const currentSubUsers = src.currentSubUsers ?? src.CurrentSubUsers ?? 0;
+  const remainingSubUsers =
+    src.remainingSubUsers ??
+    src.RemainingSubUsers ??
+    Math.max(0, maxSubUsers - currentSubUsers);
+  const planStartDate = src.planStartDate ?? src.PlanStartDate ?? null;
+  const planExpiryDate = src.planExpiryDate ?? src.PlanExpiryDate ?? null;
+  const isExpired = Boolean(src.isExpired ?? src.IsExpired);
+  const clientCode = src.clientCode ?? src.ClientCode ?? '';
+  return {
+    planName,
+    maxSubUsers,
+    currentSubUsers,
+    remainingSubUsers,
+    planStartDate,
+    planExpiryDate,
+    isExpired,
+    clientCode,
+    PlanName: planName,
+    MaxSubUsers: maxSubUsers,
+    CurrentSubUsers: currentSubUsers,
+    RemainingSubUsers: remainingSubUsers,
+    PlanStartDate: planStartDate,
+    PlanExpiryDate: planExpiryDate,
+    IsExpired: isExpired,
+    ClientCode: clientCode,
+  };
+};
+
+export const fetchMyRFIDPlan = async () => {
+  const headers = authHeaders();
+  try {
+    const res = await fetch(rfidUserUrls.getMyRFIDPlan(), { headers });
+    if (!res.ok) throw new Error('plan fetch failed');
+    const json = await res.json();
+    const plan = normalizePlan(json);
+    if (plan) return plan;
+  } catch (_) {
+    /* try legacy */
+  }
+  const legacy = await fetch(rfidUserUrls.getMyRFIDPlanLegacy(), { headers });
+  if (!legacy.ok) throw new Error('Plan details unavailable');
+  const json = await legacy.json();
+  const plan = normalizePlan(json);
+  if (!plan) throw new Error('Plan details unavailable');
+  return plan;
+};
+
+export const postChangeRFIDPlan = async (payload) => {
+  const res = await fetch(rfidUserUrls.changeRFIDPlan(), {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(
+      json?.message || json?.Message || json?.error || 'Failed to update plan'
+    );
+    err.response = { data: json };
+    throw err;
+  }
+  return {
+    message: json?.message || json?.Message || 'RFID plan updated successfully.',
+    plan: normalizePlan(json?.data ?? json?.Data ?? json),
+  };
 };
 
 export const authHeaders = () => ({

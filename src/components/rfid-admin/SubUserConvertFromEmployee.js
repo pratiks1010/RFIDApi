@@ -5,7 +5,13 @@ import { toast } from 'react-toastify';
 import { FaSearch } from 'react-icons/fa';
 import RfidAdminPage from './RfidAdminPage';
 import PlanBanner, { useRfidPlan } from './PlanBanner';
-import { emptyPermissions, PERMISSION_LABELS, PERMISSION_KEYS, ROLE_OPTIONS } from '../../constants/rfidPermissions';
+import FormStepper from './FormStepper';
+import FormFooter from './FormFooter';
+import PermissionsPanel from './PermissionsPanel';
+import BranchAccessPanel from './BranchAccessPanel';
+import InfoCallout from './InfoCallout';
+import PasswordField from './PasswordField';
+import { emptyPermissions, PERMISSION_KEYS, ROLE_OPTIONS } from '../../constants/rfidPermissions';
 import { getClientCode, permissionsToApiPayload } from '../../utils/authState';
 import { getGetAllBranchMasterUrl } from '../../services/memberOnboardingApi';
 import {
@@ -28,19 +34,12 @@ const pickField = (row, ...keys) => {
 };
 
 const getEmployeeId = (row) => row?.EmployeeId ?? row?.employeeId ?? row?.Id ?? row?.id;
-
 const isAlreadySubUser = (row) => Boolean(row?.IsAlreadySubUser ?? row?.isAlreadySubUser);
-
 const getEmployeeCode = (row) => pickField(row, 'EmployeeCode', 'employeeCode');
-
 const getEmployeeUserName = (row) => pickField(row, 'UserName', 'userName');
-
 const getEmployeeEmail = (row) =>
   pickField(row, 'EmpEmail', 'empEmail', 'EmployeeEmail', 'employeeEmail');
-
-const getExistingUserName = (row) =>
-  pickField(row, 'ExistingUserName', 'existingUserName');
-
+const getExistingUserName = (row) => pickField(row, 'ExistingUserName', 'existingUserName');
 const getExistingUserId = (row) =>
   pickField(row, 'ExistingUserId', 'existingUserId', 'ExistingSubUserId', 'existingSubUserId');
 
@@ -53,7 +52,6 @@ const getEmployeeDisplayName = (row) => {
   return combined || getEmployeeCode(row) || '—';
 };
 
-/** Default login: EmployeeCode; admin override via UserName in convert request */
 const resolveLoginName = (employee, userNameOverride) => {
   const override = String(userNameOverride || '').trim();
   if (override) return override;
@@ -91,12 +89,12 @@ const SubUserConvertFromEmployee = () => {
     RoleType: 'User',
     Permissions: emptyPermissions(),
   });
+  const [errors, setErrors] = useState({});
 
   const availableEmployees = useMemo(
     () => employees.filter((e) => !isAlreadySubUser(e)),
     [employees]
   );
-
   const convertedEmployees = useMemo(
     () => employees.filter(isAlreadySubUser),
     [employees]
@@ -124,7 +122,6 @@ const SubUserConvertFromEmployee = () => {
     () => filterBySearch(availableEmployees),
     [availableEmployees, search]
   );
-
   const filteredConverted = useMemo(
     () => filterBySearch(convertedEmployees),
     [convertedEmployees, search]
@@ -202,13 +199,11 @@ const SubUserConvertFromEmployee = () => {
   }, [canAddUser, clientCode]);
 
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
-
   const togglePerm = (key) =>
     setForm((prev) => ({
       ...prev,
       Permissions: { ...prev.Permissions, [key]: !prev.Permissions[key] },
     }));
-
   const toggleBranch = (id) => {
     const n = Number(id);
     setSelectedBranchIds((prev) =>
@@ -222,23 +217,27 @@ const SubUserConvertFromEmployee = () => {
       : PERMISSION_KEYS;
 
   const validateTab = () => {
+    const next = {};
     if (tab === 0) {
       if (!selectedEmployee) {
-        toast.error('Select an employee from Employee Master');
-        return false;
+        next.employee = 'Select an employee from the list below';
       }
     }
     if (tab === 1) {
       if (!form.Password || form.Password.length < 6) {
-        toast.error('Password is required (min 6 characters)');
-        return false;
+        next.password = 'Password is required (minimum 6 characters)';
       }
       if (!loginPreview) {
-        toast.error('Could not resolve login name for this employee');
-        return false;
+        next.login = 'Could not resolve login username for this employee';
       }
     }
-    return true;
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const goToTab = (i) => {
+    if (i > tab && !validateTab()) return;
+    setTab(i);
   };
 
   const nextTab = () => {
@@ -293,86 +292,64 @@ const SubUserConvertFromEmployee = () => {
   return (
     <RfidAdminPage
       title="From employees"
-      subtitle="POST GetEmployeesForSubUser → ConvertEmployeeToSubUser (links EmployeeId in main DB)"
+      subtitle="Convert Employee Master records into dashboard logins"
       backTo="/rfid-admin/users"
       backLabel="User Management"
     >
       <PlanBanner />
-      <div className="rfid-card" style={{ marginBottom: 16, padding: '14px 18px', background: '#f0f9ff', border: '1px solid #bae6fd' }}>
-        <p style={{ margin: 0, fontSize: '0.875rem', color: '#0c4a6e', lineHeight: 1.5 }}>
-          Add employees in{' '}
-          <Link to="/create-masters" style={{ color: '#0369a1', fontWeight: 600 }}>
-            Employee Master (Create Masters)
-          </Link>
-          {' '}first. Select employees with <strong>No</strong> (not yet a sub-user). Default login is <strong>EmployeeCode</strong>; optional UserName override.
-          Sample Out assignee must be the returned <strong>userId</strong> (GUID), not integer EmployeeId — use Assign To sub-users list after convert.
-        </p>
-      </div>
+      <InfoCallout>
+        Add employees in{' '}
+        <Link to="/create-masters">Employee Master (Create Masters)</Link>
+        {' '}first. Default login is <strong>EmployeeCode</strong>. After convert, use the returned{' '}
+        <strong>userId</strong> (GUID) in Sample Out Assign To — not integer EmployeeId.
+      </InfoCallout>
       <div className="rfid-card">
-        <div className="rfid-step-dots" style={{ padding: '16px 20px 0' }}>
-          {TABS.map((label, i) => (
-            <div
-              key={label}
-              className={`rfid-step-dot${i < tab ? ' done' : ''}${i === tab ? ' current' : ''}`}
-              title={label}
-            />
-          ))}
-        </div>
-        <div className="rfid-tabs">
-          {TABS.map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              className={`rfid-tab${tab === i ? ' active' : ''}`}
-              onClick={() => (i <= tab || validateTab()) && setTab(i)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <FormStepper
+          steps={TABS}
+          current={tab}
+          onStepClick={goToTab}
+        />
         <div className="rfid-form-body">
           {tab === 0 && (
             <>
-              <div className="rfid-toolbar" style={{ marginBottom: 12 }}>
-                <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
-                  <FaSearch
-                    size={14}
-                    style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}
-                  />
+              {errors.employee && (
+                <p className="rfid-field-error" style={{ marginBottom: 14 }}>{errors.employee}</p>
+              )}
+              <div className="rfid-toolbar" style={{ margin: '0 0 20px', padding: '14px 16px', borderRadius: 10 }}>
+                <div className="rfid-search-wrap">
+                  <FaSearch className="rfid-search-icon" size={14} />
                   <input
+                    className="rfid-search-input"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search name, code, email…"
-                    style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: 8, border: '1px solid #e2e8f0' }}
                   />
                 </div>
-                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                <span className="rfid-toolbar-meta">
                   {loadingEmployees
                     ? 'Loading…'
                     : `${filteredEmployees.length} to convert · ${alreadyConvertedCount} already sub-users`}
                 </span>
               </div>
               {!clientCode && (
-                <p className="rfid-empty">Client code not found. Log in again as plan owner.</p>
+                <p className="rfid-empty rfid-empty-sm">Client code not found. Log in again as plan owner.</p>
               )}
               {clientCode && !loadingEmployees && filteredEmployees.length === 0 && filteredConverted.length === 0 && (
-                <p className="rfid-empty">
+                <p className="rfid-empty rfid-empty-sm">
                   No employees returned. Add staff in Create Masters first.
                 </p>
               )}
               {filteredEmployees.length > 0 && (
                 <>
-                  <h4 style={{ margin: '0 0 8px', fontSize: '0.8rem', color: '#64748b', fontWeight: 700 }}>
-                    Ready to convert (IsAlreadySubUser = false)
-                  </h4>
-                  <div className="rfid-table-wrap" style={{ marginBottom: 20 }}>
+                  <p className="rfid-subsection-label">Ready to convert</p>
+                  <div className="rfid-table-wrap">
                     <table className="rfid-table">
                       <thead>
                         <tr>
                           <th style={{ width: 48 }} />
                           <th>Name</th>
                           <th>Employee code</th>
-                          <th>Mobile / email</th>
+                          <th>Email</th>
                           <th>Default login</th>
                         </tr>
                       </thead>
@@ -383,11 +360,13 @@ const SubUserConvertFromEmployee = () => {
                           return (
                             <tr
                               key={id}
-                              className={selected ? 'rfid-branch-row' : ''}
-                              style={{ ...(selected ? { background: '#eff6ff' } : {}), cursor: 'pointer' }}
-                              onClick={() => setSelectedEmployeeId(id)}
+                              className={`rfid-branch-row${selected ? ' selected' : ''}`}
+                              onClick={() => {
+                                setSelectedEmployeeId(id);
+                                if (errors.employee) setErrors((p) => ({ ...p, employee: undefined }));
+                              }}
                             >
-                              <td>
+                              <td onClick={(e) => e.stopPropagation()}>
                                 <input
                                   type="radio"
                                   name="employeePick"
@@ -395,10 +374,15 @@ const SubUserConvertFromEmployee = () => {
                                   onChange={() => setSelectedEmployeeId(id)}
                                 />
                               </td>
-                              <td><strong>{getEmployeeDisplayName(emp)}</strong></td>
-                              <td>{getEmployeeCode(emp) || '—'}</td>
+                              <td>
+                                <div className="rfid-user-cell">
+                                  <div className="rfid-user-avatar">{initials(getEmployeeDisplayName(emp))}</div>
+                                  <strong>{getEmployeeDisplayName(emp)}</strong>
+                                </div>
+                              </td>
+                              <td><span className="rfid-code">{getEmployeeCode(emp) || '—'}</span></td>
                               <td>{getEmployeeEmail(emp) || '—'}</td>
-                              <td><code>{getEmployeeCode(emp) || '—'}</code></td>
+                              <td><span className="rfid-code">{getEmployeeCode(emp) || '—'}</span></td>
                             </tr>
                           );
                         })}
@@ -408,32 +392,30 @@ const SubUserConvertFromEmployee = () => {
                 </>
               )}
               {clientCode && !loadingEmployees && filteredEmployees.length === 0 && filteredConverted.length > 0 && (
-                <p className="rfid-empty" style={{ marginBottom: 12 }}>
-                  All listed employees are already sub-users. Add new staff in Create Masters to convert more.
+                <p className="rfid-empty rfid-empty-sm" style={{ marginBottom: 12 }}>
+                  All listed employees are already sub-users.
                 </p>
               )}
               {filteredConverted.length > 0 && (
                 <>
-                  <h4 style={{ margin: '0 0 8px', fontSize: '0.8rem', color: '#64748b', fontWeight: 700 }}>
-                    Already sub-users (existing dashboard login)
-                  </h4>
+                  <p className="rfid-subsection-label">Already sub-users</p>
                   <div className="rfid-table-wrap">
                     <table className="rfid-table">
                       <thead>
                         <tr>
                           <th>Name</th>
-                          <th>Employee code</th>
+                          <th>Code</th>
                           <th>Login</th>
-                          <th>User ID (Sample Out)</th>
+                          <th>User ID</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredConverted.map((emp) => {
                           const id = getEmployeeId(emp);
                           return (
-                            <tr key={`converted-${id}`} style={{ background: '#f8fafc', color: '#64748b' }}>
+                            <tr key={`converted-${id}`} style={{ opacity: 0.75 }}>
                               <td>{getEmployeeDisplayName(emp)}</td>
-                              <td>{getEmployeeCode(emp) || '—'}</td>
+                              <td><span className="rfid-code">{getEmployeeCode(emp) || '—'}</span></td>
                               <td>
                                 <span className="rfid-badge rfid-badge-active" style={{ marginRight: 8 }}>
                                   Yes
@@ -454,168 +436,109 @@ const SubUserConvertFromEmployee = () => {
             </>
           )}
           {tab === 1 && selectedEmployee && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
-              <div className="rfid-field" style={{ gridColumn: '1 / -1' }}>
-                <label>Selected employee</label>
-                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                  <strong>{getEmployeeDisplayName(selectedEmployee)}</strong>
-                  {' · '}
-                  {getEmployeeCode(selectedEmployee) || 'No code'}
+            <>
+              <div className="rfid-section-header">
+                <div>
+                  <h3 className="rfid-section-title">Login credentials</h3>
+                  <p className="rfid-section-desc">Set password and optional overrides for the selected employee.</p>
                 </div>
               </div>
-              <div className="rfid-field">
-                <label>Override login (UserName, optional)</label>
-                <input
-                  value={form.UserName}
-                  onChange={(e) => update('UserName', e.target.value)}
-                  placeholder={`Default: ${getEmployeeCode(selectedEmployee) || 'EmployeeCode'}`}
-                />
-              </div>
-              <div className="rfid-field">
-                <label>Override email (optional)</label>
-                <input
-                  type="email"
-                  value={form.Email}
-                  onChange={(e) => update('Email', e.target.value)}
-                  placeholder="null = employee email or login@rfid.local"
-                />
-              </div>
-              <div className="rfid-field">
-                <label>Password *</label>
-                <input
-                  type="password"
+              <div className="rfid-form-grid">
+                <div className="rfid-field rfid-form-grid-full">
+                  <label>Selected employee</label>
+                  <div className="rfid-field-readonly">
+                    <strong>{getEmployeeDisplayName(selectedEmployee)}</strong>
+                    {' · '}
+                    {getEmployeeCode(selectedEmployee) || 'No code'}
+                  </div>
+                </div>
+                <div className="rfid-field">
+                  <label>Login username override (optional)</label>
+                  <input
+                    value={form.UserName}
+                    onChange={(e) => update('UserName', e.target.value)}
+                    placeholder={`Default: ${getEmployeeCode(selectedEmployee) || 'EmployeeCode'}`}
+                  />
+                  <p className="rfid-field-hint">Leave blank to use employee code as login username</p>
+                </div>
+                <div className="rfid-field">
+                  <label>Override email (optional)</label>
+                  <input
+                    type="email"
+                    value={form.Email}
+                    onChange={(e) => update('Email', e.target.value)}
+                    placeholder="Uses employee email if blank"
+                  />
+                </div>
+                <PasswordField
+                  label="Password *"
                   value={form.Password}
-                  onChange={(e) => update('Password', e.target.value)}
+                  onChange={(e) => {
+                    update('Password', e.target.value);
+                    if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
+                  }}
                   placeholder="YourSecurePassword1!"
+                  defaultVisible
+                  error={errors.password}
                 />
-              </div>
-              <div className="rfid-field">
-                <label>Role</label>
-                <select value={form.RoleType} onChange={(e) => update('RoleType', e.target.value)}>
-                  {ROLE_OPTIONS.map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="rfid-field" style={{ gridColumn: '1 / -1' }}>
-                <label>Resolved login & email</label>
-                <div style={{ fontSize: '0.875rem', color: '#475569', lineHeight: 1.6 }}>
-                  <div><strong>Login:</strong> {loginPreview || '—'}</div>
-                  <div><strong>Email:</strong> {emailPreview || '—'}</div>
-                  <div style={{ marginTop: 6, color: '#64748b' }}>
-                    After convert, use the returned userId (GUID) in Sample Out Assign To — not EmployeeId.
+                <div className="rfid-field">
+                  <label>Role</label>
+                  <select value={form.RoleType} onChange={(e) => update('RoleType', e.target.value)}>
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rfid-field rfid-form-grid-full">
+                  <label>Resolved login & email</label>
+                  <div className="rfid-preview-box">
+                    <div><strong>Login username:</strong> {loginPreview || '—'}</div>
+                    <div><strong>Email:</strong> {emailPreview || '—'}</div>
+                    {errors.login && <p className="rfid-field-error" style={{ marginTop: 8 }}>{errors.login}</p>}
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-          {tab === 1 && !selectedEmployee && (
-            <p className="rfid-empty">Go back and select an employee first.</p>
-          )}
-          {tab === 2 && (
-            <div className="rfid-perm-grid">
-              {permKeys.map((key) => (
-                <label key={key} className="rfid-perm-item">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.Permissions[key])}
-                    onChange={() => togglePerm(key)}
-                  />
-                  <span>{PERMISSION_LABELS[key] || key}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          {tab === 3 && (
-            <>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    checked={branchMode === 'all'}
-                    onChange={() => setBranchMode('all')}
-                  />
-                  All branches
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    checked={branchMode === 'selected'}
-                    onChange={() => setBranchMode('selected')}
-                  />
-                  Selected branches only
-                </label>
-              </div>
-              {branchMode === 'selected' && (
-                <div className="rfid-table-wrap rfid-branch-table">
-                  <table className="rfid-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: 48 }} />
-                        <th>Branch</th>
-                        <th>Code</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {branches.map((b) => {
-                        const id = b.Id ?? b.id ?? b.BranchId ?? b.branchId;
-                        const name = b.BranchName ?? b.branchName ?? b.Name ?? '—';
-                        const code = b.BranchCode ?? b.branchCode ?? b.Code ?? '—';
-                        return (
-                          <tr key={id} className="rfid-branch-row">
-                            <td>
-                              <input
-                                type="checkbox"
-                                checked={selectedBranchIds.includes(Number(id))}
-                                onChange={() => toggleBranch(id)}
-                              />
-                            </td>
-                            <td>{name}</td>
-                            <td>{code}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {branches.length === 0 && (
-                    <p className="rfid-empty" style={{ padding: 24 }}>No branches loaded for client.</p>
-                  )}
-                </div>
-              )}
             </>
           )}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 10,
-              marginTop: 24,
-              paddingTop: 16,
-              borderTop: '1px solid #e2e8f0',
-            }}
-          >
-            <button type="button" className="rfid-btn rfid-btn-ghost" onClick={() => navigate('/rfid-admin/users')}>
-              Cancel
-            </button>
-            {tab < TABS.length - 1 ? (
-              <button type="button" className="rfid-btn rfid-btn-primary" onClick={nextTab}>
-                Next
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="rfid-btn rfid-btn-primary"
-                onClick={submit}
-                disabled={saving || !canAddUser || !selectedEmployee}
-              >
-                {saving ? 'Converting…' : 'Convert to Sub-User'}
-              </button>
-            )}
-          </div>
+          {tab === 1 && !selectedEmployee && (
+            <p className="rfid-empty rfid-empty-sm">Go back and select an employee first.</p>
+          )}
+          {tab === 2 && (
+            <PermissionsPanel
+              permKeys={permKeys}
+              permissions={form.Permissions}
+              onToggle={togglePerm}
+            />
+          )}
+          {tab === 3 && (
+            <BranchAccessPanel
+              branchMode={branchMode}
+              onModeChange={setBranchMode}
+              branches={branches}
+              selectedBranchIds={selectedBranchIds}
+              onToggleBranch={toggleBranch}
+            />
+          )}
+          <FormFooter
+            showBack={tab > 0}
+            onBack={() => setTab((t) => t - 1)}
+            onCancel={() => navigate('/rfid-admin/users')}
+            onNext={tab < TABS.length - 1 ? nextTab : undefined}
+            onSubmit={tab === TABS.length - 1 ? submit : undefined}
+            submitLabel="Convert to Sub-User"
+            saving={saving}
+            submitDisabled={!canAddUser || !selectedEmployee}
+          />
         </div>
       </div>
     </RfidAdminPage>
   );
+};
+
+const initials = (name) => {
+  const parts = String(name || '?').trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return String(name || '?').slice(0, 2).toUpperCase();
 };
 
 export default SubUserConvertFromEmployee;

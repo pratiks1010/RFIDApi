@@ -13,6 +13,7 @@ import {
   FaTrash,
   FaUserSlash,
   FaUserCheck,
+  FaSync,
 } from 'react-icons/fa';
 import RfidAdminPage from './RfidAdminPage';
 import PlanBanner, { useRfidPlan } from './PlanBanner';
@@ -34,6 +35,12 @@ const formatTime = (value) => {
     hour: '2-digit',
     minute: '2-digit',
   });
+};
+
+const initials = (name) => {
+  const parts = String(name || '?').trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return String(name || '?').slice(0, 2).toUpperCase();
 };
 
 const SubUserList = () => {
@@ -60,6 +67,13 @@ const SubUserList = () => {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    if (!menuUserId) return;
+    const close = () => setMenuUserId(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [menuUserId]);
 
   const runAction = async (userId, fn) => {
     setActionLoading(userId);
@@ -114,6 +128,9 @@ const SubUserList = () => {
       subtitle="Manage employee logins, permissions, and branch access"
       actions={
         <>
+          <Link to="/rfid-admin/my-plan" className="rfid-btn rfid-btn-ghost" style={{ textDecoration: 'none' }}>
+            My Plan
+          </Link>
           <button
             type="button"
             className="rfid-btn rfid-btn-ghost"
@@ -138,11 +155,14 @@ const SubUserList = () => {
       <PlanBanner />
       <div className="rfid-card">
         <div className="rfid-toolbar">
-          <span style={{ fontWeight: 600, color: '#475569' }}>
-            {loading ? 'Loading…' : `${users.length} employee${users.length === 1 ? '' : 's'}`}
-          </span>
-          <button type="button" className="rfid-btn rfid-btn-ghost" onClick={loadUsers} disabled={loading}>
-            Refresh
+          <div>
+            <div className="rfid-toolbar-title">
+              {loading ? 'Loading…' : `${users.length} employee${users.length === 1 ? '' : 's'}`}
+            </div>
+            <div className="rfid-toolbar-meta">Dashboard sub-users linked to your plan</div>
+          </div>
+          <button type="button" className="rfid-btn rfid-btn-sm rfid-btn-ghost" onClick={loadUsers} disabled={loading}>
+            <FaSync /> Refresh
           </button>
         </div>
         <div className="rfid-table-wrap">
@@ -152,22 +172,20 @@ const SubUserList = () => {
             <div className="rfid-empty">
               No sub-users yet.{' '}
               {canAddUser && (
-                <Link to="/rfid-admin/users/create" style={{ color: '#0f4c81', fontWeight: 600 }}>
-                  Add your first employee
-                </Link>
+                <Link to="/rfid-admin/users/create">Add your first employee</Link>
               )}
             </div>
           ) : (
             <table className="rfid-table">
               <thead>
                 <tr>
-                  <th>Employee ID</th>
+                  <th>Employee</th>
                   <th>Email</th>
                   <th>Role</th>
                   <th>Online</th>
                   <th>Status</th>
                   <th>Last seen</th>
-                  <th style={{ width: 72 }}>Actions</th>
+                  <th style={{ width: 72 }} />
                 </tr>
               </thead>
               <tbody>
@@ -175,18 +193,25 @@ const SubUserList = () => {
                   const id = uid(user);
                   const active = user.IsActive !== false && user.isActive !== false;
                   const online = Boolean(user.IsOnline ?? user.isOnline);
+                  const displayName = user.employeeName || user.EmployeeName || user.UserName || user.userName || '—';
+                  const code = user.employeeCode || user.EmployeeCode;
                   return (
                     <tr key={id}>
                       <td>
-                        <strong>{user.employeeName || user.EmployeeName || user.UserName || user.userName || '—'}</strong>
-                        {(user.employeeCode || user.EmployeeCode) && (
-                          <div style={{ fontSize: 10, color: '#64748b' }}>
-                            {user.employeeCode || user.EmployeeCode}
+                        <div className="rfid-user-cell">
+                          <div className="rfid-user-avatar">{initials(displayName)}</div>
+                          <div>
+                            <strong>{displayName}</strong>
+                            {code && <div className="rfid-table-sub">{code}</div>}
                           </div>
-                        )}
+                        </div>
                       </td>
                       <td>{user.Email || user.email || '—'}</td>
-                      <td>{user.RoleType || user.roleType || 'User'}</td>
+                      <td>
+                        <span className="rfid-badge rfid-badge-role">
+                          {user.RoleType || user.roleType || 'User'}
+                        </span>
+                      </td>
                       <td>
                         <span className={`rfid-online-dot ${online ? 'on' : 'off'}`} />
                         {online ? 'Online' : 'Offline'}
@@ -198,10 +223,10 @@ const SubUserList = () => {
                       </td>
                       <td>{formatTime(user.LastActiveTime || user.lastActiveTime)}</td>
                       <td>
-                        <div className="rfid-actions-menu">
+                        <div className="rfid-actions-menu" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
-                            className="rfid-btn rfid-btn-ghost"
+                            className="rfid-btn rfid-btn-sm rfid-btn-ghost"
                             style={{ padding: '8px 10px' }}
                             disabled={actionLoading === id}
                             onClick={() => setMenuUserId(menuUserId === id ? null : id)}
@@ -210,20 +235,7 @@ const SubUserList = () => {
                             <FaEllipsisV />
                           </button>
                           {menuUserId === id && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                right: 0,
-                                top: '100%',
-                                zIndex: 50,
-                                minWidth: 200,
-                                background: '#fff',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: 10,
-                                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                                padding: 6,
-                              }}
-                            >
+                            <div className="rfid-actions-dropdown">
                               <ActionItem
                                 icon={FaUserEdit}
                                 label="Edit"
@@ -239,6 +251,7 @@ const SubUserList = () => {
                                 label="Branches"
                                 onClick={() => navigate(`/rfid-admin/users/${id}/branches`)}
                               />
+                              <div className="rfid-action-divider" />
                               {active ? (
                                 <ActionItem
                                   icon={FaUserSlash}
@@ -257,6 +270,7 @@ const SubUserList = () => {
                                 label="Force logout"
                                 onClick={() => forceLogout(user)}
                               />
+                              <div className="rfid-action-divider" />
                               <ActionItem
                                 icon={FaTrash}
                                 label="Delete"
@@ -280,24 +294,7 @@ const SubUserList = () => {
 };
 
 const ActionItem = ({ icon: Icon, label, onClick, danger }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      width: '100%',
-      padding: '10px 12px',
-      border: 'none',
-      background: 'none',
-      cursor: 'pointer',
-      fontSize: '0.875rem',
-      color: danger ? '#b91c1c' : '#334155',
-      borderRadius: 8,
-      textAlign: 'left',
-    }}
-  >
+  <button type="button" className={`rfid-action-item${danger ? ' danger' : ''}`} onClick={onClick}>
     <Icon size={14} /> {label}
   </button>
 );

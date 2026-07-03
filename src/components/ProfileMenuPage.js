@@ -12,12 +12,14 @@ import {
   RiCamera2Fill,
   RiGlobalLine,
   RiFolderOpenLine,
+  RiLockPasswordLine,
 } from 'react-icons/ri';
 import { getApiMode } from '../services/apiBaseConfig';
 
 // Profile menu shows only API & resources; sidebar has the rest
 const buildMenuItems = () => {
   const base = [
+  { path: '/change-password', icon: RiLockPasswordLine, label: 'Change password', color: '#6366f1', description: 'Update your login password using current password verification. Parent and sub-user accounts.' },
   { path: '/download-folder-settings', icon: RiFolderOpenLine, label: 'Download folders (exports & PRN)', color: '#0f766e', description: 'Choose where labelled stock exports (Excel/PDF) and PRN label files are saved. EXE writes to the folder you pick; browser uses normal downloads.' },
   { path: '/dashboard', icon: RiTestTubeFill, label: 'API Testing (Postman)', color: '#ff6b35', description: 'Test all integrated APIs with request payload and response. Developer API playground.' },
   { path: '/api-documentation', icon: RiBookReadFill, label: 'API Integration Guide', color: '#9333ea', description: 'Documentation and examples for third-party integration.' },

@@ -31,6 +31,7 @@ import {
   FaCamera,
   FaArrowLeft,
   FaList,
+  FaChevronRight,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -3234,6 +3235,10 @@ const LabelStockList = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showDeleteAllStockConfirm, setShowDeleteAllStockConfirm] = useState(false);
   const [deleteAllStockLoading, setDeleteAllStockLoading] = useState(false);
+  // Delete-stock modal: 'choose' -> pick option, 'all' -> confirm delete all, 'branch' -> pick branch, 'branchConfirm' -> confirm branch delete
+  const [deleteStockStep, setDeleteStockStep] = useState('choose');
+  const [selectedDeleteBranch, setSelectedDeleteBranch] = useState('');
+  const [branchDeleteLoading, setBranchDeleteLoading] = useState(false);
   const [showReportView, setShowReportView] = useState(false);
   const [reportData, setReportData] = useState([]);
 
@@ -3362,9 +3367,97 @@ const LabelStockList = () => {
     }
   };
 
-  // Handle delete all stock
+  // Handle delete all stock — opens the multi-option modal at the selection step
   const handleDeleteAllStock = () => {
+    setDeleteStockStep('choose');
+    setSelectedDeleteBranch('');
     setShowDeleteAllStockConfirm(true);
+  };
+
+  const closeDeleteStockModal = () => {
+    if (deleteAllStockLoading || branchDeleteLoading) return;
+    setShowDeleteAllStockConfirm(false);
+    setDeleteStockStep('choose');
+    setSelectedDeleteBranch('');
+  };
+
+  const resolveClientCode = () => {
+    let clientCode = userInfo?.ClientCode;
+    if (!clientCode) {
+      try {
+        const stored = JSON.parse(localStorage.getItem('userInfo') || '{}');
+        if (stored?.ClientCode) clientCode = String(stored.ClientCode).trim();
+      } catch (_) { /* ignore */ }
+    }
+    return clientCode ? String(clientCode).trim() : '';
+  };
+
+  // Branch names available for deletion (from the already-loaded branch master)
+  const deletableBranchNames = useMemo(() => {
+    const names = (apiFilterData.branches || [])
+      .map((b) => b?.BranchName || b?.Name || b?.branchName || b?.name)
+      .filter((n) => typeof n === 'string' && n.trim().length > 0)
+      .map((n) => n.trim());
+    return Array.from(new Set(names));
+  }, [apiFilterData.branches]);
+
+  // Delete all ApiActive stock for the client within a specific branch
+  const confirmDeleteStockByBranch = async () => {
+    const clientCode = resolveClientCode();
+    if (!clientCode) {
+      showSuccessNotification('Delete Failed', 'Client code not found. Please login again.');
+      return;
+    }
+    const branchName = String(selectedDeleteBranch || '').trim();
+    if (!branchName) {
+      showSuccessNotification('Delete Failed', 'Please select a branch to delete stock for.');
+      return;
+    }
+
+    setBranchDeleteLoading(true);
+    try {
+      const response = await axios.delete(
+        'https://rrgold.loyalstring.co.in/api/ProductMaster/DeleteStockForClientByBranch',
+        {
+          params: { ClientCode: clientCode, BranchName: branchName },
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+          },
+        }
+      );
+
+      const data = response.data || {};
+      const status = String(data.status || '').toLowerCase();
+
+      if (status === 'success') {
+        const deletedCount = Number(data.deletedCount ?? 0);
+        setShowDeleteAllStockConfirm(false);
+        setDeleteStockStep('choose');
+        setSelectedDeleteBranch('');
+        setSelectedRows([]);
+        showSuccessNotification(
+          'Branch Stock Deleted',
+          data.message || `Successfully deleted ${deletedCount} stock record(s) for branch "${branchName}".`
+        );
+        await fetchLabeledStock();
+        if (showAllData) {
+          setShowAllData(false);
+          setAllFilteredData([]);
+        }
+        addNotification({
+          title: 'Branch stock deleted',
+          description: data.message || `${deletedCount} item(s) deleted for branch "${branchName}"`,
+          type: 'success'
+        });
+      } else {
+        throw new Error(data.message || 'Failed to delete stock for the selected branch.');
+      }
+    } catch (err) {
+      const apiMsg = err.response?.data?.message;
+      showSuccessNotification('Delete Failed', apiMsg || err.message || 'Failed to delete stock for the selected branch.');
+    } finally {
+      setBranchDeleteLoading(false);
+    }
   };
 
   const confirmDeleteAllStock = async () => {
@@ -6146,76 +6239,322 @@ const LabelStockList = () => {
           </div>
         )}
 
-        {showDeleteAllStockConfirm && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            background: 'rgba(44,62,80,0.18)',
-            zIndex: 10001,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <div style={{
-              background: '#fff',
-              borderRadius: 18,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-              width: 480,
-              maxWidth: '98vw',
-              minWidth: 0,
-              padding: '0 0 18px 0',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              animation: 'fadeIn 0.2s',
+        {showDeleteAllStockConfirm && (() => {
+          const isBusy = deleteAllStockLoading || branchDeleteLoading;
+          const theme = {
+            choose: { g: 'linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)', accent: '#4f46e5' },
+            all: { g: 'linear-gradient(135deg,#dc2626 0%,#991b1b 100%)', accent: '#dc2626' },
+            branch: { g: 'linear-gradient(135deg,#d97706 0%,#b45309 100%)', accent: '#d97706' },
+            branchConfirm: { g: 'linear-gradient(135deg,#dc2626 0%,#991b1b 100%)', accent: '#dc2626' },
+          }[deleteStockStep];
+          const heroTitle = {
+            choose: 'Delete Stock',
+            all: 'Delete All Stock',
+            branch: 'Delete by Branch',
+            branchConfirm: 'Confirm Deletion',
+          }[deleteStockStep];
+          const heroSub = {
+            choose: 'Choose how you want to remove stock',
+            all: 'This affects the entire client',
+            branch: 'Target a single branch only',
+            branchConfirm: 'Please review before deleting',
+          }[deleteStockStep];
+          const HeroIcon = deleteStockStep === 'branch' ? FaMapMarkerAlt
+            : deleteStockStep === 'choose' ? FaTrash
+            : FaExclamationTriangle;
+          const chip = (label, value, color) => (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%',
+              padding: '5px 12px', borderRadius: 999, background: '#f1f5f9',
+              fontSize: 12.5, fontWeight: 700, color: '#0f172a', boxSizing: 'border-box',
             }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 32px 0 32px', width: '100%', boxSizing: 'border-box' }}>
-                <FaExclamationTriangle style={{ color: '#dc3545', fontSize: 48, marginBottom: 12 }} />
-                <div style={{ fontWeight: 700, fontSize: 22, color: '#dc3545', marginBottom: 8, textAlign: 'center' }}>Delete ALL Stock for Client?</div>
-                <div style={{ color: '#64748b', fontSize: 15, marginBottom: 18, textAlign: 'center', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                  <strong>WARNING:</strong> This will permanently delete ALL stock items for the current client ({userInfo?.ClientCode || 'Unknown'}). This action cannot be undone and will remove all stock data associated with this client.
-                  <br /><br />
-                  <span style={{ color: '#dc3545', fontWeight: 600 }}>
-                    Are you absolutely sure you want to proceed?
-                  </span>
+              <span style={{ color: '#94a3b8', fontWeight: 600 }}>{label}</span>
+              <span style={{ color: color || '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
+            </span>
+          );
+
+          return (
+          <div
+            onClick={closeDeleteStockModal}
+            style={{
+              position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+              background: 'radial-gradient(circle at 50% 30%, rgba(30,41,59,0.55), rgba(2,6,23,0.72))',
+              backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+              zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 16, boxSizing: 'border-box', animation: 'dsOverlayIn 0.22s ease-out',
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: '#fff', borderRadius: 24, width: 420, maxWidth: '100%', minWidth: 0,
+                overflow: 'hidden', display: 'flex', flexDirection: 'column', boxSizing: 'border-box',
+                boxShadow: '0 30px 70px rgba(2,6,23,0.45)',
+                animation: 'dsCardIn 0.34s cubic-bezier(0.16, 1, 0.3, 1)',
+              }}
+            >
+              {/* Hero banner */}
+              <div style={{
+                position: 'relative', background: theme.g, padding: '26px 24px 22px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  position: 'absolute', top: -40, right: -30, width: 130, height: 130,
+                  borderRadius: '50%', background: 'rgba(255,255,255,0.10)',
+                }} />
+                <div style={{
+                  position: 'absolute', bottom: -50, left: -25, width: 110, height: 110,
+                  borderRadius: '50%', background: 'rgba(255,255,255,0.08)',
+                }} />
+
+                {deleteStockStep !== 'choose' && (
+                  <button
+                    onClick={() => {
+                      if (isBusy) return;
+                      setDeleteStockStep(deleteStockStep === 'branchConfirm' ? 'branch' : 'choose');
+                    }}
+                    title="Back"
+                    style={{
+                      position: 'absolute', top: 14, left: 14, width: 32, height: 32, borderRadius: 10,
+                      border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', cursor: 'pointer',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', zIndex: 1,
+                    }}
+                  >
+                    <FaArrowLeft style={{ fontSize: 13 }} />
+                  </button>
+                )}
+                <button
+                  onClick={closeDeleteStockModal}
+                  title="Close"
+                  style={{
+                    position: 'absolute', top: 14, right: 14, width: 32, height: 32, borderRadius: 10,
+                    border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', zIndex: 1,
+                  }}
+                >
+                  <FaTimes style={{ fontSize: 15 }} />
+                </button>
+
+                <div style={{
+                  width: 60, height: 60, borderRadius: 18, background: 'rgba(255,255,255,0.20)',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+                  boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.25)', zIndex: 1,
+                }}>
+                  <HeroIcon style={{ fontSize: 26, color: '#fff' }} />
                 </div>
+                <div style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: 0.2, zIndex: 1 }}>{heroTitle}</div>
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 4, zIndex: 1 }}>{heroSub}</div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 18, marginTop: 8 }}>
-                <button onClick={() => setShowDeleteAllStockConfirm(false)} disabled={deleteAllStockLoading} style={{
-                  background: '#f3f4f6',
-                  color: '#232a36',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '10px 32px',
-                  fontWeight: 600,
-                  fontSize: 16,
-                  cursor: 'pointer',
-                  minWidth: 110,
-                  opacity: deleteAllStockLoading ? 0.6 : 1,
-                }}>Cancel</button>
-                <button onClick={confirmDeleteAllStock} disabled={deleteAllStockLoading} style={{
-                  background: deleteAllStockLoading ? '#fca5a5' : '#dc3545',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '10px 32px',
-                  fontWeight: 600,
-                  fontSize: 16,
-                  cursor: deleteAllStockLoading ? 'not-allowed' : 'pointer',
-                  minWidth: 110,
-                  boxShadow: '0 2px 8px #dc354522',
-                  opacity: deleteAllStockLoading ? 0.7 : 1,
-                }}>{deleteAllStockLoading ? 'Deleting All...' : 'Delete ALL Stock for Client'}</button>
+
+              {/* Content */}
+              <div style={{ padding: '22px', display: 'flex', flexDirection: 'column', width: '100%', boxSizing: 'border-box' }}>
+                {/* Step: choose */}
+                {deleteStockStep === 'choose' && (
+                  <div key="choose" style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', animation: 'dsStepIn 0.25s ease-out' }}>
+                    <button
+                      onClick={() => setDeleteStockStep('all')}
+                      className="ds-row"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', width: '100%',
+                        padding: '14px 16px', borderRadius: 16, border: '1px solid #eef2f7',
+                        background: '#fff', cursor: 'pointer', boxSizing: 'border-box',
+                      }}
+                    >
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 46, height: 46, borderRadius: 14, background: '#fee2e2', color: '#dc2626', flexShrink: 0,
+                      }}>
+                        <FaTrash style={{ fontSize: 18 }} />
+                      </span>
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
+                        <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>All Stock</span>
+                        <span style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.35 }}>Delete every item across all branches.</span>
+                      </span>
+                      <FaChevronRight style={{ fontSize: 13, color: '#cbd5e1', flexShrink: 0 }} />
+                    </button>
+
+                    <button
+                      onClick={() => setDeleteStockStep('branch')}
+                      className="ds-row"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', width: '100%',
+                        padding: '14px 16px', borderRadius: 16, border: '1px solid #eef2f7',
+                        background: '#fff', cursor: 'pointer', boxSizing: 'border-box',
+                      }}
+                    >
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 46, height: 46, borderRadius: 14, background: '#fef3c7', color: '#d97706', flexShrink: 0,
+                      }}>
+                        <FaMapMarkerAlt style={{ fontSize: 18 }} />
+                      </span>
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
+                        <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>By Branch</span>
+                        <span style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.35 }}>Delete stock from one selected branch.</span>
+                      </span>
+                      <FaChevronRight style={{ fontSize: 13, color: '#cbd5e1', flexShrink: 0 }} />
+                    </button>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, color: '#94a3b8', fontSize: 12, lineHeight: 1.4 }}>
+                      <FaExclamationTriangle style={{ fontSize: 12, flexShrink: 0 }} />
+                      <span>Deleting stock is permanent and cannot be undone.</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step: confirm delete all */}
+                {deleteStockStep === 'all' && (
+                  <div key="all" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', animation: 'dsStepIn 0.25s ease-out' }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a', marginBottom: 10, textAlign: 'center', width: '100%' }}>
+                      Delete all stock for this client?
+                    </div>
+                    <div style={{ marginBottom: 14 }}>{chip('Client', userInfo?.ClientCode || 'Unknown', '#dc2626')}</div>
+                    <div style={{
+                      color: '#64748b', fontSize: 13.5, marginBottom: 20, textAlign: 'center', lineHeight: 1.55,
+                      width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word',
+                    }}>
+                      Every labelled stock item for this client will be permanently removed. This cannot be undone.
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+                      <button onClick={closeDeleteStockModal} disabled={deleteAllStockLoading} className="ds-btn-ghost" style={{
+                        flex: 1, background: '#f1f5f9', color: '#334155', border: 'none', borderRadius: 12,
+                        padding: '13px 0', fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: deleteAllStockLoading ? 0.6 : 1,
+                      }}>Cancel</button>
+                      <button onClick={confirmDeleteAllStock} disabled={deleteAllStockLoading} className="ds-btn-danger" style={{
+                        flex: 1.4, background: deleteAllStockLoading ? '#fca5a5' : '#dc2626', color: '#fff', border: 'none', borderRadius: 12,
+                        padding: '13px 0', fontWeight: 700, fontSize: 15, cursor: deleteAllStockLoading ? 'not-allowed' : 'pointer',
+                        boxShadow: '0 8px 20px rgba(220,38,38,0.35)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      }}>
+                        {deleteAllStockLoading && <FaSpinner style={{ animation: 'spin 0.8s linear infinite', fontSize: 14 }} />}
+                        {deleteAllStockLoading ? 'Deleting…' : 'Delete All'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step: pick branch */}
+                {deleteStockStep === 'branch' && (
+                  <div key="branch" style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', animation: 'dsStepIn 0.25s ease-out' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4 }}>Select Branch</label>
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <FaMapMarkerAlt style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#d97706', fontSize: 15, pointerEvents: 'none' }} />
+                        <select
+                          value={selectedDeleteBranch}
+                          onChange={(e) => setSelectedDeleteBranch(e.target.value)}
+                          style={{
+                            padding: '13px 14px 13px 38px', borderRadius: 12, border: '1.5px solid #e2e8f0',
+                            fontSize: 15, color: '#0f172a', background: '#f8fafc', outline: 'none', cursor: 'pointer',
+                            width: '100%', maxWidth: '100%', boxSizing: 'border-box', appearance: 'none',
+                            fontWeight: 600,
+                          }}
+                        >
+                          <option value="">Choose a branch…</option>
+                          {deletableBranchNames.map((name) => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                        <FaChevronRight style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%) rotate(90deg)', color: '#94a3b8', fontSize: 12, pointerEvents: 'none' }} />
+                      </div>
+                      {deletableBranchNames.length === 0 && (
+                        <span style={{ fontSize: 12.5, color: '#dc2626' }}>No branches found for this client.</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+                      <button onClick={() => setDeleteStockStep('choose')} className="ds-btn-ghost" style={{
+                        flex: 1, background: '#f1f5f9', color: '#334155', border: 'none', borderRadius: 12,
+                        padding: '13px 0', fontWeight: 700, fontSize: 15, cursor: 'pointer',
+                      }}>Back</button>
+                      <button
+                        onClick={() => setDeleteStockStep('branchConfirm')}
+                        disabled={!selectedDeleteBranch}
+                        className="ds-btn-danger"
+                        style={{
+                          flex: 1.4, background: selectedDeleteBranch ? '#d97706' : '#fcd9a8',
+                          color: '#fff', border: 'none', borderRadius: 12, padding: '13px 0', fontWeight: 700, fontSize: 15,
+                          cursor: selectedDeleteBranch ? 'pointer' : 'not-allowed',
+                          boxShadow: selectedDeleteBranch ? '0 8px 20px rgba(217,119,6,0.32)' : 'none',
+                        }}
+                      >Continue</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step: confirm branch delete */}
+                {deleteStockStep === 'branchConfirm' && (
+                  <div key="branchConfirm" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', animation: 'dsStepIn 0.25s ease-out' }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a', marginBottom: 12, textAlign: 'center', width: '100%' }}>
+                      Delete stock for this branch?
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginBottom: 14, maxWidth: '100%' }}>
+                      {chip('Client', userInfo?.ClientCode || 'Unknown', '#dc2626')}
+                      {chip('Branch', selectedDeleteBranch, '#b45309')}
+                    </div>
+                    <div style={{
+                      color: '#64748b', fontSize: 13.5, marginBottom: 20, textAlign: 'center', lineHeight: 1.55,
+                      width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word',
+                    }}>
+                      All stock items in this branch will be permanently removed. This cannot be undone.
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+                      <button onClick={() => setDeleteStockStep('branch')} disabled={branchDeleteLoading} className="ds-btn-ghost" style={{
+                        flex: 1, background: '#f1f5f9', color: '#334155', border: 'none', borderRadius: 12,
+                        padding: '13px 0', fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: branchDeleteLoading ? 0.6 : 1,
+                      }}>Back</button>
+                      <button onClick={confirmDeleteStockByBranch} disabled={branchDeleteLoading} className="ds-btn-danger" style={{
+                        flex: 1.4, background: branchDeleteLoading ? '#fca5a5' : '#dc2626', color: '#fff', border: 'none', borderRadius: 12,
+                        padding: '13px 0', fontWeight: 700, fontSize: 15, cursor: branchDeleteLoading ? 'not-allowed' : 'pointer',
+                        boxShadow: '0 8px 20px rgba(220,38,38,0.35)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      }}>
+                        {branchDeleteLoading && <FaSpinner style={{ animation: 'spin 0.8s linear infinite', fontSize: 14 }} />}
+                        {branchDeleteLoading ? 'Deleting…' : 'Delete Stock'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
 
         <style jsx>{`
+          @keyframes dsOverlayIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes dsCardIn {
+            from { opacity: 0; transform: translateY(18px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+          }
+          @keyframes dsStepIn {
+            from { opacity: 0; transform: translateX(8px); }
+            to { opacity: 1; transform: translateX(0); }
+          }
+          .ds-row {
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+          }
+          .ds-row:hover {
+            transform: translateY(-2px);
+            border-color: #dbeafe;
+            background: #f8fafc;
+            box-shadow: 0 10px 24px rgba(15,23,42,0.10);
+          }
+          .ds-row:hover svg:last-child {
+            color: #64748b;
+          }
+          .ds-row:active {
+            transform: translateY(0);
+          }
+          .ds-btn-ghost { transition: background 0.15s ease, transform 0.12s ease; }
+          .ds-btn-ghost:hover:not(:disabled) { background: #e2e8f0; }
+          .ds-btn-ghost:active:not(:disabled) { transform: scale(0.98); }
+          .ds-btn-danger { transition: filter 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease; }
+          .ds-btn-danger:hover:not(:disabled) { filter: brightness(1.06); }
+          .ds-btn-danger:active:not(:disabled) { transform: scale(0.98); }
+
           .main-container {
             position: relative;
             width: 100%;

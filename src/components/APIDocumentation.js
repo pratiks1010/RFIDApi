@@ -373,6 +373,24 @@ const APIDocumentation = () => {
       }
     },
     {
+      id: 'delete-stock-by-branch',
+      name: 'Delete Stock for Client by Branch',
+      endpoint: 'DeleteStockForClientByBranch',
+      method: 'DELETE',
+      baseUrl: 'https://rrgold.loyalstring.co.in/api/ProductMaster',
+      description: 'Delete all stock items for a specific client within a specific branch.',
+      sampleBody: null,
+      urlParams: '?ClientCode=LS000123&BranchName=Main%20Branch',
+      responseFormat: {
+        status: "success",
+        message: "Successfully deleted 12 stock records with 'ApiActive' status for client LS000123 in branch 'Main Branch'",
+        deletedCount: 12,
+        clientCode: "LS000123",
+        branchName: "Main Branch",
+        deletedAt: "2026-07-08T06:23:45.1234567Z"
+      }
+    },
+    {
       id: 'delete-all-sold-stock',
       name: 'Delete All Sold Stock',
       endpoint: 'DeleteAllSoldStockForClient',

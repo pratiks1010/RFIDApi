@@ -185,6 +185,7 @@ const API_GROUPS = [
       { id: 'tag-usage', name: 'Get Used/Unused RFID Tags', endpoint: 'GetAllUsedAndUnusedTag', method: 'POST', description: 'Retrieve used and unused RFID tags.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
       { id: 'get-all-labeled-stock', name: 'Get All Labeled Stock', endpoint: 'GetAllLabeledStock', method: 'POST', description: 'Get labeled stock with pagination (Label Stock List).', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY, PageNumber: 1, PageSize: 25 } },
       { id: 'get-all-product-master', name: 'Get All Product Master', endpoint: 'GetAllProductMaster', method: 'POST', description: 'Get product master data for dropdowns.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'delete-stock-by-branch', name: 'Delete Stock by Branch', endpoint: 'DeleteStockForClientByBranch', method: 'DELETE', description: 'Delete all stock items for a specific branch.', sampleBody: null, urlParams: '?ClientCode=LS000123&BranchName=Main%20Branch' },
       { id: 'get-all-design', name: 'Get All Design', endpoint: 'GetAllDesign', method: 'POST', description: 'Get design master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
       { id: 'get-all-category', name: 'Get All Category', endpoint: 'GetAllCategory', method: 'POST', description: 'Get category master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
       { id: 'get-all-purity', name: 'Get All Purity', endpoint: 'GetAllPurity', method: 'POST', description: 'Get purity master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },

@@ -8,6 +8,10 @@ export const getAuthApiBaseUrl = () =>
 
 export const getAuthLoginUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthLogin`;
 export const getAuthForgotPasswordUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthForgotPassword`;
+export const getDeleteAllStockForBranchUrl = () =>
+  `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteAllStockForBranch`;
+export const getDeleteAllStockForClientUrl = () =>
+  `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteAllStockForClient`;
 
 /**
  * Local ASP.NET Kestrel default for /api/auth/fingerprint/* and /api/auth/passkey/*.

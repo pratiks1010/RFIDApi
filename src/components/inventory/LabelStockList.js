@@ -42,6 +42,7 @@ import TrayScanModal from '../common/TrayScanModal';
 import { normalizeTrayScanIdentities } from '../../services/trayBridgeConnect';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
+import { getDeleteAllStockForBranchUrl, getDeleteAllStockForClientUrl } from '../../services/authApiConfig';
 import { runAutoPushFolderSyncOnce, extractAutoPushUsername } from '../../services/autoPushStockSyncService';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
@@ -3416,15 +3417,12 @@ const LabelStockList = () => {
 
     setBranchDeleteLoading(true);
     try {
-      const response = await axios.delete(
-        'https://rrgold.loyalstring.co.in/api/ProductMaster/DeleteStockForClientByBranch',
-        {
-          params: { ClientCode: clientCode, BranchName: branchName },
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        }
-      );
+      const response = await axios.delete(getDeleteAllStockForBranchUrl(), {
+        params: { ClientCode: clientCode, BranchName: branchName },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
 
       const data = response.data || {};
       const status = String(data.status || '').toLowerCase();
@@ -3476,7 +3474,7 @@ const LabelStockList = () => {
         return;
       }
 
-      const response = await axios.delete('https://soni.loyalstring.co.in/api/ProductMaster/DeleteAllStockForClient', {
+      const response = await axios.delete(getDeleteAllStockForClientUrl(), {
         params: { ClientCode: clientCode },
         headers: {
           Authorization: `Bearer ${localStorage.getItem('token')}`,

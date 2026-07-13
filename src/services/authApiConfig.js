@@ -9,6 +9,17 @@ export const getAuthApiBaseUrl = () =>
 export const getAuthLoginUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthLogin`;
 export const getAuthForgotPasswordUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthForgotPassword`;
 
+/** Preferred: same naming style as DeleteAllStockForClient. */
+export const getDeleteAllStockForBranchUrl = () =>
+  `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteAllStockForBranch`;
+
+/** Alias of DeleteAllStockForBranch (same action / query params). */
+export const getDeleteStockForClientByBranchUrl = () =>
+  `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteStockForClientByBranch`;
+
+export const getDeleteAllStockForClientUrl = () =>
+  `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteAllStockForClient`;
+
 /**
  * Local ASP.NET Kestrel default for /api/auth/fingerprint/* and /api/auth/passkey/*.
  * Override: REACT_APP_FINGERPRINT_API_BASE_URL / REACT_APP_PASSKEY_API_BASE_URL

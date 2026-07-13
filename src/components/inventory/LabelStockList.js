@@ -39,7 +39,7 @@ import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
 import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
-import { normalizeTrayScanIdentities } from '../../services/trayBridgeConnect';
+import { buildTrayStockLookupPayload } from '../../utils/epcLookup';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
 import { runAutoPushFolderSyncOnce, extractAutoPushUsername } from '../../services/autoPushStockSyncService';
@@ -1109,8 +1109,8 @@ const LabelStockList = () => {
   };
 
   const handleTrayFetchData = async (scannedTags = []) => {
-    const normalizedTags = normalizeTrayScanIdentities(scannedTags);
-    if (!normalizedTags.length) {
+    const { epcKeys, decodedCodes } = buildTrayStockLookupPayload(scannedTags);
+    if (!epcKeys.length && !decodedCodes.length) {
       addNotification({
         type: 'warning',
         title: 'No EPC scanned',
@@ -1136,12 +1136,15 @@ const LabelStockList = () => {
         TRAY_LABELLED_STOCK_BY_TID_URL,
         {
           ClientCode: clientCode,
-          TIDNumbers: normalizedTags,
-          TidNumbers: normalizedTags,
-          TIDValues: normalizedTags,
-          TidValues: normalizedTags,
-          EPCValues: normalizedTags,
-          EpcValues: normalizedTags,
+          TIDNumbers: epcKeys,
+          TidNumbers: epcKeys,
+          TIDValues: epcKeys,
+          TidValues: epcKeys,
+          EPCValues: epcKeys,
+          EpcValues: epcKeys,
+          RFIDCodes: decodedCodes,
+          RfidCodes: decodedCodes,
+          ItemCodes: decodedCodes,
         },
         {
           headers: {
@@ -1157,7 +1160,7 @@ const LabelStockList = () => {
         addNotification({
           type: 'warning',
           title: 'No products found',
-          description: `No products returned for ${normalizedTags.length} scanned tag(s).`,
+          description: `No products returned for ${epcKeys.length} scanned tag variant(s).`,
         });
         return;
       }

@@ -58,3 +58,42 @@ describe('LS000606 PRN generation', () => {
     }
   );
 });
+
+describe('LS000533 PRN generation', () => {
+  it('writes 48-bit stone EPC for item 3016', () => {
+    const prn = generateClientPrn(
+      {
+        ItemCode: '3016',
+        RFIDCode: '3016',
+        GrossWt: '6.630',
+        TotalStoneWeight: '6',
+        TotalStonePieces: 65,
+        Purity: '14KT',
+      },
+      'LS000533'
+    );
+
+    expect(prn).toContain('RFWTAG;48;EPC');
+    expect(prn).toContain('16;H;*1C00*');
+    expect(prn).toContain('*000033303136*');
+    expect(prn).not.toContain('RFWTAG;80;EPC');
+    expect(prn).not.toContain('*2C00*');
+  });
+
+  it('writes 48-bit standard EPC for item 13016', () => {
+    const prn = generateClientPrn(
+      {
+        ItemCode: '13016',
+        RFIDCode: '13016',
+        GrossWt: '3.790',
+        HallmarkAmount: 'ZER-5044',
+        Purity: '14KT',
+      },
+      'LS000533'
+    );
+
+    expect(prn).toContain('RFWTAG;48;EPC');
+    expect(prn).toContain('16;H;*1C00*');
+    expect(prn).toContain('*003133303136*');
+  });
+});

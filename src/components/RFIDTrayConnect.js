@@ -26,12 +26,14 @@ import {
   buildTrayConnectCommands,
   evaluateSerialConnectAttempt,
   evaluateUsbConnectAttempt,
+  expandTrayScanLookupKeys,
   parseBaudRate,
   parseComNumber,
   TRAY_CONNECTION_MODE_OPTIONS,
   TRAY_CONNECTION_MODES,
   waitForConnectBridgeResponse,
 } from '../services/trayBridgeConnect';
+import { propagateRfidMappingToRawEpcs } from '../utils/epcLookup';
 import {
   getTrayReaderConfig,
   saveTrayReaderConfig,
@@ -400,13 +402,14 @@ const RFIDTrayConnect = () => {
   );
 
   useEffect(() => {
-    const lookupKeys = Array.from(new Set(
+    const rawLookupKeys = Array.from(new Set(
       sortedTagRows.flatMap((tag) => {
         const epc = String(tag?.epc || '').trim().toUpperCase();
         const tid = String(tag?.tid || '').trim().toUpperCase();
         return [epc, tid].filter(Boolean);
       })
     ));
+    const lookupKeys = expandTrayScanLookupKeys(rawLookupKeys);
     const missingKeys = lookupKeys.filter((key) => !rfidCodeMap[key]);
     if (!missingKeys.length) return undefined;
 
@@ -428,7 +431,10 @@ const RFIDTrayConnect = () => {
           }
         );
         const mapping = extractRfidMapping(response?.data);
-        setRfidCodeMap((prev) => ({ ...prev, ...mapping }));
+        setRfidCodeMap((prev) => ({
+          ...prev,
+          ...propagateRfidMappingToRawEpcs(rawLookupKeys, { ...prev, ...mapping }),
+        }));
         setRfidLookupError('');
       } catch (error) {
         const message = error?.response?.data?.message

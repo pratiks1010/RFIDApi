@@ -8,8 +8,15 @@ export const getAuthApiBaseUrl = () =>
 
 export const getAuthLoginUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthLogin`;
 export const getAuthForgotPasswordUrl = () => `${getAuthApiBaseUrl()}/api/ProductMaster/AuthForgotPassword`;
+
+/** Preferred: same naming style as DeleteAllStockForClient. */
 export const getDeleteAllStockForBranchUrl = () =>
   `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteAllStockForBranch`;
+
+/** Alias of DeleteAllStockForBranch (same action / query params). */
+export const getDeleteStockForClientByBranchUrl = () =>
+  `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteStockForClientByBranch`;
+
 export const getDeleteAllStockForClientUrl = () =>
   `${getAuthApiBaseUrl()}/api/ProductMaster/DeleteAllStockForClient`;
 

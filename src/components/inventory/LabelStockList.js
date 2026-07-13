@@ -42,7 +42,7 @@ import TrayScanModal from '../common/TrayScanModal';
 import { normalizeTrayScanIdentities } from '../../services/trayBridgeConnect';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
-import { getDeleteAllStockForBranchUrl, getDeleteAllStockForClientUrl } from '../../services/authApiConfig';
+import { getDeleteAllStockForBranchUrl, getDeleteStockForClientByBranchUrl, getDeleteAllStockForClientUrl } from '../../services/authApiConfig';
 import { runAutoPushFolderSyncOnce, extractAutoPushUsername } from '../../services/autoPushStockSyncService';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
@@ -3417,12 +3417,24 @@ const LabelStockList = () => {
 
     setBranchDeleteLoading(true);
     try {
-      const response = await axios.delete(getDeleteAllStockForBranchUrl(), {
-        params: { ClientCode: clientCode, BranchName: branchName },
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
+      const headers = {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+      };
+      const params = { ClientCode: clientCode, BranchName: branchName };
+
+      // Preferred: DeleteAllStockForBranch (same style as DeleteAllStockForClient).
+      // Alias fallback: DeleteStockForClientByBranch (same action).
+      let response;
+      try {
+        response = await axios.delete(getDeleteAllStockForBranchUrl(), { params, headers });
+      } catch (primaryErr) {
+        const status = primaryErr?.response?.status;
+        if (status === 404 || status === 405) {
+          response = await axios.delete(getDeleteStockForClientByBranchUrl(), { params, headers });
+        } else {
+          throw primaryErr;
+        }
+      }
 
       const data = response.data || {};
       const status = String(data.status || '').toLowerCase();

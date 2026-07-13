@@ -140,7 +140,8 @@ const API_GROUPS = [
         sampleBody: { ...PLAYGROUND_DELETE_LABELLED_STOCK_BODY, ItemCodes: [...PLAYGROUND_DELETE_LABELLED_STOCK_BODY.ItemCodes] },
       },
       { id: 'delete-all-stock', name: 'Delete All Stock for Client', endpoint: 'DeleteAllStockForClient', method: 'DELETE', description: 'Delete all stock items for a client. Irreversible.', sampleBody: null, urlParams: '?ClientCode=LS000123' },
-      { id: 'delete-stock-by-branch', name: 'Delete All Stock for Branch', endpoint: 'DeleteAllStockForBranch', method: 'DELETE', description: 'Delete all ApiActive labelled stock for a branch by name.', sampleBody: null, urlParams: '?ClientCode=LS000410&BranchName=Main%20Showroom' },
+      { id: 'delete-stock-by-branch', name: 'Delete All Stock for Branch', endpoint: 'DeleteAllStockForBranch', method: 'DELETE', description: 'Preferred name (same style as DeleteAllStockForClient). Deletes ApiActive stock for one branch. Alias: DeleteStockForClientByBranch.', sampleBody: null, urlParams: '?ClientCode=LS000410&BranchName=Main%20Showroom' },
+      { id: 'delete-stock-by-branch-alias', name: 'Delete Stock for Client by Branch (Alias)', endpoint: 'DeleteStockForClientByBranch', method: 'DELETE', description: 'Alias of DeleteAllStockForBranch — same action.', sampleBody: null, urlParams: '?ClientCode=LS000410&BranchName=Main%20Showroom' },
       {
         id: 'get-available-auth-plans',
         name: 'Get Available Auth Plans',

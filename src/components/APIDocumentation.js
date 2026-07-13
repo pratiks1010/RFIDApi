@@ -378,7 +378,28 @@ const APIDocumentation = () => {
       endpoint: 'DeleteAllStockForBranch',
       method: 'DELETE',
       baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
-      description: 'Delete all ApiActive labelled stock for a branch (case-insensitive branch name). Other branches are not touched.',
+      description:
+        'Preferred name (same style as DeleteAllStockForClient). Deletes ApiActive labelled stock for one branch only. Query: ClientCode + BranchName. Alias: DeleteStockForClientByBranch (same action).',
+      sampleBody: null,
+      urlParams: '?ClientCode=LS000410&BranchName=Main%20Showroom',
+      responseFormat: {
+        status: 'success',
+        message: "Successfully deleted 120 ApiActive labelled stock record(s) for branch 'Main Showroom' only.",
+        deletedCount: 120,
+        clientCode: 'LS000410',
+        branchId: 3,
+        branchName: 'Main Showroom',
+        deletedAt: '2026-07-08T06:23:45.1234567Z',
+      },
+    },
+    {
+      id: 'delete-stock-by-branch-alias',
+      name: 'Delete Stock for Client by Branch (Alias)',
+      endpoint: 'DeleteStockForClientByBranch',
+      method: 'DELETE',
+      baseUrl: 'https://soni.loyalstring.co.in/api/ProductMaster',
+      description:
+        'Alias of DeleteAllStockForBranch — same query params and same branch-only ApiActive delete.',
       sampleBody: null,
       urlParams: '?ClientCode=LS000410&BranchName=Main%20Showroom',
       responseFormat: {

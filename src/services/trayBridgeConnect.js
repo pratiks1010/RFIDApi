@@ -1,3 +1,5 @@
+import { buildTrayStockLookupPayload, expandEpcLookupKeys } from '../utils/epcLookup';
+
 /** Connection modes supported by rfid-bridge (Program.cs). */
 export const TRAY_CONNECTION_MODES = Object.freeze({
   serial: 'serial',
@@ -174,6 +176,9 @@ export const normalizeTrayScanIdentities = (scanned) => Array.from(new Set(
     })
     .filter(Boolean)
 ));
+
+/** Expand scanned EPC/TID values to all lookup variants (padding + ASCII decode). */
+export const expandTrayScanLookupKeys = (scanned) => buildTrayStockLookupPayload(scanned).epcKeys;
 
 /**
  * Full reader connect sequence used by RFID Tray Connect and tray scan popups.

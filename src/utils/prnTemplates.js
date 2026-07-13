@@ -712,10 +712,22 @@ const resolveLS000533PrnVariant = (item) => {
 /** QR payload for LS000533 standard label — same field order as stone QR */
 const formatLS000533QrPayload = (item) => formatLS000533StoneQrPayload(item);
 
-/** Fixed 80-bit EPC for LS000533 stone client template (matches sample *2C00* + RFWTAG;80;EPC) */
-const resolveLS000533StoneEpcHex = (item) => {
-  const epcSource = String(item.RFIDCode || item.ItemCode || '').trim();
-  return calculateEpcMemory(stringToHex(epcSource)).epcHex;
+/** EPC text for LS000533 stone labels — matches C128C numeric suffix when present. */
+const resolveLS000533StoneEpcSource = (item) => {
+  const itemCode = String(item.RFIDCode || item.ItemCode || '').trim();
+  if (!itemCode) return '';
+  if (/^\d+$/.test(itemCode)) return itemCode;
+
+  const { suffix } = splitItemCodeForBarcode(itemCode);
+  if (suffix && /^\d+$/.test(suffix)) return suffix;
+
+  return itemCode;
+};
+
+/** 48-bit ASCII EPC memory for LS000533 stone labels (same as standard label). */
+const resolveLS000533StoneEpcMemory = (item) => {
+  const epcSource = resolveLS000533StoneEpcSource(item);
+  return calculateAsciiEpcMemory(epcSource);
 };
 
 // LS000533 — diamond / fancy label (ENGINE 3941×710, RFID 96-bit EPC, QR + C128B)
@@ -804,7 +816,7 @@ const generateLS000533StonePrn = (item) => {
   const pwy = prnQuote(resolveLS000533Pwy(item));
   const hallmarkDisplay = prnQuote(resolveLS000533HallmarkAmountQr(item));
   const qrPayload = prnQuote(formatLS000533StoneQrPayload(item));
-  const epcHex = resolveLS000533StoneEpcHex(item);
+  const { epcBits, pcValue, epcHex } = resolveLS000533StoneEpcMemory(item);
   const c128Payload = formatLS000533C128CPayload(item);
 
   return `<xpml><page quantity='0' pitch='18.0 mm'></xpml>!PTX_SETUP
@@ -850,10 +862,10 @@ INV;POINT;115;660;8;8;"${pwy}"
 INV;POINT;117;608;8;8;"${stoneWeightLabel}"
 STOP
 RFWTAG;16;PC
-16;H;*2C00*
+16;H;${pcValue}
 STOP
-RFWTAG;80;EPC
-80;H;*${epcHex}*
+RFWTAG;${epcBits};EPC
+${epcBits};H;*${epcHex}*
 STOP
 END
 ~EXECUTE;FORM-0;1

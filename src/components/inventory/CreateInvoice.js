@@ -49,6 +49,11 @@ import { getTrayReaderConfig, parsePowerAttDb10 } from '../../services/trayReade
 import { getTrayTagIdentity, parseTrayTagLine } from '../../utils/trayTagParse';
 import { toRrgoldApiUrl, toSoniApiUrl } from '../../services/apiBaseConfig';
 import {
+  buildTrayStockLookupPayload,
+  propagateRfidMappingToRawEpcs,
+} from '../../utils/epcLookup';
+import { expandTrayScanLookupKeys } from '../../services/trayBridgeConnect';
+import {
   getItemImageLookupKeys,
   resolveLocalItemImageBlobUrl,
   warmupLocalItemImageIndex,
@@ -425,9 +430,10 @@ const CreateInvoice = () => {
   };
 
   const fetchTrayRfidCodesByEpc = async (epcValues) => {
-    const normalized = Array.from(new Set(
+    const rawTags = Array.from(new Set(
       (epcValues || []).map((item) => String(item || '').trim().toUpperCase()).filter(Boolean)
     ));
+    const normalized = expandTrayScanLookupKeys(rawTags);
     if (!normalized.length) {
       setTrayRfidCodeMap({});
       setTrayResolveError('');
@@ -451,7 +457,7 @@ const CreateInvoice = () => {
           timeout: 45000
         }
       );
-      setTrayRfidCodeMap(extractRfidMapping(response?.data));
+      setTrayRfidCodeMap(propagateRfidMappingToRawEpcs(rawTags, extractRfidMapping(response?.data)));
     } catch (error) {
       setTrayResolveError(
         error?.response?.data?.message
@@ -520,10 +526,8 @@ const CreateInvoice = () => {
       return;
     }
 
-    const normalizedTags = Array.from(
-      new Set((scannedTags || []).map((tag) => String(tag || '').trim().toUpperCase()).filter(Boolean))
-    );
-    if (!normalizedTags.length) {
+    const { epcKeys, decodedCodes } = buildTrayStockLookupPayload(scannedTags);
+    if (!epcKeys.length && !decodedCodes.length) {
       addNotification({
         title: 'No valid EPC values',
         description: 'Scanned EPC list is empty after normalization.',
@@ -544,12 +548,15 @@ const CreateInvoice = () => {
         TRAY_LABELLED_STOCK_BY_TID_URL,
         {
           ClientCode: clientCode,
-          TIDNumbers: normalizedTags,
-          TidNumbers: normalizedTags,
-          TIDValues: normalizedTags,
-          TidValues: normalizedTags,
-          EPCValues: normalizedTags,
-          EpcValues: normalizedTags
+          TIDNumbers: epcKeys,
+          TidNumbers: epcKeys,
+          TIDValues: epcKeys,
+          TidValues: epcKeys,
+          EPCValues: epcKeys,
+          EpcValues: epcKeys,
+          RFIDCodes: decodedCodes,
+          RfidCodes: decodedCodes,
+          ItemCodes: decodedCodes,
         },
         {
           headers: {
@@ -599,7 +606,7 @@ const CreateInvoice = () => {
       if (!products.length) {
         addNotification({
           title: 'No products found',
-          description: `No products returned for ${normalizedTags.length} scanned EPC/TID values.`,
+          description: `No products returned for ${epcKeys.length} scanned EPC/TID value(s).`,
           type: 'warning'
         });
         return;
@@ -617,7 +624,7 @@ const CreateInvoice = () => {
       setTotalRecords(mergedRows.length);
       setTotalPages(Math.max(1, Math.ceil(mergedRows.length / itemsPerPage)));
 
-      const scannedSet = new Set(normalizedTags);
+      const scannedSet = new Set([...epcKeys, ...decodedCodes]);
       const matchedIds = mergedRows
         .filter((row) => {
           const rfidCode = String(row?.RFIDCode || '').trim().toUpperCase();

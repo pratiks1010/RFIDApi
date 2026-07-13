@@ -5,9 +5,11 @@ import { toSoniApiUrl } from '../../services/apiBaseConfig';
 import {
   buildTrayConnectCommands,
   connectTrayReaders,
+  expandTrayScanLookupKeys,
   TRAY_CONNECTION_MODE_OPTIONS,
   TRAY_CONNECTION_MODES,
 } from '../../services/trayBridgeConnect';
+import { propagateRfidMappingToRawEpcs } from '../../utils/epcLookup';
 import { getTrayTagIdentity, parseTrayTagLine } from '../../utils/trayTagParse';
 import {
   getTrayReaderConfig,
@@ -269,9 +271,10 @@ const TrayScanModal = ({
   }, [open, hasBridge]);
 
   const fetchRfidCodesByEpc = async (epcValues) => {
-    const normalized = Array.from(new Set(
+    const rawTags = Array.from(new Set(
       (epcValues || []).map((item) => String(item || '').trim().toUpperCase()).filter(Boolean)
     ));
+    const normalized = expandTrayScanLookupKeys(rawTags);
     if (!normalized.length) {
       setRfidCodeMap({});
       setResolveError('');
@@ -296,7 +299,7 @@ const TrayScanModal = ({
         }
       );
       const mapping = extractRfidMapping(response?.data);
-      setRfidCodeMap(mapping);
+      setRfidCodeMap(propagateRfidMappingToRawEpcs(rawTags, mapping));
     } catch (error) {
       setResolveError(
         error?.response?.data?.message

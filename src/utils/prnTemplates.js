@@ -57,16 +57,16 @@ const formatCode128CompositePayload = (itemCode) => {
 
 
 // Calculate EPC bit length and PC value from actual hex length (no zero padding)
-// 4 hex digits = 1 EPC word (16 bits). PC = (wordCount << 11) | 0x0400
-// Matches *1C00* (48b), *2400* (64b), *2C00* (80b), *3400* (96b)
+// 4 hex digits = 1 EPC word (16 bits). PC = wordCount << 11 (Incoded RFWTAG format)
+// Matches *1800* (48b), *2000* (64b), *2800* (80b), *3000* (96b)
 const calculateEpcMemory = (hexCode) => {
   if (!hexCode) {
-    return { epcBits: 96, pcValue: '*3400*', epcHex: '000000000000000000000000' };
+    return { epcBits: 96, pcValue: '*3000*', epcHex: '000000000000000000000000' };
   }
 
   let epcHex = String(hexCode).toUpperCase().replace(/[^0-9A-F]/g, '');
   if (!epcHex) {
-    return { epcBits: 96, pcValue: '*3400*', epcHex: '000000000000000000000000' };
+    return { epcBits: 96, pcValue: '*3000*', epcHex: '000000000000000000000000' };
   }
 
   const len = epcHex.length;
@@ -74,7 +74,7 @@ const calculateEpcMemory = (hexCode) => {
   const words = Math.max(3, Math.ceil(len / 4));
   const epcBits = words * 16;
   const maxHexLen = words * 4;
-  const pcWord = (words << 11) | 0x0400;
+  const pcWord = words << 11;
   const pcValue = `*${pcWord.toString(16).toUpperCase().padStart(4, '0')}*`;
 
   if (len > maxHexLen) {

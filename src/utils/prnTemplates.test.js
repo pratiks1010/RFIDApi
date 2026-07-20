@@ -18,7 +18,7 @@ describe('LS000606 PRN generation', () => {
     const prn = generateClientPrn(baseItem, 'LS000606');
 
     expect(prn).toContain('RFWTAG;64;EPC');
-    expect(prn).toContain('16;H;*2400*');
+    expect(prn).toContain('16;H;*2000*');
     expect(prn).toContain('*4E53505931303634*');
     expect(prn).toContain('G DORLE');
     expect(prn).toContain('AASHIRWAD ALANKAR');
@@ -40,7 +40,7 @@ describe('LS000606 PRN generation', () => {
     );
 
     expect(prn).toContain('RFWTAG;64;EPC');
-    expect(prn).toContain('16;H;*2400*');
+    expect(prn).toContain('16;H;*2000*');
     expect(prn).toContain('*4E444F5230303539*');
     expect(prn).toContain('S PAYAL');
     expect(prn).toContain('916 HM');
@@ -74,10 +74,10 @@ describe('LS000533 PRN generation', () => {
     );
 
     expect(prn).toContain('RFWTAG;48;EPC');
-    expect(prn).toContain('16;H;*1C00*');
+    expect(prn).toContain('16;H;*1800*');
     expect(prn).toContain('*000033303136*');
     expect(prn).not.toContain('RFWTAG;80;EPC');
-    expect(prn).not.toContain('*2C00*');
+    expect(prn).not.toContain('*2800*');
   });
 
   it('writes 48-bit standard EPC for item 13016', () => {
@@ -93,7 +93,29 @@ describe('LS000533 PRN generation', () => {
     );
 
     expect(prn).toContain('RFWTAG;48;EPC');
-    expect(prn).toContain('16;H;*1C00*');
+    expect(prn).toContain('16;H;*1800*');
     expect(prn).toContain('*003133303136*');
+  });
+
+  it('writes 48-bit stone EPC for item 18037', () => {
+    const prn = generateClientPrn(
+      {
+        ItemCode: '18037',
+        RFIDCode: '18037',
+        GrossWt: '14.400',
+        TotalStoneWeight: '9.02',
+        TotalStonePieces: 186,
+        HallmarkAmount: 'TNL4P2.25FD',
+        DesignName: 'TENNIS NECKLACE',
+        ProductName: 'W',
+        Purity: '14KT',
+      },
+      'LS000533'
+    );
+
+    expect(prn).toContain('RFWTAG;48;EPC');
+    expect(prn).toContain('16;H;*1800*');
+    expect(prn).toContain('*003138303337*');
+    expect(prn).toContain('18037 | TNL4P2.25FD');
   });
 });

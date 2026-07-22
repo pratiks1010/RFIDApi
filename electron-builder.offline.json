@@ -23,7 +23,8 @@
   },
   "win": {
     "target": "nsis",
-    "icon": "build-resources/icon.ico"
+    "icon": "build-resources/icon.ico",
+    "signAndEditExecutable": false
   },
   "nsis": {
     "oneClick": false,

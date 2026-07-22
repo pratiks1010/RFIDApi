@@ -18,6 +18,9 @@ node_modules/
 # Electron build artifacts (electron-builder output)
 /release
 /release-builds
+/release-online
+/release-offline
+/release-legacy
 /out
 *.exe
 *.exe.blockmap

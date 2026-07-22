@@ -15,7 +15,6 @@ import {
   FaTimes,
   FaChevronLeft,
   FaChevronRight,
-  FaExchangeAlt,
   FaArrowDown,
   FaArrowUp,
   FaSignOutAlt,
@@ -87,14 +86,13 @@ const SidebarLayout = ({ children }) => {
     { path: '/rfid-label', icon: FaPrint, label: 'Create PRN Label', color: '#7c3aed', section: 'Inventory Management' },
   ];
 
-  // Section 2: Transaction
+  // Section 2: Transaction (Stock Transfer hidden globally)
   const navigationSection2 = [
     { path: '/quotation', icon: HiDocument, label: 'Quotation', color: '#be185d' },
     { path: '/create-invoice', icon: HiReceiptTax, label: 'Invoice', color: '#15803d' },
     { path: '/sample-in', icon: FaArrowDown, label: 'Sample In', color: '#0d9488' },
     { path: '/sample-out', icon: FaArrowUp, label: 'Sample Out', color: '#b91c1c' },
     { path: '/rfid-sample-in-out', icon: FaListUl, label: 'RFID Sample In/Out', color: '#7c3aed' },
-    { path: '/stock-transfer', icon: FaExchangeAlt, label: 'Stock Transfer', color: '#c2410c' },
     { path: '/order-list', icon: FaClipboardList, label: 'Order List', color: '#6d28d9' },
     { path: '/reports', icon: HiDocumentText, label: 'Reports', color: '#0e7490' },
   ];

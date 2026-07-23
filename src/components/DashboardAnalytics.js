@@ -1448,6 +1448,7 @@ const DashboardAnalytics = () => {
         categoryAnalysis[category] = {
           totalItems: 0,
           totalWeight: 0,
+          totalNetWeight: 0,
           totalValue: 0,
           products: {},
           soldItems: 0
@@ -1456,6 +1457,7 @@ const DashboardAnalytics = () => {
 
       categoryAnalysis[category].totalItems += 1;
       categoryAnalysis[category].totalWeight += parseFloat(item.GrossWt) || 0;
+      categoryAnalysis[category].totalNetWeight += parseFloat(item.NetWt || item.NetWeight) || 0;
       categoryAnalysis[category].totalValue += (parseFloat(item.TodaysRate) * parseFloat(item.GrossWt)) || 0;
 
       if (item.Status === 'Sold') {
@@ -1480,6 +1482,7 @@ const DashboardAnalytics = () => {
         category,
         totalItems: data.totalItems,
         totalWeight: data.totalWeight.toFixed(2),
+        totalNetWeight: data.totalNetWeight.toFixed(2),
         avgValue: `₹${parseInt(avgValue).toLocaleString()}`,
         topProduct: topProduct ? topProduct[0] : 'N/A',
         trend: conversionRate,
@@ -3516,6 +3519,7 @@ const DashboardAnalytics = () => {
                   <th>Category</th>
                   <th className="analytics-bottom-th-num">Qty</th>
                   <th className="analytics-bottom-th-num">Total Gross Weight</th>
+                  <th className="analytics-bottom-th-num">Total Net Weight</th>
                 </tr>
               </thead>
               <tbody>
@@ -3544,6 +3548,9 @@ const DashboardAnalytics = () => {
                         </td>
                         <td className="analytics-bottom-td-num">
                           {isEmpty ? '\u00a0' : `${item.totalWeight}g`}
+                        </td>
+                        <td className="analytics-bottom-td-num">
+                          {isEmpty ? '\u00a0' : `${item.totalNetWeight}g`}
                         </td>
                       </tr>
                     );

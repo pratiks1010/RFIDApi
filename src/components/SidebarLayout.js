@@ -31,6 +31,7 @@ import {
   FaThLarge,
   FaLayerGroup,
   FaTools,
+  FaShoppingBag,
 } from 'react-icons/fa';
 import {
   HiDocumentText,
@@ -130,6 +131,12 @@ const SidebarLayout = ({ children }) => {
       path: '/varakrupa-integration',
       icon: FaPlug,
       label: `Third Party (${VRAKRUPA_ALLOWED_CLIENT})`,
+      color: '#0d9488'
+    },
+    {
+      path: '/varakrupa-sold-to-user',
+      icon: FaShoppingBag,
+      label: 'Sold Item to User',
       color: '#0d9488'
     },
   ];

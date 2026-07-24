@@ -12,7 +12,7 @@
     "net8.0": []
   },
   "packageFolders": {
-    "C:\\Users\\loyal\\.nuget\\packages\\": {}
+    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget": {}
   },
   "project": {
     "version": "1.0.0",
@@ -20,7 +20,7 @@
       "projectUniqueName": "C:\\Users\\loyal\\Desktop\\loyal\\rfid-third-party\\RFIDApi\\rfid-bridge\\rfid-bridge.csproj",
       "projectName": "rfid-bridge",
       "projectPath": "C:\\Users\\loyal\\Desktop\\loyal\\rfid-third-party\\RFIDApi\\rfid-bridge\\rfid-bridge.csproj",
-      "packagesPath": "C:\\Users\\loyal\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget",
       "outputPath": "C:\\Users\\loyal\\Desktop\\loyal\\rfid-third-party\\RFIDApi\\rfid-bridge\\obj\\",
       "projectStyle": "PackageReference",
       "crossTargeting": true,

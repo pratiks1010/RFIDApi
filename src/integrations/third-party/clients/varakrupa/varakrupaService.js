@@ -18,9 +18,17 @@ const PASSWORD = (
   setupProxy.js:
   /api/Varakrupa/Inventory_stock
   -> https://varakrupa.jewelmarts.com/callback/Inventory_stock
+  /api/Varakrupa/SoldProducts
+  -> https://varakrupa.jewelmarts.com/callback/SoldProducts
+  /api/Varakrupa/UserData
+  -> https://varakrupa.jewelmarts.com/callback/UserData
 */
 // const VARAKRUPA_API_URL = '/api/Varakrupa/Inventory_stock';
 const VARAKRUPA_API_URL = 'https://varakrupa.jewelmarts.com/callback/Inventory_stock';
+const VARAKRUPA_SOLD_PRODUCTS_URL =
+  'https://varakrupa.jewelmarts.com/callback/SoldProducts';
+const VARAKRUPA_USER_DATA_URL =
+  'https://varakrupa.jewelmarts.com/callback/UserData';
 
 const buildAuthPayload = () => {
   const formData = new FormData();
@@ -123,6 +131,7 @@ export const normalizeVarakrupaRows = (payload) => {
   if (!payload || typeof payload !== 'object') return [];
 
   if (Array.isArray(payload.product_data)) return payload.product_data;
+  if (Array.isArray(payload.user_data)) return payload.user_data;
   if (Array.isArray(payload.data)) return payload.data;
   if (Array.isArray(payload.rows)) return payload.rows;
   if (Array.isArray(payload.items)) return payload.items;
@@ -156,19 +165,18 @@ export const isVarakrupaSuccessResponse = (payload) => {
   return (
     ack === '1' ||
     payload.success === true ||
-    Array.isArray(payload.product_data)
+    Array.isArray(payload.product_data) ||
+    Array.isArray(payload.user_data)
   );
 };
 
-const callVarakrupaInventoryStock = async () => {
-  const requestUrl = VARAKRUPA_API_URL;
-
+const callVarakrupaApi = async (requestUrl) => {
   try {
     if (isElectronRuntime()) {
       const response = await window.electronAPI.varakrupaInventoryStock({
         username: USERNAME,
         password: PASSWORD,
-        url: VARAKRUPA_API_URL,
+        url: requestUrl,
       });
 
       if (!response?.ok) {
@@ -213,6 +221,18 @@ const callVarakrupaInventoryStock = async () => {
   }
 };
 
+const callVarakrupaInventoryStock = async () => {
+  return callVarakrupaApi(VARAKRUPA_API_URL);
+};
+
+const callVarakrupaSoldProducts = async () => {
+  return callVarakrupaApi(VARAKRUPA_SOLD_PRODUCTS_URL);
+};
+
+const callVarakrupaUserData = async () => {
+  return callVarakrupaApi(VARAKRUPA_USER_DATA_URL);
+};
+
 export const getVarakrupaTestService = async () => {
   const data = await callVarakrupaInventoryStock();
 
@@ -227,7 +247,35 @@ export const getVarakrupaStockData = async () => {
   return callVarakrupaInventoryStock();
 };
 
+/** Sold products list — https://varakrupa.jewelmarts.com/callback/SoldProducts */
+export const getVarakrupaSoldProducts = async () => {
+  return callVarakrupaSoldProducts();
+};
+
+/** Users for dropdown — https://varakrupa.jewelmarts.com/callback/UserData */
+export const getVarakrupaUserData = async () => {
+  return callVarakrupaUserData();
+};
+
+export const normalizeVarakrupaUsers = (payload) => {
+  const rows = Array.isArray(payload?.user_data)
+    ? payload.user_data
+    : normalizeVarakrupaRows(payload);
+
+  return rows
+    .map((row) => ({
+      Id: String(row?.user_id ?? row?.Id ?? '').trim(),
+      full_name: String(row?.full_name ?? row?.Name ?? '').trim(),
+      user_id: String(row?.user_id ?? row?.Id ?? '').trim(),
+    }))
+    .filter((row) => row.Id);
+};
+
 export const getVarakrupaBaseUrl = () => VARAKRUPA_API_URL;
+
+export const getVarakrupaSoldProductsUrl = () => VARAKRUPA_SOLD_PRODUCTS_URL;
+
+export const getVarakrupaUserDataUrl = () => VARAKRUPA_USER_DATA_URL;
 
 export const getVarakrupaDirectBaseUrl = () => VARAKRUPA_API_URL;
 

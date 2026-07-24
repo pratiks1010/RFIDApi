@@ -18,6 +18,7 @@ import {
   getVarakrupaBaseUrl,
   hasVarakrupaCredentials,
   normalizeVarakrupaRows,
+  syncVarakrupaUsersToLoyalstring,
 } from './varakrupaService';
 
 const VRAKRUPA_ALLOWED_CLIENT = 'LS000563';
@@ -439,6 +440,17 @@ const VarakrupaIntegration = () => {
 
       const pushedRatio = (i + chunk.length) / total;
       setPushProgress(20 + Math.round(pushedRatio * 80));
+    }
+
+    // Background: after stock push, refresh LoyalString customers from Varakrupa UserData
+    // DeleteAllCustomers → GetAllCustomer → AddBulkCustomer (fallback AddCustomer). Not shown in UI.
+    try {
+      await syncVarakrupaUsersToLoyalstring(clientCode, token);
+    } catch (syncErr) {
+      console.warn(
+        '[Varakrupa] Background customer sync failed:',
+        syncErr?.response?.data || syncErr?.message || syncErr
+      );
     }
 
     setPushLoading(false);

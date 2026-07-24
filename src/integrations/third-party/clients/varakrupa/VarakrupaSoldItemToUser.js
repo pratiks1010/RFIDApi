@@ -12,13 +12,14 @@ import {
   FaList,
   FaArrowLeft,
 } from 'react-icons/fa';
-import { toSoniApiUrl } from '../../../../services/apiBaseConfig';
+import { toRrgoldApiUrl, toSoniApiUrl } from '../../../../services/apiBaseConfig';
 import {
-  getVarakrupaStockData,
   getVarakrupaSoldProducts,
   getVarakrupaUserData,
   normalizeVarakrupaRows,
   normalizeVarakrupaUsers,
+  postVarakrupaStockSell,
+  isVarakrupaSuccessResponse,
 } from './varakrupaService';
 
 const VRAKRUPA_ALLOWED_CLIENT = 'LS000563';
@@ -26,10 +27,23 @@ const TEAL = '#0d9488';
 const TEAL_DARK = '#0f766e';
 
 const UPDATE_SOLD_URL = toSoniApiUrl('/api/ProductMaster/UpdateRFIDTransactionDetails');
+const GET_ALL_DELIVERY_CHALLAN_URL = toRrgoldApiUrl(
+  '/api/Invoice/GetAllDeliveryChallan'
+);
 
 const PAGE_SIZE = 15;
 
-const STOCK_COLUMNS = [
+/** Active list = delivery challans (not Varakrupa Inventory_stock). */
+const CHALLAN_COLUMNS = [
+  { key: 'deliveryChallanNo', label: 'Delivery Challan No', width: 140 },
+  { key: 'userId', label: 'User ID', width: 100 },
+  { key: 'customerName', label: 'Customer Name', width: 160 },
+  { key: 'ItemCode', label: 'Item Code', width: 180 },
+  { key: 'RFIDCode', label: 'RFID Code', width: 160 },
+];
+
+/** Sold Item List still uses Varakrupa SoldProducts display columns. */
+const SOLD_COLUMNS = [
   { key: 'id', label: 'ID', width: 70 },
   { key: 'manufacturing_code', label: 'Item Code', width: 130 },
   { key: 'rfid', label: 'RFID Code', width: 120 },
@@ -64,7 +78,73 @@ const getCustomerDisplayName = (customer) => {
   return customer.Name || customer.CustomerName || customer.CompanyName || 'Unknown';
 };
 
-/** Map Varakrupa product_data rows (Inventory_stock / SoldProducts) to table columns. */
+const normalizeListResponse = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.result)) return data.result;
+  if (Array.isArray(data.Result)) return data.Result;
+  if (Array.isArray(data.items)) return data.items;
+  return [];
+};
+
+const formatChallanDate = (value) => {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  // Skip .NET default empty dates
+  if (d.getFullYear() <= 1) return '-';
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
+/** Map GetAllDeliveryChallan row → table display. LastName = Varakrupa user_id. */
+const mapDeliveryChallanToDisplay = (challan, index) => {
+  const details = Array.isArray(challan?.ChallanDetails)
+    ? challan.ChallanDetails
+    : [];
+
+  const detailItems = details.map((d, i) => ({
+    itemCode: String(d?.ItemCode ?? '').trim(),
+    rfid: String(d?.RFIDCode ?? d?.TIDNumber ?? '').trim(),
+    grossWt: String(d?.GrossWt ?? '').trim(),
+    netWt: String(d?.NetWt ?? '').trim(),
+    key: `detail-${challan?.Id ?? index}-${i}`,
+  }));
+
+  const itemCodes = detailItems.map((d) => d.itemCode).filter(Boolean);
+  const rfids = detailItems.map((d) => d.rfid).filter(Boolean);
+
+  const customer = challan?.Customer || {};
+  const customerName = String(
+    customer.FirstName || challan?.CustomerName || ''
+  ).trim();
+  // LastName stores Varakrupa user_id from UserData sync
+  const userId = String(customer.LastName ?? '').trim();
+
+  return {
+    ...challan,
+    deliveryChallanNo: String(challan?.ChallanNo ?? '').trim(),
+    InvoiceNo: String(challan?.InvoiceNo ?? '').trim(),
+    ItemCode: itemCodes.length ? itemCodes.join(', ') : '',
+    RFIDCode: rfids.length ? rfids.join(', ') : '',
+    customerName: customerName || '-',
+    userId: userId || '-',
+    Date: formatChallanDate(challan?.CreatedOn || challan?.LastUpdated),
+    _detailItems: detailItems,
+    _itemCodes: itemCodes,
+    _rfids: rfids,
+    _customerId: customer.Id ?? challan?.CustomerId ?? '',
+    _userId: userId,
+    _customerName: customerName,
+    _rowKey: `challan-${challan?.Id ?? index}-${challan?.ChallanNo ?? ''}`,
+  };
+};
+
+/** Map Varakrupa SoldProducts rows to table columns. */
 const mapVarakrupaProductRowToDisplay = (row, index, status = 'ApiActive') => {
   const itemCode = String(row?.manufacturing_code ?? '').trim();
   const rfid = String(row?.rfid ?? '').trim();
@@ -128,6 +208,8 @@ const VarakrupaSoldItemToUser = () => {
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [soldLoading, setSoldLoading] = useState(false);
   const [soldResult, setSoldResult] = useState(null);
+  const [syncingKey, setSyncingKey] = useState('');
+  const [listPopup, setListPopup] = useState(null); // { title, items }
 
   useEffect(() => {
     const code = getClientCodeFromAuth();
@@ -155,6 +237,8 @@ const VarakrupaSoldItemToUser = () => {
       'Content-Type': 'application/json',
     };
   }, []);
+
+  const tableColumns = listMode === 'sold' ? SOLD_COLUMNS : CHALLAN_COLUMNS;
 
   const fetchUsers = useCallback(async () => {
     if (!clientCode) return;
@@ -209,15 +293,16 @@ const VarakrupaSoldItemToUser = () => {
         return;
       }
 
-      // Active inventory → Varakrupa Inventory_stock API
-      const data = await getVarakrupaStockData();
-      const rows = normalizeVarakrupaRows(data).map((row, index) =>
-        mapVarakrupaProductRowToDisplay(row, index, 'ApiActive')
+      // Active list → LoyalString GetAllDeliveryChallan (not Inventory_stock)
+      const res = await axios.post(
+        GET_ALL_DELIVERY_CHALLAN_URL,
+        { ClientCode: clientCode },
+        { headers: authHeaders() }
       );
 
-      if (rows.length === 0 && data?.msg) {
-        setInventoryError(data.msg);
-      }
+      const rows = normalizeListResponse(res?.data).map((row, index) =>
+        mapDeliveryChallanToDisplay(row, index)
+      );
 
       setInventory(rows);
       setPage(1);
@@ -230,12 +315,12 @@ const VarakrupaSoldItemToUser = () => {
           err?.response?.data?.Message ||
           err?.response?.data?.msg ||
           err?.message ||
-          'Failed to load inventory.'
+          'Failed to load delivery challans.'
       );
     } finally {
       setInventoryLoading(false);
     }
-  }, [clientCode]);
+  }, [clientCode, authHeaders]);
 
   const openSoldItemList = async () => {
     setListMode('sold');
@@ -272,12 +357,12 @@ const VarakrupaSoldItemToUser = () => {
     const q = searchStock.trim().toLowerCase();
     if (!q) return inventory;
     return inventory.filter((row) =>
-      STOCK_COLUMNS.some((col) => {
+      tableColumns.some((col) => {
         const value = row[col.key];
         return value != null && String(value).toLowerCase().includes(q);
       })
     );
-  }, [inventory, searchStock]);
+  }, [inventory, searchStock, tableColumns]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStock.length / PAGE_SIZE));
 
@@ -332,21 +417,133 @@ const VarakrupaSoldItemToUser = () => {
     setSoldResult(null);
   };
 
-  const handleMarkSold = async () => {
+  const buildSoldPayloadFromChallan = (row, fallbackUser) => {
+    const itemCodes = row._itemCodes || [];
+    const rfids = row._rfids || [];
+    const userId =
+      row._userId ||
+      (fallbackUser ? String(fallbackUser.user_id || fallbackUser.Id || '') : '');
+    const userName =
+      row._customerName ||
+      (fallbackUser ? getCustomerDisplayName(fallbackUser) : '');
+
+    if (!itemCodes.length) return [];
+
+    return itemCodes.map((itemCode, i) => ({
+      client_code: clientCode,
+      itemcode: itemCode,
+      ...(rfids[i] ? { RFIDNumber: rfids[i] } : {}),
+      status: 'Sold',
+      CustomerId: String(userId || ''),
+      CustomerName: userName || '',
+    }));
+  };
+
+  const postSoldPayload = async (payload) => {
+    const response = await axios.post(UPDATE_SOLD_URL, payload, {
+      headers: authHeaders(),
+    });
+
+    const apiStatus = response.data?.status?.toLowerCase?.();
+    const isSuccess =
+      response.data &&
+      (apiStatus === 'success' ||
+        apiStatus === 'partial' ||
+        response.data.success !== false);
+
+    if (!isSuccess) {
+      throw new Error(
+        response.data?.message ||
+          response.data?.Message ||
+          'Failed to sync sold items.'
+      );
+    }
+
+    return (
+      response.data?.updatedItems ??
+      response.data?.UpdatedItems ??
+      payload.length
+    );
+  };
+
+  // Per-row Sync → Varakrupa StockSell
+  const handleSyncRow = async (row) => {
     setSoldResult(null);
 
-    if (!selectedUserId || !selectedUser) {
+    const rfids = (row._rfids || []).filter(Boolean);
+    const voucherId = String(row.deliveryChallanNo || '').trim();
+    const userId = String(row._userId || row.userId || '')
+      .trim()
+      .replace(/^-$/, '');
+
+    if (!rfids.length) {
       setSoldResult({
         success: false,
-        message: 'Please select a user before marking items as sold.',
+        message: `Challan ${voucherId || row.Id}: no RFID values to sync.`,
+      });
+      return;
+    }
+    if (!voucherId) {
+      setSoldResult({
+        success: false,
+        message: 'Delivery Challan No is missing for this row.',
+      });
+      return;
+    }
+    if (!userId) {
+      setSoldResult({
+        success: false,
+        message: 'User ID is missing for this row.',
       });
       return;
     }
 
+    setSyncingKey(row._rowKey);
+    try {
+      const data = await postVarakrupaStockSell({
+        rfidValue: rfids.join(','),
+        voucherId,
+        userId,
+      });
+
+      const ok = isVarakrupaSuccessResponse(data) || String(data?.ack) === '1';
+      setSoldResult({
+        success: ok,
+        message:
+          data?.msg ||
+          (ok
+            ? `Synced challan ${voucherId} (${rfids.length} RFID) for user ${userId}.`
+            : `StockSell failed for challan ${voucherId}.`),
+      });
+    } catch (err) {
+      setSoldResult({
+        success: false,
+        message:
+          err?.response?.data?.msg ||
+          err?.response?.data?.message ||
+          err?.response?.data?.Message ||
+          err?.message ||
+          'Sync failed.',
+      });
+    } finally {
+      setSyncingKey('');
+    }
+  };
+
+  const openListPopup = (title, detailItems) => {
+    setListPopup({
+      title,
+      items: Array.isArray(detailItems) ? detailItems : [],
+    });
+  };
+
+  const handleMarkSold = async () => {
+    setSoldResult(null);
+
     if (selectedKeys.size === 0) {
       setSoldResult({
         success: false,
-        message: 'Please select at least one inventory item to sell.',
+        message: 'Please select at least one delivery challan to sync.',
       });
       return;
     }
@@ -355,17 +552,14 @@ const VarakrupaSoldItemToUser = () => {
       selectedKeys.has(item._rowKey)
     );
 
-    const validItems = selectedItems
-      .map((item) => ({
-        itemCode: item._itemCode || item.manufacturing_code,
-        rfid: item._rfidValue || item.rfid,
-      }))
-      .filter(({ itemCode }) => itemCode);
+    const payload = selectedItems.flatMap((row) =>
+      buildSoldPayloadFromChallan(row, selectedUser)
+    );
 
-    if (validItems.length === 0) {
+    if (payload.length === 0) {
       setSoldResult({
         success: false,
-        message: 'Selected items do not have a valid item code.',
+        message: 'Selected challans do not have a valid item code.',
       });
       return;
     }
@@ -375,53 +569,19 @@ const VarakrupaSoldItemToUser = () => {
       return;
     }
 
-    const userName = getCustomerDisplayName(selectedUser);
     const confirmed = window.confirm(
-      `Sell ${validItems.length} item(s) to "${userName}"?\n\nThis will mark the selected inventory as Sold.`
+      `Sync ${selectedItems.length} challan(s) / ${payload.length} item(s) as Sold?`
     );
     if (!confirmed) return;
 
     setSoldLoading(true);
 
     try {
-      const payload = validItems.map(({ itemCode, rfid }) => ({
-        client_code: clientCode,
-        itemcode: itemCode,
-        ...(rfid ? { RFIDNumber: rfid } : {}),
-        status: 'Sold',
-        CustomerId: String(selectedUser.Id ?? ''),
-        CustomerName: userName,
-      }));
-
-      const response = await axios.post(UPDATE_SOLD_URL, payload, {
-        headers: authHeaders(),
-      });
-
-      const apiStatus = response.data?.status?.toLowerCase?.();
-      const isSuccess =
-        response.data &&
-        (apiStatus === 'success' ||
-          apiStatus === 'partial' ||
-          response.data.success !== false);
-
-      if (!isSuccess) {
-        throw new Error(
-          response.data?.message ||
-            response.data?.Message ||
-            'Failed to mark items as sold.'
-        );
-      }
-
-      const updatedCount =
-        response.data?.updatedItems ??
-        response.data?.UpdatedItems ??
-        validItems.length;
-
+      const updatedCount = await postSoldPayload(payload);
       setSoldResult({
         success: true,
-        message: `Successfully sold ${updatedCount} item(s) to ${userName}.`,
+        message: `Successfully synced ${updatedCount} item(s).`,
       });
-
       setSelectedKeys(new Set());
       await fetchInventory('active');
     } catch (err) {
@@ -563,7 +723,7 @@ const VarakrupaSoldItemToUser = () => {
                 margin: '4px 0 0 0',
               }}
             >
-              Select a user and sell inventory items - {VRAKRUPA_ALLOWED_CLIENT}
+              Select a user and sync delivery challan items - {VRAKRUPA_ALLOWED_CLIENT}
             </p>
           </div>
         </div>
@@ -599,7 +759,7 @@ const VarakrupaSoldItemToUser = () => {
             >
               {listMode === 'sold'
                 ? 'Sold Item List'
-                : 'Sold Item to User - Inventory'}
+                : 'Sold Item to User - Delivery Challans'}
             </h2>
 
             <div
@@ -811,22 +971,20 @@ const VarakrupaSoldItemToUser = () => {
                 <button
                   type="button"
                   onClick={handleMarkSold}
-                  disabled={
-                    soldLoading || selectedKeys.size === 0 || !selectedUserId
-                  }
+                  disabled={soldLoading || selectedKeys.size === 0}
                   style={{
                     padding: '8px 16px',
                     fontSize: 13,
                     fontWeight: 600,
                     color: '#fff',
                     background:
-                      soldLoading || selectedKeys.size === 0 || !selectedUserId
+                      soldLoading || selectedKeys.size === 0
                         ? '#94a3b8'
                         : TEAL_DARK,
                     border: 'none',
                     borderRadius: 6,
                     cursor:
-                      soldLoading || selectedKeys.size === 0 || !selectedUserId
+                      soldLoading || selectedKeys.size === 0
                         ? 'not-allowed'
                         : 'pointer',
                     display: 'flex',
@@ -965,10 +1123,11 @@ const VarakrupaSoldItemToUser = () => {
               }}
             />
             <span style={{ fontSize: 13, color: '#475569' }}>
-              {filteredStock.length} of {inventory.length} items
-              {listMode === 'sold' ? ' · Sold items' : ''}
+              {filteredStock.length} of {inventory.length}{' '}
+              {listMode === 'sold' ? 'items' : 'challans'}
+              {listMode === 'sold' ? ' · Sold items' : ' · Delivery challans'}
               {listMode === 'active' && selectedUser
-                ? ` · Selling to: ${getCustomerDisplayName(selectedUser)}`
+                ? ` · User filter: ${getCustomerDisplayName(selectedUser)}`
                 : ''}
               {listMode === 'active' && selectedKeys.size > 0
                 ? ` · ${selectedKeys.size} selected`
@@ -982,7 +1141,7 @@ const VarakrupaSoldItemToUser = () => {
                 width: '100%',
                 borderCollapse: 'collapse',
                 fontSize: 12,
-                minWidth: 1120,
+                minWidth: listMode === 'active' ? 980 : 1120,
               }}
             >
               <thead
@@ -1005,19 +1164,26 @@ const VarakrupaSoldItemToUser = () => {
                       />
                     </th>
                   )}
-                  <th style={{ ...thStyle, width: 50 }}>S.No</th>
-                  {STOCK_COLUMNS.map((col) => (
+                  {tableColumns.map((col) => (
                     <th key={col.key} style={{ ...thStyle, width: col.width }}>
                       {col.label}
                     </th>
                   ))}
+                  {listMode === 'active' && (
+                    <th style={{ ...thStyle, width: 120 }}>Date</th>
+                  )}
+                  {listMode === 'active' && (
+                    <th style={{ ...thStyle, width: 100 }}>Sync</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {inventoryLoading ? (
                   <tr>
                     <td
-                      colSpan={(listMode === 'active' ? 2 : 1) + STOCK_COLUMNS.length}
+                      colSpan={
+                        (listMode === 'active' ? 3 : 0) + tableColumns.length
+                      }
                       style={{
                         padding: 24,
                         textAlign: 'center',
@@ -1033,13 +1199,15 @@ const VarakrupaSoldItemToUser = () => {
                       />
                       {listMode === 'sold'
                         ? 'Loading sold items...'
-                        : 'Loading inventory...'}
+                        : 'Loading delivery challans...'}
                     </td>
                   </tr>
                 ) : pagedStock.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={(listMode === 'active' ? 2 : 1) + STOCK_COLUMNS.length}
+                      colSpan={
+                        (listMode === 'active' ? 3 : 0) + tableColumns.length
+                      }
                       style={{
                         padding: 24,
                         textAlign: 'center',
@@ -1050,14 +1218,17 @@ const VarakrupaSoldItemToUser = () => {
                       {inventory.length === 0
                         ? listMode === 'sold'
                           ? 'No sold items found.'
-                          : 'No inventory items found.'
+                          : 'No delivery challans found.'
                         : 'No rows match your search.'}
                     </td>
                   </tr>
                 ) : (
                   pagedStock.map((row, idx) => {
                     const checked = selectedKeys.has(row._rowKey);
-                    const srNo = (page - 1) * PAGE_SIZE + idx + 1;
+                    const isSyncing = syncingKey === row._rowKey;
+                    const detailItems = row._detailItems || [];
+                    const itemCount = detailItems.filter((d) => d.itemCode).length;
+                    const rfidCount = detailItems.filter((d) => d.rfid).length;
                     return (
                       <tr
                         key={row._rowKey}
@@ -1090,8 +1261,7 @@ const VarakrupaSoldItemToUser = () => {
                             />
                           </td>
                         )}
-                        <td style={{ ...tdStyle, color: '#64748b' }}>{srNo}</td>
-                        {STOCK_COLUMNS.map((col) => {
+                        {tableColumns.map((col) => {
                           const value = row[col.key];
                           if (col.key === 'image_name') {
                             return (
@@ -1145,6 +1315,85 @@ const VarakrupaSoldItemToUser = () => {
                               </td>
                             );
                           }
+                          if (col.key === 'ItemCode') {
+                            const firstCode =
+                              detailItems.find((d) => d.itemCode)?.itemCode ||
+                              '';
+                            return (
+                              <td
+                                key={col.key}
+                                style={{ ...tdStyle, maxWidth: col.width }}
+                                onClick={(e) => e.stopPropagation()}
+                                title={firstCode || ''}
+                              >
+                                {itemCount > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openListPopup('Item Details', detailItems)
+                                    }
+                                    style={{
+                                      border: 'none',
+                                      background: 'transparent',
+                                      color: TEAL_DARK,
+                                      fontWeight: 700,
+                                      fontSize: 12,
+                                      cursor: 'pointer',
+                                      padding: 0,
+                                      textDecoration: 'underline',
+                                      maxWidth: '100%',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {firstCode}
+                                  </button>
+                                ) : (
+                                  '-'
+                                )}
+                              </td>
+                            );
+                          }
+                          if (col.key === 'RFIDCode') {
+                            const firstRfid =
+                              detailItems.find((d) => d.rfid)?.rfid || '';
+                            return (
+                              <td
+                                key={col.key}
+                                style={{ ...tdStyle, maxWidth: col.width }}
+                                onClick={(e) => e.stopPropagation()}
+                                title={firstRfid || ''}
+                              >
+                                {rfidCount > 0 || itemCount > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openListPopup('Item Details', detailItems)
+                                    }
+                                    style={{
+                                      border: 'none',
+                                      background: 'transparent',
+                                      color: TEAL_DARK,
+                                      fontWeight: 700,
+                                      fontSize: 12,
+                                      cursor: 'pointer',
+                                      padding: 0,
+                                      textDecoration: 'underline',
+                                      maxWidth: '100%',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {firstRfid || '-'}
+                                  </button>
+                                ) : (
+                                  '-'
+                                )}
+                              </td>
+                            );
+                          }
                           return (
                             <td
                               key={col.key}
@@ -1160,6 +1409,55 @@ const VarakrupaSoldItemToUser = () => {
                             </td>
                           );
                         })}
+                        {listMode === 'active' && (
+                          <td
+                            style={{ ...tdStyle, color: '#475569' }}
+                            title={row.Date || ''}
+                          >
+                            {row.Date || '-'}
+                          </td>
+                        )}
+                        {listMode === 'active' && (
+                          <td
+                            style={tdStyle}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleSyncRow(row)}
+                              disabled={isSyncing || inventoryLoading}
+                              title="Sync this challan"
+                              style={{
+                                padding: '5px 10px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                color: '#fff',
+                                background: isSyncing ? '#94a3b8' : '#6366f1',
+                                border: 'none',
+                                borderRadius: 5,
+                                cursor:
+                                  isSyncing || inventoryLoading
+                                    ? 'not-allowed'
+                                    : 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              {isSyncing ? (
+                                <FaSpinner
+                                  size={11}
+                                  style={{
+                                    animation: 'soldSpin 1s linear infinite',
+                                  }}
+                                />
+                              ) : (
+                                <FaSync size={11} />
+                              )}
+                              Sync
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })
@@ -1167,6 +1465,130 @@ const VarakrupaSoldItemToUser = () => {
               </tbody>
             </table>
           </div>
+
+          {listPopup && (
+            <div
+              onClick={() => setListPopup(null)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(15, 23, 42, 0.45)',
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 16,
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: '100%',
+                  maxWidth: 640,
+                  maxHeight: '75vh',
+                  background: '#fff',
+                  borderRadius: 12,
+                  border: '1px solid #dfe7f1',
+                  boxShadow: '0 20px 40px rgba(15, 23, 42, 0.2)',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderBottom: '1px solid #dfe7f1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: '#f8fafc',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 15,
+                        fontWeight: 700,
+                        color: '#0f172a',
+                      }}
+                    >
+                      {listPopup.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                      {listPopup.items.length} item(s)
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setListPopup(null)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      fontSize: 22,
+                      lineHeight: 1,
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      padding: '0 4px',
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div style={{ padding: 12, overflowY: 'auto' }}>
+                  {listPopup.items.length === 0 ? (
+                    <div
+                      style={{
+                        padding: 16,
+                        textAlign: 'center',
+                        color: '#94a3b8',
+                        fontSize: 13,
+                      }}
+                    >
+                      No items found.
+                    </div>
+                  ) : (
+                    <table
+                      style={{
+                        width: '100%',
+                        borderCollapse: 'collapse',
+                        fontSize: 12,
+                      }}
+                    >
+                      <thead>
+                        <tr style={{ background: '#f1f5f9' }}>
+                          <th style={{ ...thStyle, width: 40 }}>#</th>
+                          <th style={thStyle}>Item Code</th>
+                          <th style={thStyle}>RFID</th>
+                          <th style={thStyle}>Gross Wt</th>
+                          <th style={thStyle}>Net Wt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {listPopup.items.map((item, i) => (
+                          <tr
+                            key={item.key || `${item.itemCode}-${i}`}
+                            style={{
+                              background: i % 2 === 0 ? '#fff' : '#f8fafc',
+                              borderBottom: '1px solid #e2e8f0',
+                            }}
+                          >
+                            <td style={{ ...tdStyle, color: '#64748b' }}>
+                              {i + 1}
+                            </td>
+                            <td style={tdStyle}>{item.itemCode || '-'}</td>
+                            <td style={tdStyle}>{item.rfid || '-'}</td>
+                            <td style={tdStyle}>{item.grossWt || '-'}</td>
+                            <td style={tdStyle}>{item.netWt || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {filteredStock.length > 0 && (
             <div

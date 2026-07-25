@@ -1,23 +1,13 @@
 {
   "version": 2,
-  "dgSpecHash": "+5MLIwcJ5KU=",
+  "dgSpecHash": "3g+R8r0dYCU=",
   "success": true,
-  "projectFilePath": "C:\\Users\\loyal\\Desktop\\loyal\\rfid-third-party\\RFIDApi\\rfid-bridge\\rfid-bridge.csproj",
+  "projectFilePath": "C:\\Users\\sagar\\OneDrive\\Desktop\\RFID API Dashboard\\RFID API React (2)\\RFID API React\\rfid-bridge\\rfid-bridge.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.netcore.app.ref\\8.0.29\\microsoft.netcore.app.ref.8.0.29.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.netcore.app.runtime.win-x64\\8.0.29\\microsoft.netcore.app.runtime.win-x64.8.0.29.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.windowsdesktop.app.ref\\8.0.29\\microsoft.windowsdesktop.app.ref.8.0.29.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.windowsdesktop.app.runtime.win-x64\\8.0.29\\microsoft.windowsdesktop.app.runtime.win-x64.8.0.29.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.aspnetcore.app.ref\\8.0.29\\microsoft.aspnetcore.app.ref.8.0.29.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.aspnetcore.app.runtime.win-x64\\8.0.29\\microsoft.aspnetcore.app.runtime.win-x64.8.0.29.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.netcore.app.host.win-x64\\8.0.29\\microsoft.netcore.app.host.win-x64.8.0.29.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.netcore.app.ref\\6.0.36\\microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.netcore.app.runtime.win-x64\\6.0.36\\microsoft.netcore.app.runtime.win-x64.6.0.36.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.windowsdesktop.app.ref\\6.0.36\\microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.windowsdesktop.app.runtime.win-x64\\6.0.36\\microsoft.windowsdesktop.app.runtime.win-x64.6.0.36.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.aspnetcore.app.ref\\6.0.36\\microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.aspnetcore.app.runtime.win-x64\\6.0.36\\microsoft.aspnetcore.app.runtime.win-x64.6.0.36.nupkg.sha512",
-    "C:\\Users\\loyal\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d6e236d841336a21c2a7f1e9809eedfa\\nuget\\microsoft.netcore.app.host.win-x64\\6.0.36\\microsoft.netcore.app.host.win-x64.6.0.36.nupkg.sha512"
+    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.netcore.app.ref\\6.0.36\\microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\6.0.36\\microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\6.0.36\\microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\6.0.36\\microsoft.netcore.app.host.win-x64.6.0.36.nupkg.sha512"
   ],
   "logs": []
 }

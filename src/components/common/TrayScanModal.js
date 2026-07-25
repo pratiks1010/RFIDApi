@@ -47,6 +47,8 @@ const getClientCode = () => {
   }
 };
 
+const normalizeHex = (value) => String(value || '').trim().toUpperCase();
+
 const extractRfidMapping = (raw) => {
   const normalizeRows = (value) => {
     if (Array.isArray(value)) return value;
@@ -81,7 +83,7 @@ const extractRfidMapping = (raw) => {
 
   const map = {};
   rows.forEach((item) => {
-    const epc = String(
+    const epc = normalizeHex(
       item?.EPCValue
       || item?.EpcValue
       || item?.epcValue
@@ -92,7 +94,7 @@ const extractRfidMapping = (raw) => {
       || item?.tidNumber
       || item?.RequestedIdentifier
       || ''
-    ).trim().toUpperCase();
+    );
     const rfid = String(
       item?.RFIDCode
       || item?.RfidCode
@@ -113,6 +115,44 @@ const extractRfidMapping = (raw) => {
     }
   });
   return map;
+};
+
+/** Same resolve path as RFID Tray Connect: try EPC then TID. */
+const resolveRfidForTag = (tag, map = {}) => {
+  const epc = normalizeHex(tag?.epc);
+  const tid = normalizeHex(tag?.tid);
+  return String(map[epc] || map[tid] || '').trim();
+};
+
+/** Keep EPC + TID (Tray Connect style). Prefer EPC as unique key so lookup works. */
+const upsertTrayTag = (prev, tag) => {
+  const epc = normalizeHex(
+    typeof tag === 'string' ? tag : (tag?.epc || tag?.EPC || tag?.epcValue || tag?.EPCValue)
+  );
+  const tid = normalizeHex(
+    typeof tag === 'string' ? '' : (tag?.tid || tag?.TID || tag?.tidNumber || tag?.TIDNumber)
+  );
+  const key = epc || tid || normalizeHex(getTrayTagIdentity(tag));
+  if (!key) return prev;
+
+  const idx = prev.findIndex(
+    (row) =>
+      row.key === key
+      || (epc && row.epc === epc)
+      || (tid && row.tid === tid)
+  );
+  if (idx >= 0) {
+    const next = [...prev];
+    const current = next[idx];
+    next[idx] = {
+      ...current,
+      key: current.key || key,
+      epc: epc || current.epc || '',
+      tid: tid || current.tid || '',
+    };
+    return next;
+  }
+  return [...prev, { key, epc: epc || '', tid: tid || '' }];
 };
 
 const TrayScanModal = ({
@@ -155,14 +195,23 @@ const TrayScanModal = ({
   const pageTags = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return tags.slice(start, start + pageSize);
-  }, [tags, currentPage]);
+  }, [tags, currentPage, pageSize]);
   const pageRows = useMemo(() => (
-    pageTags.map((epc, idx) => ({
-      srNo: (currentPage - 1) * pageSize + idx + 1,
-      epc,
-      rfidCode: rfidCodeMap[epc] || '-'
-    }))
-  ), [pageTags, currentPage, rfidCodeMap]);
+    pageTags.map((tag, idx) => {
+      const epc = normalizeHex(tag?.epc) || normalizeHex(tag?.tid) || (typeof tag === 'string' ? normalizeHex(tag) : '');
+      const tid = normalizeHex(tag?.tid);
+      const rfid = resolveRfidForTag(
+        typeof tag === 'string' ? { epc: tag, tid: '' } : tag,
+        rfidCodeMap
+      );
+      return {
+        srNo: (currentPage - 1) * pageSize + idx + 1,
+        epc,
+        tid,
+        rfidCode: rfid || '-',
+      };
+    })
+  ), [pageTags, currentPage, pageSize, rfidCodeMap]);
   const compactDualTables = useMemo(() => {
     if (!compactLayout) return { leftRows: [], rightRows: [] };
     const half = Math.ceil(pageSize / 2);
@@ -173,6 +222,18 @@ const TrayScanModal = ({
     return { leftRows, rightRows };
   }, [compactLayout, pageRows, pageSize]);
 
+  const resolvedRfidCount = useMemo(
+    () =>
+      tags.reduce((count, tag) => {
+        const rfid = resolveRfidForTag(
+          typeof tag === 'string' ? { epc: tag, tid: '' } : tag,
+          rfidCodeMap
+        );
+        return rfid ? count + 1 : count;
+      }, 0),
+    [tags, rfidCodeMap]
+  );
+
   useEffect(() => {
     tagsRef.current = tags;
   }, [tags]);
@@ -180,10 +241,8 @@ const TrayScanModal = ({
   useEffect(() => {
     if (!open || !hasBridge) return undefined;
 
-    const ingestTagIdentity = (tag) => {
-      const identity = getTrayTagIdentity(tag);
-      if (!identity) return;
-      setTags((prev) => (prev.includes(identity) ? prev : [...prev, identity]));
+    const ingestTag = (tag) => {
+      setTags((prev) => upsertTrayTag(prev, tag));
     };
 
     const pushBridgeLine = (line) => {
@@ -194,7 +253,7 @@ const TrayScanModal = ({
     };
 
     const unsubTag = window.electronAPI.onRfidBridgeTag((tag) => {
-      ingestTagIdentity(tag);
+      ingestTag(tag);
     });
     const unsubLine = window.electronAPI.onRfidBridgeLine((line) => {
       const raw = String(line || '');
@@ -234,7 +293,7 @@ const TrayScanModal = ({
         setConnectedDeviceCount(Math.max(deviceRowsRef.current.length, sdkConnectedCountRef.current));
       }
       const parsedTag = parseTrayTagLine(raw);
-      if (parsedTag) ingestTagIdentity(parsedTag);
+      if (parsedTag) ingestTag(parsedTag);
     });
     return () => {
       unsubTag?.();
@@ -270,55 +329,60 @@ const TrayScanModal = ({
     }
   }, [open, hasBridge]);
 
-  const fetchRfidCodesByEpc = async (epcValues) => {
-    const rawTags = Array.from(new Set(
-      (epcValues || []).map((item) => String(item || '').trim().toUpperCase()).filter(Boolean)
-    ));
-    const normalized = expandTrayScanLookupKeys(rawTags);
-    if (!normalized.length) {
-      setRfidCodeMap({});
-      setResolveError('');
-      return;
-    }
-
-    setResolvingCodes(true);
-    setResolveError('');
-    try {
-      const response = await axios.post(
-        RFID_CODE_LOOKUP_URL,
-        {
-          ClientCode: getClientCode() || undefined,
-          EPCValues: normalized
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 45000
-        }
-      );
-      const mapping = extractRfidMapping(response?.data);
-      setRfidCodeMap(propagateRfidMappingToRawEpcs(rawTags, mapping));
-    } catch (error) {
-      setResolveError(
-        error?.response?.data?.message
-        || error?.response?.data?.error
-        || error?.message
-        || 'Failed to resolve RFID codes.'
-      );
-    } finally {
-      setResolvingCodes(false);
-    }
-  };
-
   useEffect(() => {
     if (!open) return undefined;
-    const timer = setTimeout(() => {
-      fetchRfidCodesByEpc(tags);
+
+    const rawLookupKeys = Array.from(new Set(
+      (tags || []).flatMap((tag) => {
+        if (typeof tag === 'string') {
+          const epc = normalizeHex(tag);
+          return epc ? [epc] : [];
+        }
+        return [normalizeHex(tag?.epc), normalizeHex(tag?.tid)].filter(Boolean);
+      })
+    ));
+    const lookupKeys = expandTrayScanLookupKeys(rawLookupKeys);
+    const missingKeys = lookupKeys.filter((key) => !rfidCodeMap[key]);
+    if (!missingKeys.length) return undefined;
+
+    const timer = setTimeout(async () => {
+      setResolvingCodes(true);
+      setResolveError('');
+      try {
+        const response = await axios.post(
+          RFID_CODE_LOOKUP_URL,
+          {
+            ClientCode: getClientCode() || undefined,
+            EPCValues: missingKeys,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 45000,
+          }
+        );
+        const mapping = extractRfidMapping(response?.data);
+        // Merge + propagate onto both EPC and TID (same as RFID Tray Connect).
+        setRfidCodeMap((prev) => ({
+          ...prev,
+          ...propagateRfidMappingToRawEpcs(rawLookupKeys, { ...prev, ...mapping }),
+        }));
+      } catch (error) {
+        setResolveError(
+          error?.response?.data?.message
+          || error?.response?.data?.error
+          || error?.message
+          || 'Failed to resolve RFID codes.'
+        );
+      } finally {
+        setResolvingCodes(false);
+      }
     }, 180);
+
     return () => clearTimeout(timer);
-  }, [open, tags]);
+  }, [open, tags, rfidCodeMap]);
 
   const run = async (command) => {
     if (!hasBridge) throw new Error('RFID tray bridge works only in Electron app.');
@@ -330,10 +394,17 @@ const TrayScanModal = ({
     setFetchMessage('');
     setAutoLoading(true);
     try {
-      const scanRows = tags.map((epc) => ({
-        epc: String(epc || '').trim().toUpperCase(),
-        rfidCode: String(rfidCodeMap[epc] || '').trim(),
-      }));
+      const scanRows = tags.map((tag) => {
+        const epc = typeof tag === 'string'
+          ? normalizeHex(tag)
+          : (normalizeHex(tag?.epc) || normalizeHex(tag?.tid));
+        const tid = typeof tag === 'string' ? '' : normalizeHex(tag?.tid);
+        const rfidCode = resolveRfidForTag(
+          typeof tag === 'string' ? { epc: tag, tid: '' } : tag,
+          rfidCodeMap
+        );
+        return { epc, tid, rfidCode };
+      });
       const result = await onFetchData(scanRows);
       const normalizedResult = typeof result === 'object' && result !== null
         ? result
@@ -639,7 +710,17 @@ const TrayScanModal = ({
                       <FaStop aria-hidden />
                       Stop reader
                     </button>
-                    <button type="button" className="btn d-flex align-items-center gap-2" onClick={() => { setTags([]); setCurrentPage(1); }} style={{ ...btnBase, background: '#ffffff', color: '#334155', border: '1px solid #cbd5e1' }}>
+                    <button
+                      type="button"
+                      className="btn d-flex align-items-center gap-2"
+                      onClick={() => {
+                        setTags([]);
+                        setRfidCodeMap({});
+                        setResolveError('');
+                        setCurrentPage(1);
+                      }}
+                      style={{ ...btnBase, background: '#ffffff', color: '#334155', border: '1px solid #cbd5e1' }}
+                    >
                       Clear tag list
                     </button>
                   </div>
@@ -657,7 +738,10 @@ const TrayScanModal = ({
                   Readers: <strong>{connectedDeviceCount}</strong> active
                 </span>
               ) : null}              <span style={{ color: resolvingCodes ? ACCENT_TEAL : '#64748b' }}>
-                Item codes: {resolvingCodes ? 'looking up…' : 'ready'}
+                RFID codes:{' '}
+                {resolvingCodes
+                  ? 'looking up…'
+                  : `${resolvedRfidCount}/${tags.length || 0} resolved`}
               </span>
             </div>
             {!!resolveError && (

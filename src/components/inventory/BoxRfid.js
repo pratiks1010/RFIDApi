@@ -23,8 +23,6 @@ import {
   getDetailsByRfidCodes,
 } from '../../services/boxRfidApi';
 import { OFFLINE_API_BASES_EVENT } from '../../services/offlineApiBaseStorage';
-import { normalizeTrayScanIdentities } from '../../services/trayBridgeConnect';
-
 const PAGE_SIZE_OPTIONS = [15, 20, 25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -75,14 +73,12 @@ const pick = (row, ...keys) => {
   return '';
 };
 
+/** Only resolved RFID codes (SJ…) — never raw EPC hex. */
 const collectTrayRfidCodes = (scannedTags = []) => {
   const codes = new Set();
-  normalizeTrayScanIdentities(scannedTags).forEach((value) => {
-    if (value) codes.add(value);
-  });
   (Array.isArray(scannedTags) ? scannedTags : []).forEach((item) => {
     if (typeof item !== 'object' || !item) return;
-    const rfid = String(item.rfidCode || item.RFIDCode || '').trim();
+    const rfid = String(item.rfidCode || item.RFIDCode || item.RfidCode || '').trim();
     if (rfid && rfid !== '-') codes.add(rfid);
   });
   return Array.from(codes);
@@ -410,10 +406,10 @@ const BoxRfid = () => {
     if (!rfidCodes.length) {
       addNotification({
         type: 'warning',
-        title: 'No tags scanned',
-        message: 'Scan RFID tags on the tray first, then load stock.',
+        title: 'RFID codes not ready',
+        message: 'Wait until RFID codes resolve in the scan list (SJ…), then load stock.',
       });
-      return { success: false, message: 'No tags scanned.' };
+      return { success: false, message: 'RFID codes not resolved yet.' };
     }
     if (!clientCode) {
       addNotification({

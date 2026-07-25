@@ -103,9 +103,24 @@ export const computeLS000533EpcHexCandidates = (itemCode, variant = 'standard') 
   return Array.from(keys);
 };
 
-/** Build tray/stock lookup keys from scanned EPC values (hex variants + decoded item codes). */
+/** Build tray/stock lookup keys from scanned tags.
+ * Prefer resolved RFID codes from TrayScanModal (SJ…); do not treat EPC hex as RFID.
+ */
 export const buildTrayStockLookupPayload = (scannedTags = []) => {
-  const rawIdentities = (Array.isArray(scannedTags) ? scannedTags : [])
+  const list = Array.isArray(scannedTags) ? scannedTags : [];
+
+  const rfidCodes = Array.from(
+    new Set(
+      list
+        .map((item) => {
+          if (typeof item === 'string') return '';
+          return String(item?.rfidCode || item?.RFIDCode || item?.RfidCode || '').trim();
+        })
+        .filter((code) => code && code !== '-')
+    )
+  );
+
+  const rawIdentities = list
     .map((item) => {
       if (typeof item === 'string') return String(item || '').trim().toUpperCase();
       return String(item?.epc || item?.EPC || item?.tid || item?.TID || '').trim().toUpperCase();
@@ -121,5 +136,7 @@ export const buildTrayStockLookupPayload = (scannedTags = []) => {
     rawIdentities: Array.from(new Set(rawIdentities)),
     epcKeys,
     decodedCodes,
+    /** Resolved item RFID codes from EPC→RFID lookup (use these for stock APIs). */
+    rfidCodes,
   };
 };

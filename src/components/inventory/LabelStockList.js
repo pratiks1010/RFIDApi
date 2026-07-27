@@ -1110,14 +1110,15 @@ const LabelStockList = () => {
   };
 
   const handleTrayFetchData = async (scannedTags = []) => {
-    const { epcKeys, decodedCodes } = buildTrayStockLookupPayload(scannedTags);
-    if (!epcKeys.length && !decodedCodes.length) {
+    const { rfidCodes } = buildTrayStockLookupPayload(scannedTags);
+    // Send resolved RFID (SJ…) only — never raw EPC hex in RFID / stock lookup fields.
+    if (!rfidCodes.length) {
       addNotification({
         type: 'warning',
-        title: 'No EPC scanned',
-        description: 'Scan EPC tags first, then load data.',
+        title: 'RFID codes not ready',
+        description: 'Wait until RFID codes resolve in the scan list (not EPC), then load stock.',
       });
-      return;
+      return { success: false, message: 'RFID codes not resolved yet.' };
     }
 
     const clientCode = resolveClientCodeForTray(userInfo);
@@ -1127,7 +1128,7 @@ const LabelStockList = () => {
         title: 'Client code missing',
         description: 'Login session is missing client code. Please login again.',
       });
-      return;
+      return { success: false, message: 'Client code missing.' };
     }
 
     setTrayFetchLoading(true);
@@ -1137,15 +1138,16 @@ const LabelStockList = () => {
         TRAY_LABELLED_STOCK_BY_TID_URL,
         {
           ClientCode: clientCode,
-          TIDNumbers: epcKeys,
-          TidNumbers: epcKeys,
-          TIDValues: epcKeys,
-          TidValues: epcKeys,
-          EPCValues: epcKeys,
-          EpcValues: epcKeys,
-          RFIDCodes: decodedCodes,
-          RfidCodes: decodedCodes,
-          ItemCodes: decodedCodes,
+          RFIDCodes: rfidCodes,
+          RfidCodes: rfidCodes,
+          ItemCodes: [],
+          // Do not send EPC hex — stock must match by resolved RFID codes.
+          TIDNumbers: [],
+          TidNumbers: [],
+          TIDValues: [],
+          TidValues: [],
+          EPCValues: [],
+          EpcValues: [],
         },
         {
           headers: {
@@ -1161,9 +1163,9 @@ const LabelStockList = () => {
         addNotification({
           type: 'warning',
           title: 'No products found',
-          description: `No products returned for ${epcKeys.length} scanned tag variant(s).`,
+          description: `No products returned for ${rfidCodes.length} RFID code(s): ${rfidCodes.join(', ')}.`,
         });
-        return;
+        return { success: false, message: 'No products found.' };
       }
 
       const mappedRows = products.map((item, index) => ({
@@ -1184,8 +1186,9 @@ const LabelStockList = () => {
       addNotification({
         type: 'success',
         title: 'Tray scan loaded',
-        description: `Loaded ${mappedRows.length} item(s) from scanned tags.`,
+        description: `Loaded ${mappedRows.length} item(s) for RFID: ${rfidCodes.join(', ')}.`,
       });
+      return { success: true };
     } catch (error) {
       addNotification({
         type: 'error',
@@ -1196,6 +1199,7 @@ const LabelStockList = () => {
           error?.message ||
           'Failed to fetch data for scanned tray tags.',
       });
+      return { success: false, message: error?.message || 'Tray fetch failed.' };
     } finally {
       setLoading(false);
       setTrayFetchLoading(false);

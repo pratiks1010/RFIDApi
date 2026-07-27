@@ -1,7 +1,19 @@
 import axios from 'axios';
+import { toRrgoldApiUrl } from '../services/apiBaseConfig';
 
-export const STOCK_VERIFICATION_SESSION_URL =
-  'https://rrgold.loyalstring.co.in/api/ProductMaster/GetAllStockVerificationBySession';
+export const STOCK_VERIFICATION_SESSION_URL = toRrgoldApiUrl(
+  '/api/ProductMaster/GetAllStockVerificationBySession'
+);
+
+/** Batch save — one ScanBatchId per tray verification session. */
+export const ADD_STOCK_VERIFICATION_BY_SESSION_URL = toRrgoldApiUrl(
+  '/api/ProductMaster/AddStockVerificationBySession'
+);
+
+/** Day-wise add/update (no ScanBatchId). Prefer batch API for tray sessions. */
+export const ADD_STOCK_VERIFICATION_URL = toRrgoldApiUrl(
+  '/api/ProductMaster/AddStockVerification'
+);
 
 const pickField = (obj, keys, fallback = undefined) => {
   if (!obj) return fallback;
@@ -165,3 +177,119 @@ export const reconcileSessionDetails = (session, matchedList, unmatchedList) => 
 
 /** Badge / footer count for a filtered list — uses qty sum to match summary. */
 export const getSessionListDisplayQty = (items = []) => sumSessionListQty(items);
+
+const numOr = (value, fallback = 0) => {
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const idOr = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+/**
+ * Build AddStockVerificationBySession items[] from tray Match / UnMatch rows.
+ * status must be "Match" | "UnMatch". itemCode is required.
+ */
+export const buildStockVerificationSessionItems = ({
+  matchedItems = [],
+  unmatchedCodes = [],
+  scanTagByRfid = {},
+  branchId,
+  counterId,
+} = {}) => {
+  const items = [];
+
+  (matchedItems || []).forEach((row) => {
+    const itemCode = String(row?.ItemCode || row?.itemCode || '').trim();
+    const rfidCode = String(row?.RFIDCode || row?.rfidCode || '').trim();
+    if (!itemCode && !rfidCode) return;
+    const tag = scanTagByRfid[rfidCode.toUpperCase()] || {};
+    items.push({
+      itemCode: itemCode || rfidCode,
+      status: 'Match',
+      quantity: numOr(row?.Qty ?? row?.quantity ?? row?.Quantity, 1) || 1,
+      grossWeight: numOr(row?.GrossWt ?? row?.grossWeight ?? row?.GrossWeight),
+      netWeight: numOr(row?.NetWt ?? row?.netWeight ?? row?.NetWeight),
+      tidNumber: String(
+        row?.TIDNumber || row?.TidNumber || row?.HexCode || tag?.tid || tag?.epc || ''
+      ).trim(),
+      rfidCode,
+      boxName: String(row?.BoxName || row?.boxName || '').trim(),
+      counterId: idOr(row?.CounterId ?? row?.counterId ?? counterId),
+      categoryId: idOr(row?.CategoryId ?? row?.categoryId),
+      productId: idOr(row?.ProductId ?? row?.productId),
+      designId: idOr(row?.DesignId ?? row?.designId),
+      purityId: idOr(row?.PurityId ?? row?.purityId),
+      companyId: idOr(row?.CompanyId ?? row?.companyId),
+      branchId: idOr(row?.BranchId ?? row?.branchId ?? branchId),
+      counterName: String(row?.CounterName || row?.counterName || '').trim(),
+      categoryName: String(row?.CategoryName || row?.categoryName || '').trim(),
+      productName: String(row?.ProductName || row?.productName || '').trim(),
+      designName: String(row?.DesignName || row?.designName || '').trim(),
+      purityName: String(row?.PurityName || row?.purityName || '').trim(),
+      companyName: String(row?.CompanyName || row?.companyName || '').trim(),
+      branchName: String(row?.BranchName || row?.branchName || '').trim(),
+    });
+  });
+
+  (unmatchedCodes || []).forEach((code) => {
+    const rfidCode = String(code || '').trim();
+    if (!rfidCode) return;
+    const tag = scanTagByRfid[rfidCode.toUpperCase()] || {};
+    items.push({
+      itemCode: rfidCode,
+      status: 'UnMatch',
+      quantity: 1,
+      grossWeight: 0,
+      netWeight: 0,
+      tidNumber: String(tag?.tid || tag?.epc || '').trim(),
+      rfidCode,
+      boxName: '',
+      branchId: idOr(branchId),
+      counterId: idOr(counterId),
+    });
+  });
+
+  return items;
+};
+
+export const normalizeAddStockVerificationBySessionResponse = (data = {}) => {
+  const scanBatchId = data.scanBatchId ?? data.ScanBatchId ?? null;
+  return {
+    message: String(data.message ?? data.Message ?? '').trim(),
+    scanBatchId,
+    ScanBatchId: scanBatchId,
+    match: data.match ?? data.Match ?? [],
+    unmatch: data.unmatch ?? data.Unmatch ?? [],
+    totals: data.totals ?? data.Totals ?? {},
+    raw: data,
+  };
+};
+
+/** POST /api/ProductMaster/AddStockVerificationBySession */
+export const addStockVerificationBySession = async (payload, headers = {}) => {
+  const { data } = await axios.post(ADD_STOCK_VERIFICATION_BY_SESSION_URL, payload, {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+    timeout: 90000,
+  });
+  return normalizeAddStockVerificationBySessionResponse(data);
+};
+
+/** POST /api/ProductMaster/AddStockVerification (day-wise, no batch). */
+export const addStockVerification = async (payload, headers = {}) => {
+  const { data } = await axios.post(ADD_STOCK_VERIFICATION_URL, payload, {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+    timeout: 90000,
+  });
+  return data;
+};

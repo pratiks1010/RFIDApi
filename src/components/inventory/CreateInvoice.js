@@ -526,11 +526,12 @@ const CreateInvoice = () => {
       return;
     }
 
-    const { epcKeys, decodedCodes } = buildTrayStockLookupPayload(scannedTags);
-    if (!epcKeys.length && !decodedCodes.length) {
+    const { rfidCodes } = buildTrayStockLookupPayload(scannedTags);
+    // Send resolved RFID (SJ…) only — never raw EPC hex.
+    if (!rfidCodes.length) {
       addNotification({
-        title: 'No valid EPC values',
-        description: 'Scanned EPC list is empty after normalization.',
+        title: 'RFID codes not ready',
+        description: 'Wait until RFID codes resolve in the scan list (not EPC), then load stock.',
         type: 'warning'
       });
       return;
@@ -548,15 +549,15 @@ const CreateInvoice = () => {
         TRAY_LABELLED_STOCK_BY_TID_URL,
         {
           ClientCode: clientCode,
-          TIDNumbers: epcKeys,
-          TidNumbers: epcKeys,
-          TIDValues: epcKeys,
-          TidValues: epcKeys,
-          EPCValues: epcKeys,
-          EpcValues: epcKeys,
-          RFIDCodes: decodedCodes,
-          RfidCodes: decodedCodes,
-          ItemCodes: decodedCodes,
+          RFIDCodes: rfidCodes,
+          RfidCodes: rfidCodes,
+          ItemCodes: [],
+          TIDNumbers: [],
+          TidNumbers: [],
+          TIDValues: [],
+          TidValues: [],
+          EPCValues: [],
+          EpcValues: [],
         },
         {
           headers: {
@@ -606,7 +607,7 @@ const CreateInvoice = () => {
       if (!products.length) {
         addNotification({
           title: 'No products found',
-          description: `No products returned for ${epcKeys.length} scanned EPC/TID value(s).`,
+          description: `No products returned for ${rfidCodes.length} RFID code(s): ${rfidCodes.join(', ')}.`,
           type: 'warning'
         });
         return;
@@ -624,12 +625,11 @@ const CreateInvoice = () => {
       setTotalRecords(mergedRows.length);
       setTotalPages(Math.max(1, Math.ceil(mergedRows.length / itemsPerPage)));
 
-      const scannedSet = new Set([...epcKeys, ...decodedCodes]);
+      const scannedSet = new Set(rfidCodes.map((c) => String(c).trim().toUpperCase()).filter(Boolean));
       const matchedIds = mergedRows
         .filter((row) => {
           const rfidCode = String(row?.RFIDCode || '').trim().toUpperCase();
-          const tidNumber = String(row?.TIDNumber || row?.TID || row?.EPC || row?.RequestedIdentifier || '').trim().toUpperCase();
-          return scannedSet.has(rfidCode) || scannedSet.has(tidNumber);
+          return scannedSet.has(rfidCode);
         })
         .map((row) => row.Id)
         .filter(Boolean);
@@ -639,12 +639,12 @@ const CreateInvoice = () => {
       setTrayFetchStatus('Loaded');
       addNotification({
         title: 'Invoice data loaded',
-        description: `Loaded ${mappedRows.length} scanned product(s) from GetLabelledStockByTIDNumbers. Tray list now has ${mergedRows.length} total product(s).`,
+        description: `Loaded ${mappedRows.length} product(s) for RFID: ${rfidCodes.join(', ')}. Tray list now has ${mergedRows.length} total.`,
         type: 'success'
       });
       await closeTrayScanModal();
     } catch (error) {
-      const message = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Failed to fetch product details from tray EPC values.';
+      const message = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Failed to fetch product details from tray RFID codes.';
       setTrayFetchStatus('Failed');
       addNotification({
         title: 'Fetch failed',

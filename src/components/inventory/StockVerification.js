@@ -25,6 +25,7 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaBoxes,
+  FaBox,
   FaTimes
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
@@ -1636,55 +1637,125 @@ const StockVerification = () => {
             <div
               style={{
                 display: 'flex',
-                padding: 4,
-                background: '#f4f4f5',
-                borderRadius: 10,
-                gap: 4,
-                border: '1px solid #e4e4e7',
+                alignItems: 'center',
+                gap: 8,
                 flexShrink: 0,
+                flexWrap: 'wrap',
               }}
             >
-              <button
-                type="button"
-                onClick={() => setActiveTab('batches')}
+              <div
                 style={{
-                  padding: '7px 14px',
-                  borderRadius: 8,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: 11,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  background: activeTab === 'batches' ? SV.stripe : 'transparent',
-                  color: activeTab === 'batches' ? '#fff' : '#525252',
-                  boxShadow: activeTab === 'batches' ? '0 2px 6px rgba(13,148,136,0.25)' : 'none',
+                  display: 'flex',
+                  padding: 4,
+                  background: '#f4f4f5',
+                  borderRadius: 10,
+                  gap: 4,
+                  border: '1px solid #e4e4e7',
                 }}
               >
-                <FaLayerGroup style={{ fontSize: 12 }} />
-                Batches
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('batches')}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: 11,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: activeTab === 'batches' ? SV.stripe : 'transparent',
+                    color: activeTab === 'batches' ? '#fff' : '#525252',
+                    boxShadow: activeTab === 'batches' ? '0 2px 6px rgba(13,148,136,0.25)' : 'none',
+                  }}
+                >
+                  <FaLayerGroup style={{ fontSize: 12 }} />
+                  Batches
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('combineReport')}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    fontSize: 11,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: activeTab === 'combineReport' ? 'linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%)' : 'transparent',
+                    color: activeTab === 'combineReport' ? '#fff' : '#525252',
+                    boxShadow: activeTab === 'combineReport' ? '0 2px 6px rgba(124,58,237,0.22)' : 'none',
+                  }}
+                >
+                  <FaChartBar style={{ fontSize: 12 }} />
+                  Consolidation
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setActiveTab('combineReport')}
+                onClick={() => navigate('/stock-verification-rfid-tray')}
+                title="Open Stock Verification with RFID Tray"
                 style={{
-                  padding: '7px 14px',
-                  borderRadius: 8,
-                  border: 'none',
+                  padding: '8px 14px',
+                  borderRadius: 10,
+                  border: '1px solid #7dd3fc',
                   cursor: 'pointer',
-                  fontWeight: 700,
+                  fontWeight: 800,
                   fontSize: 11,
+                  letterSpacing: '0.01em',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 6,
-                  background: activeTab === 'combineReport' ? 'linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%)' : 'transparent',
-                  color: activeTab === 'combineReport' ? '#fff' : '#525252',
-                  boxShadow: activeTab === 'combineReport' ? '0 2px 6px rgba(124,58,237,0.22)' : 'none',
+                  gap: 8,
+                  background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 55%, #0369a1 100%)',
+                  color: '#fff',
+                  boxShadow: '0 4px 14px rgba(2, 132, 199, 0.28)',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 6px 18px rgba(2, 132, 199, 0.36)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 14px rgba(2, 132, 199, 0.28)';
                 }}
               >
-                <FaChartBar style={{ fontSize: 12 }} />
-                Consolidation
+                <span
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 7,
+                    background: 'rgba(255,255,255,0.2)',
+                    border: '1px solid rgba(255,255,255,0.35)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <FaBox style={{ fontSize: 11 }} />
+                </span>
+                RFID Tray
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    padding: '2px 6px',
+                    borderRadius: 999,
+                    background: 'rgba(255,255,255,0.22)',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Scan
+                </span>
               </button>
             </div>
           </div>

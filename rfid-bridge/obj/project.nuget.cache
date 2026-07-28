@@ -1,13 +1,23 @@
 {
   "version": 2,
-  "dgSpecHash": "3g+R8r0dYCU=",
+  "dgSpecHash": "6j8fAdq3b+U=",
   "success": true,
-  "projectFilePath": "C:\\Users\\sagar\\OneDrive\\Desktop\\RFID API Dashboard\\RFID API React (2)\\RFID API React\\rfid-bridge\\rfid-bridge.csproj",
+  "projectFilePath": "C:\\Users\\loyal\\Desktop\\loyal\\rfid-third-party\\RFIDApi\\rfid-bridge\\rfid-bridge.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.netcore.app.ref\\6.0.36\\microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\6.0.36\\microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\6.0.36\\microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512",
-    "C:\\Users\\sagar\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\6.0.36\\microsoft.netcore.app.host.win-x64.6.0.36.nupkg.sha512"
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.netcore.app.ref\\8.0.29\\microsoft.netcore.app.ref.8.0.29.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\8.0.29\\microsoft.netcore.app.runtime.win-x64.8.0.29.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\8.0.29\\microsoft.windowsdesktop.app.ref.8.0.29.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\8.0.29\\microsoft.windowsdesktop.app.runtime.win-x64.8.0.29.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\8.0.29\\microsoft.aspnetcore.app.ref.8.0.29.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\8.0.29\\microsoft.aspnetcore.app.runtime.win-x64.8.0.29.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\8.0.29\\microsoft.netcore.app.host.win-x64.8.0.29.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.netcore.app.ref\\6.0.36\\microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\6.0.36\\microsoft.netcore.app.runtime.win-x64.6.0.36.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\6.0.36\\microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\6.0.36\\microsoft.windowsdesktop.app.runtime.win-x64.6.0.36.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\6.0.36\\microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\6.0.36\\microsoft.aspnetcore.app.runtime.win-x64.6.0.36.nupkg.sha512",
+    "C:\\Users\\loyal\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\6.0.36\\microsoft.netcore.app.host.win-x64.6.0.36.nupkg.sha512"
   ],
   "logs": []
 }

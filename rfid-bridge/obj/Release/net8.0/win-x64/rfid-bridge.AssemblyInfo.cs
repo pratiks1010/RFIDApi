@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("rfid-bridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0df2c048c437f669e54bdb7d78522b7618fbd1b1")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1d50e318a5062b9ba1334e175b6e13a8ad4551b1")]
 [assembly: System.Reflection.AssemblyProductAttribute("rfid-bridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("rfid-bridge")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

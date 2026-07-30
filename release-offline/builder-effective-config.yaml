@@ -20,6 +20,7 @@ extraMetadata:
 win:
   target: nsis
   icon: build-resources/icon.ico
+  signAndEditExecutable: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -27,4 +28,4 @@ nsis:
   uninstallerIcon: build-resources/icon.ico
   installerHeaderIcon: build-resources/icon.ico
   shortcutName: Sparkle RFID (Offline)
-electronVersion: 41.7.1
+electronVersion: 41.2.0

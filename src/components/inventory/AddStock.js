@@ -975,6 +975,7 @@ const AddStock = () => {
     client_code: '',
     RFIDNumber: '',
     Itemcode: '',
+    product_code: '',
     description: '',
     category_id: '',
     product_id: '',
@@ -1009,6 +1010,7 @@ const AddStock = () => {
   const [productTemplate, setProductTemplate] = useState({
     RFIDNumber: '',
     Itemcode: '',
+    product_code: '',
     description: '',
     quantity: 1,
     category_id: '',
@@ -1627,6 +1629,7 @@ const AddStock = () => {
         counter_id: '',
         RFIDNumber: '',
         Itemcode: '',
+        product_code: '',
         description: '',
         category_id: '',
         product_id: '',
@@ -1969,6 +1972,8 @@ const AddStock = () => {
       client_code: userInfo?.ClientCode || '',
       RFIDNumber: '',
       Itemcode: '',
+      product_code: '',
+      description: '',
       category_id: '',
       product_id: '',
       design_id: '',
@@ -2088,6 +2093,8 @@ const AddStock = () => {
     setProductTemplate({
       RFIDNumber: '',
       Itemcode: '',
+      product_code: '',
+      description: '',
       quantity: 1,
       category_id: '',
       product_id: '',
@@ -2141,6 +2148,7 @@ const AddStock = () => {
     const record = {
     category_id: String(singleProduct.category_id || ''),
     product_id: String(singleProduct.product_id || ''),
+    product_code: String(singleProduct.product_code || ''),
     design_id: String(singleProduct.design_id || ''),
     purity_id: String(singleProduct.purity_id || ''),
     vendor_id: String(singleProduct.vendor_id || ''),
@@ -2381,6 +2389,7 @@ const AddStock = () => {
         counter_id: String(sharedData.counter_name || ''),
         RFIDNumber: normalizeRfidForApi(record.RFIDNumber || ''),
         itemcode: itemcodeVal,
+        product_code: String(record.product_code || ''),
         description: String(record.description || ''),
         category_id: String(record.category_id || ''),
         product_id: String(record.product_id || ''),
@@ -2816,6 +2825,7 @@ const AddStock = () => {
         counterId: sharedData.counter_name || '',
         rfidNumber: singleProduct.RFIDNumber || '',
         itemCode: singleProduct.Itemcode || '',
+        productCode: singleProduct.product_code || '',
         description: singleProduct.description || '',
         categoryId: singleProduct.category_id || '',
         productId: singleProduct.product_id || '',
@@ -3109,6 +3119,7 @@ const AddStock = () => {
           RFIDNumber: normalizeRfidForApi(product.RFIDNumber || ''),
           Itemcode: String(product.Itemcode || ''),
           itemcode: String(product.Itemcode || ''),
+          product_code: String(product.product_code || ''),
           description: String(product.description || ''),
           category_id: String(product.category_id || ''),
           product_id: String(product.product_id || ''),
@@ -3191,6 +3202,7 @@ const AddStock = () => {
       setMultipleProducts([{
         RFIDNumber: '',
         Itemcode: '',
+        product_code: '',
         category_id: '',
         product_id: '',
         design_id: '',
@@ -3261,6 +3273,7 @@ const AddStock = () => {
       'counter_id': '',
       'RFIDNumber': 'CZ3506',
       'Itemcode': 'SAU124',
+      'product_code': 'PRD001',
       'category_id': 'Gold',
       'product_id': 'Tops',
       'design_id': 'Fancy Top',
@@ -3512,6 +3525,7 @@ const AddStock = () => {
             RFIDNumber: normalizeRfidForApi(product.RFIDNumber || ''),
             Itemcode: String(product.Itemcode || ''),
             itemcode: String(product.Itemcode || ''),
+            product_code: String(product.product_code || ''),
             description: String(product.description || ''),
             category_id: String(product.category_id || ''), // Send category name as string, not ID
             product_id: productIdValue, // Send product name as string, not ID
@@ -3884,6 +3898,7 @@ const AddStock = () => {
           RFIDNumber: normalizeRfidForApi(product.RFIDNumber || product.RFIDCode || ''),
           Itemcode: String(product.Itemcode || ''),
           itemcode: String(product.Itemcode || ''),
+          product_code: String(product.product_code || ''),
           description: String(product.description || ''),
           category_id: String(product.category_id || ''),
           product_id: String(product.product_id || ''),
@@ -4068,6 +4083,7 @@ const AddStock = () => {
   const formFields = [
     { key: 'RFIDNumber', label: 'RFID Number', type: 'text', required: false, placeholder: 'Enter RFID number' },
     { key: 'Itemcode', label: 'Item Code (Must be Unique)', type: 'text', required: true, placeholder: 'Enter item code' },
+    { key: 'product_code', label: 'Product Code', type: 'text', required: false, placeholder: 'e.g., PRD001' },
     { key: 'category_id', label: 'Category', type: 'select', required: true, options: 'categories' },
     { key: 'product_id', label: 'Product', type: 'select', required: true, options: 'products' },
     { key: 'branch_id', label: 'Branch', type: 'text', required: false, placeholder: 'Enter branch name' },
@@ -5115,6 +5131,40 @@ const AddStock = () => {
                   )}
                 </div>
                 <div style={{ minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>
+                    Product Code
+                  </label>
+                  <input
+                    type="text"
+                    value={singleProduct.product_code || ''}
+                    onChange={(e) => updateSingleField('product_code', e.target.value)}
+                    placeholder="e.g., PRD001"
+                    tabIndex={11}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      fontSize: '12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                      height: '32px',
+                      minHeight: '32px',
+                      background: '#ffffff',
+                      color: '#1e293b',
+                      fontFamily: 'Inter, Poppins, sans-serif'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#0d9488';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(13, 148, 136, 0.12)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+                <div style={{ minWidth: 0 }}>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 500, color: '#475569', marginBottom: '4px' }}>Branch Name</label>
                   <SearchableDropdownWithAdd
                     options={getBranchOptions()}
@@ -6079,6 +6129,31 @@ const AddStock = () => {
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                      Product Code
+                    </label>
+                    <input
+                      type="text"
+                      value={productTemplate.product_code || ''}
+                      onChange={(e) => updateTemplateField('product_code', e.target.value)}
+                      placeholder="e.g., PRD001"
+                      style={{
+                        width: '100%',
+                        padding: '5px 8px',
+                        fontSize: '12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '6px',
+                        outline: 'none',
+                        transition: 'all 0.2s',
+                        boxSizing: 'border-box',
+                        height: '28px',
+                        minHeight: '28px'
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; }}
+                      onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
                       Quantity <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <input
@@ -6258,7 +6333,8 @@ const AddStock = () => {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px', marginBottom: '12px' }}>
                 {formFields.filter(field => 
                   field.key !== 'RFIDNumber' && 
-                  field.key !== 'Itemcode' && 
+                  field.key !== 'Itemcode' &&
+                  field.key !== 'product_code' &&
                   field.key !== 'category_id' && 
                   field.key !== 'product_id' && 
                   field.key !== 'design_id' && 

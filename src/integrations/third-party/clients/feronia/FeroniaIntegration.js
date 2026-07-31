@@ -48,6 +48,7 @@ const mapFeroniaToLoyalstringPayload = (row, clientCode) => ({
   RFIDNumber: String(getFirstValue(row, ['RFIDCode', 'RFIDNumber', 'RFIDNo', 'RFID', 'rfidcode']) || ''),
   Itemcode: String(getFirstValue(row, ['ItemCode', 'itemcode', 'Itemcode', 'Barcode', 'BarcodeNumber']) || ''),
   itemcode: String(getFirstValue(row, ['ItemCode', 'itemcode', 'Itemcode', 'Barcode', 'BarcodeNumber']) || ''),
+  product_code: String(getFirstValue(row, ['ProductCode', 'product_code', 'productCode']) || ''),
   description: String(getFirstValue(row, ['Description', 'CategoryName', 'Category'], '')),
   category_id: String(getFirstValue(row, ['MetalName', 'CategoryName', 'Category', 'category']) || ''),
   product_id: String(getFirstValue(row, ['ProductName', 'Product', 'product']) || ''),

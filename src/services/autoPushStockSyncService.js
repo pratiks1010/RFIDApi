@@ -5,6 +5,7 @@ import { normalizeProductWeights } from '../utils/weightFormat';
 export const AUTO_PUSH_SYSTEM_FIELDS = [
   'RFIDNumber',
   'Itemcode',
+  'product_code',
   'category_id',
   'product_id',
   'design_id',
@@ -177,6 +178,9 @@ const TEMPLATE_FIELD_ALIASES = {
   itemCode: 'Itemcode',
   RFIDCode: 'RFIDNumber',
   rfidCode: 'RFIDNumber',
+  productCode: 'product_code',
+  ProductCode: 'product_code',
+  PRODUCT_CODE: 'product_code',
 };
 
 export const normalizeTemplateSystemField = (fieldKey) =>

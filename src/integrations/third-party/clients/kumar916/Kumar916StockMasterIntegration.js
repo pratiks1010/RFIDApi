@@ -49,6 +49,7 @@ const mapKumar916ToLoyalstringPayload = (row, clientCode) => {
     counter_id: String(row.counterName ?? ''),
     RFIDNumber: rfidNumber,
     Itemcode: '',
+    product_code: String(row.productCode ?? '').trim(),
     category_id: String(row.category ?? ''),
     product_id: String(row.productName ?? ''),
     design_id: String(row.design ?? ''),

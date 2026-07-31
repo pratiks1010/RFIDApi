@@ -85,6 +85,7 @@ const mapVarakrupaToLoyalstringPayload = (row, clientCode) => {
 
     Itemcode: String(row?.manufacturing_code ?? ''),
     itemcode: String(row?.manufacturing_code ?? ''),
+    product_code: String(row?.product_code ?? row?.productCode ?? row?.manufacturing_code ?? ''),
 
     category_id: String(row?.product_type ?? ''),
     product_id: String(row?.category_name ?? ''),

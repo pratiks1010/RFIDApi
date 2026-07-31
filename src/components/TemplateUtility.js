@@ -7,6 +7,7 @@ import ExeApiModeBanner from "./common/ExeApiModeBanner";
 const SYSTEM_FIELDS = [
   "RFIDNumber",
   "Itemcode",
+  "product_code",
   "category_id",
   "product_id",
   "design_id",

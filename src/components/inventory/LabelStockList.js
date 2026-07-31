@@ -82,6 +82,7 @@ const DEFAULT_COLUMNS = [
   { key: 'srNo', label: 'Sr No', width: '50px', visible: true },
   { key: 'HallmarkAmount', label: 'Hallmark Amt', width: '100px', visible: true },
   { key: 'ItemCode', label: 'Item Code', width: '100px', visible: true },
+  { key: 'ProductCode', label: 'Product Code', width: '100px', visible: true },
   { key: 'RFIDCode', label: 'RFID Code', width: '100px', visible: true },
   { key: 'ProductName', label: 'Product', width: '120px', visible: true },
   { key: 'CategoryName', label: 'Category', width: '100px', visible: true },
@@ -597,6 +598,7 @@ const LabelStockList = () => {
           CategoryName: item.CategoryName || item.Category || '',
           DesignName: item.DesignName || item.Design || '',
           PurityName: item.PurityName || item.Purity || '',
+          ProductCode: item.ProductCode ?? item.productCode ?? '',
           CreatedDate: item.CreatedOn || item.CreatedDate || '',
           PackingWeight: item.PackingWeight !== undefined && item.PackingWeight !== null ? item.PackingWeight : (item.PackingWeight || ''),
           TotalWeight: item.TotalWeight !== undefined && item.TotalWeight !== null ? item.TotalWeight : (item.TotalWeight || '')
@@ -978,6 +980,7 @@ const LabelStockList = () => {
           CategoryName: item.CategoryName || item.Category || '',
           DesignName: item.DesignName || item.Design || '',
           PurityName: item.PurityName || item.Purity || '',
+          ProductCode: item.ProductCode ?? item.productCode ?? '',
           CreatedDate: item.CreatedOn || item.CreatedDate || '',
           PackingWeight: item.PackingWeight !== undefined && item.PackingWeight !== null ? item.PackingWeight : (item.PackingWeight || ''),
           TotalWeight: item.TotalWeight !== undefined && item.TotalWeight !== null ? item.TotalWeight : (item.TotalWeight || '')
@@ -5571,6 +5574,8 @@ const LabelStockList = () => {
                           {column.key === 'srNo' ? ((currentPage - 1) * itemsPerPage) + index + 1 : (() => {
                             const value = column.key === 'Description'
                               ? (item.Description ?? item.description ?? '')
+                              : column.key === 'ProductCode'
+                              ? (item.ProductCode ?? item.productCode ?? '')
                               : item[column.key];
                             if (value === undefined || value === null || value === '') return '-';
                             // Format numeric fields (weights)

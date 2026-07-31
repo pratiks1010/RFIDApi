@@ -34,6 +34,7 @@ export const PLAYGROUND_SAVE_RFID_TRANSACTION_ITEM = {
   RFIDNumber: 'RFID123456',
   Itemcode: 'ITEM001',
   itemcode: 'ITEM001',
+  product_code: 'PRD001',
   description: 'itemsize:2.12, HUIDCode:45857KIKL',
   category_id: 'Gold',
   product_id: 'Ring',

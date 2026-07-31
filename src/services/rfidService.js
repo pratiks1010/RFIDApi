@@ -217,6 +217,7 @@ export const rfidService = {
       RFIDNumber: data.rfidNumber || '',
       Itemcode: itemCode,
       itemcode: itemCode,
+      product_code: data.productCode || data.product_code || '',
       description: data.description || '',
       category_id: data.categoryId,
       product_id: data.productId,

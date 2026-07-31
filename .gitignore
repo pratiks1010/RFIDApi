@@ -21,6 +21,7 @@ node_modules/
 /release-online
 /release-offline
 /release-legacy
+/release-online-new
 /out
 *.exe
 *.exe.blockmap
@@ -31,6 +32,12 @@ node_modules/
 *.asar
 app.asar
 app.asar.unpacked/
+
+# RFID bridge (.NET build outputs — keep source: Program.cs, *.csproj, native DLLs)
+rfid-bridge/bin/
+rfid-bridge/obj/
+**/rfid-bridge/bin/
+**/rfid-bridge/obj/
 
 # Misc
 .DS_Store

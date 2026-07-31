@@ -20,6 +20,7 @@ const mapGatiToLoyalstringPayload = (row, clientCode) => ({
   counter_id: '',
   RFIDNumber: String(row.RFIDCode ?? ''),
   Itemcode: String(row.ItemCode ?? ''),
+  product_code: String(row.ProductCode ?? row.product_code ?? ''),
   category_id: String(row.MetalName ?? ''),
   product_id: String(row.ProductName ?? ''),
   design_id: String(row.ProductCode ?? row.DesignName ?? ''),

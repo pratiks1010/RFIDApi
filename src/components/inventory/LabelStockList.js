@@ -74,6 +74,17 @@ formDataAxios.interceptors.request.use(
 const PAGE_SIZE_OPTIONS = [15, 20, 25, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 20;
 
+/** Show API HallmarkAmount as-is when it has units (e.g. "1.5PT"); only format pure numbers. */
+const formatHallmarkAmountDisplay = (value) => {
+  if (value === undefined || value === null || value === '') return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  // Keep suffixes like PT — parseFloat("1.5PT") would strip them to 1.5
+  if (/[a-zA-Z]/.test(raw)) return raw;
+  const numValue = parseFloat(raw);
+  return Number.isNaN(numValue) ? raw : numValue.toFixed(2);
+};
+
 // Default table columns for the labelled stock list. `key` is the data field used
 // for lookup/sorting/formatting (never changed by the user); `label` is the display
 // name (renameable); `visible` controls show/hide; order in the array controls position.
@@ -2137,7 +2148,7 @@ const LabelStockList = () => {
         'Net Wt': item.NetWt ? Number(item.NetWt).toFixed(3) : '',
         'Stone Amt': item.StoneAmt ? Number(item.StoneAmt).toFixed(2) : '',
         'Fixed Amt': item.FixedAmt ? Number(item.FixedAmt).toFixed(2) : '',
-        'Hallmark Amt': item.HallmarkAmount != null && item.HallmarkAmount !== '' ? Number(item.HallmarkAmount).toFixed(2) : '',
+        'Hallmark Amt': formatHallmarkAmountDisplay(item.HallmarkAmount),
         'Branch': item.Branch || '',
         'Created Date': item.CreatedDate ? new Date(item.CreatedDate).toLocaleDateString('en-GB') : '',
         'Packing Weight': item.PackingWeight ? Number(item.PackingWeight).toFixed(3) : '',
@@ -2444,7 +2455,7 @@ const LabelStockList = () => {
         'Net Wt': item.NetWt ? Number(item.NetWt).toFixed(3) : '',
         'Stone Amt': item.StoneAmt ? Number(item.StoneAmt).toFixed(2) : '',
         'Fixed Amt': item.FixedAmt ? Number(item.FixedAmt).toFixed(2) : '',
-        'Hallmark Amt': item.HallmarkAmount != null && item.HallmarkAmount !== '' ? Number(item.HallmarkAmount).toFixed(2) : '',
+        'Hallmark Amt': formatHallmarkAmountDisplay(item.HallmarkAmount),
         'Branch': item.Branch || '',
         'Created Date': item.CreatedDate ? new Date(item.CreatedDate).toLocaleDateString('en-GB') : '',
         'Packing Weight': item.PackingWeight ? Number(item.PackingWeight).toFixed(3) : '',
@@ -5588,8 +5599,7 @@ const LabelStockList = () => {
                               return isNaN(numValue) ? value : String(numValue);
                             }
                             if (column.key === 'HallmarkAmount') {
-                              const numValue = parseFloat(value);
-                              return isNaN(numValue) ? value : numValue.toFixed(2);
+                              return formatHallmarkAmountDisplay(value) || '-';
                             }
                             return value;
                           })()}

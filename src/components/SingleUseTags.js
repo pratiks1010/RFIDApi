@@ -3,6 +3,7 @@ import { Box, Button, Typography, Paper, LinearProgress, Alert } from '@mui/mate
 import axios from 'axios';
 import { useNotifications } from '../context/NotificationContext';
 import BackToProfileMenu from './common/BackToProfileMenu';
+import { toRrgoldApiUrl } from '../services/apiBaseConfig';
 
 const SingleUseTags = () => {
     const [loading, setLoading] = useState(false);
@@ -40,8 +41,8 @@ const SingleUseTags = () => {
             }, 500);
 
             const response = await axios.post(
-                'https://rrgold.loyalstring.co.in/api/ProductMaster/UpdateTIDFromInvertedHexCode',
-                { ClientCode: clientCode },
+                toRrgoldApiUrl('/api/ProductMaster/UpdateTIDFromInvertedHexCode'),
+                { clientCode },
                 {
                     headers: {
                         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -55,9 +56,21 @@ const SingleUseTags = () => {
             setLoading(false);
             setSuccess(true);
 
+            const data = response?.data || {};
+            const summary = data.memorySummary || data.MemorySummary;
+            const samples = data.samples || data.Samples;
+            const extra =
+                summary || (Array.isArray(samples) && samples.length)
+                    ? ` ${summary ? `Memory: ${typeof summary === 'string' ? summary : JSON.stringify(summary)}.` : ''}${
+                        Array.isArray(samples) && samples[0]
+                          ? ` Sample: ${samples[0].source || samples[0].Source || ''} → ${samples[0].epcHex || samples[0].EpcHex || ''}`
+                          : ''
+                      }`
+                    : '';
+
             addNotification({
                 title: 'Success',
-                description: 'TID updated successfully from inverted hex code.',
+                description: (data.message || data.Message || 'TID updated successfully from inverted hex code.') + extra,
                 type: 'success'
             });
 
@@ -67,7 +80,7 @@ const SingleUseTags = () => {
             console.error('Update error:', error);
             addNotification({
                 title: 'Error',
-                description: error.response?.data?.message || error.message || 'Failed to update TID.',
+                description: error.response?.data?.message || error.response?.data?.Message || error.message || 'Failed to update TID.',
                 type: 'error'
             });
         }

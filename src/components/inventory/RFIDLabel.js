@@ -2095,8 +2095,11 @@ const RFIDLabel = () => {
                                     return isNaN(numValue) ? value : numValue.toString();
                                   }
                                   if (column.key === 'HallmarkAmount') {
-                                    const numValue = parseFloat(value);
-                                    return isNaN(numValue) ? value : numValue.toFixed(2);
+                                    const raw = String(value ?? '').trim();
+                                    // Keep units like PT from API (e.g. "1.5PT")
+                                    if (/[a-zA-Z]/.test(raw)) return raw;
+                                    const numValue = parseFloat(raw);
+                                    return Number.isNaN(numValue) ? raw : numValue.toFixed(2);
                                   }
                                   // Format date fields
                                   if (column.key === 'CreatedDate' && value) {

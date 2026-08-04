@@ -741,7 +741,9 @@ const generateLS000533Prn = (item) => {
   const purity = prnQuote(resolveLS000533Purity(item));
   const description = prnQuote(resolveLS000533Description(item));
   const designLabel = prnQuote(resolveLS000533DesignLabel(item));
-  const hallmarkDisplay = prnQuote(resolveLS000533HallmarkAmountQr(item));
+  const productName = prnQuote(
+    String(item.ProductName || item.productName || item.CategoryName || '').trim()
+  );
   const qrPayload = prnQuote(formatLS000533QrPayload(item));
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode || barcodeValue);
   const c128Payload = formatLS000533C128BPayload(itemCode);
@@ -774,7 +776,7 @@ ${epcBits};H;*${epcHex}*
 STOP
 FONT;FACE 92250;BOLD 1;SLANT 0
 ALPHA
-INV;POINT;116;778;8;9;"${hallmarkDisplay}"
+INV;POINT;116;778;8;9;"${productName}"
 STOP
 FONT;FACE 92250;BOLD 0;SLANT 0
 ALPHA

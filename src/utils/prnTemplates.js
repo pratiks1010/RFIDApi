@@ -744,6 +744,8 @@ const generateLS000533Prn = (item) => {
   const productName = prnQuote(
     String(item.ProductName || item.productName || item.CategoryName || '').trim()
   );
+  // Full HallmarkAmount text (keep units like PT) — shown to the right of design
+  const hallmarkDisplay = prnQuote(resolveLS000533HallmarkAmount(item));
   const qrPayload = prnQuote(formatLS000533QrPayload(item));
   const { epcBits, pcValue, epcHex } = calculateAsciiEpcMemory(itemCode || barcodeValue);
   const c128Payload = formatLS000533C128BPayload(itemCode);
@@ -793,6 +795,7 @@ QRCODE;INV;XD2;T2;E0;M0;I0;24;558
 STOP
 ALPHA
 INV;POINT;119;615;7;7;"${designLabel}"
+INV;POINT;119;585;7;7;"${hallmarkDisplay}"
 STOP
 BARCODE
 C128B;INV;XRD1:1:2:2:3:3:4:4;H4.8;49;326

@@ -13,7 +13,9 @@ import {
   FaDownload,
   FaEnvelope,
   FaTimes,
+  FaChartBar,
 } from 'react-icons/fa';
+import OrderListReport from './OrderListReport';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -42,6 +44,9 @@ const OrderList = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [exportErrors, setExportErrors] = useState({ excel: '', pdf: '', email: '' });
   const [emailAddress, setEmailAddress] = useState('');
+  const [showReport, setShowReport] = useState(false);
+  const [reportOrders, setReportOrders] = useState([]);
+  const [reportLoading, setReportLoading] = useState(false);
   const isFetchingRef = useRef(false);
   
   const { addNotification } = useNotifications();
@@ -255,6 +260,53 @@ const OrderList = () => {
     }
 
     return pages;
+  };
+
+  const fetchAllOrdersForReport = async () => {
+    setReportLoading(true);
+    try {
+      let clientCode = userInfo?.ClientCode;
+      if (!clientCode) {
+        const storedUserInfo = localStorage.getItem('userInfo');
+        if (storedUserInfo) {
+          clientCode = JSON.parse(storedUserInfo)?.ClientCode;
+        }
+      }
+      if (!clientCode) {
+        addNotification({ type: 'error', message: 'Client code not found. Please login again.', duration: 5000 });
+        return;
+      }
+
+      const pageSize = Math.max(totalRecords || 5000, 5000);
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/Order/GetAllOrders',
+        {
+          ClientCode: clientCode,
+          PageNumber: 1,
+          PageSize: pageSize,
+          SearchQuery: '',
+        },
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+
+      const ordersData = Array.isArray(response.data?.Data)
+        ? response.data.Data
+        : Array.isArray(response.data)
+          ? response.data
+          : [];
+      setReportOrders(ordersData);
+    } catch (err) {
+      console.error('Error fetching report orders:', err);
+      addNotification({ type: 'error', message: 'Failed to load report data. Please try again.', duration: 5000 });
+      setReportOrders([]);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleOpenReport = async () => {
+    setShowReport(true);
+    await fetchAllOrdersForReport();
   };
 
   const handleRefresh = async () => {
@@ -800,6 +852,14 @@ const OrderList = () => {
         background: '#ffffff',
       }}
     >
+      {showReport ? (
+        <OrderListReport
+          orders={reportOrders}
+          loading={reportLoading}
+          onClose={() => setShowReport(false)}
+        />
+      ) : (
+      <>
       <div
         style={{
           background: '#ffffff',
@@ -1018,6 +1078,37 @@ const OrderList = () => {
                   >
                     <FaDownload style={{ fontSize: 12 }} />
                     Export
+                  </button>
+                </div>
+                <div style={{ flexShrink: 0 }}>
+                  <label style={labelStyle}>&nbsp;</label>
+                  <button
+                    type="button"
+                    onClick={handleOpenReport}
+                    disabled={reportLoading}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      height: 30,
+                      padding: '0 12px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      borderRadius: 8,
+                      border: '1px solid #93c5fd',
+                      background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                      color: '#1d4ed8',
+                      cursor: reportLoading ? 'wait' : 'pointer',
+                      opacity: reportLoading ? 0.65 : 1,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {reportLoading ? (
+                      <FaSpinner style={{ animation: 'orderListSpin 1s linear infinite', fontSize: 11 }} />
+                    ) : (
+                      <FaChartBar style={{ fontSize: 12 }} />
+                    )}
+                    Report
                   </button>
                 </div>
               </div>
@@ -1592,6 +1683,8 @@ const OrderList = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {showExportModal && (
         <div

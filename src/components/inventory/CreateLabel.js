@@ -400,13 +400,13 @@ const CreateLabel = () => {
       // Update save option and selections to match template
       setSaveOption(template.SaveOption || 'single');
       if (template.CategoryId) {
-        const category = categoryList.find(cat => cat.value === template.CategoryId);
+        const category = categoryList.find(cat => String(cat.value) === String(template.CategoryId));
         setSelectedCategory(category || null);
       } else {
         setSelectedCategory(null);
       }
       if (template.ProductId) {
-        const product = productList.find(prod => prod.value === template.ProductId);
+        const product = productList.find(prod => String(prod.value) === String(template.ProductId));
         setSelectedProduct(product || null);
       } else {
         setSelectedProduct(null);
@@ -892,6 +892,26 @@ const CreateLabel = () => {
   };
 
   const handleSaveConfirm = async () => {
+    if (saveOption === 'category' && !selectedCategory) {
+      addNotification({
+        type: 'error',
+        title: 'Category Required',
+        message: 'Please select a category before saving the template.'
+      });
+      return;
+    }
+
+    if (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct)) {
+      addNotification({
+        type: 'error',
+        title: 'Selection Required',
+        message: !selectedCategory
+          ? 'Please select a category before saving the template.'
+          : 'Please select a product before saving the template.'
+      });
+      return;
+    }
+
     setSavingTemplate(true);
     try {
       // Serialize layout for save (store binding keys, not resolved values)
@@ -1525,9 +1545,9 @@ const CreateLabel = () => {
                   Select Category:
                 </label>
                 <select
-                  value={selectedCategory?.value || ''}
+                  value={selectedCategory?.value ?? ''}
                   onChange={(e) => {
-                    const category = categoryList.find(cat => cat.value === e.target.value);
+                    const category = categoryList.find(cat => String(cat.value) === e.target.value);
                     setSelectedCategory(category || null);
                   }}
                   style={{
@@ -1539,7 +1559,13 @@ const CreateLabel = () => {
                     outline: 'none'
                   }}
                 >
-                  <option value="">Select Category</option>
+                  <option value="">
+                    {loadingMasterData
+                      ? 'Loading categories...'
+                      : categoryList.length === 0
+                        ? 'No categories found'
+                        : 'Select Category'}
+                  </option>
                   {categoryList.map((cat) => (
                     <option key={cat.value} value={cat.value}>
                       {cat.label}
@@ -1556,9 +1582,9 @@ const CreateLabel = () => {
                     Select Category:
                   </label>
                   <select
-                    value={selectedCategory?.value || ''}
+                    value={selectedCategory?.value ?? ''}
                     onChange={(e) => {
-                      const category = categoryList.find(cat => cat.value === e.target.value);
+                      const category = categoryList.find(cat => String(cat.value) === e.target.value);
                       setSelectedCategory(category || null);
                     }}
                     style={{
@@ -1570,7 +1596,13 @@ const CreateLabel = () => {
                       outline: 'none'
                     }}
                   >
-                    <option value="">Select Category</option>
+                    <option value="">
+                      {loadingMasterData
+                        ? 'Loading categories...'
+                        : categoryList.length === 0
+                          ? 'No categories found'
+                          : 'Select Category'}
+                    </option>
                     {categoryList.map((cat) => (
                       <option key={cat.value} value={cat.value}>
                         {cat.label}
@@ -1583,9 +1615,9 @@ const CreateLabel = () => {
                     Select Product:
                   </label>
                   <select
-                    value={selectedProduct?.value || ''}
+                    value={selectedProduct?.value ?? ''}
                     onChange={(e) => {
-                      const product = productList.find(prod => prod.value === e.target.value);
+                      const product = productList.find(prod => String(prod.value) === e.target.value);
                       setSelectedProduct(product || null);
                     }}
                     style={{
@@ -1597,7 +1629,13 @@ const CreateLabel = () => {
                       outline: 'none'
                     }}
                   >
-                    <option value="">Select Product</option>
+                    <option value="">
+                      {loadingMasterData
+                        ? 'Loading products...'
+                        : productList.length === 0
+                          ? 'No products found'
+                          : 'Select Product'}
+                    </option>
                     {productList.map((prod) => (
                       <option key={prod.value} value={prod.value}>
                         {prod.label}
@@ -1626,26 +1664,16 @@ const CreateLabel = () => {
               </button>
               <button
                 onClick={handleSaveConfirm}
-                disabled={
-                  savingTemplate ||
-                  (saveOption === 'category' && !selectedCategory) ||
-                  (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct))
-                }
+                disabled={savingTemplate}
                 style={{
                   padding: '10px 20px',
                   fontSize: '13px',
                   fontWeight: 600,
                   borderRadius: '8px',
                   border: 'none',
-                  background: (savingTemplate ||
-                    (saveOption === 'category' && !selectedCategory) ||
-                    (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct)))
-                    ? '#cbd5e1' : '#3b82f6',
+                  background: savingTemplate ? '#cbd5e1' : '#3b82f6',
                   color: '#ffffff',
-                  cursor: (savingTemplate ||
-                    (saveOption === 'category' && !selectedCategory) ||
-                    (saveOption === 'categoryProduct' && (!selectedCategory || !selectedProduct)))
-                    ? 'not-allowed' : 'pointer',
+                  cursor: savingTemplate ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',

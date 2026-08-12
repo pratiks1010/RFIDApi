@@ -139,6 +139,12 @@ const SidebarLayout = ({ children }) => {
       label: 'Sold Item to User',
       color: '#0d9488'
     },
+    {
+      path: '/varakrupa-sync-order',
+      icon: FaClipboardList,
+      label: 'Sync Order',
+      color: '#0d9488'
+    },
   ];
 
   // Effects

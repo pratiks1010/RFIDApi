@@ -41,6 +41,8 @@ const VARAKRUPA_USER_DATA_URL =
   'https://varakrupa.jewelmarts.com/callback/UserData';
 const VARAKRUPA_STOCK_SELL_URL =
   'https://varakrupa.jewelmarts.com/callback/StockSell';
+const VARAKRUPA_CLIENT_ORDER_URL =
+  'https://varakrupa.jewelmarts.com/callback/ClientOrder';
 
 const buildAuthPayload = () => {
   const formData = new FormData();
@@ -273,6 +275,72 @@ export const getVarakrupaUserData = async () => {
  * Sync sold items — https://varakrupa.jewelmarts.com/callback/StockSell
  * form-data: username, password, rfid_value, voucher_id, user_id
  */
+/**
+ * Sync client order — https://varakrupa.jewelmarts.com/callback/ClientOrder
+ * form-data: username, password, rfid_value, order_id, user_id
+ */
+export const postVarakrupaClientOrder = async ({
+  rfidValue,
+  orderId,
+  userId,
+}) => {
+  const rfid = String(rfidValue || '').trim();
+  const order = String(orderId || '').trim();
+  const uid = String(userId || '').trim();
+
+  if (!rfid) throw new Error('RFID value is required for ClientOrder.');
+  if (!order) throw new Error('Order No (order_id) is required.');
+  if (!uid) throw new Error('User ID is required for ClientOrder.');
+
+  const formData = buildAuthPayload();
+  formData.append('rfid_value', rfid);
+  formData.append('order_id', order);
+  formData.append('user_id', uid);
+
+  const requestUrl = VARAKRUPA_CLIENT_ORDER_URL;
+
+  try {
+    if (isElectronRuntime()) {
+      const response = await window.electronAPI.varakrupaInventoryStock({
+        username: USERNAME,
+        password: PASSWORD,
+        url: requestUrl,
+        rfid_value: rfid,
+        order_id: order,
+        user_id: uid,
+      });
+
+      if (!response?.ok) {
+        throw createVarakrupaError(
+          {
+            message: response?.error || 'Varakrupa ClientOrder electron call failed',
+            response: { status: response?.debug?.status, data: response?.data },
+            code: response?.debug?.code,
+          },
+          requestUrl
+        );
+      }
+
+      return response.data;
+    }
+
+    const { data } = await varakrupaHttp.post(requestUrl, formData, {
+      timeout: 60000,
+      headers: {
+        Accept: 'application/json',
+      },
+      params: {
+        _ts: Date.now(),
+      },
+    });
+
+    return data;
+  } catch (err) {
+    if (err?.name === 'VarakrupaApiError') throw err;
+    throw createVarakrupaError(err, requestUrl);
+  }
+};
+
 export const postVarakrupaStockSell = async ({
   rfidValue,
   voucherId,
@@ -565,6 +633,8 @@ export const getVarakrupaSoldProductsUrl = () => VARAKRUPA_SOLD_PRODUCTS_URL;
 export const getVarakrupaUserDataUrl = () => VARAKRUPA_USER_DATA_URL;
 
 export const getVarakrupaStockSellUrl = () => VARAKRUPA_STOCK_SELL_URL;
+
+export const getVarakrupaClientOrderUrl = () => VARAKRUPA_CLIENT_ORDER_URL;
 
 export const getVarakrupaDirectBaseUrl = () => VARAKRUPA_API_URL;
 

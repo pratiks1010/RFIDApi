@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 import {
   FaLock,
   FaSync,
@@ -11,7 +12,11 @@ import {
   FaChevronDown,
   FaList,
   FaArrowLeft,
+  FaFileExport,
+  FaFilePdf,
 } from 'react-icons/fa';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { toRrgoldApiUrl, toSoniApiUrl } from '../../../../services/apiBaseConfig';
 import {
   getVarakrupaSoldProducts,
@@ -101,6 +106,35 @@ const formatChallanDate = (value) => {
   });
 };
 
+const parseFilterBoundaryDate = (value, endOfDay = false) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  if (endOfDay) d.setHours(23, 59, 59, 999);
+  else d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const getRowSortableDate = (row) => {
+  const raw = row?._dateRaw;
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime()) || d.getFullYear() <= 1) return null;
+  return d;
+};
+
+const isRowWithinDateRange = (row, dateFrom, dateTo) => {
+  const from = parseFilterBoundaryDate(dateFrom);
+  const to = parseFilterBoundaryDate(dateTo, true);
+  if (!from && !to) return true;
+
+  const rowDate = getRowSortableDate(row);
+  if (!rowDate) return false;
+  if (from && rowDate < from) return false;
+  if (to && rowDate > to) return false;
+  return true;
+};
+
 /** Map GetAllDeliveryChallan row → table display. LastName = Varakrupa user_id. */
 const mapDeliveryChallanToDisplay = (challan, index) => {
   const details = Array.isArray(challan?.ChallanDetails)
@@ -117,6 +151,8 @@ const mapDeliveryChallanToDisplay = (challan, index) => {
 
   const itemCodes = detailItems.map((d) => d.itemCode).filter(Boolean);
   const rfids = detailItems.map((d) => d.rfid).filter(Boolean);
+  const grossWts = detailItems.map((d) => d.grossWt).filter(Boolean);
+  const netWts = detailItems.map((d) => d.netWt).filter(Boolean);
 
   const customer = challan?.Customer || {};
   const customerName = String(
@@ -131,9 +167,12 @@ const mapDeliveryChallanToDisplay = (challan, index) => {
     InvoiceNo: String(challan?.InvoiceNo ?? '').trim(),
     ItemCode: itemCodes.length ? itemCodes.join(', ') : '',
     RFIDCode: rfids.length ? rfids.join(', ') : '',
+    GrossWt: grossWts.length ? grossWts.join(', ') : '',
+    NetWt: netWts.length ? netWts.join(', ') : '',
     customerName: customerName || '-',
     userId: userId || '-',
     Date: formatChallanDate(challan?.CreatedOn || challan?.LastUpdated),
+    _dateRaw: challan?.CreatedOn || challan?.LastUpdated || null,
     _detailItems: detailItems,
     _itemCodes: itemCodes,
     _rfids: rfids,
@@ -202,6 +241,8 @@ const VarakrupaSoldItemToUser = () => {
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState('');
   const [searchStock, setSearchStock] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [listMode, setListMode] = useState('active'); // 'active' | 'sold'
 
@@ -355,14 +396,15 @@ const VarakrupaSoldItemToUser = () => {
 
   const filteredStock = useMemo(() => {
     const q = searchStock.trim().toLowerCase();
-    if (!q) return inventory;
-    return inventory.filter((row) =>
-      tableColumns.some((col) => {
+    return inventory.filter((row) => {
+      if (!isRowWithinDateRange(row, dateFrom, dateTo)) return false;
+      if (!q) return true;
+      return tableColumns.some((col) => {
         const value = row[col.key];
         return value != null && String(value).toLowerCase().includes(q);
-      })
-    );
-  }, [inventory, searchStock, tableColumns]);
+      });
+    });
+  }, [inventory, searchStock, dateFrom, dateTo, tableColumns]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStock.length / PAGE_SIZE));
 
@@ -415,6 +457,146 @@ const VarakrupaSoldItemToUser = () => {
     setSelectedUserId('');
     setUserSearch('');
     setSoldResult(null);
+  };
+
+  const handleClearDateFilter = () => {
+    setDateFrom('');
+    setDateTo('');
+    setPage(1);
+  };
+
+  const buildExportRows = () => {
+    if (listMode === 'sold') {
+      return filteredStock.map((row, index) => ({
+        'S.No': index + 1,
+        ID: row.id ?? '',
+        'Item Code': row.manufacturing_code ?? '',
+        'RFID Code': row.rfid ?? '',
+        'Product Type': row.product_type ?? '',
+        Category: row.category_name ?? '',
+        'Collection ID': row.collection_id ?? '',
+        'Gross Wt': row.gross_wt ?? '',
+        'Net Wt': row.net_wt ?? '',
+        Image: row.image_name ?? '',
+        Status: row.Status ?? '',
+      }));
+    }
+
+    return filteredStock.map((row, index) => ({
+      'S.No': index + 1,
+      'Delivery Challan No': row.deliveryChallanNo ?? '',
+      'User ID': row.userId ?? '',
+      'Customer Name': row.customerName ?? '',
+      'Item Code': row.ItemCode ?? '',
+      'RFID Code': row.RFIDCode ?? '',
+      'Gross Wt': row.GrossWt ?? '',
+      'Net Wt': row.NetWt ?? '',
+      Date: row.Date ?? '',
+    }));
+  };
+
+  const getExportMeta = () => {
+    const dateStamp = new Date().toISOString().split('T')[0];
+    if (listMode === 'sold') {
+      return {
+        sheetName: 'Sold Items',
+        filePrefix: 'SoldItems',
+        title: 'Sold Item List',
+        fileName: `SoldItems_${dateStamp}`,
+      };
+    }
+    return {
+      sheetName: 'Delivery Challans',
+      filePrefix: 'DeliveryChallans',
+      title: 'Delivery Challans',
+      fileName: `DeliveryChallans_${dateStamp}`,
+    };
+  };
+
+  const handleExportToExcel = () => {
+    if (filteredStock.length === 0) {
+      setSoldResult({
+        success: false,
+        message: 'No data to export for the current filters.',
+      });
+      return;
+    }
+
+    try {
+      const exportData = buildExportRows();
+      const { sheetName, fileName } = getExportMeta();
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, `${fileName}.xlsx`);
+
+      setSoldResult({
+        success: true,
+        message: `Exported ${filteredStock.length} row(s) to ${fileName}.xlsx.`,
+      });
+    } catch (err) {
+      setSoldResult({
+        success: false,
+        message: err?.message || 'Failed to export Excel file.',
+      });
+    }
+  };
+
+  const handleExportToPDF = () => {
+    if (filteredStock.length === 0) {
+      setSoldResult({
+        success: false,
+        message: 'No data to export for the current filters.',
+      });
+      return;
+    }
+
+    try {
+      const exportData = buildExportRows();
+      const headers = Object.keys(exportData[0] || {});
+      const tableData = exportData.map((row) =>
+        headers.map((key) => String(row[key] ?? ''))
+      );
+      const { title, fileName } = getExportMeta();
+
+      const doc = new jsPDF('landscape');
+      doc.setFontSize(14);
+      doc.text(title, 14, 16);
+      doc.setFontSize(10);
+      doc.text(`Exported: ${new Date().toLocaleString('en-GB')}`, 14, 23);
+      doc.text(`Total rows: ${exportData.length}`, 14, 29);
+      if (listMode === 'active' && (dateFrom || dateTo)) {
+        doc.text(`Date range: ${dateFrom || '...'} to ${dateTo || '...'}`, 14, 35);
+      }
+
+      doc.autoTable({
+        head: [headers],
+        body: tableData,
+        startY: listMode === 'active' && (dateFrom || dateTo) ? 40 : 34,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: {
+          fillColor: [13, 148, 136],
+          textColor: 255,
+          fontSize: 8,
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: 8, right: 8 },
+      });
+
+      doc.save(`${fileName}.pdf`);
+
+      setSoldResult({
+        success: true,
+        message: `Exported ${filteredStock.length} row(s) to ${fileName}.pdf.`,
+      });
+    } catch (err) {
+      setSoldResult({
+        success: false,
+        message: err?.message || 'Failed to export PDF file.',
+      });
+    }
   };
 
   const buildSoldPayloadFromChallan = (row, fallbackUser) => {
@@ -967,6 +1149,66 @@ const VarakrupaSoldItemToUser = () => {
                 Refresh
               </button>
 
+              <button
+                type="button"
+                onClick={handleExportToExcel}
+                disabled={inventoryLoading || filteredStock.length === 0}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#fff',
+                  background:
+                    inventoryLoading || filteredStock.length === 0
+                      ? '#94a3b8'
+                      : '#059669',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor:
+                    inventoryLoading || filteredStock.length === 0
+                      ? 'not-allowed'
+                      : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  height: 32,
+                  boxSizing: 'border-box',
+                }}
+              >
+                <FaFileExport size={14} />
+                Excel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportToPDF}
+                disabled={inventoryLoading || filteredStock.length === 0}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#fff',
+                  background:
+                    inventoryLoading || filteredStock.length === 0
+                      ? '#94a3b8'
+                      : '#dc2626',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor:
+                    inventoryLoading || filteredStock.length === 0
+                      ? 'not-allowed'
+                      : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  height: 32,
+                  boxSizing: 'border-box',
+                }}
+              >
+                <FaFilePdf size={14} />
+                PDF
+              </button>
+
               {listMode === 'active' && (
                 <button
                   type="button"
@@ -1122,6 +1364,90 @@ const VarakrupaSoldItemToUser = () => {
                 boxSizing: 'border-box',
               }}
             />
+
+            {listMode === 'active' && (
+              <>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 13,
+                    color: '#475569',
+                  }}
+                >
+                  From
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    max={dateTo || undefined}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      setPage(1);
+                    }}
+                    style={{
+                      padding: '6px 8px',
+                      fontSize: 13,
+                      border: '1px solid #dfe7f1',
+                      borderRadius: 5,
+                      height: 32,
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </label>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 13,
+                    color: '#475569',
+                  }}
+                >
+                  To
+                  <input
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom || undefined}
+                    onChange={(e) => {
+                      setDateTo(e.target.value);
+                      setPage(1);
+                    }}
+                    style={{
+                      padding: '6px 8px',
+                      fontSize: 13,
+                      border: '1px solid #dfe7f1',
+                      borderRadius: 5,
+                      height: 32,
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </label>
+                {(dateFrom || dateTo) && (
+                  <button
+                    type="button"
+                    onClick={handleClearDateFilter}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: TEAL_DARK,
+                      background: '#ecfdf5',
+                      border: '1px solid #99f6e4',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      height: 32,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    Clear dates
+                  </button>
+                )}
+              </>
+            )}
+
             <span style={{ fontSize: 13, color: '#475569' }}>
               {filteredStock.length} of {inventory.length}{' '}
               {listMode === 'sold' ? 'items' : 'challans'}
@@ -1131,6 +1457,9 @@ const VarakrupaSoldItemToUser = () => {
                 : ''}
               {listMode === 'active' && selectedKeys.size > 0
                 ? ` · ${selectedKeys.size} selected`
+                : ''}
+              {listMode === 'active' && (dateFrom || dateTo)
+                ? ` · Date: ${dateFrom || '...'} to ${dateTo || '...'}`
                 : ''}
             </span>
           </div>

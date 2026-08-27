@@ -7,6 +7,8 @@ import '@fortawesome/fontawesome-free/css/all.min.css';
 import { getAuthForgotPasswordUrl, getAuthLoginUrl } from '../services/authApiConfig';
 import { getApiMode } from '../services/apiBaseConfig';
 import OfflineApiBaseSettingsForm from './OfflineApiBaseSettingsForm';
+import { useAuthSplitSwap } from '../hooks/useAuthSplitSwap';
+import { AUTH_HERO_SLIDES } from '../data/authHeroSlides';
 import {
   createFingerprintChallenge,
   verifyLogin,
@@ -186,26 +188,8 @@ const ZohoToast = ({ closeToast, toastProps, message }) => (
   </div>
 );
 
-const infoSlides = [
-  {
-    img: `${process.env.PUBLIC_URL || ''}/images/Mobile%20App.png`,
-    title: 'Mobile Device Interface',
-    desc: 'A handheld mobile device with a user-friendly interface for managing tasks like product listing, inventory tracking, billing, stock reports, and issue tracking. Easily syncs with your RFID system for real-time updates and seamless workflow. Supports barcode and RFID scanning, photo capture, and instant notifications. Designed for reliability and ease of use in demanding environments.',
-    link: '#',
-  },
-  {
-    img: `${process.env.PUBLIC_URL || ''}/images/Gate.png`,
-    title: 'RFID Gate',
-    desc: 'A sleek, professional RFID gate designed for seamless inventory management and tracking, branded with "Loyal String." Automates entry/exit logging and enhances security for your assets. Integrates with your ERP and alert systems for real-time monitoring. Built for high-traffic, industrial environments.',
-    link: '#',
-  },
-  {
-    img: `${process.env.PUBLIC_URL || ''}/images/RFID%20GUN.png`,
-    title: 'RFID Handheld Scanner',
-    desc: 'A rugged RFID scanner with a handle, providing efficient and portable scanning capabilities for inventory management. Scan, verify, and audit inventory anywhere in your facility. Long battery life, drop-resistant, and easy to operate. Ideal for stocktaking, audits, and on-the-go asset tracking.',
-    link: '#',
-  },
-];
+const SPARKLE_LOGO = `${process.env.PUBLIC_URL || ''}/Logo/sparkle-logo.png`;
+const heroSlides = AUTH_HERO_SLIDES;
 
 const SAVED_LOGIN_CREDENTIALS_KEY = 'savedLoginCredentials';
 
@@ -266,11 +250,11 @@ const Login = () => {
   const [slide, setSlide] = useState(0);
   const [animating, setAnimating] = useState(false);
   const [showOfflineApiModal, setShowOfflineApiModal] = useState(false);
-  const prevSlide = useRef(slide);
   const faceVideoRef = useRef(null);
   const faceStreamRef = useRef(null);
   const stopFaceTrackingRef = useRef(null);
   const navigate = useNavigate();
+  const isRegisterLayout = useAuthSplitSwap(false);
 
   useEffect(() => {
     try {
@@ -336,9 +320,16 @@ const Login = () => {
   }, [showOfflineApiModal]);
 
   useEffect(() => {
+    AUTH_HERO_SLIDES.forEach((item) => {
+      const preload = new Image();
+      preload.src = item.img;
+    });
+  }, []);
+
+  useEffect(() => {
     setAnimating(true);
     const timer = setTimeout(() => {
-      setSlide((slide + 1) % infoSlides.length);
+      setSlide((slide + 1) % heroSlides.length);
     }, 5000);
     const animTimer = setTimeout(() => setAnimating(false), 400);
     return () => {
@@ -1040,74 +1031,15 @@ const Login = () => {
     await handleFingerprintLogin();
   };
 
-  const glassCard = {
-    background: 'rgba(255, 255, 255, 0.25)',
-    backdropFilter: 'blur(20px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-    border: '1px solid rgba(255, 255, 255, 0.4)',
-    boxShadow: '0 8px 32px rgba(31, 38, 135, 0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-  };
-
-  const inputGlass = {
-    background: 'rgba(255, 255, 255, 0.6)',
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
-    border: '1px solid rgba(255, 255, 255, 0.5)',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.8)',
-  };
-
-  const compactAuthBtnBase = {
-    borderRadius: 12,
-    border: '1px solid rgba(99, 102, 241, 0.2)',
-    padding: '9px 10px',
-    fontSize: '0.68rem',
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    fontFamily: 'inherit',
-    transition: 'all 0.2s',
-    minHeight: 40,
-    whiteSpace: 'nowrap',
-  };
-
   return (
     <>
       <style>{`
         body, html { overflow: hidden !important; height: 100% !important; margin: 0; }
-        .login-page-wrapper { animation: fadeIn 0.35s ease-out; }
-        @keyframes fadeIn { from { opacity: 1; transform: translateY(0); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fpTickPop { 0% { transform: scale(0.7); opacity: 0; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
         @keyframes fpTickDraw { to { stroke-dashoffset: 0; } }
         .fas, .far, .fal, .fab { font-family: "Font Awesome 5 Free" !important; font-weight: 900 !important; display: inline-block !important; font-style: normal !important; line-height: 1 !important; }
-        .login-form-input:focus { outline: none; border-color: rgba(99, 102, 241, 0.6) !important; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important; }
-        @media (max-width: 900px) {
-          .login-info-panel { display: none !important; }
-          .login-form-wrap { max-width: 420px !important; margin: 0 auto !important; }
-        }
-        @media (max-width: 480px) {
-          .login-form-card-inner { padding: 20px 18px !important; }
-          .login-title { font-size: 1.35rem !important; }
-          .login-sub { font-size: 0.7rem !important; }
-        }
       `}</style>
-      <div
-        className="login-page-wrapper"
-        style={{
-          minHeight: '100vh',
-          height: '100vh',
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          fontFamily: "'Inter', 'Poppins', sans-serif",
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          overflow: 'hidden',
-          background: 'linear-gradient(135deg, #e0e7ff 0%, #f5f3ff 25%, #faf5ff 50%, #fef3f2 75%, #eff6ff 100%)',
-        }}
-      >
+      <div className="login-page-wrapper">
         {showFingerprintPrompt && (
           <div style={{
             position: 'fixed',
@@ -1499,334 +1431,190 @@ const Login = () => {
           newestOnTop
         />
 
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 'clamp(12px, 2.5vw, 24px)',
-            minHeight: 0,
-            overflow: 'auto',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'stretch',
-              justifyContent: 'center',
-              gap: 'clamp(16px, 3vw, 24px)',
-              width: '100%',
-              maxWidth: 820,
-              minHeight: 0,
-              flexWrap: 'wrap',
-            }}
-          >
-            {/* Form card - compact glass */}
-            <div
-              className="login-form-wrap"
-              style={{
-                flex: '1 1 380px',
-                minWidth: 280,
-                maxWidth: 420,
-                borderRadius: 20,
-                overflow: 'hidden',
-                ...glassCard,
-                display: 'flex',
-                flexDirection: 'column',
-                maxHeight: 'min(520px, 85vh)',
-              }}
-            >
-              <div
-                className="login-form-card-inner"
-                style={{
-                  padding: 'clamp(20px, 3vw, 28px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flex: 1,
-                  minHeight: 0,
-                }}
-              >
-                <div style={{ textAlign: 'center', marginBottom: 'clamp(14px, 2vw, 20px)' }}>
-                  <img
-                    src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
-                    alt="Sparkle RFID"
-                    style={{ height: 32, width: 'auto', marginBottom: 10 }}
-                    onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
-                  />
-                  <h1 className="login-title" style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e1b4b', margin: '0 0 4px 0', letterSpacing: '-0.02em' }}>
-                    Login to RFID Dashboard
-                  </h1>
-                  <p className="login-sub" style={{ color: '#6366f1', fontSize: '0.75rem', fontWeight: 500, margin: 0 }}>
-                    Smart Tracking • Secure Access
-                  </p>
-                </div>
-
-                {error && (
-                  <div style={{
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    color: '#b91c1c',
-                    padding: '8px 12px',
-                    borderRadius: 10,
-                    marginBottom: 14,
-                    fontSize: '0.7rem',
-                    fontWeight: 500,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    border: '1px solid rgba(239, 68, 68, 0.25)',
-                  }}>
-                    <i className="fas fa-exclamation-circle" style={{ fontSize: 12 }}></i>
-                    {error}
-                  </div>
-                )}
-
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
-                  <div style={{ position: 'relative' }}>
-                    <i className="fas fa-user" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#6366f1', fontSize: 14, zIndex: 1 }}></i>
-                    <input
-                      type="text"
-                      name="LoginName"
-                      value={formData.LoginName}
-                      onChange={handleChange}
-                      required
-                      placeholder="Username"
-                      className="login-form-input"
-                      style={{
-                        width: '100%',
-                        padding: '10px 14px 10px 40px',
-                        fontSize: '0.8rem',
-                        color: '#1e1b4b',
-                        borderRadius: 12,
-                        fontWeight: 400,
-                        transition: 'all 0.2s',
-                        fontFamily: 'inherit',
-                        boxSizing: 'border-box',
-                        ...inputGlass,
-                      }}
+        <div className={`login-split${isRegisterLayout ? ' is-register' : ''}`}>
+          <div className="login-left">
+            <div className="login-left-body">
+              <div className="login-form-shell">
+                <div className="login-form-card">
+                  <div className="login-brand-wrap">
+                    <img
+                      src={SPARKLE_LOGO}
+                      alt="Sparkle RFID"
+                      className="login-brand-logo"
+                      onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
                     />
                   </div>
-                  <div style={{ position: 'relative' }}>
-                    <i className="fas fa-lock" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#6366f1', fontSize: 14, zIndex: 1 }}></i>
+                  <h1 className="login-title">Login to RFID Dashboard</h1>
+                  <p className="login-sub">Smart Tracking • Secure Access</p>
+
+              {error && (
+                <div className="login-error">
+                  <i className="fas fa-exclamation-circle" style={{ fontSize: 12 }}></i>
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="login-form">
+                <div className="login-field">
+                  <label htmlFor="login-username">Username</label>
+                  <input
+                    id="login-username"
+                    type="text"
+                    name="LoginName"
+                    value={formData.LoginName}
+                    onChange={handleChange}
+                    required
+                    placeholder="Enter your username"
+                    className="login-form-input"
+                    autoComplete="username"
+                  />
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="login-password">Password</label>
+                  <div className="login-form-input-wrap">
                     <input
+                      id="login-password"
                       type={showPassword ? 'text' : 'password'}
                       name="Password"
                       value={formData.Password}
                       onChange={handleChange}
                       required
-                      placeholder="Password"
+                      placeholder="Enter your password"
                       className="login-form-input"
-                      style={{
-                        width: '100%',
-                        padding: '10px 40px 10px 40px',
-                        fontSize: '0.8rem',
-                        color: '#1e1b4b',
-                        borderRadius: 12,
-                        fontWeight: 400,
-                        transition: 'all 0.2s',
-                        fontFamily: 'inherit',
-                        boxSizing: 'border-box',
-                        ...inputGlass,
-                      }}
+                      autoComplete="current-password"
                     />
                     <button
                       type="button"
+                      className="login-pw-toggle"
                       onClick={() => setShowPassword(!showPassword)}
-                      style={{
-                        position: 'absolute',
-                        right: 10,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none',
-                        border: 'none',
-                        color: '#64748b',
-                        cursor: 'pointer',
-                        padding: 4,
-                        zIndex: 1,
-                        fontSize: 14,
-                      }}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
                     >
                       <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
                     </button>
                   </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: -2, color: '#475569', fontSize: '0.72rem', fontWeight: 600 }}>
+                </div>
+
+                <div className="login-row">
+                  <label className="login-remember">
                     <input
                       type="checkbox"
                       checked={rememberCredentials}
                       onChange={(e) => setRememberCredentials(e.target.checked)}
-                      style={{ width: 14, height: 14, cursor: 'pointer' }}
                     />
-                    Remember username and password
+                    Remember me
                   </label>
-
                   <button
-                    type="submit"
-                    disabled={loading || fingerprintLoading || passkeyLoading}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 12,
-                      fontSize: '0.85rem',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      cursor: (loading || fingerprintLoading || passkeyLoading) ? 'not-allowed' : 'pointer',
-                      opacity: (loading || fingerprintLoading || passkeyLoading) ? 0.8 : 1,
-                      transition: 'all 0.2s',
-                      fontFamily: 'inherit',
-                      marginTop: 4,
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+                    type="button"
+                    className="login-forgot-btn"
+                    onClick={() => {
+                      setForgotPasswordData({
+                        LoginName: formData.LoginName || '',
+                        ClientCode: '',
+                        CurrentPassword: '',
+                        NewPassword: '',
+                        ConfirmPassword: '',
+                      });
+                      setShowForgotPasswordPrompt(true);
                     }}
                   >
-                    {loading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
-                        <span>Signing in...</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-sign-in-alt" style={{ fontSize: 12 }}></i>
-                        <span>Login</span>
-                      </>
-                    )}
+                    Forgot password?
                   </button>
+                </div>
 
-                  <div style={{ marginTop: 2 }}>
-                    <p style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Quick sign-in
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                      <button
-                        type="button"
-                        onClick={handleFingerprintLogin}
-                        disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
-                        style={{
-                          ...compactAuthBtnBase,
-                          background: 'rgba(255,255,255,0.75)',
-                          color: '#3730a3',
-                          border: '1px solid rgba(99, 102, 241, 0.3)',
-                          cursor: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 'not-allowed' : 'pointer',
-                          opacity: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 0.72 : 1,
-                        }}
-                        title="Login with Fingerprint"
-                      >
-                        {fingerprintLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <i className="fas fa-fingerprint" style={{ fontSize: 12 }}></i>}
-                        <span>{fingerprintLoading ? 'Checking' : 'Fingerprint'}</span>
-                      </button>
+                <button
+                  type="submit"
+                  className="login-btn-primary"
+                  disabled={loading || fingerprintLoading || passkeyLoading}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
+                      <span>Signing in...</span>
+                    </>
+                  ) : (
+                    <span>Login</span>
+                  )}
+                </button>
 
-                      <button
-                        type="button"
-                        onClick={handlePasskeyLogin}
-                        disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
-                        style={{
-                          ...compactAuthBtnBase,
-                          background: 'linear-gradient(135deg, rgba(13,148,136,0.08) 0%, rgba(99,102,241,0.08) 100%)',
-                          color: '#0f766e',
-                          border: '1px solid rgba(13, 148, 136, 0.3)',
-                          cursor: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 'not-allowed' : 'pointer',
-                          opacity: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 0.72 : 1,
-                        }}
-                        title="Sign in with passkey"
-                      >
-                        {passkeyLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <i className="fas fa-key" style={{ fontSize: 12 }}></i>}
-                        <span>{passkeyLoading ? 'Waiting' : 'Passkey'}</span>
-                      </button>
+                <div className="login-alt">
+                  <span className="login-alt-line" />
+                  <span className="login-alt-text">or continue with</span>
+                  <span className="login-alt-line" />
+                </div>
+                <div className="login-alt-row">
+                  <button
+                    type="button"
+                    className="login-alt-link"
+                    onClick={handleFingerprintLogin}
+                    disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
+                    title="Fingerprint"
+                  >
+                    {fingerprintLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 11, height: 11, borderWidth: 2 }} /> : <i className="fas fa-fingerprint"></i>}
+                    Fingerprint
+                  </button>
+                  <span className="login-alt-dot">·</span>
+                  <button
+                    type="button"
+                    className="login-alt-link"
+                    onClick={handlePasskeyLogin}
+                    disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
+                    title="Passkey"
+                  >
+                    {passkeyLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 11, height: 11, borderWidth: 2 }} /> : <i className="fas fa-key"></i>}
+                    Passkey
+                  </button>
+                  <span className="login-alt-dot">·</span>
+                  <button
+                    type="button"
+                    className="login-alt-link"
+                    onClick={handleFaceLogin}
+                    disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
+                    title="Face ID"
+                  >
+                    {faceLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 11, height: 11, borderWidth: 2 }} /> : <i className="fas fa-camera"></i>}
+                    Face ID
+                  </button>
+                </div>
 
-                      <button
-                        type="button"
-                        onClick={handleFaceLogin}
-                        disabled={loading || fingerprintLoading || passkeyLoading || faceLoading}
-                        style={{
-                          ...compactAuthBtnBase,
-                          background: 'linear-gradient(135deg, rgba(124,58,237,0.08) 0%, rgba(99,102,241,0.08) 100%)',
-                          color: '#6d28d9',
-                          border: '1px solid rgba(124, 58, 237, 0.3)',
-                          cursor: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 'not-allowed' : 'pointer',
-                          opacity: (loading || fingerprintLoading || passkeyLoading || faceLoading) ? 0.72 : 1,
-                        }}
-                        title="Sign in with Face ID"
-                      >
-                        {faceLoading ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }} /> : <i className="fas fa-camera" style={{ fontSize: 12 }}></i>}
-                        <span>{faceLoading ? 'Verifying' : 'Face ID'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.7rem', marginTop: 2 }}>
-                    <span style={{ color: '#64748b' }}>Forgot password?</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setForgotPasswordData({
-                          LoginName: formData.LoginName || '',
-                          ClientCode: '',
-                          CurrentPassword: '',
-                          NewPassword: '',
-                          ConfirmPassword: '',
-                        });
-                        setShowForgotPasswordPrompt(true);
-                      }}
-                      style={{ background: 'none', border: 'none', color: '#6366f1', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-                    >
-                      Reset
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.7rem', paddingTop: 12, marginTop: 'auto', borderTop: '1px solid rgba(255,255,255,0.5)' }}>
-                    <span style={{ color: '#64748b' }}>Don't have an account?</span>
-                    <button type="button" onClick={() => navigate('/register')} style={{ background: 'none', border: 'none', color: '#8b5cf6', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
-                      <i className="fas fa-user-plus" style={{ fontSize: 11 }}></i>
-                      <span>Register</span>
-                    </button>
-                  </div>
-                </form>
+                <div className="login-register-row">
+                  <span>Don&apos;t have an account? </span>
+                  <button type="button" className="login-register-btn" onClick={() => navigate('/register', { state: { fromAuth: 'login' } })}>
+                    Register
+                  </button>
+                </div>
+              </form>
+                </div>
               </div>
             </div>
 
-            {/* Right: Glass info panel - hidden on small screens */}
-            <div
-              className="login-info-panel"
-              style={{
-                flex: '1 1 340px',
-                minWidth: 280,
-                maxWidth: 380,
-                borderRadius: 20,
-                overflow: 'hidden',
-                ...glassCard,
-                padding: 'clamp(20px, 2.5vw, 28px)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                maxHeight: 'min(520px, 85vh)',
-              }}
-            >
-              <div style={{ width: '100%', textAlign: 'center', transition: 'all 0.4s', opacity: animating ? 0 : 1, transform: animating ? 'translateY(12px)' : 'translateY(0)' }}>
-                <img
-                  src={infoSlides[slide].img}
-                  alt={infoSlides[slide].title}
-                  style={{ width: 100, height: 100, objectFit: 'contain', borderRadius: 14, marginBottom: 14 }}
-                />
-                <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e1b4b', margin: '0 0 8px 0' }}>{infoSlides[slide].title}</h2>
-                <p style={{ fontSize: '0.7rem', color: '#64748b', lineHeight: 1.5, margin: '0 0 14px 0' }}>{infoSlides[slide].desc}</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 6 }}>
-                  {['Real-time Sync', 'Analytics', 'Secure', 'Fast'].map((label, i) => (
-                    <span key={i} style={{ padding: '4px 10px', background: 'rgba(99, 102, 241, 0.15)', borderRadius: 8, fontSize: '0.65rem', color: '#6366f1', fontWeight: 500 }}>
-                      {label}
-                    </span>
+            <div className="login-left-foot">
+              <span>© 2025, LoyalString International Pvt Ltd.</span>
+              <span>All Rights Reserved.</span>
+            </div>
+          </div>
+
+          <div className="login-right">
+            <img
+              src={heroSlides[slide].img}
+              alt=""
+              className={`login-hero-img login-hero-img--${heroSlides[slide].fit || 'cover'}${animating ? ' is-fading' : ''}`}
+            />
+            <div className="login-hero-overlay">
+              <div className={`login-hero-copy${animating ? ' is-fading' : ''}`}>
+                <h2 className="login-hero-title">{heroSlides[slide].title}</h2>
+                <p className="login-hero-desc">{heroSlides[slide].desc}</p>
+                <div className="login-hero-dots">
+                  {heroSlides.map((_, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      className={`login-hero-dot${index === slide ? ' is-active' : ''}`}
+                      aria-label={`Show slide ${index + 1}`}
+                      onClick={() => setSlide(index)}
+                    />
                   ))}
                 </div>
-                <a href={infoSlides[slide].link} target="_blank" rel="noopener noreferrer" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 14,
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', color: '#fff', borderRadius: 10, padding: '8px 20px', fontWeight: 600, fontSize: '0.75rem', textDecoration: 'none', fontFamily: 'inherit',
-                }}>
-                  <i className="fas fa-arrow-right" style={{ fontSize: 10 }}></i> Learn more
-                </a>
               </div>
             </div>
           </div>
@@ -1938,19 +1726,6 @@ const Login = () => {
             )}
           </>
         )}
-
-        <footer style={{
-          padding: '8px 12px',
-          textAlign: 'center',
-          fontSize: '0.65rem',
-          color: '#94a3b8',
-          fontFamily: 'inherit',
-          background: 'rgba(255,255,255,0.3)',
-          backdropFilter: 'blur(8px)',
-          borderTop: '1px solid rgba(255,255,255,0.4)',
-        }}>
-          © 2025, LoyalString International Pvt Ltd. All Rights Reserved.
-        </footer>
       </div>
     </>
   );

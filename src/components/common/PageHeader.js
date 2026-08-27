@@ -12,20 +12,18 @@ const defaultBar = {
 };
 
 /**
- * Shared page title row: icon, title, optional subtitle, optional actions.
+ * Shared page title row: title, optional subtitle, optional actions.
+ * No icon — keep this text-only so every page looks the same.
  */
 const PageHeader = ({
-  isSmallScreen = false,
   title,
   subtitle,
-  icon,
-  iconGradient = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-  iconShadow,
   barStyle,
   actions,
+  className = '',
 }) => {
   return (
-    <div style={{ ...defaultBar, ...barStyle }}>
+    <div className={`app-page-header ${className}`.trim()} style={{ ...defaultBar, ...barStyle }}>
       <div
         style={{
           display: 'flex',
@@ -35,38 +33,11 @@ const PageHeader = ({
           minWidth: 0,
         }}
       >
-        {icon != null && (
-          <div
-            style={{
-              width: isSmallScreen ? 36 : 42,
-              height: isSmallScreen ? 36 : 42,
-              borderRadius: 10,
-              background: iconGradient,
-              boxShadow: iconShadow || '0 2px 8px rgba(99, 102, 241, 0.25)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              flexShrink: 0,
-            }}
-          >
-            {icon}
-          </div>
-        )}
         <div style={{ minWidth: 0 }}>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
-              fontWeight: 800,
-              color: '#0f172a',
-              fontFamily: 'var(--font-family)',
-              lineHeight: 1.2,
-            }}
-          >
+          <h1 className="app-page-title">
             {title}
           </h1>
-          {subtitle ? <div style={{ marginTop: 4 }}>{subtitle}</div> : null}
+          {subtitle ? <div className="app-page-subtitle" style={{ marginTop: 2 }}>{subtitle}</div> : null}
         </div>
       </div>
       {actions != null ? (

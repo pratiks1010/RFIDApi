@@ -18,7 +18,6 @@ import {
   FaRedoAlt,
   FaTimes,
   FaCubes,
-  FaSearch,
   FaEdit,
   FaTrashAlt,
   FaRupeeSign,
@@ -26,6 +25,10 @@ import {
   FaStore,
   FaUserFriends,
 } from 'react-icons/fa';
+import '../styles/CreateMasters.css';
+import { IconActionButton, MasterListCard } from './create-masters';
+import UiButton from './common/UiButton';
+import PageHeader from './common/PageHeader';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://rrgold.loyalstring.co.in';
 const API_BASE_SONI = 'https://soni.loyalstring.co.in';
@@ -1157,82 +1160,82 @@ const CreateMasters = () => {
 
   const getListColumns = () => {
     const cols = (arr) => arr.filter(Boolean);
-    const srNo = { key: 'srNo', label: 'Sr. No.', width: '64px' };
+    const srNo = { key: 'srNo', label: 'Sr.' };
     switch (activeOption) {
       case 'category':
         return cols([
           srNo,
-          { key: 'CategoryName', label: 'Category Name' },
-          { key: 'ShortName', label: 'Short Name', width: '90px' },
-          { key: 'Slug', label: 'Slug', width: '100px' },
-          { key: 'HSNCode', label: 'HSN Code', width: '80px' },
-          { key: 'Status', label: 'Status', width: '70px' },
+          { key: 'CategoryName', label: 'Category Name', primary: true },
+          { key: 'ShortName', label: 'Short Name' },
+          { key: 'Slug', label: 'Slug' },
+          { key: 'HSNCode', label: 'HSN Code' },
+          { key: 'Status', label: 'Status', badge: true },
         ]);
       case 'product':
         return cols([
           srNo,
-          { key: 'ProductName', label: 'Product Name' },
-          { key: 'ShortName', label: 'Short Name', width: '90px' },
-          { key: 'CategoryName', label: 'Category', width: '100px' },
-          { key: 'Status', label: 'Status', width: '70px' },
+          { key: 'ProductName', label: 'Product Name', primary: true },
+          { key: 'ShortName', label: 'Short Name' },
+          { key: 'CategoryName', label: 'Category' },
+          { key: 'Status', label: 'Status', badge: true },
         ]);
       case 'design':
         return cols([
           srNo,
-          { key: 'DesignName', label: 'Design Name' },
-          { key: 'LabelCode', label: 'Label Code', width: '90px' },
-          { key: 'CategoryName', label: 'Category', width: '90px' },
-          { key: 'ProductName', label: 'Product', width: '90px' },
-          { key: 'Status', label: 'Status', width: '70px' },
+          { key: 'DesignName', label: 'Design Name', primary: true },
+          { key: 'LabelCode', label: 'Label Code' },
+          { key: 'CategoryName', label: 'Category' },
+          { key: 'ProductName', label: 'Product' },
+          { key: 'Status', label: 'Status', badge: true },
         ]);
       case 'purity':
         return cols([
           srNo,
-          { key: 'PurityName', label: 'Purity Name' },
-          { key: 'ShortName', label: 'Short Name', width: '90px' },
-          { key: 'FinePercentage', label: 'Fine %', width: '70px' },
-          { key: 'Status', label: 'Status', width: '70px' },
+          { key: 'PurityName', label: 'Purity Name', primary: true },
+          { key: 'ShortName', label: 'Short Name' },
+          { key: 'FinePercentage', label: 'Fine %' },
+          { key: 'Status', label: 'Status', badge: true },
         ]);
       case 'counter':
         return cols([
           srNo,
-          { key: 'CounterName', label: 'Counter Name' },
-          { key: 'CounterNumber', label: 'Counter No', width: '90px' },
-          { key: 'BranchName', label: 'Branch', width: '100px' },
+          { key: 'CounterName', label: 'Counter Name', primary: true },
+          { key: 'CounterNumber', label: 'Counter No' },
+          { key: 'BranchName', label: 'Branch' },
           { key: 'CounterDescription', label: 'Description' },
         ]);
       case 'box':
         return cols([
           srNo,
-          { key: 'BoxName', label: 'Box Name' },
-          { key: 'CategoryName', label: 'Category', width: '90px' },
-          { key: 'ProductName', label: 'Product', width: '90px' },
-          { key: 'EmptyWeight', label: 'Empty Wt', width: '80px' },
-          { key: 'RFIDCode', label: 'RFID', width: '90px' },
-          { key: 'HexCode', label: 'Hex', width: '90px' },
-          { key: 'IsRfidTagged', label: 'Tagged', width: '70px' },
-          { key: 'Status', label: 'Status', width: '70px' },
+          { key: 'BoxName', label: 'Box Name', primary: true },
+          { key: 'CategoryName', label: 'Category' },
+          { key: 'ProductName', label: 'Product' },
+          { key: 'EmptyWeight', label: 'Empty Wt' },
+          { key: 'RFIDCode', label: 'RFID' },
+          { key: 'HexCode', label: 'Hex' },
+          { key: 'IsRfidTagged', label: 'Tagged', badge: true },
+          { key: 'Status', label: 'Status', badge: true },
         ]);
       case 'packet':
         return cols([
           srNo,
-          { key: 'PacketName', label: 'Packet Name' },
-          { key: 'CategoryName', label: 'Category', width: '90px' },
-          { key: 'ProductName', label: 'Product', width: '90px' },
-          { key: 'Status', label: 'Status', width: '70px' },
+          { key: 'PacketName', label: 'Packet Name', primary: true },
+          { key: 'CategoryName', label: 'Category' },
+          { key: 'ProductName', label: 'Product' },
+          { key: 'Status', label: 'Status', badge: true },
         ]);
       case 'branch':
         return cols([
           srNo,
-          { key: 'BranchName', label: 'Branch Name' },
+          { key: 'BranchName', label: 'Branch Name', primary: true },
           { key: 'Name', label: 'Name' },
-          { key: 'Code', label: 'Code', width: '80px' },
-          { key: 'City', label: 'City', width: '90px' },
-          { key: 'State', label: 'State', width: '90px' },
-          { key: 'BranchType', label: 'Type', width: '70px' },
+          { key: 'Code', label: 'Code' },
+          { key: 'City', label: 'City' },
+          { key: 'State', label: 'State' },
+          { key: 'BranchType', label: 'Type', badge: true },
         ]);
       default:
-        return [srNo, { key: 'Name', label: 'Name' }];
+        return [srNo, { key: 'Name', label: 'Name', primary: true }];
     }
   };
 
@@ -1821,8 +1824,6 @@ const CreateMasters = () => {
       flexShrink: 0,
       boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
     },
-    title: { margin: 0, fontSize: 16, fontWeight: 600, color: '#0f172a' },
-    subtitle: { margin: '2px 0 0', fontSize: 11, color: '#64748b' },
     layout: {
       flex: 1,
       display: 'flex',
@@ -1833,27 +1834,9 @@ const CreateMasters = () => {
     nav: {
       width: 180,
       flexShrink: 0,
-      background: '#ffffff',
-      borderRight: '1px solid #e2e8f0',
-      padding: '6px 0',
+      padding: '8px 0',
       overflowY: 'auto',
     },
-    navItem: (active, color) => ({
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      width: '100%',
-      padding: '6px 12px',
-      border: 'none',
-      borderLeft: active ? `3px solid ${color}` : '3px solid transparent',
-      background: active ? `${color}14` : 'transparent',
-      color: active ? color : '#475569',
-      fontSize: 12,
-      fontWeight: active ? 600 : 500,
-      cursor: 'pointer',
-      textAlign: 'left',
-      transition: 'background 0.15s, color 0.15s',
-    }),
     content: {
       flex: 1,
       padding: 16,
@@ -1877,8 +1860,8 @@ const CreateMasters = () => {
       boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
     },
     cardTitle: {
-      fontSize: 13,
-      fontWeight: 600,
+      fontSize: 'var(--ui-section)',
+      fontWeight: 700,
       color: '#111827',
       marginBottom: 10,
       paddingBottom: 8,
@@ -1888,15 +1871,15 @@ const CreateMasters = () => {
     fieldGroup: { marginBottom: 10 },
     label: {
       display: 'block',
-      fontSize: 11,
-      fontWeight: 500,
+      fontSize: 'var(--ui-label)',
+      fontWeight: 600,
       color: '#4b5563',
       marginBottom: 3,
     },
     input: {
       width: '100%',
-      padding: '6px 10px',
-      fontSize: 12,
+      padding: '5px 9px',
+      fontSize: 'var(--ui-input)',
       border: '1px solid #cbd5e1',
       borderRadius: 6,
       background: '#fff',
@@ -1906,7 +1889,7 @@ const CreateMasters = () => {
     textarea: {
       width: '100%',
       padding: '5px 8px',
-      fontSize: 12,
+      fontSize: 'var(--ui-input)',
       border: '1px solid #d1d5db',
       borderRadius: 4,
       background: '#fff',
@@ -1918,8 +1901,8 @@ const CreateMasters = () => {
     },
     select: {
       width: '100%',
-      padding: '6px 10px',
-      fontSize: 12,
+      padding: '5px 9px',
+      fontSize: 'var(--ui-input)',
       border: '1px solid #cbd5e1',
       borderRadius: 6,
       background: '#fff',
@@ -1932,7 +1915,7 @@ const CreateMasters = () => {
       alignItems: 'center',
       gap: 6,
       padding: '6px 14px',
-      fontSize: 12,
+      fontSize: 'var(--ui-btn)',
       fontWeight: 600,
       color: '#fff',
       background: loading ? '#94a3b8' : color,
@@ -1945,7 +1928,7 @@ const CreateMasters = () => {
       alignItems: 'center',
       gap: 6,
       padding: '6px 12px',
-      fontSize: 12,
+      fontSize: 'var(--ui-btn)',
       fontWeight: 500,
       color: '#4b5563',
       background: '#fff',
@@ -1981,8 +1964,8 @@ const CreateMasters = () => {
       boxShadow: '0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
     },
     listCardTitle: {
-      fontSize: 13,
-      fontWeight: 600,
+      fontSize: 'var(--ui-section)',
+      fontWeight: 700,
       color: '#334155',
       padding: '10px 14px',
       borderBottom: '1px solid #e2e8f0',
@@ -2001,8 +1984,7 @@ const CreateMasters = () => {
       flex: '1 1 200px',
       minWidth: 140,
       maxWidth: 280,
-      padding: '6px 10px 6px 32px',
-      fontSize: 12,
+      fontSize: 'var(--ui-input)',
       border: '1px solid #cbd5e1',
       borderRadius: 6,
       background: '#fff',
@@ -2016,23 +1998,23 @@ const CreateMasters = () => {
     listTable: {
       width: '100%',
       borderCollapse: 'collapse',
-      fontSize: 11,
+      fontSize: 'var(--ui-table)',
     },
     listTh: {
       textAlign: 'left',
-      padding: '8px 10px',
-      fontWeight: 600,
+      padding: '6px 8px',
+      fontWeight: 700,
       color: '#334155',
       background: 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)',
       borderBottom: '1px solid #cbd5e1',
       whiteSpace: 'nowrap',
-      fontSize: 11,
+      fontSize: 'var(--ui-table-th)',
     },
     listTd: {
-      padding: '6px 10px',
+      padding: '6px 8px',
       borderBottom: '1px solid #f1f5f9',
       color: '#1e293b',
-      fontSize: 12,
+      fontSize: 'var(--ui-table)',
     },
     listPagination: {
       display: 'flex',
@@ -2096,11 +2078,35 @@ const CreateMasters = () => {
     },
   };
 
+  const renderNavItem = (opt) => {
+    const Icon = opt.icon;
+    const isActive = activeOption === opt.id;
+    return (
+      <button
+        key={opt.id}
+        type="button"
+        className={`cm-nav-item${isActive ? ' is-active' : ''}`}
+        onClick={() => {
+          setActiveOption(opt.id);
+          setNavOpen(false);
+        }}
+      >
+        <span className="cm-nav-ico">
+          <Icon size={12} />
+        </span>
+        <span className="cm-nav-label">{opt.label}</span>
+      </button>
+    );
+  };
+
   return (
     <div style={baseStyles.page} className={`create-masters-zoho${navOpen ? ' create-masters-nav-open' : ''}`}>
       <header style={baseStyles.topBar}>
-        <h1 style={baseStyles.title}>Create Masters</h1>
-        <p style={baseStyles.subtitle}>Add and manage categories, products, designs, purity, counters, boxes, branches, rates, employees, vendors, and customers.</p>
+        <PageHeader
+          title="Create Masters"
+          subtitle="Add and manage categories, products, designs, purity, counters, boxes, branches, rates, employees, vendors, and customers."
+          barStyle={{ padding: 0, margin: 0, borderBottom: 'none' }}
+        />
       </header>
 
       {navOpen && (
@@ -2156,104 +2162,10 @@ const CreateMasters = () => {
           }}
           className="create-masters-nav"
         >
-          {MASTER_OPTIONS.map((opt) => {
-            const Icon = opt.icon;
-            const isActive = activeOption === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  setActiveOption(opt.id);
-                  setNavOpen(false);
-                }}
-                style={baseStyles.navItem(isActive, opt.color)}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.background = '#f8f9fa';
-                    e.currentTarget.style.color = '#1f2933';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.color = '#4a5568';
-                  }
-                }}
-              >
-                <span style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 6,
-                  background: isActive ? opt.color : `${opt.color}18`,
-                  color: isActive ? '#fff' : opt.color,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}>
-                  <Icon size={12} />
-                </span>
-                <span style={{ flex: 1, textAlign: 'left' }}>{opt.label}</span>
-              </button>
-            );
-          })}
-          <div
-            style={{
-              padding: '12px 14px 6px',
-              marginTop: 6,
-              borderTop: '1px solid #e5e7eb',
-              fontSize: 11,
-              fontWeight: 800,
-              color: '#64748b',
-              letterSpacing: '0.05em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Create Members
-          </div>
-          {MEMBER_OPTIONS.map((opt) => {
-            const Icon = opt.icon;
-            const isActive = activeOption === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  setActiveOption(opt.id);
-                  setNavOpen(false);
-                }}
-                style={baseStyles.navItem(isActive, opt.color)}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.background = '#f8f9fa';
-                    e.currentTarget.style.color = '#1f2933';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.color = '#4a5568';
-                  }
-                }}
-              >
-                <span style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 6,
-                  background: isActive ? opt.color : `${opt.color}18`,
-                  color: isActive ? '#fff' : opt.color,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}>
-                  <Icon size={12} />
-                </span>
-                <span style={{ flex: 1, textAlign: 'left' }}>{opt.label}</span>
-              </button>
-            );
-          })}
+          <div className="cm-nav-sec">Masters</div>
+          {MASTER_OPTIONS.map(renderNavItem)}
+          <div className="cm-nav-sec cm-nav-sec--members">Create Members</div>
+          {MEMBER_OPTIONS.map(renderNavItem)}
         </nav>
 
         <div style={baseStyles.content} className="create-masters-layout-content">
@@ -2261,19 +2173,19 @@ const CreateMasters = () => {
             <div style={{ ...baseStyles.card, padding: 14, flex: '1 1 auto', minHeight: 0 }}>
               <div style={baseStyles.cardTitle}>Daily Rates (Category & Purity)</div>
 
-              <div style={{ maxHeight: 520, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+              <div className="cm-rates-wrap">
                 {ratesLoading ? (
-                  <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 10, color: '#64748b', fontWeight: 700 }}>
-                    <FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} />
-                    Loading daily rates...
+                  <div className="cm-state">
+                    <FaSpinner className="cm-spin" size={16} />
+                    <span>Loading daily rates…</span>
                   </div>
                 ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <table className="cm-rates-table">
                     <thead>
                       <tr>
-                        <th style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', textAlign: 'left', padding: '6px 8px' }}>Category</th>
-                        <th style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', textAlign: 'left', padding: '6px 8px' }}>Purity</th>
-                        <th style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f3f4f6', borderBottom: '1px solid #e5e7eb', textAlign: 'right', padding: '6px 8px' }}>Rate</th>
+                        <th>Category</th>
+                        <th>Purity</th>
+                        <th>Rate</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2293,15 +2205,15 @@ const CreateMasters = () => {
                           const categoryName = (dropdownData.categories || []).find((c) => String(c.Id ?? c.id ?? '') === String(catId))?.CategoryName ?? (dropdownData.categories || []).find((c) => String(c.Id ?? c.id ?? '') === String(catId))?.Name ?? '';
 
                           return (
-                            <tr key={String(pId)} style={{ borderBottom: '1px solid #eef2f6' }}>
-                              <td style={{ padding: '6px 8px', fontWeight: 700, color: '#0f172a' }}>{categoryName}</td>
-                              <td style={{ padding: '6px 8px', fontWeight: 700, color: '#0f172a' }}>{p.PurityName ?? p.Name ?? ''}</td>
-                              <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                            <tr key={String(pId)}>
+                              <td data-label="Category">{categoryName}</td>
+                              <td data-label="Purity">{p.PurityName ?? p.Name ?? ''}</td>
+                              <td data-label="Rate">
                                 <input
                                   type="text"
+                                  className="cm-rates-input"
                                   value={ratesByPurityId[String(pId)] ?? ''}
                                   onChange={(e) => handleDailyRateChange(p, e.target.value)}
-                                  style={{ width: 160, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 800, outline: 'none' }}
                                   disabled={ratesSaving}
                                 />
                               </td>
@@ -2313,16 +2225,11 @@ const CreateMasters = () => {
                 )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12 }}>
-                <button
-                  type="button"
-                  onClick={handleSetRatesAdmin}
-                  disabled={ratesLoading || ratesSaving}
-                  style={baseStyles.btnPrimary('#0d9488')}
-                >
-                  {ratesSaving ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 12 }}>
+                <UiButton variant="primary" onClick={handleSetRatesAdmin} disabled={ratesLoading || ratesSaving}>
+                  {ratesSaving ? <FaSpinner className="cm-spin" /> : <FaCheck />}
                   Set Rates
-                </button>
+                </UiButton>
               </div>
             </div>
           ) : activeOption === 'employee' ? (
@@ -2376,84 +2283,62 @@ const CreateMasters = () => {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, paddingTop: 6, borderTop: '1px solid #e5e7eb' }}>
-                    <button type="button" onClick={handleEmployeeReset} style={baseStyles.btnSecondary}>
-                      <FaRedoAlt size={12} />
+                    <UiButton variant="secondary" onClick={handleEmployeeReset}>
+                      <FaRedoAlt />
                       Reset
-                    </button>
-                    <button type="submit" disabled={employeeSubmitting} style={{ ...baseStyles.btnPrimary('#2563eb'), background: employeeSubmitting ? '#94a3b8' : '#2563eb' }}>
-                      {employeeSubmitting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
+                    </UiButton>
+                    <UiButton type="submit" variant="primary" disabled={employeeSubmitting}>
+                      {employeeSubmitting ? <FaSpinner className="cm-spin" /> : <FaCheck />}
                       Submit
-                    </button>
+                    </UiButton>
                   </div>
                 </form>
               </div>
 
-              <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
-                <div style={baseStyles.listCardTitle}>List of Employees</div>
-                <div style={baseStyles.listHeader} className="create-masters-list-header">
-                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
-                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
-                    <input type="text" placeholder="Search employee list..." value={employeeListSearch} onChange={(e) => { setEmployeeListSearch(e.target.value); setEmployeeListPage(1); }} style={baseStyles.listSearchInput} />
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
-                    Total: {filteredEmployeeRows.length} record{filteredEmployeeRows.length !== 1 ? 's' : ''}
-                  </span>
-                  <select value={employeeListPageSize} onChange={(e) => { setEmployeeListPageSize(Number(e.target.value)); setEmployeeListPage(1); }} style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}>
-                    {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </div>
-                <div style={baseStyles.listTableWrap}>
-                  <table style={baseStyles.listTable} className="create-masters-list-table">
-                    <thead>
-                      <tr>
-                        <th style={baseStyles.listTh}>Sr. No.</th>
-                        <th style={baseStyles.listTh}>First Name</th>
-                        <th style={baseStyles.listTh}>Last Name</th>
-                        <th style={baseStyles.listTh}>Emp Email</th>
-                        <th style={baseStyles.listTh}>Contact</th>
-                        <th style={baseStyles.listTh}>Branch</th>
-                        <th style={baseStyles.listTh}>Department</th>
-                        <th style={baseStyles.listTh}>Counter</th>
-                        <th style={baseStyles.listTh}>Roles</th>
-                        <th style={baseStyles.listTh}>Reporting To</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {employeeListLoading ? (
-                        <tr><td colSpan={10} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}><FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />Loading employees…</td></tr>
-                      ) : paginatedEmployeeRows.length === 0 ? (
-                        <tr><td colSpan={10} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>{employeeRows.length === 0 ? 'No employee data. Add one above.' : 'No matches for search.'}</td></tr>
-                      ) : (
-                        paginatedEmployeeRows.map((row, idx) => {
-                          const sr = (employeeSafePage - 1) * employeeListPageSize + idx + 1;
-                          return (
-                            <tr key={String(row.Id ?? row.id ?? idx)} className="create-masters-list-row">
-                              <td style={baseStyles.listTd}>{sr}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'FirstName', 'firstName')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'LastName', 'lastName')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'EmployeeEmail', 'Email', 'empEmail')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'ContactNumber', 'MobileNumber', 'contactNo')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'BranchName', 'branch')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'Department', 'department')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'CounterName', 'counter')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'Roles', 'Role', 'roles')}</td>
-                              <td style={baseStyles.listTd}>{employeeDisplay(row, 'ReportingToName', 'ReportingTo', 'reportingTo')}</td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
-                  <span>Showing {filteredEmployeeRows.length === 0 ? 0 : (employeeSafePage - 1) * employeeListPageSize + 1}–{Math.min(employeeSafePage * employeeListPageSize, filteredEmployeeRows.length)} of {filteredEmployeeRows.length}</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button type="button" onClick={() => setEmployeeListPage((p) => Math.max(1, p - 1))} disabled={employeeSafePage <= 1} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Prev</button>
-                    <span style={{ padding: '0 6px' }}>Page {employeeSafePage} of {employeeTotalPages}</span>
-                    <button type="button" onClick={() => setEmployeeListPage((p) => Math.min(employeeTotalPages, p + 1))} disabled={employeeSafePage >= employeeTotalPages} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Next</button>
-                  </span>
-                </div>
-              </div>
+              <MasterListCard
+                title="List of Employees"
+                accent={current.color}
+                className="create-masters-list-card--split"
+                searchValue={employeeListSearch}
+                onSearchChange={(v) => { setEmployeeListSearch(v); setEmployeeListPage(1); }}
+                searchPlaceholder="Search employee list..."
+                total={filteredEmployeeRows.length}
+                pageSize={employeeListPageSize}
+                onPageSizeChange={(n) => { setEmployeeListPageSize(n); setEmployeeListPage(1); }}
+                page={employeeSafePage}
+                totalPages={employeeTotalPages}
+                onPageChange={setEmployeeListPage}
+                loading={employeeListLoading}
+                emptyMessage={employeeRows.length === 0 ? 'No employee data. Add one above.' : 'No matches for search.'}
+                startIndex={(employeeSafePage - 1) * employeeListPageSize}
+                columns={[
+                  { key: 'srNo', label: 'Sr.' },
+                  { key: 'name', label: 'Name', primary: true },
+                  { key: 'email', label: 'Email' },
+                  { key: 'contact', label: 'Contact' },
+                  { key: 'branch', label: 'Branch' },
+                  { key: 'department', label: 'Department' },
+                  { key: 'counter', label: 'Counter' },
+                  { key: 'roles', label: 'Roles' },
+                  { key: 'reportingTo', label: 'Reporting To' },
+                ]}
+                rows={paginatedEmployeeRows}
+                getRowId={(row, idx) => row.Id ?? row.id ?? idx}
+                getCellValue={(row, col) => {
+                  if (col.key === 'name') {
+                    const full = [employeeDisplay(row, 'FirstName', 'firstName'), employeeDisplay(row, 'LastName', 'lastName')].filter((x) => x && x !== '—').join(' ').trim();
+                    return full || '—';
+                  }
+                  if (col.key === 'email') return employeeDisplay(row, 'EmployeeEmail', 'Email', 'empEmail');
+                  if (col.key === 'contact') return employeeDisplay(row, 'ContactNumber', 'MobileNumber', 'contactNo');
+                  if (col.key === 'branch') return employeeDisplay(row, 'BranchName', 'branch');
+                  if (col.key === 'department') return employeeDisplay(row, 'Department', 'department');
+                  if (col.key === 'counter') return employeeDisplay(row, 'CounterName', 'counter');
+                  if (col.key === 'roles') return employeeDisplay(row, 'Roles', 'Role', 'roles');
+                  if (col.key === 'reportingTo') return employeeDisplay(row, 'ReportingToName', 'ReportingTo', 'reportingTo');
+                  return '—';
+                }}
+              />
             </>
           ) : activeOption === 'vendor' ? (
             <>
@@ -2669,155 +2554,70 @@ const CreateMasters = () => {
                     borderTop: '1px solid #e5e7eb',
                   }}
                 >
-                  <button type="button" onClick={handleVendorReset} style={baseStyles.btnSecondary}>
-                    <FaRedoAlt size={12} />
+                  <UiButton variant="secondary" onClick={handleVendorReset}>
+                    <FaRedoAlt />
                     Reset
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={vendorSubmitting}
-                    style={{ ...baseStyles.btnPrimary('#2563eb'), background: vendorSubmitting ? '#94a3b8' : '#2563eb' }}
-                  >
+                  </UiButton>
+                  <UiButton type="submit" variant="primary" disabled={vendorSubmitting}>
                     {vendorSubmitting ? (
-                      <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} />
+                      <FaSpinner className="cm-spin" />
                     ) : (
-                      <FaCheck size={12} />
+                      <FaCheck />
                     )}
                     Submit
-                  </button>
+                  </UiButton>
                 </div>
               </form>
             </div>
 
-            <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
-              <div style={baseStyles.listCardTitle}>List of Vendors</div>
-              <div style={baseStyles.listHeader} className="create-masters-list-header">
-                <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
-                  <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
-                  <input
-                    type="text"
-                    placeholder="Search vendor list..."
-                    value={vendorListSearch}
-                    onChange={(e) => {
-                      setVendorListSearch(e.target.value);
-                      setVendorListPage(1);
-                    }}
-                    style={baseStyles.listSearchInput}
-                    aria-label="Search vendor list"
-                  />
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
-                  Total: {filteredVendorRows.length} record{filteredVendorRows.length !== 1 ? 's' : ''}
-                </span>
-                <select
-                  value={vendorListPageSize}
-                  onChange={(e) => {
-                    setVendorListPageSize(Number(e.target.value));
-                    setVendorListPage(1);
-                  }}
-                  style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
-                  aria-label="Rows per page"
-                >
-                  {[5, 10, 20, 50].map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={baseStyles.listTableWrap}>
-                <table style={baseStyles.listTable} className="create-masters-list-table">
-                  <thead>
-                    <tr>
-                      <th style={baseStyles.listTh}>Sr. No.</th>
-                      <th style={baseStyles.listTh}>Vendor Name</th>
-                      <th style={baseStyles.listTh}>Company Name</th>
-                      <th style={baseStyles.listTh}>Contact</th>
-                      <th style={baseStyles.listTh}>City</th>
-                      <th style={baseStyles.listTh}>State</th>
-                      <th style={baseStyles.listTh}>Vendor Type</th>
-                      <th style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vendorListLoading ? (
-                      <tr>
-                        <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}>
-                          <FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />
-                          Loading vendors…
-                        </td>
-                      </tr>
-                    ) : paginatedVendorRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
-                          {vendorRows.length === 0 ? 'No vendor data. Add one above.' : 'No matches for search.'}
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedVendorRows.map((row, idx) => {
-                        const rowId = row.Id ?? row.id ?? idx;
-                        const sr = (vendorSafePage - 1) * vendorListPageSize + idx + 1;
-                        return (
-                          <tr key={String(rowId)} className="create-masters-list-row">
-                            <td style={baseStyles.listTd}>{sr}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'PartyName', 'VendorName', 'vendorName', 'Name')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'CompanyName', 'companyName')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'City', 'city')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'State', 'state')}</td>
-                            <td style={baseStyles.listTd}>{vendorDisplay(row, 'VendorType', 'vendorType')}</td>
-                            <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
-                              <span className="create-masters-action-cell">
-                                <button
-                                  type="button"
-                                  title="Edit"
-                                  onClick={() => toast.info('Vendor edit will use the same form when the update API is connected.')}
-                                  style={baseStyles.actionBtnEdit}
-                                  className="create-masters-btn-icon create-masters-btn-edit"
-                                >
-                                  <FaEdit size={12} />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Delete"
-                                  onClick={() => toast.info('Vendor delete can be wired when the delete API is available.')}
-                                  style={baseStyles.actionBtnDelete}
-                                  className="create-masters-btn-icon create-masters-btn-delete"
-                                >
-                                  <FaTrashAlt size={12} />
-                                </button>
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div style={baseStyles.listPagination} className="create-masters-list-pagination">
-                <span>
-                  Showing {filteredVendorRows.length === 0 ? 0 : (vendorSafePage - 1) * vendorListPageSize + 1}–{Math.min(vendorSafePage * vendorListPageSize, filteredVendorRows.length)} of {filteredVendorRows.length}
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <button
-                    type="button"
-                    onClick={() => setVendorListPage((p) => Math.max(1, p - 1))}
-                    disabled={vendorSafePage <= 1}
-                    style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
-                  >
-                    Prev
-                  </button>
-                  <span style={{ padding: '0 6px' }}>Page {vendorSafePage} of {vendorTotalPages}</span>
-                  <button
-                    type="button"
-                    onClick={() => setVendorListPage((p) => Math.min(vendorTotalPages, p + 1))}
-                    disabled={vendorSafePage >= vendorTotalPages}
-                    style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
-                  >
-                    Next
-                  </button>
-                </span>
-              </div>
-            </div>
+            <MasterListCard
+              title="List of Vendors"
+              accent={current.color}
+              className="create-masters-list-card--split"
+              searchValue={vendorListSearch}
+              onSearchChange={(v) => { setVendorListSearch(v); setVendorListPage(1); }}
+              searchPlaceholder="Search vendor list..."
+              searchAriaLabel="Search vendor list"
+              total={filteredVendorRows.length}
+              pageSize={vendorListPageSize}
+              onPageSizeChange={(n) => { setVendorListPageSize(n); setVendorListPage(1); }}
+              page={vendorSafePage}
+              totalPages={vendorTotalPages}
+              onPageChange={setVendorListPage}
+              loading={vendorListLoading}
+              emptyMessage={vendorRows.length === 0 ? 'No vendor data. Add one above.' : 'No matches for search.'}
+              startIndex={(vendorSafePage - 1) * vendorListPageSize}
+              columns={[
+                { key: 'srNo', label: 'Sr.' },
+                { key: 'vendorName', label: 'Vendor Name', primary: true },
+                { key: 'companyName', label: 'Company' },
+                { key: 'contact', label: 'Contact' },
+                { key: 'city', label: 'City' },
+                { key: 'state', label: 'State' },
+                { key: 'vendorType', label: 'Type' },
+              ]}
+              rows={paginatedVendorRows}
+              getRowId={(row, idx) => row.Id ?? row.id ?? idx}
+              getCellValue={(row, col) => {
+                if (col.key === 'vendorName') return vendorDisplay(row, 'PartyName', 'VendorName', 'vendorName', 'Name');
+                if (col.key === 'companyName') return vendorDisplay(row, 'CompanyName', 'companyName');
+                if (col.key === 'contact') return vendorDisplay(row, 'ContactNumber', 'Mobile', 'Phone');
+                if (col.key === 'city') return vendorDisplay(row, 'City', 'city');
+                if (col.key === 'state') return vendorDisplay(row, 'State', 'state');
+                if (col.key === 'vendorType') return vendorDisplay(row, 'VendorType', 'vendorType');
+                return '—';
+              }}
+              renderActions={() => (
+                <>
+                  <IconActionButton variant="edit" title="Edit" onClick={() => toast.info('Vendor edit will use the same form when the update API is connected.')}>
+                    <FaEdit />
+                  </IconActionButton>
+                  <IconActionButton variant="delete" title="Delete" onClick={() => toast.info('Vendor delete can be wired when the delete API is available.')}>
+                    <FaTrashAlt />
+                  </IconActionButton>
+                </>
+              )}
+            />
             </>
           ) : activeOption === 'customer' ? (
             <>
@@ -2862,82 +2662,70 @@ const CreateMasters = () => {
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, paddingTop: 6, borderTop: '1px solid #e5e7eb' }}>
-                    <button type="button" onClick={handleCustomerReset} style={baseStyles.btnSecondary}><FaRedoAlt size={12} /> Reset</button>
-                    <button type="submit" disabled={customerSubmitting} style={{ ...baseStyles.btnPrimary('#15803d'), background: customerSubmitting ? '#94a3b8' : '#15803d' }}>
-                      {customerSubmitting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />} Submit
-                    </button>
+                    <UiButton variant="secondary" onClick={handleCustomerReset}>
+                      <FaRedoAlt /> Reset
+                    </UiButton>
+                    <UiButton type="submit" variant="primary" disabled={customerSubmitting}>
+                      {customerSubmitting ? <FaSpinner className="cm-spin" /> : <FaCheck />} Submit
+                    </UiButton>
                   </div>
                 </form>
               </div>
-              <div style={{ ...baseStyles.listCard, marginTop: 8, flex: '0 0 45%', height: '45%', minHeight: 240 }} className="create-masters-list-card">
-                <div style={baseStyles.listCardTitle}>List of Customers</div>
-                <div style={baseStyles.listHeader} className="create-masters-list-header">
-                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
-                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
-                    <input type="text" placeholder="Search customers..." value={customerListSearch} onChange={(e) => { setCustomerListSearch(e.target.value); setCustomerListPage(1); }} style={baseStyles.listSearchInput} aria-label="Search customer list" />
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>Total: {filteredCustomerRows.length} record{filteredCustomerRows.length !== 1 ? 's' : ''}</span>
-                  <select value={customerListPageSize} onChange={(e) => { setCustomerListPageSize(Number(e.target.value)); setCustomerListPage(1); }} style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}>{[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}</select>
-                </div>
-                <div style={baseStyles.listTableWrap}>
-                  <table style={baseStyles.listTable} className="create-masters-list-table">
-                    <thead>
-                      <tr>
-                        <th style={baseStyles.listTh}>Sr. No.</th>
-                        <th style={baseStyles.listTh}>Name</th>
-                        <th style={baseStyles.listTh}>Company</th>
-                        <th style={baseStyles.listTh}>Email</th>
-                        <th style={baseStyles.listTh}>Mobile</th>
-                        <th style={baseStyles.listTh}>City</th>
-                        <th style={baseStyles.listTh}>State</th>
-                        <th style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {customerListLoading ? (
-                        <tr><td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#64748b' }}><FaSpinner size={14} style={{ animation: 'create-masters-spin 0.7s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />Loading customers…</td></tr>
-                      ) : paginatedCustomerRows.length === 0 ? (
-                        <tr><td colSpan={8} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>{customerRows.length === 0 ? 'No customers yet. Add one above.' : 'No matches for search.'}</td></tr>
-                      ) : (
-                        paginatedCustomerRows.map((row, idx) => {
-                          const sr = (customerSafePage - 1) * customerListPageSize + idx + 1;
-                          const fullName = [customerDisplay(row, 'FirstName', 'firstName'), customerDisplay(row, 'LastName', 'lastName')].filter((x) => x && x !== '—').join(' ').trim()
-                            || customerDisplay(row, 'Name', 'CustomerName');
-                          return (
-                            <tr key={String(row.Id ?? row.id ?? idx)} className="create-masters-list-row">
-                              <td style={baseStyles.listTd}>{sr}</td>
-                              <td style={baseStyles.listTd}>{fullName}</td>
-                              <td style={baseStyles.listTd}>{customerDisplay(row, 'CompanyName', 'companyName')}</td>
-                              <td style={baseStyles.listTd}>{customerDisplay(row, 'Email', 'email')}</td>
-                              <td style={baseStyles.listTd}>{customerDisplay(row, 'Mobile', 'MobileNumber', 'ContactNumber')}</td>
-                              <td style={baseStyles.listTd}>{customerDisplay(row, 'City', 'city')}</td>
-                              <td style={baseStyles.listTd}>{customerDisplay(row, 'State', 'state')}</td>
-                              <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
-                                <span className="create-masters-action-cell">
-                                  <button type="button" title="Edit" onClick={() => toast.info('Customer edit when update API is connected.')} style={baseStyles.actionBtnEdit} className="create-masters-btn-icon create-masters-btn-edit"><FaEdit size={12} /></button>
-                                  <button type="button" title="Delete" onClick={() => toast.info('Customer delete when delete API is available.')} style={baseStyles.actionBtnDelete} className="create-masters-btn-icon create-masters-btn-delete"><FaTrashAlt size={12} /></button>
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
-                  <span>Showing {filteredCustomerRows.length === 0 ? 0 : (customerSafePage - 1) * customerListPageSize + 1}–{Math.min(customerSafePage * customerListPageSize, filteredCustomerRows.length)} of {filteredCustomerRows.length}</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button type="button" onClick={() => setCustomerListPage((p) => Math.max(1, p - 1))} disabled={customerSafePage <= 1} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Prev</button>
-                    <span style={{ padding: '0 6px' }}>Page {customerSafePage} of {customerTotalPages}</span>
-                    <button type="button" onClick={() => setCustomerListPage((p) => Math.min(customerTotalPages, p + 1))} disabled={customerSafePage >= customerTotalPages} style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}>Next</button>
-                  </span>
-                </div>
-              </div>
+              <MasterListCard
+                title="List of Customers"
+                accent={current.color}
+                className="create-masters-list-card--split"
+                searchValue={customerListSearch}
+                onSearchChange={(v) => { setCustomerListSearch(v); setCustomerListPage(1); }}
+                searchPlaceholder="Search customers..."
+                searchAriaLabel="Search customer list"
+                total={filteredCustomerRows.length}
+                pageSize={customerListPageSize}
+                onPageSizeChange={(n) => { setCustomerListPageSize(n); setCustomerListPage(1); }}
+                page={customerSafePage}
+                totalPages={customerTotalPages}
+                onPageChange={setCustomerListPage}
+                loading={customerListLoading}
+                emptyMessage={customerRows.length === 0 ? 'No customers yet. Add one above.' : 'No matches for search.'}
+                startIndex={(customerSafePage - 1) * customerListPageSize}
+                columns={[
+                  { key: 'srNo', label: 'Sr.' },
+                  { key: 'name', label: 'Name', primary: true },
+                  { key: 'company', label: 'Company' },
+                  { key: 'email', label: 'Email' },
+                  { key: 'mobile', label: 'Mobile' },
+                  { key: 'city', label: 'City' },
+                  { key: 'state', label: 'State' },
+                ]}
+                rows={paginatedCustomerRows}
+                getRowId={(row, idx) => row.Id ?? row.id ?? idx}
+                getCellValue={(row, col) => {
+                  if (col.key === 'name') {
+                    return [customerDisplay(row, 'FirstName', 'firstName'), customerDisplay(row, 'LastName', 'lastName')].filter((x) => x && x !== '—').join(' ').trim()
+                      || customerDisplay(row, 'Name', 'CustomerName');
+                  }
+                  if (col.key === 'company') return customerDisplay(row, 'CompanyName', 'companyName');
+                  if (col.key === 'email') return customerDisplay(row, 'Email', 'email');
+                  if (col.key === 'mobile') return customerDisplay(row, 'Mobile', 'MobileNumber', 'ContactNumber');
+                  if (col.key === 'city') return customerDisplay(row, 'City', 'city');
+                  if (col.key === 'state') return customerDisplay(row, 'State', 'state');
+                  return '—';
+                }}
+                renderActions={() => (
+                  <>
+                    <IconActionButton variant="edit" title="Edit" onClick={() => toast.info('Customer edit when update API is connected.')}>
+                      <FaEdit />
+                    </IconActionButton>
+                    <IconActionButton variant="delete" title="Delete" onClick={() => toast.info('Customer delete when delete API is available.')}>
+                      <FaTrashAlt />
+                    </IconActionButton>
+                  </>
+                )}
+              />
             </>
           ) : (
             <>
-              <div ref={formCardRef} style={{ ...baseStyles.card, ['--create-masters-accent']: current.color }} className="create-masters-form-card">
+              <div ref={formCardRef} style={{ ...baseStyles.card, ['--create-masters-accent']: current.color, ['--ui-primary']: current.color, ['--cm-accent']: current.color }} className="create-masters-form-card">
                 <h2 style={baseStyles.cardTitle}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                     <span style={{
@@ -3127,137 +2915,68 @@ const CreateMasters = () => {
                   </div>
                   <div className="create-masters-form-actions" style={{ flexShrink: 0, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
                     <div className="create-masters-form-actions-inner">
-                      <button type="button" onClick={handleCancel} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-cancel">
-                        <FaTimes size={12} />
+                      <UiButton variant="ghost" onClick={handleCancel} className="create-masters-btn create-masters-btn-cancel">
+                        <FaTimes />
                         Cancel
-                      </button>
-                      <button type="button" onClick={handleResetForm} style={baseStyles.btnSecondary} className="create-masters-btn create-masters-btn-reset">
-                        <FaRedoAlt size={12} />
+                      </UiButton>
+                      <UiButton variant="secondary" onClick={handleResetForm} className="create-masters-btn create-masters-btn-reset">
+                        <FaRedoAlt />
                         Reset
-                      </button>
-                      <button type="submit" disabled={loading} style={baseStyles.btnPrimary(current.color)} className="create-masters-btn create-masters-btn-save">
-                        {loading ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaCheck size={12} />}
+                      </UiButton>
+                      <UiButton type="submit" variant="primary" disabled={loading} className="create-masters-btn create-masters-btn-save">
+                        {loading ? <FaSpinner className="cm-spin" /> : <FaCheck />}
                         {loading ? (editingId ? 'Updating…' : 'Saving…') : (editingId ? 'Update' : 'Save')}
-                      </button>
+                      </UiButton>
                     </div>
                   </div>
                 </form>
               </div>
 
-              <div style={baseStyles.listCard} className="create-masters-list-card">
-                <div style={baseStyles.listCardTitle}>List of {LIST_PLURAL[activeOption] ?? `${current.label}s`}</div>
-                <div style={baseStyles.listHeader} className="create-masters-list-header">
-                  <span style={{ position: 'relative', flex: '1 1 200px', minWidth: 140, maxWidth: 280 }}>
-                    <FaSearch size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
-                    <input
-                      type="text"
-                      placeholder={`Search ${current.label} list...`}
-                      value={listSearch}
-                      onChange={(e) => { setListSearch(e.target.value); setListPage(1); }}
-                      style={baseStyles.listSearchInput}
-                      aria-label={`Search ${current.label} list`}
-                    />
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: '#475569' }}>
-                    Total: {filteredList.length} record{filteredList.length !== 1 ? 's' : ''}
-                  </span>
-                  <select
-                    value={listPageSize}
-                    onChange={(e) => { setListPageSize(Number(e.target.value)); setListPage(1); }}
-                    style={{ ...baseStyles.select, width: 'auto', minWidth: 60, padding: '4px 8px' }}
-                    aria-label="Rows per page"
-                  >
-                    {[5, 10, 20, 50].map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={baseStyles.listTableWrap}>
-                  <table style={baseStyles.listTable} className="create-masters-list-table">
-                    <thead>
-                      <tr>
-                        {listColumns.map((col) => (
-                          <th key={col.key} style={{ ...baseStyles.listTh, width: col.width }}>{col.label}</th>
-                        ))}
-                        <th key="_action" style={{ ...baseStyles.listTh, width: 90, textAlign: 'center' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedList.length === 0 ? (
-                        <tr>
-                          <td colSpan={listColumns.length + 1} style={{ ...baseStyles.listTd, textAlign: 'center', color: '#9ca3af' }}>
-                            {rawList.length === 0 ? `No ${current.label} data. Add one above.` : 'No matches for search.'}
-                          </td>
-                        </tr>
-                      ) : (
-                        paginatedList.map((row, idx) => {
-                          const rowId = row.Id ?? row.id ?? idx;
-                          const isDeleting = deletingId === rowId;
-                          const srNoVal = (safeListPage - 1) * listPageSize + idx + 1;
-                          return (
-                            <tr key={rowId} className="create-masters-list-row">
-                              {listColumns.map((col) => (
-                                <td key={col.key} style={baseStyles.listTd} title={col.key === 'srNo' ? undefined : getCellDisplay(row, col.key)}>
-                                  {col.key === 'srNo' ? srNoVal : getCellDisplay(row, col.key)}
-                                </td>
-                              ))}
-                              <td style={{ ...baseStyles.listTd, padding: '4px 8px', verticalAlign: 'middle', textAlign: 'center' }}>
-                                <span className="create-masters-action-cell">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleEdit(row)}
-                                    title="Edit"
-                                    aria-label={`Edit ${current.label}`}
-                                    style={baseStyles.actionBtnEdit}
-                                    className="create-masters-btn-icon create-masters-btn-edit"
-                                  >
-                                    <FaEdit size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteClick(row)}
-                                    disabled={isDeleting}
-                                    title="Delete"
-                                    aria-label={`Delete ${current.label}`}
-                                    style={{ ...baseStyles.actionBtnDelete, opacity: isDeleting ? 0.6 : 1 }}
-                                    className="create-masters-btn-icon create-masters-btn-delete"
-                                  >
-                                    {isDeleting ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaTrashAlt size={12} />}
-                                  </button>
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={baseStyles.listPagination} className="create-masters-list-pagination">
-                  <span>
-                    Showing {(safeListPage - 1) * listPageSize + 1}–{Math.min(safeListPage * listPageSize, filteredList.length)} of {filteredList.length}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <button
-                      type="button"
-                      onClick={() => setListPage((p) => Math.max(1, p - 1))}
-                      disabled={safeListPage <= 1}
-                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
-                    >
-                      Prev
-                    </button>
-                    <span style={{ padding: '0 6px' }}>Page {safeListPage} of {totalListPages}</span>
-                    <button
-                      type="button"
-                      onClick={() => setListPage((p) => Math.min(totalListPages, p + 1))}
-                      disabled={safeListPage >= totalListPages}
-                      style={{ ...baseStyles.btnSecondary, padding: '4px 8px', fontSize: 11 }}
-                    >
-                      Next
-                    </button>
-                  </span>
-                </div>
-              </div>
+              <MasterListCard
+                title={`List of ${LIST_PLURAL[activeOption] ?? `${current.label}s`}`}
+                accent={current.color}
+                searchValue={listSearch}
+                onSearchChange={(v) => { setListSearch(v); setListPage(1); }}
+                searchPlaceholder={`Search ${current.label} list...`}
+                searchAriaLabel={`Search ${current.label} list`}
+                total={filteredList.length}
+                pageSize={listPageSize}
+                onPageSizeChange={(n) => { setListPageSize(n); setListPage(1); }}
+                page={safeListPage}
+                totalPages={totalListPages}
+                onPageChange={setListPage}
+                emptyMessage={rawList.length === 0 ? `No ${current.label} data. Add one above.` : 'No matches for search.'}
+                startIndex={(safeListPage - 1) * listPageSize}
+                columns={listColumns}
+                rows={paginatedList}
+                getRowId={(row, idx) => row.Id ?? row.id ?? idx}
+                getCellValue={(row, col) => getCellDisplay(row, col.key)}
+                renderActions={(row) => {
+                  const rowId = row.Id ?? row.id;
+                  const isDeleting = deletingId === rowId;
+                  return (
+                    <>
+                      <IconActionButton
+                        variant="edit"
+                        title="Edit"
+                        aria-label={`Edit ${current.label}`}
+                        onClick={() => handleEdit(row)}
+                      >
+                        <FaEdit />
+                      </IconActionButton>
+                      <IconActionButton
+                        variant="delete"
+                        title="Delete"
+                        aria-label={`Delete ${current.label}`}
+                        disabled={isDeleting}
+                        onClick={() => handleDeleteClick(row)}
+                      >
+                        {isDeleting ? <FaSpinner className="cm-spin" /> : <FaTrashAlt />}
+                      </IconActionButton>
+                    </>
+                  );
+                }}
+              />
             </>
           )}
         </div>
@@ -3278,6 +2997,9 @@ const CreateMasters = () => {
           gap: 8px;
           align-items: center;
           justify-content: flex-end;
+        }
+        .create-masters-form-actions-inner .ui-btn {
+          min-width: 84px;
         }
         @media (max-width: 480px) {
           .create-masters-form-actions-inner {
@@ -3316,7 +3038,7 @@ const CreateMasters = () => {
             bottom: 0;
             z-index: 1001;
             width: 220px;
-            box-shadow: 4px 0 12px rgba(0,0,0,0.08);
+            box-shadow: 8px 0 32px rgba(0,0,0,0.45);
             transform: translateX(-100%);
             transition: transform 0.2s ease;
           }
@@ -3334,45 +3056,22 @@ const CreateMasters = () => {
         @media (min-width: 769px) {
           .create-masters-zoho .create-masters-mobile-trigger { display: none !important; }
         }
-        .create-masters-list-card { min-height: 180px; }
-        .create-masters-list-table { border-radius: 6px; overflow: hidden; }
-        .create-masters-list-table thead th { position: sticky; top: 0; z-index: 1; background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%) !important; box-shadow: 0 1px 0 #cbd5e1; }
-        .create-masters-list-table th,
-        .create-masters-list-table td { white-space: nowrap; }
-        .create-masters-list-row { transition: background 0.12s ease; }
-        .create-masters-list-row:hover { background: #f1f5f9; }
-        .create-masters-action-cell { display: inline-flex; align-items: center; justify-content: center; gap: 2px; }
-        .create-masters-btn-edit:hover { background: #bfdbfe !important; color: #1e40af !important; transform: scale(1.05); }
-        .create-masters-btn-delete:hover { background: #fecaca !important; color: #991b1b !important; transform: scale(1.05); }
-        .create-masters-btn-icon:disabled { cursor: not-allowed; }
-        .create-masters-list-pagination { flex-wrap: wrap; }
         .create-masters-vendor-form label,
-        .create-masters-employee-form label { font-size: 10px !important; margin-bottom: 2px !important; }
+        .create-masters-employee-form label,
+        .create-masters-customer-form label { font-size: 10px !important; margin-bottom: 2px !important; }
         .create-masters-vendor-form input,
         .create-masters-vendor-form select,
         .create-masters-employee-form input,
-        .create-masters-employee-form select {
+        .create-masters-employee-form select,
+        .create-masters-customer-form input,
+        .create-masters-customer-form select {
           padding: 4px 8px !important;
           min-height: 28px !important;
           font-size: 11px !important;
           border-radius: 5px !important;
         }
-        @media (max-width: 640px) {
-          .create-masters-list-header {
-            flex-direction: column;
-            align-items: stretch;
-          }
-          .create-masters-list-header input { max-width: none; }
-          .create-masters-list-pagination {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-          .create-masters-btn-icon { min-width: 32px; min-height: 32px; }
-        }
         @media (max-width: 480px) {
           .create-masters-zoho .create-masters-layout-content { padding: 10px; }
-          .create-masters-list-card .create-masters-list-table { font-size: 10px; }
-          .create-masters-action-cell { flex-wrap: wrap; justify-content: center; }
         }
       `}</style>
 
@@ -3392,22 +3091,13 @@ const CreateMasters = () => {
               This action cannot be undone.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => setDeleteConfirm(null)}
-                style={baseStyles.btnSecondary}
-              >
+              <UiButton variant="ghost" onClick={() => setDeleteConfirm(null)}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteConfirm}
-                disabled={deletingId != null}
-                style={{ ...baseStyles.btnPrimary('#dc2626') }}
-              >
-                {deletingId != null ? <FaSpinner size={12} style={{ animation: 'create-masters-spin 0.7s linear infinite' }} /> : <FaTrashAlt size={12} />}
+              </UiButton>
+              <UiButton variant="danger" onClick={handleDeleteConfirm} disabled={deletingId != null}>
+                {deletingId != null ? <FaSpinner className="cm-spin" /> : <FaTrashAlt />}
                 {deletingId != null ? 'Deleting…' : 'Delete'}
-              </button>
+              </UiButton>
             </div>
           </div>
         </div>

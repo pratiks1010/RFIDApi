@@ -4,6 +4,8 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import { rfidService } from '../services/rfidService';
+import { useAuthSplitSwap } from '../hooks/useAuthSplitSwap';
+import { AUTH_HERO_SLIDES } from '../data/authHeroSlides';
 
 const DEFAULT_PLAN_OPTIONS = [
   { PlanName: 'Basic', MaxSubUsers: 2, ValidityInDays: 365 },
@@ -12,28 +14,8 @@ const DEFAULT_PLAN_OPTIONS = [
 
 const PLAN_FETCH_RETRY_MS = 10 * 60 * 1000;
 const PLAN_FETCH_FAIL_CACHE_KEY = 'rfidPlanCatalogFetchFailedAt';
-const FALLBACK_SLIDE_IMG = `${process.env.PUBLIC_URL || ''}/Logo/Sparkle RFID svg.svg`;
-
-const infoSlides = [
-  {
-    img: `${process.env.PUBLIC_URL || ''}/images/Mobile%20App.png`,
-    title: 'Mobile Device Interface',
-    desc: 'A handheld mobile device with a user-friendly interface for managing tasks like product listing, inventory tracking, billing, stock reports, and issue tracking. Easily syncs with your RFID system for real-time updates and seamless workflow. Supports barcode and RFID scanning, photo capture, and instant notifications. Designed for reliability and ease of use in demanding environments.',
-    link: '#',
-  },
-  {
-    img: `${process.env.PUBLIC_URL || ''}/images/Gate.png`,
-    title: 'RFID Gate',
-    desc: 'A sleek, professional RFID gate designed for seamless inventory management and tracking, branded with "Loyal String." Automates entry/exit logging and enhances security for your assets. Integrates with your ERP and alert systems for real-time monitoring. Built for high-traffic, industrial environments.',
-    link: '#',
-  },
-  {
-    img: `${process.env.PUBLIC_URL || ''}/images/RFID%20GUN.png`,
-    title: 'RFID Handheld Scanner',
-    desc: 'A rugged RFID scanner with a handle, providing efficient and portable scanning capabilities for inventory management. Scan, verify, and audit inventory anywhere in your facility. Long battery life, drop-resistant, and easy to operate. Ideal for stocktaking, audits, and on-the-go asset tracking.',
-    link: '#',
-  },
-];
+const SPARKLE_LOGO = `${process.env.PUBLIC_URL || ''}/Logo/sparkle-logo.png`;
+const heroSlides = AUTH_HERO_SLIDES;
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -52,11 +34,12 @@ const Register = () => {
   const [slide, setSlide] = useState(0);
   const [animating, setAnimating] = useState(false);
   const navigate = useNavigate();
+  const isRegisterLayout = useAuthSplitSwap(true);
 
   useEffect(() => {
     setAnimating(true);
     const timer = setTimeout(() => {
-      setSlide((slide + 1) % infoSlides.length);
+      setSlide((slide + 1) % heroSlides.length);
     }, 5000);
     const animTimer = setTimeout(() => setAnimating(false), 400);
     return () => {
@@ -159,7 +142,7 @@ const Register = () => {
         autoClose: 3000,
         theme: "colored"
       });
-      navigate('/login');
+      navigate('/login', { state: { fromAuth: 'register' } });
     } catch (err) {
       const errorMessage = getApiErrorMessage(err);
       setError(errorMessage);
@@ -173,73 +156,13 @@ const Register = () => {
     }
   };
 
-  const glassCard = {
-    background: 'rgba(255, 255, 255, 0.25)',
-    backdropFilter: 'blur(20px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-    border: '1px solid rgba(255, 255, 255, 0.4)',
-    boxShadow: '0 8px 32px rgba(31, 38, 135, 0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-  };
-
-  const inputGlass = {
-    background: 'rgba(255, 255, 255, 0.6)',
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
-    border: '1px solid rgba(255, 255, 255, 0.5)',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.8)',
-  };
-
-  const alignedInputStyle = {
-    width: '100%',
-    height: 40,
-    lineHeight: '40px',
-    padding: '0 12px 0 38px',
-    fontSize: '0.78rem',
-    color: '#1e1b4b',
-    borderRadius: 10,
-    fontWeight: 400,
-    transition: 'all 0.2s',
-    fontFamily: 'inherit',
-    boxSizing: 'border-box',
-    ...inputGlass,
-  };
-
   return (
     <>
       <style>{`
         body, html { overflow: hidden !important; height: 100% !important; margin: 0; }
-        .register-page-wrapper { animation: fadeIn 0.35s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
         .fas, .far, .fal, .fab { font-family: "Font Awesome 5 Free" !important; font-weight: 900 !important; display: inline-block !important; font-style: normal !important; line-height: 1 !important; }
-        .reg-form-input:focus { outline: none; border-color: rgba(236, 72, 153, 0.6) !important; box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.15) !important; }
-        .plan-card:hover { transform: translateY(-1px); }
-        .plan-card.selected { border-color: rgba(219, 39, 119, 0.6) !important; box-shadow: 0 0 0 2px rgba(219, 39, 119, 0.15), 0 8px 20px rgba(219, 39, 119, 0.15) !important; }
-        @media (max-width: 900px) {
-          .register-info-panel { display: none !important; }
-          .register-form-wrap { max-width: 430px !important; margin: 0 auto !important; }
-        }
-        @media (max-width: 480px) {
-          .register-form-card-inner { padding: 16px 14px !important; }
-          .register-title { font-size: 1.25rem !important; }
-          .register-sub { font-size: 0.65rem !important; }
-        }
       `}</style>
-      <div
-        className="register-page-wrapper"
-        style={{
-          minHeight: '100vh',
-          height: '100vh',
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          fontFamily: "'Inter', 'Poppins', sans-serif",
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          overflow: 'hidden',
-          background: 'linear-gradient(135deg, #fdf2f8 0%, #faf5ff 25%, #f5f3ff 50%, #eff6ff 75%, #f0fdfa 100%)',
-        }}
-      >
+      <div className="login-page-wrapper">
         <ToastContainer
           position="bottom-center"
           hideProgressBar
@@ -252,435 +175,226 @@ const Register = () => {
           newestOnTop
         />
 
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 'clamp(10px, 2vw, 20px)',
-            minHeight: 0,
-            overflow: 'auto',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'stretch',
-              justifyContent: 'center',
-              gap: 'clamp(14px, 2.5vw, 22px)',
-              width: '100%',
-              maxWidth: 820,
-              minHeight: 0,
-              flexWrap: 'wrap',
-            }}
-          >
-            {/* Left: Glass info panel - hidden on small screens */}
-            <div
-              className="register-info-panel"
-              style={{
-                flex: '1 1 320px',
-                minWidth: 260,
-                maxWidth: 360,
-                borderRadius: 20,
-                overflow: 'hidden',
-                ...glassCard,
-                padding: 'clamp(18px, 2vw, 24px)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-                maxHeight: step === 2 ? 'min(680px, 94vh)' : 'min(560px, 88vh)',
-              }}
-            >
-              <div style={{ width: '100%', textAlign: 'center', transition: 'all 0.4s', opacity: animating ? 0 : 1, transform: animating ? 'translateY(12px)' : 'translateY(0)' }}>
-                <img
-                  src={infoSlides[slide].img}
-                  alt={infoSlides[slide].title}
-                  style={{ width: 90, height: 90, objectFit: 'contain', borderRadius: 12, marginBottom: 12 }}
-                  onError={(e) => {
-                    e.currentTarget.onerror = null;
-                    e.currentTarget.src = FALLBACK_SLIDE_IMG;
-                  }}
-                />
-                <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e1b4b', margin: '0 0 6px 0' }}>{infoSlides[slide].title}</h2>
-                <p style={{ fontSize: '0.68rem', color: '#64748b', lineHeight: 1.45, margin: '0 0 12px 0' }}>{infoSlides[slide].desc}</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 5 }}>
-                  {['Real-time Sync', 'Analytics', 'Secure', 'Fast'].map((label, i) => (
-                    <span key={i} style={{ padding: '3px 8px', background: 'rgba(236, 72, 153, 0.15)', borderRadius: 6, fontSize: '0.62rem', color: '#db2777', fontWeight: 500 }}>
-                      {label}
-                    </span>
-                  ))}
+        <div className={`login-split${isRegisterLayout ? ' is-register' : ''}`}>
+          <div className="login-left">
+            <div className="login-left-body">
+              <div className="login-form-shell">
+                <div className="login-form-card">
+                  <div className="login-brand-wrap">
+                    <img
+                      src={SPARKLE_LOGO}
+                      alt="Sparkle RFID"
+                      className="login-brand-logo"
+                      onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
+                    />
+                  </div>
+                  <h1 className="login-title">Register to RFID Dashboard</h1>
+                  <p className="login-sub">Smart Tracking • Secure Access</p>
+                  <p className="login-step">Step {step} of 2</p>
+
+                  {error && (
+                    <div className="login-error">
+                      <i className="fas fa-exclamation-circle" style={{ fontSize: 11 }}></i>
+                      {error}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSubmit} className="login-form">
+                    {step === 1 && (
+                      <>
+                        <div className="login-field">
+                          <label htmlFor="reg-username">Username</label>
+                          <input
+                            id="reg-username"
+                            type="text"
+                            name="Username"
+                            value={formData.Username}
+                            onChange={handleChange}
+                            placeholder="Enter your username"
+                            className="login-form-input"
+                            autoComplete="username"
+                          />
+                        </div>
+                        <div className="login-field">
+                          <label htmlFor="reg-client">Client code</label>
+                          <input
+                            id="reg-client"
+                            type="text"
+                            name="ClientCode"
+                            value={formData.ClientCode}
+                            onChange={handleChange}
+                            placeholder="Client code"
+                            className="login-form-input"
+                          />
+                          <p className="login-hint">Client code is generated from Sparkle Masterpiece</p>
+                        </div>
+                        <div className="login-field">
+                          <label htmlFor="reg-password">Password</label>
+                          <div className="login-form-input-wrap">
+                            <input
+                              id="reg-password"
+                              type={showPassword ? 'text' : 'password'}
+                              name="Password"
+                              value={formData.Password}
+                              onChange={handleChange}
+                              placeholder="Enter your password"
+                              className="login-form-input"
+                              autoComplete="new-password"
+                            />
+                            <button
+                              type="button"
+                              className="login-pw-toggle"
+                              onClick={() => setShowPassword(!showPassword)}
+                              aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            >
+                              <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {step === 2 && (
+                      <div className="login-field">
+                        <label>Select your RFID plan</label>
+                        <p className="login-hint" style={{ marginBottom: 8 }}>Choose one plan. It will be active for 365 days.</p>
+
+                        {plansError && (
+                          <p className="login-hint" style={{ color: '#b45309', marginBottom: 8 }}>{plansError}</p>
+                        )}
+
+                        {plansLoading ? (
+                          <div className="login-hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }}></span>
+                            Loading available plans...
+                          </div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                            {availablePlans.map((plan) => {
+                              const isSelected = formData.SelectedPlan === plan.PlanName;
+                              return (
+                                <button
+                                  key={plan.PlanName}
+                                  type="button"
+                                  className={`plan-card${isSelected ? ' selected' : ''}`}
+                                  onClick={() => setFormData((prev) => ({ ...prev, SelectedPlan: plan.PlanName }))}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                                    <div>
+                                      <div className="plan-card-title">{plan.PlanName}</div>
+                                      <div className="plan-card-meta">Up to {plan.MaxSubUsers} dashboard sub-users</div>
+                                      <div className="plan-card-meta">Valid for {plan.ValidityInDays} days from registration</div>
+                                    </div>
+                                    <span className="plan-check">
+                                      {isSelected ? <i className="fas fa-check"></i> : null}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {!plansLoading && !formData.SelectedPlan && (
+                          <p className="login-hint" style={{ color: '#b91c1c', marginTop: 8 }}>Please select Basic or Pro plan to enable account creation.</p>
+                        )}
+
+                        <div className="plan-features">
+                          <p className="plan-card-title" style={{ margin: '0 0 7px' }}>Dashboard features included</p>
+                          <div className="plan-features-grid">
+                            {[
+                              'Inventory Tracking',
+                              'RFID Label Management',
+                              'Reports & Analytics',
+                              'Secure Sub-user Access',
+                              'Real-time Sync',
+                              'Stock Monitoring'
+                            ].map((feature) => (
+                              <div key={feature} style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#475569', fontSize: '0.61rem', fontWeight: 600 }}>
+                                <i className="fas fa-check-circle" style={{ color: '#c59a3e', fontSize: 10 }}></i>
+                                <span>{feature}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="login-hint" style={{ marginTop: 8 }}>All plans are valid for 365 days from registration date.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="login-actions">
+                      {step === 2 && (
+                        <button type="button" className="login-btn-ghost" onClick={() => { setError(''); setStep(1); }}>
+                          Back
+                        </button>
+                      )}
+                      {step === 1 ? (
+                        <button type="button" className="login-btn-primary" onClick={handleNext}>
+                          Next
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          className="login-btn-primary"
+                          style={{ flex: 2 }}
+                          disabled={loading || plansLoading || !formData.SelectedPlan}
+                        >
+                          {loading ? (
+                            <>
+                              <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
+                              <span>Registering...</span>
+                            </>
+                          ) : (
+                            <span>Create Account</span>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="login-register-row">
+                      <span>Already have an account? </span>
+                      <button type="button" className="login-register-btn" onClick={() => navigate('/login', { state: { fromAuth: 'register' } })}>
+                        Login now
+                      </button>
+                    </div>
+                  </form>
                 </div>
-                <a href={infoSlides[slide].link} target="_blank" rel="noopener noreferrer" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12,
-                  background: 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)', color: '#fff', borderRadius: 8, padding: '6px 16px', fontWeight: 600, fontSize: '0.7rem', textDecoration: 'none', fontFamily: 'inherit',
-                }}>
-                  <i className="fas fa-arrow-right" style={{ fontSize: 9 }}></i> Learn more
-                </a>
               </div>
             </div>
 
-            {/* Form card - compact glass */}
-            <div
-              className="register-form-wrap"
-              style={{
-                flex: '1 1 380px',
-                minWidth: 280,
-                maxWidth: 440,
-                borderRadius: 20,
-                overflow: 'hidden',
-                ...glassCard,
-                display: 'flex',
-                flexDirection: 'column',
-                maxHeight: step === 2 ? 'min(680px, 94vh)' : 'min(560px, 88vh)',
-              }}
-            >
-              <div
-                className="register-form-card-inner"
-                style={{
-                  padding: step === 2 ? 'clamp(14px, 2vw, 20px)' : 'clamp(18px, 2.5vw, 26px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flex: 1,
-                  minHeight: 0,
-                }}
-              >
-                <div style={{ textAlign: 'center', marginBottom: 'clamp(12px, 1.5vw, 18px)' }}>
-                  <img
-                    src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
-                    alt="Sparkle RFID"
-                    style={{ height: 30, width: 'auto', marginBottom: 8 }}
-                    onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
-                  />
-                  <h1 className="register-title" style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e1b4b', margin: '0 0 2px 0', letterSpacing: '-0.02em' }}>
-                    Register to RFID Dashboard
-                  </h1>
-                  <p className="register-sub" style={{ color: '#db2777', fontSize: '0.7rem', fontWeight: 500, margin: 0 }}>
-                    Smart Tracking • Secure Access
-                  </p>
-                  <p style={{ color: '#64748b', fontSize: '0.64rem', margin: '7px 0 0 0', fontWeight: 600 }}>
-                    Step {step} of 2
-                  </p>
-                </div>
+            <div className="login-left-foot">
+              <span>© 2025, LoyalString International Pvt Ltd.</span>
+              <span>All Rights Reserved.</span>
+            </div>
+          </div>
 
-                {error && (
-                  <div style={{
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    color: '#b91c1c',
-                    padding: '6px 10px',
-                    borderRadius: 8,
-                    marginBottom: 12,
-                    fontSize: '0.68rem',
-                    fontWeight: 500,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    border: '1px solid rgba(239, 68, 68, 0.25)',
-                  }}>
-                    <i className="fas fa-exclamation-circle" style={{ fontSize: 11 }}></i>
-                    {error}
-                  </div>
-                )}
-
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: step === 2 ? 8 : 10, flex: 1, minHeight: 0 }}>
-                  {step === 1 && (
-                    <>
-                  <div style={{ position: 'relative' }}>
-                    <i className="fas fa-user" style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: '#ec4899', fontSize: 12, zIndex: 1, width: 14, textAlign: 'center' }}></i>
-                    <input
-                      type="text"
-                      name="Username"
-                      value={formData.Username}
-                      onChange={handleChange}
-                      placeholder="Username"
-                      className="reg-form-input"
-                      style={alignedInputStyle}
-                    />
-                  </div>
-                  <div style={{ position: 'relative' }}>
-                    <i className="fas fa-building" style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: '#ec4899', fontSize: 12, zIndex: 1, width: 14, textAlign: 'center' }}></i>
-                    <input
-                      type="text"
-                      name="ClientCode"
-                      value={formData.ClientCode}
-                      onChange={handleChange}
-                      placeholder="Client code"
-                      className="reg-form-input"
-                      style={alignedInputStyle}
-                    />
-                    <p style={{ fontSize: '0.6rem', color: '#be185d', margin: '4px 0 0 38px', fontWeight: 500 }}>Client code is generated from Sparkle Masterpiece</p>
-                  </div>
-                  <div style={{ position: 'relative' }}>
-                    <i className="fas fa-lock" style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: '#ec4899', fontSize: 12, zIndex: 1, width: 14, textAlign: 'center' }}></i>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      name="Password"
-                      value={formData.Password}
-                      onChange={handleChange}
-                      placeholder="Password"
-                      className="reg-form-input"
-                      style={{
-                        ...alignedInputStyle,
-                        paddingRight: 36,
-                      }}
-                    />
+          <div className="login-right">
+            <img
+              src={heroSlides[slide].img}
+              alt=""
+              className={`login-hero-img login-hero-img--${heroSlides[slide].fit || 'cover'}${animating ? ' is-fading' : ''}`}
+            />
+            <div className="login-hero-overlay">
+              <div className={`login-hero-copy${animating ? ' is-fading' : ''}`}>
+                <h2 className="login-hero-title">{heroSlides[slide].title}</h2>
+                <p className="login-hero-desc">{heroSlides[slide].desc}</p>
+                <div className="login-hero-dots">
+                  {heroSlides.map((_, index) => (
                     <button
+                      key={index}
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      style={{
-                        position: 'absolute',
-                        right: 10,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none',
-                        border: 'none',
-                        color: '#64748b',
-                        cursor: 'pointer',
-                        padding: 4,
-                        zIndex: 1,
-                        fontSize: 13,
-                      }}
-                    >
-                      <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-                    </button>
-                  </div>
-                  </>
-                  )}
-
-                  {step === 2 && (
-                  <div style={{ marginTop: 2 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: '#1e1b4b', fontWeight: 600, marginBottom: 8 }}>
-                      <i className="fas fa-gem" style={{ color: '#ec4899', fontSize: 11 }}></i>
-                      Select your RFID plan
-                    </label>
-                    <p style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: '0.64rem', fontWeight: 600 }}>
-                      Choose one plan manually. It will be active for 365 days.
-                    </p>
-
-                    {plansError && (
-                      <p style={{ margin: '0 0 8px 0', color: '#b45309', fontSize: '0.63rem', fontWeight: 600 }}>
-                        {plansError}
-                      </p>
-                    )}
-
-                    {plansLoading ? (
-                      <div style={{
-                        ...inputGlass,
-                        borderRadius: 10,
-                        padding: '10px 12px',
-                        fontSize: '0.72rem',
-                        color: '#475569',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                      }}>
-                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 12, height: 12, borderWidth: 2 }}></span>
-                        Loading available plans...
-                      </div>
-                    ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                        {availablePlans.map((plan) => {
-                          const isSelected = formData.SelectedPlan === plan.PlanName;
-                          return (
-                            <button
-                              key={plan.PlanName}
-                              type="button"
-                              className={`plan-card ${isSelected ? 'selected' : ''}`}
-                              onClick={() => setFormData((prev) => ({ ...prev, SelectedPlan: plan.PlanName }))}
-                              style={{
-                                ...inputGlass,
-                                borderRadius: 10,
-                                border: isSelected ? '1px solid rgba(219, 39, 119, 0.6)' : '1px solid rgba(255, 255, 255, 0.5)',
-                                padding: '10px 11px',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                                <div>
-                                  <div style={{ color: '#1e1b4b', fontSize: '0.8rem', fontWeight: 700 }}>
-                                    {plan.PlanName}
-                                  </div>
-                                  <div style={{ color: '#64748b', fontSize: '0.66rem', marginTop: 2 }}>
-                                    Up to {plan.MaxSubUsers} dashboard sub-users
-                                  </div>
-                                  <div style={{ color: '#64748b', fontSize: '0.64rem', marginTop: 2 }}>
-                                    Valid for {plan.ValidityInDays} days from registration
-                                  </div>
-                                </div>
-                                <span style={{
-                                  minWidth: 18,
-                                  width: 18,
-                                  height: 18,
-                                  borderRadius: '50%',
-                                  border: isSelected ? 'none' : '1px solid #cbd5e1',
-                                  background: isSelected ? '#db2777' : 'transparent',
-                                  color: '#fff',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: 10,
-                                  marginTop: 1,
-                                }}>
-                                  {isSelected ? <i className="fas fa-check"></i> : null}
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {!plansLoading && !formData.SelectedPlan && (
-                      <p style={{ margin: '8px 0 0 0', color: '#be123c', fontSize: '0.62rem', fontWeight: 700 }}>
-                        Please select Basic or Pro plan to enable account creation.
-                      </p>
-                    )}
-
-                    <div style={{ marginTop: 8, ...inputGlass, borderRadius: 10, padding: '8px 10px' }}>
-                      <p style={{ margin: '0 0 7px 0', color: '#1e1b4b', fontSize: '0.68rem', fontWeight: 700 }}>
-                        Dashboard features included
-                      </p>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-                        {[
-                          'Inventory Tracking',
-                          'RFID Label Management',
-                          'Reports & Analytics',
-                          'Secure Sub-user Access',
-                          'Real-time Sync',
-                          'Stock Monitoring'
-                        ].map((feature) => (
-                          <div key={feature} style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#475569', fontSize: '0.61rem', fontWeight: 600 }}>
-                            <i className="fas fa-check-circle" style={{ color: '#16a34a', fontSize: 10 }}></i>
-                            <span>{feature}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <p style={{ margin: '8px 0 0 0', color: '#db2777', fontSize: '0.62rem', fontWeight: 700 }}>
-                        All plans are valid for 365 days from registration date.
-                      </p>
-                    </div>
-                  </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: 8, marginTop: step === 2 ? 0 : 2 }}>
-                    {step === 2 && (
-                      <button
-                        type="button"
-                        onClick={() => { setError(''); setStep(1); }}
-                        style={{
-                          flex: 1,
-                          padding: '11px',
-                          background: 'rgba(255,255,255,0.7)',
-                          color: '#334155',
-                          border: '1px solid rgba(148,163,184,0.35)',
-                          borderRadius: 10,
-                          fontSize: '0.78rem',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        <i className="fas fa-arrow-left" style={{ fontSize: 10, marginRight: 6 }}></i>
-                        Back
-                      </button>
-                    )}
-
-                    {step === 1 ? (
-                      <button
-                        type="button"
-                        onClick={handleNext}
-                        style={{
-                          width: '100%',
-                          padding: '11px',
-                          background: 'linear-gradient(135deg, #ec4899 0%, #db2777 50%, #be185d 100%)',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: 10,
-                          fontSize: '0.8rem',
-                          fontWeight: 600,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          fontFamily: 'inherit',
-                          boxShadow: '0 4px 14px rgba(236, 72, 153, 0.35)',
-                        }}
-                      >
-                        <span>Next</span>
-                        <i className="fas fa-arrow-right" style={{ fontSize: 10 }}></i>
-                      </button>
-                    ) : (
-                      <button
-                        type="submit"
-                        disabled={loading || plansLoading || !formData.SelectedPlan}
-                        style={{
-                          flex: 2,
-                          padding: '11px',
-                          background: 'linear-gradient(135deg, #ec4899 0%, #db2777 50%, #be185d 100%)',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: 10,
-                          fontSize: '0.8rem',
-                          fontWeight: 600,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6,
-                          cursor: loading || plansLoading || !formData.SelectedPlan ? 'not-allowed' : 'pointer',
-                          opacity: loading || plansLoading || !formData.SelectedPlan ? 0.8 : 1,
-                          transition: 'all 0.2s',
-                          fontFamily: 'inherit',
-                          boxShadow: '0 4px 14px rgba(236, 72, 153, 0.35)',
-                        }}
-                      >
-                        {loading ? (
-                          <>
-                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: 14, height: 14, borderWidth: 2 }}></span>
-                            <span>Registering...</span>
-                          </>
-                        ) : (
-                          <>
-                            <i className="fas fa-user-plus" style={{ fontSize: 11 }}></i>
-                            <span>Create Account</span>
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.68rem', paddingTop: 10, marginTop: 'auto', borderTop: '1px solid rgba(255,255,255,0.5)' }}>
-                    <span style={{ color: '#64748b' }}>Already have an account?</span>
-                    <button type="button" onClick={() => navigate('/login')} style={{ background: 'none', border: 'none', color: '#db2777', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
-                      <i className="fas fa-sign-in-alt" style={{ fontSize: 10 }}></i>
-                      <span>Login now</span>
-                    </button>
-                  </div>
-                </form>
+                      className={`login-hero-dot${index === slide ? ' is-active' : ''}`}
+                      aria-label={`Show slide ${index + 1}`}
+                      onClick={() => setSlide(index)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         </div>
-
-        <footer style={{
-          padding: '6px 10px',
-          textAlign: 'center',
-          fontSize: '0.62rem',
-          color: '#94a3b8',
-          fontFamily: 'inherit',
-          background: 'rgba(255,255,255,0.3)',
-          backdropFilter: 'blur(8px)',
-          borderTop: '1px solid rgba(255,255,255,0.4)',
-        }}>
-          © 2025, LoyalString International Pvt Ltd. All Rights Reserved.
-        </footer>
       </div>
     </>
   );
 };
 
 export default Register;
+

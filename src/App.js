@@ -392,7 +392,7 @@ const isAdminAuthenticated = () => {
 
 // Common page wrapper component with smooth scroll
 const PageWrapper = ({ children }) => (
-  <div className="page-wrapper" style={{
+  <div className="page-wrapper app-ui-shell" style={{
     height: '100vh',
     overflowY: 'auto',
     scrollBehavior: 'smooth',
@@ -405,22 +405,7 @@ const PageWrapper = ({ children }) => (
 );
 
 const FullHeightPageWrapper = ({ children }) => (
-  <div
-    style={{
-      height: 'calc(100vh - 40px)',
-      maxHeight: 'calc(100vh - 40px)',
-      margin: '-20px',
-      width: 'calc(100% + 40px)',
-      padding: '10px 12px',
-      boxSizing: 'border-box',
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-      background: '#eef2f7',
-      msOverflowStyle: 'none',
-      scrollbarWidth: 'none',
-    }}
-  >
+  <div className="analytics-fit-shell">
     {children}
   </div>
 );
@@ -581,7 +566,7 @@ const RoutesWrapper = () => {
 
         {/* User protected routes (all require AuthGuard) */}
         <Route element={<Layout />}>
-          <Route path="/analytics" element={<AuthGuard><PageWrapper><DashboardAnalytics /></PageWrapper></AuthGuard>} />
+          <Route path="/analytics" element={<AuthGuard><FullHeightPageWrapper><DashboardAnalytics /></FullHeightPageWrapper></AuthGuard>} />
           <Route path="/dashboard" element={<AuthGuard><PageWrapper><Dashboard /></PageWrapper></AuthGuard>} />
           <Route path="/create-masters" element={<AuthGuard><PageWrapper><CreateMasters /></PageWrapper></AuthGuard>} />
           <Route path="/api-documentation" element={<AuthGuard><PageWrapper><APIDocumentation /></PageWrapper></AuthGuard>} />

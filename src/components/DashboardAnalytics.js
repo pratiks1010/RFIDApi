@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { useTranslation } from '../hooks/useTranslation';
@@ -9,21 +10,20 @@ import {
   FaWeight,
   FaBalanceScale,
   FaStore,
-  FaCalendarAlt,
-  FaFilter,
-  FaDownload,
   FaSyncAlt,
   FaCoins,
   FaCheck,
   FaBoxes,
   FaSearch,
-  FaTachometerAlt,
   FaShoppingCart,
   FaUsers,
-  FaArrowUp,
-  FaArrowDown,
-  FaEye,
-  FaTags
+  FaTags,
+  FaPlus,
+  FaFileAlt,
+  FaHome,
+  FaListUl,
+  FaDownload,
+  FaFilter,
 } from 'react-icons/fa';
 import {
   Chart as ChartJS,
@@ -38,10 +38,12 @@ import {
   ArcElement,
   Filler
 } from 'chart.js';
-import { Doughnut, Bar, Pie } from 'react-chartjs-2';
+import { Doughnut, Bar, Pie, Line } from 'react-chartjs-2';
 import { useNotifications } from '../context/NotificationContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import PageHeader from './common/PageHeader';
+import UiButton from './common/UiButton';
 
 // Register Chart.js components
 ChartJS.register(
@@ -59,10 +61,10 @@ ChartJS.register(
 
 const DashboardAnalytics = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [productSearch, setProductSearch] = useState('');
@@ -71,6 +73,9 @@ const DashboardAnalytics = () => {
   const [productPage, setProductPage] = useState(1);
   const [counterPage, setCounterPage] = useState(1);
   const [categoryPage, setCategoryPage] = useState(1);
+  const [orders, setOrders] = useState([]);
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderPage, setOrderPage] = useState(1);
   const [showAnalyticsModal, setShowAnalyticsModal] = useState(false);
   const [selectedAnalytics, setSelectedAnalytics] = useState(null);
   const [tagUsageData, setTagUsageData] = useState(null);
@@ -89,8 +94,11 @@ const DashboardAnalytics = () => {
   const [basePurityIdByCategoryId, setBasePurityIdByCategoryId] = useState({});
   const [baseFineByCategoryId, setBaseFineByCategoryId] = useState({});
   const [hoveredCategoryRing, setHoveredCategoryRing] = useState(null);
-  /** Bottom grid tables (Top Items, Counter Wise, Category): fixed 7 visible rows per page */
-  const bottomTableRowsPerPage = 7;
+  const [isSmallScreen, setIsSmallScreen] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  );
+  /** Bottom tables: compact page size; extra rows scroll inside the card */
+  const bottomTableRowsPerPage = 8;
   const { addNotification } = useNotifications();
 
   const ratesCategoryColorPalette = [
@@ -165,6 +173,43 @@ const DashboardAnalytics = () => {
       toast.error(err.message || t('analytics.errorLoadingData'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchDashboardOrders = async () => {
+    const clientCode = getClientCode();
+    if (!clientCode) {
+      setOrders([]);
+      return;
+    }
+    try {
+      const response = await axios.post(
+        'https://rrgold.loyalstring.co.in/api/Order/GetAllOrders',
+        {
+          ClientCode: clientCode,
+          PageNumber: 1,
+          PageSize: 100,
+          SearchQuery: '',
+        }
+      );
+      let ordersData = [];
+      if (response.data && Array.isArray(response.data.Data)) {
+        ordersData = response.data.Data;
+      } else if (Array.isArray(response.data)) {
+        ordersData = response.data;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        ordersData = response.data.data;
+      }
+      const sorted = [...ordersData].sort((a, b) => {
+        const dateA = new Date(a.OrderDate || a.CreatedDate || 0).getTime();
+        const dateB = new Date(b.OrderDate || b.CreatedDate || 0).getTime();
+        if (dateB !== dateA) return dateB - dateA;
+        return (b.Id || b.id || 0) - (a.Id || a.id || 0);
+      });
+      setOrders(sorted);
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+      setOrders([]);
     }
   };
 
@@ -612,6 +657,12 @@ const DashboardAnalytics = () => {
   }, [loading]);
 
   useEffect(() => {
+    const onResize = () => setIsSmallScreen(window.innerWidth <= 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
     const initializeData = async () => {
       setLoadingProgress(0);
       await fetchAnalyticsData();
@@ -620,6 +671,7 @@ const DashboardAnalytics = () => {
       setTimeout(() => {
         fetchTagUsageData();
         fetchSoldItemsCount();
+        fetchDashboardOrders();
       }, 500);
     };
 
@@ -635,8 +687,8 @@ const DashboardAnalytics = () => {
   }, [counterSearch, selectedCategory, loading, data.length]);
 
   useEffect(() => {
-    setCategoryPage(1);
-  }, [selectedCategory, loading, data.length]);
+    setOrderPage(1);
+  }, [orderSearch]);
 
   // Generate dummy data for loading state
   const generateDummyData = () => {
@@ -900,35 +952,97 @@ const DashboardAnalytics = () => {
     };
   };
 
-  const getWeightTrend = () => {
-    const monthlyData = filteredData.reduce((acc, item) => {
-      const month = new Date(item.CreatedOn).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-      if (!acc[month]) {
-        acc[month] = { totalWeight: 0, count: 0 };
-      }
-      acc[month].totalWeight += parseFloat(item.GrossWt) || 0;
-      acc[month].count += 1;
-      return acc;
-    }, {});
+  const getItemDate = (item) => {
+    const raw = item.CreatedOn || item.CreatedDate || item.LastUpdated || item.UpdatedOn || item.EntryDate || item.TagDate;
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
 
-    const sortedMonths = Object.keys(monthlyData).sort((a, b) => new Date(a) - new Date(b));
+  const formatDayLabel = (date) => date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+
+  const getWeightTrend = () => {
+    const buckets = {};
+    filteredData.forEach((item) => {
+      const parsed = getItemDate(item);
+      const key = parsed ? formatDayLabel(parsed) : '__undated';
+      if (!buckets[key]) {
+        buckets[key] = { gross: 0, net: 0, count: 0, t: parsed ? parsed.getTime() : 0 };
+      }
+      buckets[key].gross += parseFloat(item.GrossWt || item.GrossWeight) || 0;
+      buckets[key].net += parseFloat(item.NetWt || item.NetWeight) || 0;
+      buckets[key].count += 1;
+    });
+
+    let keys = Object.keys(buckets)
+      .filter((key) => key !== '__undated')
+      .sort((a, b) => buckets[a].t - buckets[b].t)
+      .slice(-7);
+
+    if (keys.length === 0) {
+      keys = [];
+      for (let i = 6; i >= 0; i -= 1) {
+        const day = new Date();
+        day.setHours(0, 0, 0, 0);
+        day.setDate(day.getDate() - i);
+        const label = formatDayLabel(day);
+        keys.push(label);
+        if (!buckets[label]) buckets[label] = { gross: 0, net: 0, count: 0, t: day.getTime() };
+      }
+      if (buckets.__undated) {
+        const last = keys[keys.length - 1];
+        buckets[last].gross += buckets.__undated.gross;
+        buckets[last].net += buckets.__undated.net;
+        buckets[last].count += buckets.__undated.count;
+      }
+    }
+
+    const isItems = false;
 
     return {
-      labels: sortedMonths,
-      datasets: [{
-        label: t('analytics.totalWeightGrams'),
-        data: sortedMonths.map(month => monthlyData[month].totalWeight),
-        borderColor: '#1d4ed8',
-        backgroundColor: 'rgba(37, 99, 235, 0.10)',
-        borderWidth: 3,
+      labels: keys,
+      datasets: isItems
+        ? [{
+            label: 'Items',
+            data: keys.map((k) => buckets[k].count),
+            borderColor: '#7C3AED',
+            backgroundColor: 'rgba(124, 58, 237, 0.12)',
         fill: true,
         tension: 0.4,
-        pointBackgroundColor: '#1d4ed8',
-        pointBorderColor: '#ffffff',
-        pointBorderWidth: 2,
-        pointRadius: 6,
-        pointHoverRadius: 8,
-      }]
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: '#7C3AED',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 1.5,
+          }]
+        : [
+            {
+              label: 'Gross Weight',
+              data: keys.map((k) => buckets[k].gross),
+              borderColor: '#7C3AED',
+              backgroundColor: 'rgba(124, 58, 237, 0.14)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: '#7C3AED',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 1.5,
+            },
+            {
+              label: 'Net Weight',
+              data: keys.map((k) => buckets[k].net),
+              borderColor: '#16A34A',
+              backgroundColor: 'rgba(22, 163, 74, 0.12)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: '#16A34A',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 1.5,
+            },
+          ],
     };
   };
 
@@ -1394,46 +1508,31 @@ const DashboardAnalytics = () => {
   const PaginationControls = ({ currentPage, totalItems, itemsPerPage, onPageChange, tableType }) => {
     const totalPages = Math.ceil(totalItems / itemsPerPage);
 
-    if (totalPages <= 1) return null;
+    if (totalPages <= 1) {
+      return <div className="erp-pager erp-pager-spacer" aria-hidden="true" />;
+    }
 
     const visiblePages = Array.from({ length: totalPages }, (_, i) => i + 1).filter((page) =>
       page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1
     );
 
     return (
-      <div className="pagination-container">
-        <div className="pagination-controls">
-          <button
-            className="pagination-btn"
-            onClick={() => onPageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-          >
-            ‹
-          </button>
+      <div className="erp-pager">
+        <button type="button" className="erp-pager-btn" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}>‹</button>
           {visiblePages.map((page, index) => (
             <React.Fragment key={page}>
-              {index > 0 && visiblePages[index - 1] !== page - 1 ? (
-                <span className="pagination-ellipsis">...</span>
-              ) : null}
+            {index > 0 && visiblePages[index - 1] !== page - 1 ? <span className="erp-pager-gap">…</span> : null}
               <button
-                className={`pagination-btn ${currentPage === page ? 'active' : ''}`}
+              type="button"
+              className={`erp-pager-btn ${currentPage === page ? 'is-active' : ''}`}
                 onClick={() => onPageChange(page)}
               >
                 {page}
               </button>
             </React.Fragment>
           ))}
-          <button
-            className="pagination-btn"
-            onClick={() => onPageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-          >
-            ›
-          </button>
-          <span className="pagination-mini-info">
-            {currentPage}/{totalPages}
-          </span>
-        </div>
+        <button type="button" className="erp-pager-btn" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}>›</button>
+        <span className="erp-pager-meta">{currentPage}/{totalPages}</span>
       </div>
     );
   };
@@ -1996,11 +2095,11 @@ const DashboardAnalytics = () => {
 
   if (error) {
     return (
-      <div className="analytics-error">
-        <div className="error-content">
-          <FaChartLine size={48} color="#ef4444" />
+      <div className="erp-dash">
+        <div className="erp-error">
+          <FaChartLine size={36} color="#EF4444" />
           <p>{error}</p>
-          <button onClick={fetchAnalyticsData} className="retry-btn">
+          <button type="button" className="erp-primary-btn" onClick={fetchAnalyticsData}>
             <FaSyncAlt /> Retry
           </button>
         </div>
@@ -2008,365 +2107,671 @@ const DashboardAnalytics = () => {
     );
   }
 
+  const statusChart = getStatusDistribution();
+  const branchChart = getBranchDistribution();
+  const usedTags = tagUsageData ? (tagUsageData.UsedCount || 0) : (loading ? dummyTagUsage.used : 0);
+  const unusedTags = tagUsageData ? (tagUsageData.UnusedCount || 0) : (loading ? dummyTagUsage.unused : 0);
+  const totalTags = usedTags + unusedTags;
+  const usedPct = totalTags > 0 ? Math.round((usedTags / totalTags) * 100) : 0;
+  const branchEntries = (branchChart.labels || []).map((name, i) => ({
+    name,
+    count: (branchChart.datasets && branchChart.datasets[0] && branchChart.datasets[0].data[i]) || 0,
+  }));
+  const topBranch = branchEntries[0];
+  const categoryPerf = getCategoryPerformanceAnalysis();
+  const bestCategory = categoryPerf[0];
+  const healthPct = totalItems > 0 ? Math.round((availableItems / Math.max(1, totalItems + soldItemsCount)) * 100) : 0;
+  const healthTone = healthPct >= 70 ? '#16A34A' : healthPct >= 40 ? '#F59E0B' : '#EF4444';
+  const lowStockHint = uniqueCounters > 0 && totalItems / uniqueCounters < 8;
+  const hasStatusData = availableItems > 0 || soldItemsCount > 0;
+  const hasRfidData = usedTags > 0 || unusedTags > 0;
+
+  const groupedProducts = Object.values(
+    filteredData.reduce((acc, item) => {
+      const product = item.ProductName || '-';
+      const category = item.CategoryName || '-';
+      const design = item.DesignName || item.DesignNo || item.Design || '-';
+      const key = product + '||' + category + '||' + design;
+      if (!acc[key]) acc[key] = {
+        product,
+        category,
+        design,
+        qty: 0,
+        gross: 0,
+        sold: 0,
+        rfid: '',
+        image: '',
+      };
+      acc[key].qty += 1;
+      acc[key].gross += parseFloat(item.GrossWt || item.GrossWeight) || 0;
+      if (item.Status === 'Sold') acc[key].sold += 1;
+      if (!acc[key].rfid) {
+        acc[key].rfid = String(item.RFIDNumber || item.RFID || item.ItemCode || item.itemcode || '').trim();
+      }
+      if (!acc[key].image) {
+        acc[key].image = String(item.ImagePath || item.ItemImage || item.ProductImage || '').trim();
+      }
+      return acc;
+    }, {})
+  ).filter((row) =>
+    row.product.toLowerCase().includes(productSearch.toLowerCase()) ||
+    row.category.toLowerCase().includes(productSearch.toLowerCase()) ||
+    row.design.toLowerCase().includes(productSearch.toLowerCase())
+  ).sort((a, b) => b.qty - a.qty);
+
+  const groupedCounters = Object.entries(
+    filteredData.reduce((acc, item) => {
+      const counterName = item.CounterName || item.Counter || 'Unassigned';
+      if (!acc[counterName]) acc[counterName] = { name: counterName, qty: 0, gross: 0, net: 0 };
+      acc[counterName].qty += 1;
+      acc[counterName].gross += parseFloat(item.GrossWt || item.GrossWeight) || 0;
+      acc[counterName].net += parseFloat(item.NetWt || item.NetWeight) || 0;
+      return acc;
+    }, {})
+  ).filter(([name]) => name.toLowerCase().includes(counterSearch.toLowerCase()))
+    .map(([, row]) => row)
+    .sort((a, b) => b.qty - a.qty);
+
+  const categoryBadgeTone = (name) => {
+    const n = String(name || '').toLowerCase();
+    if (n.includes('gold')) return 'gold';
+    if (n.includes('silver')) return 'silver';
+    if (n.includes('diamond')) return 'diamond';
+    if (n.includes('plat')) return 'platinum';
+    return 'slate';
+  };
+  const counterPalette = ['#2563EB', '#16A34A', '#F59E0B', '#7C3AED', '#0EA5E9', '#EF4444'];
+  const tableRangeLabel = (pageData) => {
+    if (!pageData.total) return '0 rows';
+    const start = (pageData.current - 1) * bottomTableRowsPerPage + 1;
+    const end = Math.min(pageData.total, pageData.current * bottomTableRowsPerPage);
+    return `${start}–${end} of ${pageData.total}`;
+  };
+
+  const paginateRows = (rows, page) => {
+    const total = rows.length;
+    const pages = Math.max(1, Math.ceil(total / bottomTableRowsPerPage) || 1);
+    const current = Math.min(Math.max(1, page), pages);
+    return {
+      rows: rows.slice((current - 1) * bottomTableRowsPerPage, current * bottomTableRowsPerPage),
+      total,
+      current,
+    };
+  };
+  const productPageData = paginateRows(groupedProducts, productPage);
+  const counterPageData = paginateRows(groupedCounters, counterPage);
+
+  const getOrderField = (order, key) => {
+    switch (key) {
+      case 'OrderNo':
+        return order.OrderNo || order.OrderId || '—';
+      case 'CustomerName': {
+        if (order.Customer) {
+          const name = [order.Customer.FirstName, order.Customer.MiddleName, order.Customer.LastName].filter(Boolean).join(' ').trim();
+          return name || '—';
+        }
+        return order.CustomerName || '—';
+      }
+      case 'Product':
+        return order.CustomOrderItem?.[0]?.ProductName || order.ProductName || '—';
+      case 'Qty':
+        return order.Qty || order.OrderCount || (order.CustomOrderItem?.length || 0);
+      case 'GrossWt':
+        return parseFloat(order.CustomOrderItem?.[0]?.GrossWt || order.CustomOrderItem?.[0]?.TotalWt || order.GrossWt || 0) || 0;
+      case 'Status':
+        return order.OrderStatus || 'Pending';
+      case 'Date': {
+        const raw = order.OrderDate || order.CreatedDate;
+        if (!raw) return '—';
+        const parsed = new Date(raw);
+        return Number.isNaN(parsed.getTime()) ? String(raw) : parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      }
+      default:
+        return order[key] || '—';
+    }
+  };
+  const filteredOrders = orders.filter((order) => {
+    const q = orderSearch.toLowerCase().trim();
+    if (!q) return true;
+    return [getOrderField(order, 'OrderNo'), getOrderField(order, 'CustomerName'), getOrderField(order, 'Product')]
+      .join(' ')
+      .toLowerCase()
+      .includes(q);
+  });
+  const orderPageData = paginateRows(filteredOrders, orderPage);
+
+  const kpiCards = [
+    { icon: FaBoxes, label: t('analytics.totalItems'), value: totalItems, suffix: '', decimals: 0, color: '#7C3AED', bg: '#F5F3FF' },
+    { icon: FaBalanceScale, label: t('analytics.totalWeight'), value: totalWeight, suffix: ' g', decimals: 2, color: '#16A34A', bg: '#F0FDF4' },
+    { icon: FaWeight, label: t('analytics.netWeight'), value: totalNetWeight, suffix: ' g', decimals: 2, color: '#DB2777', bg: '#FDF2F8' },
+    { icon: FaTags, label: t('analytics.newRfidTags'), value: totalRfidNew, suffix: '', decimals: 0, color: '#F59E0B', bg: '#FFFBEB' },
+    { icon: FaShoppingCart, label: t('analytics.soldItems'), value: soldItemsCount, suffix: '', decimals: 0, color: '#EF4444', bg: '#FEF2F2' },
+    { icon: FaStore, label: t('analytics.counterCount'), value: uniqueCounters, suffix: '', decimals: 0, color: '#4C1D95', bg: '#EDE9FE' },
+  ];
+
+  const categoryBarColors = {
+    GOLD: '#F59E0B',
+    SILVER: '#94A3B8',
+    PLATINUM: '#A78BFA',
+    DIAMOND: '#60A5FA',
+    OTHERS: '#CBD5E1',
+  };
+  const categoryBarOrder = ['GOLD', 'SILVER', 'PLATINUM', 'DIAMOND', 'OTHERS'];
+  const categoryBarCounts = filteredData.reduce((acc, item) => {
+    const raw = String(item.CategoryName || 'OTHERS').toUpperCase();
+    const key = categoryBarOrder.includes(raw) ? raw : 'OTHERS';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const categoryBarData = {
+    labels: categoryBarOrder,
+    datasets: [{
+      data: categoryBarOrder.map((name) => categoryBarCounts[name] || 0),
+      backgroundColor: categoryBarOrder.map((name) => categoryBarColors[name]),
+      borderRadius: 8,
+      borderSkipped: false,
+      maxBarThickness: 36,
+    }],
+  };
+  const hasCategoryBars = Object.values(categoryBarCounts).some((n) => n > 0);
+  const fmtCount = (n) => Number(n || 0).toLocaleString('en-US');
+
+  const barValuePlugin = {
+    id: 'erpBarValue',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || !meta.data) return;
+      ctx.save();
+      ctx.font = '600 10px Inter, sans-serif';
+      ctx.fillStyle = '#0F172A';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      meta.data.forEach((bar, i) => {
+        const val = chart.data.datasets[0].data[i];
+        if (!val) return;
+        ctx.fillText(Number(val).toLocaleString('en-US'), bar.x, bar.y - 6);
+      });
+      ctx.restore();
+    },
+  };
+
+  const compactChartOptions = {
+    ...chartOptions,
+    plugins: {
+      ...chartOptions.plugins,
+      legend: { display: false },
+      tooltip: {
+        ...chartOptions.plugins.tooltip,
+        backgroundColor: '#ffffff',
+        titleColor: '#0F172A',
+        bodyColor: '#334155',
+        borderColor: '#E2E8F0',
+        borderWidth: 1,
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 9, family: 'Inter' }, color: '#64748B', maxRotation: 0, autoSkip: true },
+        border: { display: false },
+      },
+      y: {
+        beginAtZero: true,
+        grid: { color: 'rgba(226,232,240,0.9)', drawBorder: false },
+        ticks: { font: { size: 9, family: 'Inter' }, color: '#94A3B8', maxTicksLimit: 5, padding: 4 },
+        border: { display: false },
+      },
+    },
+  };
+
+  const donutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '72%',
+    plugins: {
+      legend: { display: false },
+      tooltip: compactChartOptions.plugins.tooltip,
+    },
+  };
+
+  const donutData = {
+    labels: statusChart.labels,
+    datasets: [{
+      data: statusChart.datasets[0].data,
+      backgroundColor: ['#16A34A', '#EF4444'],
+      borderWidth: 0,
+      hoverOffset: 4,
+    }],
+  };
+
+  const categoryBarOptions = {
+    ...compactChartOptions,
+    plugins: {
+      ...compactChartOptions.plugins,
+      legend: { display: false },
+    },
+    scales: {
+      ...compactChartOptions.scales,
+      x: {
+        ...compactChartOptions.scales.x,
+        ticks: { ...compactChartOptions.scales.x.ticks, font: { size: 9, family: 'Inter', weight: '600' } },
+      },
+    },
+    layout: { padding: { top: 16 } },
+  };
+
+  const branchDonutData = {
+    labels: branchChart.labels,
+    datasets: [{
+      data: (branchChart.datasets && branchChart.datasets[0] && branchChart.datasets[0].data) || [],
+      backgroundColor: (branchChart.labels || []).map((_, i) => branchColorPalette[i % branchColorPalette.length]),
+      borderWidth: 3,
+      borderColor: '#ffffff',
+      hoverOffset: 6,
+    }],
+  };
+
+  const lineChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: compactChartOptions.plugins.tooltip,
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 9, family: 'Inter' }, color: '#64748B' },
+        border: { display: false },
+      },
+      y: {
+        beginAtZero: true,
+        grid: { color: 'rgba(226,232,240,0.9)', drawBorder: false },
+        ticks: {
+          font: { size: 9, family: 'Inter' },
+          color: '#94A3B8',
+          maxTicksLimit: 5,
+          padding: 4,
+          callback: (value) => (value >= 1000 ? `${Math.round(value / 1000)}K` : value),
+        },
+        border: { display: false },
+      },
+    },
+  };
+
+  let dashboardUserName = 'User';
+  try {
+    const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    dashboardUserName = String(
+      storedUser.Username || storedUser.UserName || storedUser.name || storedUser.LoginName || 'User'
+    ).trim() || 'User';
+  } catch {
+    dashboardUserName = 'User';
+  }
+
   return (
-    <div
-      className="dashboard-container dashboard-analytics-responsive"
-      style={{
-        padding: '12px',
-        background: '#ffffff',
-        height: '100vh',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        position: 'relative',
-        opacity: loading ? 0.85 : 1,
-        transition: 'opacity 0.3s ease',
-        overflowX: 'hidden',
-        overflowY: 'auto',
-        boxSizing: 'border-box',
-        width: '100%'
-      }}
-    >
-      <style>{`
-        .dashboard-analytics-responsive { box-sizing: border-box; }
-        @media (max-width: 1400px) {
-          .metrics-cards-grid { grid-template-columns: repeat(3, 1fr) !important; }
-          .charts-grid-responsive { grid-template-columns: repeat(2, 1fr) !important; }
-        }
-        @media (max-width: 992px) {
-          .dashboard-analytics-responsive { padding: 12px !important; }
-          .metrics-cards-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
-          .charts-grid-responsive { grid-template-columns: 1fr !important; gap: 12px !important; }
-        }
-        @media (max-width: 576px) {
-          .dashboard-analytics-responsive { padding: 8px !important; }
-          .metrics-cards-grid { grid-template-columns: 1fr !important; gap: 10px !important; }
-          .charts-grid-responsive { grid-template-columns: 1fr !important; gap: 10px !important; }
-        }
-        .charts-grid-responsive > div { min-width: 0; }
-        .metrics-cards-grid > div { min-width: 0; }
-        @keyframes metric-card-shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-        .dashboard-analytics-responsive { padding-bottom: 24px !important; }
-        @media (max-width: 992px) {
-          .bottom-tables-grid { grid-template-columns: 1fr !important; gap: 12px !important; margin-bottom: 16px !important; }
-        }
-        @media (max-width: 576px) {
-          .bottom-tables-grid { gap: 10px !important; margin-bottom: 12px !important; }
-        }
-        .analytics-bottom-panel {
-          background: #ffffff;
-          border-radius: 12px;
-          padding: 12px 14px 10px;
-          box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
-          border: 1px solid #e2e8f0;
-        }
-        .analytics-bottom-panel-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 12px;
-        }
-        .analytics-bottom-panel-head--solo { margin-bottom: 12px; }
-        .analytics-bottom-panel--single-title .analytics-bottom-panel-head--solo { justify-content: flex-start; }
-        .analytics-bottom-panel-title {
-          font-size: 13px;
-          font-weight: 700;
-          color: #111827;
-          margin: 0;
-          letter-spacing: -0.02em;
-        }
-        .analytics-bottom-search {
-          background: #ffffff;
-          border-radius: 8px;
-          padding: 6px 10px;
-          border: 1px solid #dbe1ea;
-          display: flex;
-          align-items: center;
-        }
-        .analytics-bottom-search input {
-          border: none;
-          outline: none;
-          background: transparent;
-          font-size: 12px;
-          color: #334155;
-          width: min(140px, 30vw);
-        }
-        .analytics-bottom-table-wrap {
-          overflow-x: auto;
-          min-width: 0;
-          border: 1px solid #d8e0ea;
-          border-radius: 8px;
-          background: #fcfdff;
-        }
-        .analytics-bottom-table-modern {
-          width: 100%;
-          border-collapse: separate;
-          border-spacing: 0;
-          font-size: 11px;
-          font-family: 'Inter', 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-        .analytics-bottom-table-modern thead th {
-          padding: 8px 9px;
-          text-align: left;
-          font-weight: 700;
-          font-size: 10px;
-          color: #e2e8f0;
-          letter-spacing: 0.03em;
-          background: #23364a;
-          border-bottom: 1px solid #1e2f42;
-        }
-        .analytics-bottom-table-modern thead th.analytics-bottom-th-num {
-          text-align: right;
-        }
-        .analytics-bottom-table-modern tbody td {
-          padding: 7px 9px;
-          font-size: 11px;
-          color: #334155;
-          border-bottom: 1px solid #edf2f7;
-          vertical-align: middle;
-          background: #ffffff;
-          line-height: 1.35;
-        }
-        .analytics-bottom-td-index {
-          color: #64748b;
-          font-size: 10px;
-          width: 3rem;
-        }
-        .analytics-bottom-td-strong {
-          font-weight: 600;
-          color: #1e293b;
-        }
-        .analytics-bottom-td-num {
-          text-align: right;
-          font-weight: 600;
-          color: #0f172a;
-        }
-        .analytics-bottom-cell-ellipsis {
-          font-weight: 500;
-          color: #1f2937;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          max-width: 100%;
-        }
-        .analytics-bottom-table-modern tbody tr:not(.analytics-table-row-empty):hover td {
-          background: #f1f7ff;
-        }
-        .analytics-bottom-table-modern tbody tr.analytics-table-row-empty td {
-          border-bottom: 1px solid #edf2f7;
-          height: 36px;
-          background: #fcfdff;
-          color: transparent;
-        }
-      `}</style>
-      {/* Loading Progress Indicator */}
-      {loading && (
-        <div style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 1000,
-          marginBottom: '16px',
-          background: 'white',
-          borderRadius: '8px',
-          padding: '12px 16px',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '8px'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px'
-            }}>
-              <div style={{
-                width: '20px',
-                height: '20px',
-                border: '3px solid #e3e8ef',
-                borderTop: '3px solid #0077d4',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-              }} />
-              <span style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#111827'
-              }}>
-                {t('analytics.loadingData')}...
-              </span>
-            </div>
-            <span style={{
-              fontSize: '16px',
-              fontWeight: '700',
-              color: '#0077d4',
-              fontFamily: 'monospace'
-            }}>
-              {Math.round(loadingProgress)}%
-            </span>
-          </div>
-          <div style={{
+    <div className="erp-dash" style={{ opacity: loading ? 0.92 : 1, position: 'relative' }}>
+      {loading ? (
+        <div className="erp-loadbar"><span style={{ width: Math.round(loadingProgress) + '%' }} /></div>
+      ) : null}
+
+      <header className="erp-head">
+        <PageHeader
+          className="erp-page-header"
+          isSmallScreen={isSmallScreen}
+          title={<>Hello, <span className="erp-hello-name">{dashboardUserName}</span></>}
+          subtitle="Welcome to SPARKLE RFID"
+          barStyle={{
             width: '100%',
-            height: '6px',
-            background: '#e5e7eb',
-            borderRadius: '3px',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              width: `${loadingProgress}%`,
-              height: '100%',
-              background: 'linear-gradient(90deg, #0077d4, #3b82f6)',
-              borderRadius: '3px',
-              transition: 'width 0.3s ease',
-              boxShadow: '0 0 10px rgba(0, 119, 212, 0.5)'
-            }} />
-          </div>
-          <style>{`
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-          `}</style>
-        </div>
-      )}
-
-      {/* Header: compact branded tile + Rates */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '12px',
-          marginBottom: '14px',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div
-          style={{
-            flex: '1 1 260px',
-            minWidth: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            padding: '7px 14px 7px 5px',
-            borderRadius: 14,
-            background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 48%, #f1f5f9 100%)',
-            border: '1px solid rgba(148, 163, 184, 0.28)',
-            boxShadow:
-              '0 1px 0 rgba(255,255,255,0.9) inset, 0 4px 18px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(255,255,255,0.5) inset',
-            position: 'relative',
-            overflow: 'hidden',
+            padding: isSmallScreen ? '0 0 8px' : '0 0 10px',
+            margin: 0,
+            gap: 10,
           }}
-        >
-          <div
-            aria-hidden
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: 5,
-              borderRadius: '14px 0 0 14px',
-              background: 'linear-gradient(180deg, #0078d4 0%, #6366f1 52%, #d60000 100%)',
-            }}
-          />
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              paddingLeft: 10,
-              minWidth: 0,
-            }}
-          >
-            <img
-              src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
-              alt="Sparkle RFID"
-              style={{
-                height: 30,
-                width: 'auto',
-                maxWidth: 132,
-                display: 'block',
-                flexShrink: 0,
-              }}
-              onError={(e) => {
-                e.target.onerror = null;
-                e.target.style.display = 'none';
-              }}
-            />
-            <div
-              style={{
-                minWidth: 0,
-                paddingLeft: 12,
-                borderLeft: '1px solid rgba(148, 163, 184, 0.35)',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 800,
-                  letterSpacing: '-0.03em',
-                  lineHeight: 1.2,
-                  background: 'linear-gradient(92deg, #0f172a 0%, #1e3a5f 55%, #0d9488 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
-                {t('analytics.dashboard')}
-              </div>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: '#64748b',
-                  marginTop: 2,
-                  letterSpacing: '0.04em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {t('analytics.overview')}
-              </div>
+          actions={(
+            <div className="erp-head-actions">
+              <UiButton variant="secondary" title="Filters">
+                <FaFilter /> Filters
+              </UiButton>
+              <UiButton variant="primary" onClick={handleOpenRates} disabled={ratesLoading || ratesSaving}>
+                {ratesLoading ? <FaSyncAlt className="cm-spin" /> : <FaCoins />} Rates
+              </UiButton>
+            </div>
+          )}
+        />
+      </header>
+
+      <section className="erp-kpis">
+        {kpiCards.map((card) => (
+          <article key={card.label} className="erp-card erp-kpi">
+            <div className="erp-kpi-icon" style={{ background: card.bg, color: card.color }}>
+              <card.icon />
+        </div>
+            <div className="erp-kpi-body">
+              <p className="erp-kpi-label">{card.label}</p>
+              <p className="erp-kpi-metric">
+                <AnimatedNumber value={card.value} suffix={card.suffix} decimals={card.decimals} />
+              </p>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section className="erp-charts">
+        <article className="erp-card erp-panel">
+          <div className="erp-panel-head">
+            <div>
+              <h3 className="erp-panel-title">Inventory Status</h3>
             </div>
           </div>
-        </div>
+          <div className="erp-panel-body erp-panel-body-stack">
+            {hasStatusData ? (
+              <>
+                <div className="erp-donut-wrap">
+                  <Doughnut data={donutData} options={donutOptions} />
+                  <div className="erp-donut-center">
+                    <strong>{fmtCount(totalItems)}</strong>
+                    <span>Total Items</span>
+                  </div>
+                </div>
+                <div className="erp-legend">
+                  <div className="erp-legend-row">
+                    <span className="erp-dot" style={{ background: '#16A34A' }} />
+                    <span className="erp-legend-name">Active</span>
+                    <span className="erp-legend-count">{fmtCount(availableItems)}</span>
+                  </div>
+                  <div className="erp-legend-row">
+                    <span className="erp-dot" style={{ background: '#EF4444' }} />
+                    <span className="erp-legend-name">Sold</span>
+                    <span className="erp-legend-count">{fmtCount(soldItemsCount)}</span>
+                  </div>
+                  <div className="erp-legend-row">
+                    <span className="erp-dot" style={{ background: '#7C3AED' }} />
+                    <span className="erp-legend-name">Total</span>
+                    <span className="erp-legend-count">{fmtCount(totalItems)}</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="erp-empty">No inventory status yet</div>
+            )}
+          </div>
+        </article>
 
-        <button
-          type="button"
-          onClick={handleOpenRates}
-          disabled={ratesLoading || ratesSaving}
-          style={{
-            padding: '9px 16px',
-            fontSize: 13,
-            fontWeight: 800,
-            color: '#fff',
-            background: ratesSaving
-              ? '#94a3b8'
-              : 'linear-gradient(135deg, #0d9488 0%, #0f766e 55%, #115e59 100%)',
-            border: 'none',
-            borderRadius: 12,
-            cursor: ratesLoading || ratesSaving ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            boxShadow: ratesSaving ? 'none' : '0 4px 16px rgba(13, 148, 136, 0.28)',
-            alignSelf: 'center',
-            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-          }}
-        >
-          {ratesLoading ? <FaSyncAlt style={{ animation: 'spin 1s linear infinite' }} /> : <FaCoins />}
-          Rates
-        </button>
+        <article className="erp-card erp-panel">
+          <div className="erp-panel-head">
+            <div>
+              <h3 className="erp-panel-title">{t('analytics.categoryDistribution')}</h3>
+            </div>
+          </div>
+          <div className="erp-panel-body erp-panel-body-col">
+            {hasCategoryBars ? (
+              <div className="erp-chart-box">
+                <Bar data={categoryBarData} options={categoryBarOptions} plugins={[barValuePlugin]} />
+              </div>
+            ) : (
+              <div className="erp-empty">No category data available</div>
+            )}
+          </div>
+        </article>
+
+        <article className="erp-card erp-panel">
+          <div className="erp-panel-head">
+            <div>
+              <h3 className="erp-panel-title">Branch Distribution</h3>
+            </div>
+          </div>
+          <div className="erp-panel-body erp-panel-body-stack">
+            {branchEntries.length === 0 ? (
+              <div className="erp-empty">No branch data</div>
+            ) : (
+              <>
+                <div className="erp-donut-wrap">
+                  <Doughnut data={branchDonutData} options={donutOptions} />
+                  <div className="erp-donut-center">
+                    <strong>{fmtCount(totalItems)}</strong>
+                    <span>Total Items</span>
+                  </div>
+                </div>
+                <div className="erp-legend">
+                  {branchEntries.map((row, i) => (
+                    <div className="erp-legend-row" key={row.name}>
+                      <span className="erp-dot" style={{ background: branchColorPalette[i % branchColorPalette.length] }} />
+                      <span className="erp-legend-name">{row.name}</span>
+                      <span className="erp-legend-count">{fmtCount(row.count)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section className="erp-tables">
+        <article className="erp-card saas-tbl-card">
+          <div className="saas-tbl-head">
+            <div className="saas-tbl-head-left">
+              <span className="saas-tbl-ico" style={{ background: '#EFF6FF', color: '#2563EB' }}><FaGem size={13} /></span>
+              <div>
+                <h3 className="saas-tbl-title">{t('analytics.modal.topItems')}</h3>
+              </div>
+            </div>
+            <div className="saas-tbl-head-right">
+              <label className="saas-tbl-search">
+                <FaSearch size={11} />
+                <input value={productSearch} onChange={(e) => { setProductSearch(e.target.value); setProductPage(1); }} placeholder="Search products..." />
+              </label>
+            </div>
+          </div>
+          <div className="saas-tbl-wrap">
+            <table className="saas-tbl">
+              <colgroup>
+                <col style={{ width: '42%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '22%' }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th className="cat">Category</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productPageData.total === 0 ? (
+                  <tr><td colSpan={4} className="saas-tbl-empty">No products</td></tr>
+                ) : productPageData.rows.map((row) => (
+                  <tr key={row.product + row.category + row.design}>
+                    <td>
+                      <div className="saas-tbl-entity">
+                        {row.image ? (
+                          <img className="saas-tbl-avatar img" src={row.image} alt="" />
+                        ) : (
+                          <span className="saas-tbl-avatar" style={{ background: '#EFF6FF', color: '#2563EB' }}>
+                            {String(row.product || 'P').charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <span>
+                          <span className="saas-tbl-name">{row.product}</span>
+                          <span className="saas-tbl-meta">{row.rfid || row.design || '—'}</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="cat">
+                      <span className={`saas-cat-badge tone-${categoryBadgeTone(row.category)}`}>{row.category}</span>
+                    </td>
+                    <td className="num qty">{row.qty}</td>
+                    <td className="num">
+                      <span className="saas-wt">{row.gross.toFixed(2)}<small>g</small></span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="saas-tbl-foot">
+            <span className="saas-tbl-count">{tableRangeLabel(productPageData)}</span>
+            <PaginationControls
+              currentPage={productPageData.current}
+              totalItems={productPageData.total}
+              itemsPerPage={bottomTableRowsPerPage}
+              onPageChange={setProductPage}
+              tableType="product"
+            />
+              </div>
+        </article>
+
+        <article className="erp-card saas-tbl-card">
+          <div className="saas-tbl-head">
+            <div className="saas-tbl-head-left">
+              <span className="saas-tbl-ico" style={{ background: '#F5F3FF', color: '#7C3AED' }}><FaStore size={13} /></span>
+              <div>
+                <h3 className="saas-tbl-title">Counter Wise Stock</h3>
+              </div>
+            </div>
+            <div className="saas-tbl-head-right">
+              <label className="saas-tbl-search">
+                <FaSearch size={11} />
+                <input value={counterSearch} onChange={(e) => { setCounterSearch(e.target.value); setCounterPage(1); }} placeholder="Search counters..." />
+              </label>
+          </div>
+        </div>
+          <div className="saas-tbl-wrap">
+            <table className="saas-tbl">
+              <colgroup>
+                <col style={{ width: '34%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '25%' }} />
+                <col style={{ width: '25%' }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Counter</th>
+                  <th className="num">Items</th>
+                  <th className="num">Gross Weight</th>
+                  <th className="num">Net Weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                {counterPageData.total === 0 ? (
+                  <tr><td colSpan={4} className="saas-tbl-empty">No counters</td></tr>
+                ) : counterPageData.rows.map((row, idx) => {
+                  const color = counterPalette[idx % counterPalette.length];
+                  return (
+                    <tr key={row.name}>
+                      <td>
+                        <div className="saas-tbl-entity">
+                          <span className="saas-tbl-avatar" style={{ background: `${color}18`, color }}>{String(row.name || 'C').charAt(0).toUpperCase()}</span>
+                          <span className="saas-tbl-name">{row.name}</span>
+                        </div>
+                      </td>
+                      <td className="num qty">{row.qty}</td>
+                      <td className="num"><span className="saas-wt">{row.gross.toFixed(2)}<small>g</small></span></td>
+                      <td className="num"><span className="saas-wt">{row.net.toFixed(2)}<small>g</small></span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="saas-tbl-foot">
+            <span className="saas-tbl-count">{tableRangeLabel(counterPageData)}</span>
+            <PaginationControls
+              currentPage={counterPageData.current}
+              totalItems={counterPageData.total}
+              itemsPerPage={bottomTableRowsPerPage}
+              onPageChange={setCounterPage}
+              tableType="counter"
+            />
+          </div>
+        </article>
+
+        <article className="erp-card saas-tbl-card">
+          <div className="saas-tbl-head">
+            <div className="saas-tbl-head-left">
+              <span className="saas-tbl-ico" style={{ background: '#FFF7ED', color: '#EA580C' }}><FaShoppingCart size={12} /></span>
+              <div>
+                <h3 className="saas-tbl-title">Orders</h3>
       </div>
+            </div>
+            <div className="saas-tbl-head-right">
+              <label className="saas-tbl-search">
+                <FaSearch size={11} />
+                <input value={orderSearch} onChange={(e) => { setOrderSearch(e.target.value); setOrderPage(1); }} placeholder="Search orders..." />
+              </label>
+            </div>
+          </div>
+          <div className="saas-tbl-wrap">
+            <table className="saas-tbl">
+              <colgroup>
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '26%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '16%' }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Order No</th>
+                  <th>Customer Name</th>
+                  <th>Product</th>
+                  <th className="num">Number of Items</th>
+                  <th className="num">Gross Wt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orderPageData.total === 0 ? (
+                  <tr><td colSpan={5} className="saas-tbl-empty">No orders</td></tr>
+                ) : orderPageData.rows.map((order, idx) => (
+                  <tr key={order.Id || order.OrderNo || idx}>
+                    <td>
+                      <span className="saas-tbl-name">{getOrderField(order, 'OrderNo')}</span>
+                    </td>
+                    <td>
+                      <span className="saas-tbl-name">{getOrderField(order, 'CustomerName')}</span>
+                    </td>
+                    <td>
+                      <span className="saas-tbl-name">{getOrderField(order, 'Product')}</span>
+                    </td>
+                    <td className="num qty">{getOrderField(order, 'Qty')}</td>
+                    <td className="num">
+                      <span className="saas-wt">{Number(getOrderField(order, 'GrossWt') || 0).toFixed(2)}<small>g</small></span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="saas-tbl-foot">
+            <span className="saas-tbl-count">{tableRangeLabel(orderPageData)}</span>
+            <PaginationControls
+              currentPage={orderPageData.current}
+              totalItems={orderPageData.total}
+              itemsPerPage={bottomTableRowsPerPage}
+              onPageChange={setOrderPage}
+              tableType="order"
+            />
+          </div>
+        </article>
+      </section>
+
+      <nav className="erp-mobile-nav">
+        <Link to="/analytics" className="active"><FaHome size={14} /> Dashboard</Link>
+        <Link to="/stock"><FaBoxes size={14} /> Inventory</Link>
+        <Link to="/stock-tracking"><FaListUl size={14} /> Counters</Link>
+        <Link to="/reports"><FaFileAlt size={14} /> Reports</Link>
+        <Link to="/profile-menu"><FaUsers size={14} /> Settings</Link>
+      </nav>
+      <button type="button" className="erp-fab" onClick={() => navigate('/stock')} title="Add product"><FaPlus /></button>
 
       {/* Rates Modal */}
       {ratesModalOpen && (
         <div
+          className="erp-rates-overlay"
           // Do not close on overlay click; Close button only.
           style={{
             position: 'fixed',
@@ -2381,6 +2786,7 @@ const DashboardAnalytics = () => {
           }}
         >
           <div
+            className="erp-rates-modal"
             onClick={(e) => e.stopPropagation()}
             style={{
               width: 'min(760px, 92vw)',
@@ -2645,2652 +3051,6 @@ const DashboardAnalytics = () => {
         </div>
       )}
 
-      {/* Compact Summary Cards - Responsive Grid */}
-      <div
-        className="metrics-cards-grid"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(6, 1fr)',
-          gap: '14px',
-          marginBottom: '12px',
-          width: '100%'
-        }}
-      >
-        {[
-          {
-            icon: FaGem,
-            label: t('analytics.totalItems'),
-            value: totalItems,
-            suffix: '',
-            decimals: 0,
-            color: '#2563eb',
-            gradient: 'linear-gradient(155deg, #eff6ff 0%, #ffffff 52%, #dbeafe 100%)',
-            gradientHover: 'linear-gradient(155deg, #dbeafe 0%, #ffffff 45%, #bfdbfe 100%)',
-            border: 'rgba(37, 99, 235, 0.2)',
-            shadow: '0 2px 10px rgba(37, 99, 235, 0.09)',
-            shadowHover: '0 14px 32px rgba(37, 99, 235, 0.16)',
-            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(239,246,255,0.85) 100%)',
-          },
-          {
-            icon: FaWeight,
-            label: t('analytics.totalWeight'),
-            value: totalWeight,
-            suffix: 'g',
-            decimals: 2,
-            color: '#0284c7',
-            gradient: 'linear-gradient(155deg, #ecfeff 0%, #ffffff 52%, #cffafe 100%)',
-            gradientHover: 'linear-gradient(155deg, #a5f3fc 0%, #ffffff 48%, #ecfeff 100%)',
-            border: 'rgba(14, 165, 233, 0.22)',
-            shadow: '0 2px 10px rgba(14, 165, 233, 0.1)',
-            shadowHover: '0 14px 32px rgba(14, 165, 233, 0.17)',
-            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(236,254,255,0.88) 100%)',
-          },
-          {
-            icon: FaBalanceScale,
-            label: t('analytics.netWeight'),
-            value: totalNetWeight,
-            suffix: 'g',
-            decimals: 2,
-            color: '#0d9488',
-            gradient: 'linear-gradient(155deg, #f0fdfa 0%, #ffffff 52%, #ccfbf1 100%)',
-            gradientHover: 'linear-gradient(155deg, #99f6e4 0%, #ffffff 48%, #f0fdfa 100%)',
-            border: 'rgba(13, 148, 136, 0.22)',
-            shadow: '0 2px 10px rgba(13, 148, 136, 0.1)',
-            shadowHover: '0 14px 32px rgba(13, 148, 136, 0.17)',
-            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(240,253,250,0.88) 100%)',
-          },
-          {
-            icon: FaTags,
-            label: t('analytics.newRfidTags'),
-            value: totalRfidNew,
-            suffix: '',
-            decimals: 0,
-            color: '#ca8a04',
-            gradient: 'linear-gradient(155deg, #fffbeb 0%, #ffffff 52%, #fef3c7 100%)',
-            gradientHover: 'linear-gradient(155deg, #fde68a 0%, #ffffff 48%, #fffbeb 100%)',
-            border: 'rgba(234, 179, 8, 0.28)',
-            shadow: '0 2px 10px rgba(234, 179, 8, 0.1)',
-            shadowHover: '0 14px 32px rgba(234, 179, 8, 0.18)',
-            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(254,252,232,0.9) 100%)',
-          },
-          {
-            icon: FaShoppingCart,
-            label: t('analytics.soldItems'),
-            value: soldItemsCount,
-            suffix: '',
-            decimals: 0,
-            color: '#dc2626',
-            gradient: 'linear-gradient(155deg, #fff1f2 0%, #ffffff 52%, #fecdd3 100%)',
-            gradientHover: 'linear-gradient(155deg, #fecdd3 0%, #ffffff 48%, #ffe4e6 100%)',
-            border: 'rgba(239, 68, 68, 0.22)',
-            shadow: '0 2px 10px rgba(239, 68, 68, 0.09)',
-            shadowHover: '0 14px 32px rgba(239, 68, 68, 0.16)',
-            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(255,241,242,0.88) 100%)',
-          },
-          // {
-          //   icon: FaBoxes,
-          //   label: t('analytics.activeItems'),
-          //   value: availableItems,
-          //   suffix: '',
-          //   decimals: 0,
-          //   color: '#16a34a',
-          //   gradient: 'linear-gradient(155deg, #f0fdf4 0%, #ffffff 52%, #dcfce7 100%)',
-          //   gradientHover: 'linear-gradient(155deg, #bbf7d0 0%, #ffffff 48%, #f0fdf4 100%)',
-          //   border: 'rgba(22, 163, 74, 0.22)',
-          //   shadow: '0 2px 10px rgba(22, 163, 74, 0.09)',
-          //   shadowHover: '0 14px 32px rgba(22, 163, 74, 0.16)',
-          //   iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(240,253,244,0.88) 100%)',
-          // },
-          {
-            icon: FaStore,
-            label: t('analytics.counterCount'),
-            value: uniqueCounters,
-            suffix: '',
-            decimals: 0,
-            color: '#7c3aed',
-            gradient: 'linear-gradient(155deg, #f5f3ff 0%, #ffffff 52%, #ede9fe 100%)',
-            gradientHover: 'linear-gradient(155deg, #ddd6fe 0%, #ffffff 48%, #f5f3ff 100%)',
-            border: 'rgba(124, 58, 237, 0.22)',
-            shadow: '0 2px 10px rgba(124, 58, 237, 0.1)',
-            shadowHover: '0 14px 32px rgba(124, 58, 237, 0.17)',
-            iconBg: 'linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(245,243,255,0.88) 100%)',
-          },
-        ].map((card, index) => (
-          <div
-            key={index}
-            style={{
-              background: card.gradient,
-              borderRadius: '16px',
-              padding: '12px 14px',
-              border: `1px solid ${card.border}`,
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '11px',
-              position: 'relative',
-              overflow: 'hidden',
-              minWidth: 0,
-              width: '100%',
-              boxShadow: card.shadow,
-              transition:
-                'transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease',
-              cursor: 'default',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = card.shadowHover;
-              e.currentTarget.style.transform = 'translateY(-3px)';
-              e.currentTarget.style.borderColor = `${card.color}44`;
-              e.currentTarget.style.background = card.gradientHover;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = card.shadow;
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = card.border;
-              e.currentTarget.style.background = card.gradient;
-            }}
-          >
-            <div
-              aria-hidden
-              style={{
-                position: 'absolute',
-                right: -28,
-                top: -28,
-                width: 100,
-                height: 100,
-                borderRadius: '50%',
-                background: `radial-gradient(circle at 35% 35%, ${card.color}22 0%, transparent 68%)`,
-                pointerEvents: 'none',
-                zIndex: 0,
-              }}
-            />
-            {loading && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background:
-                    'linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)',
-                  animation: 'metric-card-shimmer 2s infinite',
-                  pointerEvents: 'none',
-                  zIndex: 2,
-                }}
-              />
-            )}
-            <div
-              className="metric-card-icon"
-              style={{
-                position: 'relative',
-                zIndex: 1,
-                width: '44px',
-                height: '44px',
-                borderRadius: '13px',
-                background: card.iconBg,
-                color: card.color,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                border: `1px solid ${card.color}33`,
-                boxShadow: `0 2px 8px ${card.color}18`,
-              }}
-            >
-              {card.icon ? <card.icon style={{ fontSize: '19px' }} /> : null}
-            </div>
-
-            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
-              <h3
-                style={{
-                  fontSize: '17px',
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  margin: '0 0 4px 0',
-                  lineHeight: 1.2,
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                {card.prefix || ''}
-                <AnimatedNumber value={card.value} suffix={card.suffix} decimals={card.decimals} />
-              </h3>
-              <p
-                className="metric-card-label"
-                style={{
-                  fontSize: '9.5px',
-                  color: '#64748b',
-                  margin: 0,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  letterSpacing: '0.02em',
-                  lineHeight: 1.35,
-                }}
-              >
-                {card.label}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Compact Charts Grid - Status, Category, Branch, Tag Usage */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        gap: '16px',
-        marginBottom: '16px',
-        width: '100%',
-        minHeight: '300px'
-      }}
-        className="charts-grid-responsive"
-      >
-        {/* Status Distribution Chart */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '16px',
-          padding: '20px',
-          border: '1px solid #dbeafe',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          transition: 'all 0.25s ease',
-          minWidth: 0,
-          width: '100%'
-        }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = '0 8px 20px rgba(37, 99, 235, 0.12)';
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '12px'
-          }}>
-            <div>
-              <h3 style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#0f172a',
-                margin: '0 0 2px 0'
-              }}>
-                {t('analytics.statusDistribution')}
-              </h3>
-              <p style={{
-                fontSize: '11px',
-                color: '#64748b',
-                margin: 0
-              }}>
-                Overview of item status across inventory
-              </p>
-            </div>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              background: '#2563eb18',
-              color: '#2563eb',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid #2563eb30'
-            }}>
-              <FaChartBar style={{ fontSize: '14px' }} />
-            </div>
-          </div>
-          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
-            <Bar data={getStatusDistribution()} options={chartOptionsWithClick} />
-          </div>
-        </div>
-
-        {/* Category Distribution Chart */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '16px',
-          padding: '20px',
-          border: '1px solid #dbeafe',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          transition: 'all 0.25s ease',
-          minWidth: 0,
-          width: '100%'
-        }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = '0 8px 20px rgba(14, 165, 233, 0.12)';
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '12px'
-          }}>
-            <div>
-              <h3 style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#0f172a',
-                margin: '0 0 2px 0'
-              }}>
-                {t('analytics.categoryDistribution')}
-              </h3>
-              <p style={{
-                fontSize: '11px',
-                color: '#64748b',
-                margin: 0
-              }}>
-                {t('analytics.modal.breakdown')}
-              </p>
-            </div>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              background: '#0ea5e918',
-              color: '#0ea5e9',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid #0ea5e930'
-            }}>
-              <FaChartBar style={{ fontSize: '14px' }} />
-            </div>
-          </div>
-          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
-            {(() => {
-              const { total, rings } = getCategoryRingBreakdown();
-              const baseRadius = 74;
-              const strokeStep = 12;
-              const strokeWidth = 9;
-              const circumference = (radius) => 2 * Math.PI * radius;
-
-              return (
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  {rings.length === 0 ? (
-                    <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center' }}>
-                      No category data available
-                    </div>
-                  ) : null}
-                  {hoveredCategoryRing ? (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 6,
-                        left: 8,
-                        zIndex: 6,
-                        background: '#ffffff',
-                        border: `1px solid ${hoveredCategoryRing.color}55`,
-                        borderRadius: 10,
-                        padding: '8px 10px',
-                        boxShadow: '0 8px 18px rgba(15,23,42,0.14)',
-                        minWidth: 170,
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                        <span
-                          style={{
-                            width: 9,
-                            height: 9,
-                            borderRadius: '50%',
-                            background: hoveredCategoryRing.color,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ fontSize: 11, fontWeight: 800, color: '#0f172a' }}>
-                          {hoveredCategoryRing.name}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 11, color: '#334155', fontWeight: 700 }}>
-                        Count: {hoveredCategoryRing.count}
-                      </div>
-                      <div style={{ fontSize: 11, color: hoveredCategoryRing.color, fontWeight: 800 }}>
-                        {hoveredCategoryRing.percentage.toFixed(1)}%
-                      </div>
-                    </div>
-                  ) : null}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="180" height="180" viewBox="0 0 180 180" aria-label="Category circular breakdown">
-                      {rings.map((ring, idx) => {
-                        const radius = baseRadius - idx * strokeStep;
-                        const c = circumference(radius);
-                        const dash = c * (ring.percentage / 100);
-                        const gap = c - dash;
-                        return (
-                          <g
-                            key={`ring-${ring.name}-${idx}`}
-                            transform="rotate(-90 90 90)"
-                            onMouseEnter={() => setHoveredCategoryRing(ring)}
-                            onMouseLeave={() => setHoveredCategoryRing(null)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <circle
-                              cx="90"
-                              cy="90"
-                              r={radius}
-                              fill="none"
-                              stroke="rgba(148,163,184,0.18)"
-                              strokeWidth={strokeWidth}
-                            />
-                            <circle
-                              cx="90"
-                              cy="90"
-                              r={radius}
-                              fill="none"
-                              stroke={ring.color}
-                              strokeWidth={strokeWidth}
-                              strokeLinecap="round"
-                              strokeDasharray={`${dash} ${gap}`}
-                            />
-                          </g>
-                        );
-                      })}
-                      <circle cx="90" cy="90" r="34" fill="#ffffff" />
-                      <text x="90" y="84" textAnchor="middle" style={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }}>
-                        Total
-                      </text>
-                      <text x="90" y="103" textAnchor="middle" style={{ fontSize: 17, fill: '#0f172a', fontWeight: 800 }}>
-                        {total}
-                      </text>
-                    </svg>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* Branch Distribution Chart */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '16px',
-          padding: '20px',
-          border: '1px solid #fde68a',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          transition: 'all 0.25s ease',
-          minWidth: 0,
-          width: '100%'
-        }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = '0 8px 20px rgba(234, 179, 8, 0.14)';
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '12px'
-          }}>
-            <div>
-              <h3 style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#0f172a',
-                margin: '0 0 2px 0'
-              }}>
-                {t('analytics.branchDistribution')}
-              </h3>
-              <p style={{
-                fontSize: '11px',
-                color: '#64748b',
-                margin: 0
-              }}>
-                {t('analytics.chart.branchDistribution')}
-              </p>
-            </div>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              background: '#eab30818',
-              color: '#ca8a04',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid #eab30830'
-            }}>
-              <FaChartBar style={{ fontSize: '14px' }} />
-            </div>
-          </div>
-          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
-            <Doughnut data={getBranchDistribution()} options={branchChartOptions} />
-          </div>
-        </div>
-
-        {/* Tag Usage Distribution Chart */}
-        <div style={{
-          background: '#ffffff',
-          borderRadius: '16px',
-          padding: '20px',
-          border: '1px solid #ddd6fe',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          transition: 'all 0.25s ease',
-          minWidth: 0,
-          width: '100%'
-        }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = '0 8px 20px rgba(124, 58, 237, 0.14)';
-            e.currentTarget.style.transform = 'translateY(-2px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '12px'
-          }}>
-            <div>
-              <h3 style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#0f172a',
-                margin: '0 0 2px 0'
-              }}>
-                {t('analytics.tagUsageDistribution')}
-              </h3>
-              <p style={{
-                fontSize: '11px',
-                color: '#64748b',
-                margin: 0
-              }}>
-                {t('analytics.chart.tagUsageDistribution')}
-              </p>
-            </div>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              background: '#7c3aed18',
-              color: '#7c3aed',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid #7c3aed30'
-            }}>
-              <FaChartBar style={{ fontSize: '14px' }} />
-            </div>
-          </div>
-          <div style={{ height: '210px', position: 'relative', minHeight: '210px' }}>
-            {tagUsageLoading && !loading && (
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(255,255,255,0.9)',
-                zIndex: 10,
-                color: '#6b7280'
-              }}>
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: '2px solid #e5e7eb',
-                  borderTop: '2px solid #3b82f6',
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite',
-                  marginBottom: '8px'
-                }} />
-                <p style={{ fontSize: '12px', margin: 0 }}>Loading...</p>
-              </div>
-            )}
-            <Bar
-              data={getTagUsageDistribution()}
-              options={{
-                ...chartOptions,
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  ...chartOptions.plugins,
-                  legend: {
-                    position: 'bottom',
-                    labels: {
-                      padding: 12,
-                      font: {
-                        size: 10,
-                        family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                      }
-                    }
-                  },
-                  tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    titleColor: 'white',
-                    bodyColor: 'white',
-                    borderColor: '#3b82f6',
-                    borderWidth: 1,
-                    cornerRadius: 6,
-                    titleFont: {
-                      size: 11,
-                      family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                    },
-                    bodyFont: {
-                      size: 10,
-                      family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                    },
-                    callbacks: {
-                      label: (ctx) => `${ctx.label}: ${(ctx.raw || 0).toLocaleString()}`
-                    }
-                  }
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                    grid: { color: 'rgba(0, 0, 0, 0.1)' },
-                    ticks: {
-                      font: {
-                        size: 9,
-                        family: 'Poppins, Inter, -apple-system, BlinkMacSystemFont, sans-serif'
-                      }
-                    }
-                  },
-                  x: {
-                    grid: { color: 'rgba(0, 0, 0, 0.1)' },
-                    ticks: {
-                      display: false
-                    }
-                  }
-                }
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Compact Bottom Sections - Top Items, Counter Wise, Category */}
-      <div
-        className="bottom-tables-grid"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '16px',
-          marginBottom: '16px'
-        }}
-      >
-        {/* Top Products */}
-        <div className="analytics-bottom-panel">
-          <div className="analytics-bottom-panel-head">
-            <h3 className="analytics-bottom-panel-title">{t('analytics.modal.topItems')}</h3>
-            <div className="analytics-bottom-search">
-              <input
-                type="text"
-                placeholder={t('analytics.searchProducts')}
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="analytics-bottom-table-wrap">
-            <table className="analytics-bottom-table-modern">
-              <thead>
-                <tr>
-                  <th>Sr.No</th>
-                  <th>Product</th>
-                  <th>Category</th>
-                  <th>Design</th>
-                  <th className="analytics-bottom-th-num">Qty</th>
-                  <th className="analytics-bottom-th-num">Share %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const groupedItems = data.reduce((acc, item) => {
-                    const product = item.ProductName || '-';
-                    const category = item.CategoryName || '-';
-                    const design = item.DesignName || item.DesignNo || item.Design || '-';
-                    const key = `${product}||${category}||${design}`;
-                    if (!acc[key]) {
-                      acc[key] = { product, category, design, qty: 0 };
-                    }
-                    acc[key].qty += 1;
-                    return acc;
-                  }, {});
-
-                  const filteredRows = Object.values(groupedItems).filter((row) =>
-                    row.product.toLowerCase().includes(productSearch.toLowerCase()) ||
-                    row.category.toLowerCase().includes(productSearch.toLowerCase()) ||
-                    row.design.toLowerCase().includes(productSearch.toLowerCase())
-                  );
-
-                  const sortedRows = filteredRows.sort((a, b) => b.qty - a.qty);
-                  const totalQty = filteredRows.reduce((sum, row) => sum + row.qty, 0);
-
-                  const startIndex = (productPage - 1) * bottomTableRowsPerPage;
-                  const paginatedRows = sortedRows.slice(startIndex, startIndex + bottomTableRowsPerPage);
-                  const rowSlots = Array.from(
-                    { length: bottomTableRowsPerPage },
-                    (_, i) => paginatedRows[i] ?? null
-                  );
-
-                  return (
-                    <>
-                      {rowSlots.map((row, index) => {
-                        const isEmpty = row == null;
-                        return (
-                          <tr
-                            key={isEmpty ? `top-empty-${index}` : `${row.product}-${row.category}-${row.design}-${index}`}
-                            className={isEmpty ? 'analytics-table-row-empty' : undefined}
-                          >
-                            <td className="analytics-bottom-td-index">
-                              {isEmpty ? '\u00a0' : startIndex + index + 1}
-                            </td>
-                            <td className="analytics-bottom-td-strong">{isEmpty ? '\u00a0' : row.product}</td>
-                            <td>{isEmpty ? '\u00a0' : row.category}</td>
-                            <td>{isEmpty ? '\u00a0' : row.design}</td>
-                            <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : row.qty.toLocaleString()}</td>
-                            <td className="analytics-bottom-td-num">
-                              {isEmpty
-                                ? '\u00a0'
-                                : `${totalQty > 0 ? ((row.qty / totalQty) * 100).toFixed(1) : '0.0'}%`}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </tbody>
-            </table>
-          </div>
-          <PaginationControls
-            currentPage={productPage}
-            totalItems={topItemsTotalCount}
-            itemsPerPage={bottomTableRowsPerPage}
-            onPageChange={setProductPage}
-            tableType="product"
-          />
-        </div>
-
-        {/* Counter Wise Stock */}
-        <div className="analytics-bottom-panel">
-          <div className="analytics-bottom-panel-head">
-            <h3 className="analytics-bottom-panel-title">Counter Wise Stock</h3>
-            <div className="analytics-bottom-search">
-              <input
-                type="text"
-                placeholder={t('analytics.searchCounters')}
-                value={counterSearch}
-                onChange={(e) => setCounterSearch(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="analytics-bottom-table-wrap">
-            <table className="analytics-bottom-table-modern">
-              <thead>
-                <tr>
-                  <th>Sr.No</th>
-                  <th>{t('analytics.counterName')}</th>
-                  <th className="analytics-bottom-th-num">Qty</th>
-                  <th className="analytics-bottom-th-num">%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const counterCounts = filteredData.reduce((acc, item) => {
-                    const counterName = item.CounterName || item.Counter || 'Unassigned';
-                    acc[counterName] = (acc[counterName] || 0) + 1;
-                    return acc;
-                  }, {});
-
-                  const filteredCounterCounts = Object.entries(counterCounts)
-                    .filter(([name]) => name && name.toLowerCase().includes(counterSearch.toLowerCase()));
-
-                  const sortedCounters = filteredCounterCounts
-                    .sort(([, a], [, b]) => b - a);
-                  const maxCount = filteredCounterCounts.length > 0 ? Math.max(...filteredCounterCounts.map(([, count]) => count)) : 0;
-
-                  const startIndex = (counterPage - 1) * bottomTableRowsPerPage;
-                  const paginatedCounters = sortedCounters.slice(startIndex, startIndex + bottomTableRowsPerPage);
-                  const counterSlots = Array.from(
-                    { length: bottomTableRowsPerPage },
-                    (_, i) => paginatedCounters[i] ?? null
-                  );
-
-                  return (
-                    <>
-                      {counterSlots.map((entry, index) => {
-                        const isEmpty = entry == null;
-                        const [name, count] = entry ?? [,];
-                        return (
-                          <tr
-                            key={isEmpty ? `cnt-empty-${index}` : name}
-                            className={isEmpty ? 'analytics-table-row-empty' : undefined}
-                          >
-                            <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + index + 1}</td>
-                            <td>
-                              {isEmpty ? (
-                                '\u00a0'
-                              ) : (
-                                <div className="analytics-bottom-cell-ellipsis">{name || 'Unknown'}</div>
-                              )}
-                            </td>
-                            <td className="analytics-bottom-td-num">{isEmpty ? '\u00a0' : count.toLocaleString()}</td>
-                            <td className="analytics-bottom-td-num">
-                              {isEmpty ? '\u00a0' : `${maxCount > 0 ? ((count / maxCount) * 100).toFixed(0) : 0}%`}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </tbody>
-            </table>
-          </div>
-          <PaginationControls
-            currentPage={counterPage}
-            totalItems={counterWiseTotalCount}
-            itemsPerPage={bottomTableRowsPerPage}
-            onPageChange={setCounterPage}
-            tableType="counter"
-          />
-        </div>
-
-        {/* Category Performance Analysis */}
-        <div className="analytics-bottom-panel analytics-bottom-panel--single-title">
-          <div className="analytics-bottom-panel-head analytics-bottom-panel-head--solo">
-            <h3 className="analytics-bottom-panel-title">{t('analytics.chart.categoryDistribution')}</h3>
-          </div>
-
-          <div className="analytics-bottom-table-wrap">
-            <table className="analytics-bottom-table-modern">
-              <thead>
-                <tr>
-                  <th>Sr.No</th>
-                  <th>Category</th>
-                  <th className="analytics-bottom-th-num">Qty</th>
-                  <th className="analytics-bottom-th-num">Total Gross Weight</th>
-                  <th className="analytics-bottom-th-num">Total Net Weight</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const analysisData = getCategoryPerformanceAnalysis();
-                  const startIndex = (categoryPage - 1) * bottomTableRowsPerPage;
-                  const paginatedData = analysisData.slice(startIndex, startIndex + bottomTableRowsPerPage);
-                  const categorySlots = Array.from(
-                    { length: bottomTableRowsPerPage },
-                    (_, i) => paginatedData[i] ?? null
-                  );
-
-                  return categorySlots.map((item, idx) => {
-                    const isEmpty = item == null;
-                    return (
-                      <tr
-                        key={isEmpty ? `cat-empty-${idx}` : item.category}
-                        className={isEmpty ? 'analytics-table-row-empty' : undefined}
-                      >
-                        <td className="analytics-bottom-td-index">{isEmpty ? '\u00a0' : startIndex + idx + 1}</td>
-                        <td>
-                          {isEmpty ? '\u00a0' : <div className="analytics-bottom-cell-ellipsis">{item.category}</div>}
-                        </td>
-                        <td className="analytics-bottom-td-num">
-                          {isEmpty ? '\u00a0' : item.totalItems.toLocaleString()}
-                        </td>
-                        <td className="analytics-bottom-td-num">
-                          {isEmpty ? '\u00a0' : `${item.totalWeight}g`}
-                        </td>
-                        <td className="analytics-bottom-td-num">
-                          {isEmpty ? '\u00a0' : `${item.totalNetWeight}g`}
-                        </td>
-                      </tr>
-                    );
-                  });
-                })()}
-              </tbody>
-            </table>
-          </div>
-          <PaginationControls
-            currentPage={categoryPage}
-            totalItems={categoryDistributionTotalCount}
-            itemsPerPage={bottomTableRowsPerPage}
-            onPageChange={setCategoryPage}
-            tableType="category"
-          />
-        </div>
-      </div>
-
-      <style>{`
-        .analytics-container {
-          padding: 15px;
-          background: #f8fafc;
-          min-height: calc(100vh - 64px);
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-
-        .analytics-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
-          background: white;
-          padding: 20px;
-          border-radius: 12px;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .header-left {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .header-icon {
-          width: 44px;
-          height: 44px;
-          background: linear-gradient(135deg, #0077d4, #005ea8);
-          border-radius: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 20px;
-        }
-
-        .header-content h1 {
-          margin: 0;
-          font-size: 22px;
-          font-weight: 600;
-          color: #1e293b;
-          letter-spacing: -0.3px;
-        }
-
-        .header-content p {
-          margin: 3px 0 0 0;
-          font-size: 14px;
-          color: #64748b;
-          font-weight: 400;
-        }
-
-        .header-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .export-btn,
-        .refresh-btn {
-          padding: 8px 12px;
-          border: none;
-          border-radius: 6px;
-          font-size: 12px;
-          font-weight: 500;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          transition: all 0.2s;
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-
-        .export-btn {
-          background: #22c55e;
-          color: white;
-        }
-
-        .export-btn:hover {
-          background: #16a34a;
-        }
-
-        .refresh-btn {
-          background: #0077d4;
-          color: white;
-        }
-
-        .refresh-btn:hover {
-          background: #005ea8;
-        }
-
-        .refresh-btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .spinning {
-          animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        /* Additional Poppins font styling for all elements */
-        .analytics-container * {
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-
-        h1, h2, h3, h4, h5, h6 {
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          font-weight: 500;
-        }
-
-        .chart-title {
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          font-weight: 600;
-        }
-
-        .summary-card h3 {
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          font-weight: 600;
-        }
-
-        .summary-card p {
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          font-weight: 400;
-        }
-
-        .summary-cards {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 15px;
-          margin-bottom: 20px;
-        }
-        
-        /* Responsive summary cards */
-        @media (max-width: 1200px) {
-          .summary-cards {
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
-          }
-        }
-        
-        @media (max-width: 900px) {
-          .summary-cards {
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 10px;
-          }
-        }
-
-        .summary-card {
-          background: white;
-          border-radius: 10px;
-          padding: 15px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-          transition: transform 0.2s;
-        }
-
-        .summary-card:hover {
-          transform: translateY(-2px);
-        }
-
-        .card-icon {
-          width: 36px;
-          height: 36px;
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 16px;
-        }
-
-        .card-icon.total {
-          background: linear-gradient(135deg, #0077d4, #005ea8);
-        }
-
-        .card-icon.weight {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-        }
-
-        .card-icon.value {
-          background: linear-gradient(135deg, #f59e0b, #d97706);
-        }
-
-        .card-icon.sold {
-          background: linear-gradient(135deg, #ef4444, #dc2626);
-        }
-
-        .card-icon.available {
-          background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-        }
-
-        .card-icon.vendors {
-          background: linear-gradient(135deg, #06b6d4, #0891b2);
-        }
-
-        .card-content h3 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 600;
-          color: #1e293b;
-        }
-
-        .card-content p {
-          margin: 2px 0 0 0;
-          font-size: 12px;
-          color: #64748b;
-          font-weight: 400;
-        }
-
-        .main-analytics-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 15px;
-          margin-bottom: 15px;
-        }
-
-        .bottom-analytics-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 18px;
-          align-items: stretch;
-        }
-        
-        /* Ensure insights card is always visible and properly positioned */
-        .insights-card {
-          display: flex !important;
-          flex-direction: column;
-          height: auto;
-          min-height: 280px;
-        }
-        
-        .insights-content {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          padding: 15px 0;
-        }
-        
-        .tag-usage-loading {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-          min-height: 200px;
-          color: #64748b;
-          font-size: 12px;
-        }
-        
-        .tag-usage-loading .loading-spinner {
-          width: 24px;
-          height: 24px;
-          border: 2px solid #f1f5f9;
-          border-top: 2px solid #0077d4;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-bottom: 8px;
-        }
-        
-        .tag-usage-loading p {
-          margin: 0;
-          font-size: 11px;
-          color: #64748b;
-        }
-
-        .charts-section {
-          display: contents;
-        }
-
-        .charts-row {
-          display: contents;
-        }
-
-        .chart-card {
-          background: white;
-          border-radius: 12px;
-          padding: 15px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-          border: 1px solid rgba(0, 119, 212, 0.08);
-          transition: all 0.3s ease;
-          min-height: 280px;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .chart-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 4px 12px rgba(0, 119, 212, 0.15);
-          border-color: rgba(0, 119, 212, 0.2);
-        }
-
-        .chart-card.compact {
-          min-height: 280px;
-        }
-        
-        /* Responsive chart card improvements */
-        @media (max-width: 768px) {
-          .chart-card.compact {
-            min-height: 240px;
-          }
-        }
-        
-        @media (max-width: 480px) {
-          .chart-card.compact {
-            min-height: 200px;
-          }
-        }
-
-        .chart-card.enhanced {
-          height: 450px;
-          background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
-          border: 1px solid rgba(0, 119, 212, 0.12);
-          position: relative;
-          overflow: hidden;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-          display: flex;
-          flex-direction: column;
-        }
-
-        .chart-card.enhanced::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 3px;
-          background: linear-gradient(90deg, #0077d4, #22c55e, #f59e0b, #64748b);
-          background-size: 200% 100%;
-          animation: gradient-shift 4s ease-in-out infinite;
-          z-index: 2;
-        }
-
-        @keyframes gradient-shift {
-          0%, 100% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-        }
-
-        .chart-card.enhanced:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 8px 25px rgba(0, 119, 212, 0.2);
-        }
-
-        .chart-card.enhanced .chart-header h3 {
-          font-size: 16px;
-          font-weight: 600;
-          background: linear-gradient(135deg, #0077d4, #22c55e);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          margin: 0;
-          letter-spacing: -0.2px;
-        }
-
-        .chart-content {
-          flex: 1;
-          position: relative;
-          min-height: 200px;
-        }
-
-        .chart-content.compact {
-          min-height: 200px;
-        }
-
-        .chart-content.enhanced,
-        .table-content.enhanced {
-          flex: 1;
-          padding: 8px;
-          display: flex;
-          align-items: stretch;
-          height: 360px;
-        }
-
-        .zoho-table-container {
-          width: 100%;
-          overflow-x: auto;
-          overflow-y: hidden;
-          border-radius: 8px;
-          background: #ffffff;
-          scrollbar-width: thin;
-          scrollbar-color: #cbd5e1 #f8fafc;
-        }
-
-        .zoho-table-container::-webkit-scrollbar {
-          height: 6px;
-        }
-
-        .zoho-table-container::-webkit-scrollbar-track {
-          background: #f8fafc;
-          border-radius: 3px;
-        }
-
-        .zoho-table-container::-webkit-scrollbar-thumb {
-          background: #cbd5e1;
-          border-radius: 3px;
-        }
-
-        .zoho-table-container::-webkit-scrollbar-thumb:hover {
-          background: #94a3b8;
-        }
-
-        .zoho-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 13px;
-          background: white;
-        }
-
-        .zoho-table thead {
-          background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-          border-bottom: 2px solid #e2e8f0;
-        }
-
-        .zoho-table th {
-          padding: 12px 8px;
-          text-align: left;
-          font-weight: 600;
-          color: #374151;
-          font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          border-right: 1px solid #f1f5f9;
-        }
-
-        .zoho-table th:last-child {
-          border-right: none;
-        }
-
-        .table-row {
-          border-bottom: 1px solid #f1f5f9;
-          transition: all 0.2s ease;
-        }
-
-        .table-row:hover {
-          background: linear-gradient(135deg, #fafbfc 0%, #f8fafc 100%);
-          transform: translateX(2px);
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-        }
-
-        .table-row:last-child {
-          border-bottom: none;
-        }
-
-        .zoho-table td {
-          padding: 10px 8px;
-          vertical-align: middle;
-          border-right: 1px solid #f8fafc;
-        }
-
-        .zoho-table td:last-child {
-          border-right: none;
-        }
-
-        .rank-cell-simple {
-          font-size: 1.01rem;
-          font-weight: 600;
-          color: #232a36;
-          text-align: left;
-          padding-left: 10px;
-          padding-right: 6px;
-          background: none;
-          border-radius: 0;
-          min-width: 32px;
-        }
-
-        .product-cell, .vendor-cell, .category-cell {
-          min-width: 140px;
-        }
-
-        .product-info, .vendor-info, .category-info {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .product-name, .vendor-name, .category-name {
-          font-weight: 500;
-          color: #1e293b;
-          font-size: 13px;
-          line-height: 1.2;
-        }
-
-        .product-subtitle, .vendor-subtitle, .category-subtitle {
-          font-size: 11px;
-          color: #64748b;
-          font-weight: 400;
-        }
-
-        .category-icon {
-          width: 20px;
-          height: 20px;
-          padding: 4px;
-          border-radius: 6px;
-          font-size: 12px;
-        }
-
-        .category-icon.gold-icon {
-          background: rgba(245, 158, 11, 0.1);
-          color: #f59e0b;
-        }
-
-        .category-icon.sold-icon {
-          background: rgba(34, 197, 94, 0.1);
-          color: #22c55e;
-        }
-
-        .category-icon.available-icon {
-          background: rgba(0, 119, 212, 0.1);
-          color: #0077d4;
-        }
-
-        .count-cell {
-          text-align: center;
-          width: 80px;
-        }
-
-        .count-number {
-          font-weight: 600;
-          color: #1e293b;
-          font-size: 14px;
-          padding: 4px 8px;
-          background: rgba(248, 250, 252, 0.8);
-          border-radius: 6px;
-          display: inline-block;
-          min-width: 45px;
-          text-align: center;
-        }
-
-        .share-cell, .performance-cell, .percentage-cell {
-          width: 120px;
-        }
-
-        .share-container, .performance-container, .percentage-container {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .share-text, .performance-text, .percentage-text {
-          font-size: 11px;
-          font-weight: 500;
-          color: #64748b;
-          text-align: right;
-        }
-
-        .share-bar, .performance-bar, .percentage-bar {
-          height: 6px;
-          background: #f1f5f9;
-          border-radius: 3px;
-          overflow: hidden;
-          position: relative;
-        }
-
-        .share-fill, .performance-fill, .percentage-fill {
-          height: 100%;
-          border-radius: 3px;
-          transition: width 1s ease-out;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .share-fill {
-          background: linear-gradient(90deg, #0077d4, #3b82f6);
-        }
-
-        .performance-fill.vendor-fill {
-          background: linear-gradient(90deg, #22c55e, #34d399);
-        }
-
-        .percentage-fill.gold-fill {
-          background: linear-gradient(90deg, #f59e0b, #fbbf24);
-        }
-
-        .percentage-fill.sold-fill {
-          background: linear-gradient(90deg, #22c55e, #34d399);
-        }
-
-        .percentage-fill.available-fill {
-          background: linear-gradient(90deg, #0077d4, #3b82f6);
-        }
-
-        .status-cell {
-          text-align: center;
-          width: 90px;
-        }
-
-        .status-badge {
-          padding: 4px 10px;
-          border-radius: 12px;
-          font-size: 11px;
-          font-weight: 500;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-
-        .status-badge.status-gold {
-          background: rgba(245, 158, 11, 0.1);
-          color: #d97706;
-          border: 1px solid rgba(245, 158, 11, 0.2);
-        }
-
-        .status-badge.status-sold {
-          background: rgba(34, 197, 94, 0.1);
-          color: #16a34a;
-          border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-
-        .status-badge.status-available {
-          background: rgba(0, 119, 212, 0.1);
-          color: #0369a1;
-          border: 1px solid rgba(0, 119, 212, 0.2);
-        }
-
-        .chart-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 15px;
-          padding: 12px 0;
-          border-bottom: 2px solid #f1f5f9;
-          flex-shrink: 0;
-          background: rgba(248, 250, 252, 0.5);
-          margin: -18px -18px 15px -18px;
-          padding: 18px;
-          border-radius: 12px 12px 0 0;
-        }
-
-        .chart-header h3 {
-          margin: 0;
-          font-size: 14px;
-          font-weight: 600;
-          color: #1e293b;
-        }
-
-        .chart-icon {
-          color: #0077d4;
-          font-size: 18px;
-          padding: 8px;
-          background: rgba(0, 119, 212, 0.1);
-          border-radius: 8px;
-          transition: all 0.3s ease;
-        }
-
-        .chart-icon:hover {
-          background: rgba(0, 119, 212, 0.2);
-          transform: scale(1.1);
-        }
-
-        /* Search Component Styles */
-        .search-container {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .search-input-wrapper {
-          position: relative;
-          display: flex;
-          align-items: center;
-          width: 200px;
-        }
-
-        .search-icon {
-          position: absolute;
-          left: 10px;
-          color: #64748b;
-          font-size: 14px;
-          z-index: 1;
-        }
-
-        .search-input {
-          width: 100%;
-          padding: 8px 12px 8px 32px;
-          border: 1.5px solid #e2e8f0;
-          border-radius: 8px;
-          font-size: 13px;
-          font-weight: 400;
-          color: #374151;
-          background: white;
-          transition: all 0.2s ease;
-          font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-
-        .search-input:focus {
-          outline: none;
-          border-color: #0077d4;
-          box-shadow: 0 0 0 3px rgba(0, 119, 212, 0.1);
-          background: #fafbfc;
-        }
-
-        .search-input::placeholder {
-          color: #9ca3af;
-          font-weight: 400;
-        }
-
-        .insights-section {
-          display: contents;
-        }
-
-        .quick-stats-card,
-        .performance-card,
-        .insights-card {
-          background: white;
-          border-radius: 12px;
-          padding: 15px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-          border: 1px solid rgba(0, 119, 212, 0.08);
-          transition: all 0.3s ease;
-          min-height: 280px;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .quick-stats-card:hover,
-        .performance-card:hover,
-        .insights-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 4px 12px rgba(0, 119, 212, 0.15);
-          border-color: rgba(0, 119, 212, 0.2);
-        }
-
-        .insights-content,
-        .performance-content {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-        }
-
-        .insight-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 8px 0;
-          border-bottom: 1px solid #f8fafc;
-        }
-
-        .insight-item:last-child {
-          border-bottom: none;
-        }
-
-        .insight-label {
-          font-size: 12px;
-          color: #64748b;
-          font-weight: 400;
-        }
-
-        .insight-value {
-          font-size: 14px;
-          font-weight: 500;
-          color: #0077d4;
-        }
-
-        .performance-card {
-          height: 450px;
-          background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
-          border: 1px solid rgba(0, 119, 212, 0.12);
-          border-radius: 12px;
-          padding: 18px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-          transition: all 0.3s ease;
-          display: flex;
-          flex-direction: column;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .performance-card::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 3px;
-          background: linear-gradient(90deg, #0077d4, #22c55e, #f59e0b, #64748b);
-          background-size: 200% 100%;
-          animation: gradient-shift 4s ease-in-out infinite;
-        }
-
-        .performance-card .chart-header h3 {
-          font-size: 16px;
-          font-weight: 600;
-          color: #1e293b;
-          background: linear-gradient(135deg, #0077d4, #22c55e, #f59e0b);
-          background-size: 200% auto;
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          animation: text-gradient 3s ease-in-out infinite;
-          margin: 0;
-          letter-spacing: -0.2px;
-        }
-
-        @keyframes text-gradient {
-          0%, 100% { background-position: 0% center; }
-          50% { background-position: 100% center; }
-        }
-
-        .performance-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 8px 25px rgba(0, 119, 212, 0.2);
-        }
-
-        .performance-content {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-evenly;
-          padding: 20px 0;
-          gap: 25px;
-        }
-
-        .perf-item {
-          margin-bottom: 0;
-          padding: 16px;
-          background: rgba(248, 250, 252, 0.7);
-          border-radius: 12px;
-          border-left: 5px solid transparent;
-          transition: all 0.3s ease;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-        }
-
-        .perf-item:hover {
-          background: rgba(248, 250, 252, 0.9);
-          transform: translateX(3px);
-        }
-
-        .perf-item:nth-child(1) {
-          border-left-color: #f59e0b;
-        }
-
-        .perf-item:nth-child(2) {
-          border-left-color: #22c55e;
-        }
-
-        .perf-item:nth-child(3) {
-          border-left-color: #0077d4;
-        }
-
-        .perf-label {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 13px;
-          font-weight: 500;
-          color: #475569;
-          margin-bottom: 8px;
-        }
-
-        .perf-count {
-          color: #1e293b;
-          font-weight: 600;
-          font-size: 16px;
-          padding: 4px 8px;
-          background: rgba(255, 255, 255, 0.8);
-          border-radius: 6px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-
-        .perf-bar {
-          height: 12px;
-          background: rgba(241, 245, 249, 0.8);
-          border-radius: 8px;
-          overflow: hidden;
-          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-        }
-
-        .perf-fill {
-          height: 100%;
-          border-radius: 8px;
-          transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1);
-          position: relative;
-          overflow: hidden;
-        }
-
-        .perf-fill::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: linear-gradient(
-            90deg,
-            rgba(255, 255, 255, 0.3) 0%,
-            rgba(255, 255, 255, 0.6) 50%,
-            rgba(255, 255, 255, 0.3) 100%
-          );
-          animation: shimmer 2s infinite;
-        }
-
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-
-        .perf-fill.gold {
-          background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #fcd34d 100%);
-          box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
-        }
-
-        .perf-fill.sold {
-          background: linear-gradient(135deg, #22c55e 0%, #34d399 50%, #4ade80 100%);
-          box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
-        }
-
-        .perf-fill.available {
-          background: linear-gradient(135deg, #0077d4 0%, #3b82f6 50%, #60a5fa 100%);
-          box-shadow: 0 2px 8px rgba(0, 119, 212, 0.3);
-        }
-
-        .stats-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 12px;
-          padding-bottom: 8px;
-          border-bottom: 1px solid #f1f5f9;
-        }
-
-        .stats-header h3 {
-          margin: 0;
-          font-size: 14px;
-          font-weight: 500;
-          color: #1e293b;
-        }
-
-        .stats-icon {
-          color: #0077d4;
-          font-size: 16px;
-        }
-
-        .stats-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .stat-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 6px 0;
-        }
-
-        .stat-label {
-          font-size: 12px;
-          color: #64748b;
-          font-weight: 400;
-        }
-
-        .stat-value {
-          font-size: 14px;
-          font-weight: 500;
-          color: #0077d4;
-        }
-
-        .performance-bars {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .performance-item {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .performance-label {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 12px;
-          font-weight: 500;
-          color: #64748b;
-        }
-
-        .performance-bar {
-          height: 6px;
-          background: #f1f5f9;
-          border-radius: 3px;
-          overflow: hidden;
-        }
-
-        .performance-fill {
-          height: 100%;
-          border-radius: 3px;
-          transition: width 0.6s ease;
-        }
-
-        .activity-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .activity-item {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 8px 0;
-          border-bottom: 1px solid #f8fafc;
-        }
-
-        .activity-item:last-child {
-          border-bottom: none;
-        }
-
-        .activity-icon {
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 10px;
-          font-weight: bold;
-          flex-shrink: 0;
-        }
-
-        .activity-details {
-          flex: 1;
-          min-width: 0;
-        }
-
-        .activity-title {
-          font-size: 12px;
-          font-weight: 500;
-          color: #1e293b;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .activity-meta {
-          font-size: 10px;
-          color: #64748b;
-          margin-top: 2px;
-        }
-
-        .activity-time {
-          font-size: 10px;
-          color: #64748b;
-          flex-shrink: 0;
-        }
-
-        .analytics-loading,
-        .analytics-error {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 400px;
-          background: white;
-          border-radius: 12px;
-          margin: 15px;
-          color: #64748b;
-        }
-
-        .loading-spinner,
-        .error-content {
-          text-align: center;
-        }
-
-        .loading-spinner p,
-        .error-content p {
-          margin: 12px 0;
-          font-size: 14px;
-        }
-
-        .loading-icon {
-          width: 40px;
-          height: 40px;
-          border: 3px solid #f1f5f9;
-          border-top: 3px solid #0077d4;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin: 0 auto 15px auto;
-        }
-
-        .error-icon {
-          font-size: 40px;
-          color: #ef4444;
-          margin-bottom: 15px;
-        }
-
-        .retry-btn {
-          padding: 10px 20px;
-          background: #0077d4;
-          color: white;
-          border: none;
-          border-radius: 8px;
-          cursor: pointer;
-          font-weight: 500;
-          margin-top: 15px;
-          transition: background 0.2s;
-        }
-
-        .retry-btn:hover {
-          background: #005ea8;
-        }
-
-        @media (max-width: 1200px) {
-          .main-analytics-grid {
-            grid-template-columns: repeat(3, 1fr);
-          }
-          
-          .bottom-analytics-grid {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-          }
-
-          .chart-card.enhanced,
-          .performance-card {
-            height: 400px;
-          }
-          
-          /* Ensure insights card spans properly */
-          .insights-card {
-            grid-column: span 2;
-            min-height: 250px;
-          }
-        }
-
-        @media (max-width: 900px) {
-          .main-analytics-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-          
-          .bottom-analytics-grid {
-            grid-template-columns: 1fr;
-            gap: 12px;
-          }
-
-          .chart-card.enhanced,
-          .performance-card {
-            height: 380px;
-          }
-
-          .chart-content.enhanced,
-          .table-content.enhanced {
-            height: 300px;
-          }
-
-          .zoho-table {
-            font-size: 12px;
-          }
-
-          .zoho-table th {
-            padding: 8px 6px;
-            font-size: 11px;
-          }
-
-          .zoho-table td {
-            padding: 8px 6px;
-          }
-
-          .product-info, .vendor-info, .category-info {
-            gap: 6px;
-          }
-
-          .product-name, .vendor-name, .category-name {
-            font-size: 12px;
-          }
-          
-          /* Ensure insights card is properly sized on tablets */
-          .insights-card {
-            grid-column: span 1;
-            min-height: 220px;
-          }
-          
-          .insights-content {
-            padding: 12px 0;
-          }
-        }
-
-        @media (max-width: 768px) {
-          .analytics-container {
-            padding: 10px;
-          }
-          
-          .analytics-header {
-            flex-direction: column;
-            gap: 12px;
-            align-items: stretch;
-            padding: 15px;
-          }
-          
-          .header-actions {
-            justify-content: center;
-          }
-          
-          .summary-cards {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-          }
-          
-          .main-analytics-grid {
-            grid-template-columns: 1fr;
-            gap: 12px;
-          }
-          
-          .bottom-analytics-grid {
-            grid-template-columns: 1fr;
-            gap: 12px;
-          }
-          
-          .header-content h1 {
-            font-size: 18px;
-            font-weight: 600;
-          }
-          
-          .card-content h3 {
-            font-size: 16px;
-            font-weight: 600;
-          }
-          
-          .chart-card.compact,
-          .chart-card.enhanced,
-          .quick-stats-card,
-          .performance-card,
-          .insights-card {
-            height: auto;
-            min-height: 280px;
-          }
-          
-          .chart-content {
-            min-height: 160px;
-          }
-          
-          .chart-content.compact {
-            min-height: 160px;
-          }
-          
-          .chart-content.enhanced,
-          .table-content.enhanced {
-            height: 220px;
-          }
-
-          .zoho-table {
-            font-size: 11px;
-          }
-
-          .zoho-table th {
-            padding: 6px 4px;
-            font-size: 10px;
-          }
-
-          .zoho-table td {
-            padding: 6px 4px;
-          }
-
-          .rank-cell-simple {
-            font-size: 1.01rem;
-            font-weight: 700;
-            color: #232a36;
-            text-align: left;
-            padding-left: 10px;
-            padding-right: 6px;
-            background: none;
-            border-radius: 0;
-            min-width: 32px;
-          }
-
-          .performance-metrics-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            background: #f8fafc;
-            border-radius: 10px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-            font-size: 13px;
-            margin-top: 0;
-          }
-
-          .performance-metrics-table th, .performance-metrics-table td {
-            font-size: 12px;
-            padding: 8px 8px;
-            text-align: left;
-            border-bottom: 1px solid #e5e7eb;
-            background: none;
-          }
-
-          .performance-metrics-table th {
-            font-weight: 700;
-            color: #334155;
-            background: #f1f5f9;
-            border-bottom: 2px solid #e5e7eb;
-          }
-
-          .performance-metrics-table tr:last-child td {
-            border-bottom: none;
-          }
-
-          .performance-metrics-table .category-cell {
-            font-weight: 600;
-            color: #232a36;
-            font-size: 12px;
-            min-width: 120px;
-          }
-
-          .performance-metrics-table .category-subtitle {
-            font-size: 11px;
-            color: #64748b;
-            font-weight: 400;
-            margin-left: 2px;
-          }
-
-          .performance-metrics-table .count-cell, .performance-metrics-table .percentage-cell, .performance-metrics-table .status-cell {
-            font-size: 12px;
-            font-weight: 500;
-            color: #334155;
-            text-align: center;
-            min-width: 60px;
-          }
-
-          .performance-metrics-table .status-badge {
-            font-size: 11px;
-            padding: 3px 10px;
-            border-radius: 8px;
-            font-weight: 600;
-            letter-spacing: 0.01em;
-            background: #f1f5f9;
-            border: 1px solid #e5e7eb;
-            color: #64748b;
-            display: inline-block;
-          }
-
-          .performance-metrics-table .status-gold { background: #fef9c3; color: #bfa100; border-color: #fde047; }
-          .performance-metrics-table .status-sold { background: #f1f5f9; color: #22c55e; border-color: #bbf7d0; }
-          .performance-metrics-table .status-available { background: #f1f5f9; color: #2563eb; border-color: #bfdbfe; }
-          .performance-metrics-table .percentage-bar { height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-top: 2px; }
-          .performance-metrics-table .percentage-fill { height: 100%; border-radius: 3px; transition: width 0.6s; }
-          .performance-metrics-table .gold-fill { background: linear-gradient(90deg, #FFD700 0%, #fbbf24 100%); }
-          .performance-metrics-table .sold-fill { background: linear-gradient(90deg, #22c55e 0%, #bbf7d0 100%); }
-          .performance-metrics-table .available-fill { background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%); }
-          
-          /* Ensure insights card is visible and properly sized */
-          .insights-card {
-            height: auto !important;
-            min-height: 200px !important;
-            margin-bottom: 12px;
-          }
-          
-          .insights-content {
-            padding: 10px 0;
-          }
-          
-          .insight-item {
-            padding: 10px 0;
-            font-size: 13px;
-          }
-          
-          .insight-label {
-            font-size: 13px;
-          }
-          
-          .insight-value {
-            font-size: 15px;
-          }
-        }
-
-        @media (max-width: 600px) {
-          .summary-cards {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-          }
-          
-          .export-btn,
-          .refresh-btn {
-            padding: 6px 10px;
-            font-size: 11px;
-            font-weight: 500;
-          }
-          
-          .summary-card {
-            padding: 12px;
-          }
-          
-          .chart-card {
-            padding: 12px;
-          }
-          
-          .quick-stats-card,
-          .performance-card,
-          .activity-card,
-          .insights-card {
-            padding: 12px;
-          }
-
-          .search-input-wrapper {
-            width: 120px;
-          }
-
-          .search-input {
-            font-size: 11px;
-            padding: 5px 8px 5px 26px;
-          }
-
-          .search-icon {
-            font-size: 11px;
-            left: 6px;
-          }
-
-          .chart-header {
-            flex-direction: column;
-            gap: 8px;
-            align-items: stretch;
-          }
-
-          .search-container {
-            justify-content: center;
-          }
-          
-          /* Enhanced mobile styles for insights */
-          .insights-card {
-            height: auto !important;
-            min-height: 180px !important;
-            margin-bottom: 10px;
-          }
-          
-          .insights-content {
-            padding: 8px 0;
-          }
-          
-          .insight-item {
-            padding: 8px 0;
-            font-size: 12px;
-          }
-          
-          .insight-label {
-            font-size: 12px;
-          }
-          
-          .insight-value {
-            font-size: 14px;
-          }
-        }
-        
-        @media (max-width: 480px) {
-          .summary-cards {
-            grid-template-columns: 1fr;
-            gap: 8px;
-          }
-          
-          .analytics-container {
-            padding: 8px;
-          }
-          
-          .analytics-header {
-            padding: 12px;
-          }
-          
-          .header-content h1 {
-            font-size: 16px;
-          }
-          
-          .header-content p {
-            font-size: 12px;
-          }
-          
-          .export-btn,
-          .refresh-btn {
-            padding: 5px 8px;
-            font-size: 10px;
-            font-weight: 500;
-          }
-          
-          .summary-card {
-            padding: 10px;
-          }
-          
-          .chart-card {
-            padding: 10px;
-          }
-          
-          .quick-stats-card,
-          .performance-card,
-          .activity-card,
-          .insights-card {
-            padding: 10px;
-          }
-
-          .search-input-wrapper {
-            width: 100px;
-          }
-
-          .search-input {
-            font-size: 10px;
-            padding: 4px 6px 4px 22px;
-          }
-
-          .search-icon {
-            font-size: 10px;
-            left: 5px;
-          }
-
-          .chart-header {
-            flex-direction: column;
-            gap: 6px;
-            align-items: stretch;
-          }
-
-          .search-container {
-            justify-content: center;
-          }
-          
-          /* Ultra mobile styles for insights */
-          .insights-card {
-            height: auto !important;
-            min-height: 160px !important;
-            margin-bottom: 8px;
-          }
-          
-          .insights-content {
-            padding: 6px 0;
-          }
-          
-          .insight-item {
-            padding: 6px 0;
-            font-size: 11px;
-          }
-          
-          .insight-label {
-            font-size: 11px;
-          }
-          
-          .insight-value {
-            font-size: 13px;
-          }
-          
-          .chart-content {
-            min-height: 140px;
-          }
-          
-          .chart-content.compact {
-            min-height: 140px;
-          }
-          
-          .chart-content.enhanced,
-          .table-content.enhanced {
-            height: 180px;
-          }
-        }
-          font-size: 16px;
-          color: #64748b;
-        }
-
-        .retry-btn {
-          background: #0077d4;
-          color: white;
-          border: none;
-          padding: 12px 24px;
-          border-radius: 8px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin: 16px auto 0;
-          transition: all 0.2s;
-        }
-
-        .retry-btn:hover {
-          background: #005ea8;
-        }
-
-        @media (max-width: 1200px) {
-          .chart-card.large {
-            grid-column: span 1;
-          }
-        }
-
-        @media (max-width: 768px) {
-          .analytics-container {
-            padding: 16px;
-          }
-
-          .analytics-header {
-            flex-direction: column;
-            gap: 16px;
-            text-align: center;
-          }
-
-          .header-actions {
-            flex-wrap: wrap;
-            justify-content: center;
-          }
-
-          .summary-cards {
-            grid-template-columns: 1fr;
-          }
-
-          .charts-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .chart-content {
-            height: 250px;
-          }
-        }
-
-        .pagination-container {
-          display: flex;
-          justify-content: flex-end;
-          align-items: center;
-          padding: 8px 2px 2px;
-        }
-
-        .pagination-controls {
-          display: flex;
-          gap: 6px;
-          align-items: center;
-        }
-
-        .pagination-btn {
-          padding: 5px 11px;
-          border: 1px solid #d6dde7;
-          background: #ffffff;
-          color: #475569;
-          font-size: 12px;
-          font-weight: 600;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: all 0.18s ease;
-          min-width: 32px;
-          height: 30px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-        }
-
-        .pagination-btn:hover:not(:disabled) {
-          background: #f8fafc;
-          border-color: #b8c3d3;
-          color: #1f2937;
-        }
-
-        .pagination-btn.active {
-          background: #0f766e;
-          border-color: #0f766e;
-          color: #ffffff;
-        }
-
-        .pagination-btn:disabled {
-          opacity: 0.45;
-          cursor: not-allowed;
-          box-shadow: none;
-        }
-
-        .pagination-ellipsis {
-          color: #94a3b8;
-          font-size: 12px;
-          font-weight: 700;
-          line-height: 1;
-          padding: 0 2px;
-        }
-
-        .pagination-mini-info {
-          margin-left: 6px;
-          font-size: 11px;
-          color: #475569;
-          font-weight: 700;
-          line-height: 1;
-        }
-
-        .weight-cell, .value-cell, .trend-cell {
-          text-align: center;
-          font-weight: 600;
-        }
-
-        .weight-value {
-          color: #f59e0b;
-          font-size: 13px;
-        }
-
-        .value-amount {
-          color: #22c55e;
-          font-size: 13px;
-        }
-
-        .top-product {
-          color: #1e293b;
-          font-size: 12px;
-          font-weight: 500;
-        }
-
-        .trend-badge {
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 11px;
-          font-weight: 500;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-
-        .trend-badge.trend-high {
-          background: rgba(34, 197, 94, 0.1);
-          color: #16a34a;
-          border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-
-        .trend-badge.trend-medium {
-          background: rgba(245, 158, 11, 0.1);
-          color: #d97706;
-          border: 1px solid rgba(245, 158, 11, 0.2);
-        }
-
-        .trend-badge.trend-low {
-          background: rgba(239, 68, 68, 0.1);
-          color: #dc2626;
-          border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-      `}</style>
 
       {showAnalyticsModal && (
         <AnalyticsModal

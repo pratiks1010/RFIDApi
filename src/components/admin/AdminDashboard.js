@@ -188,12 +188,12 @@ const AdminDashboard = () => {
       width: '100%',
       minHeight: '100vh',
       background: '#f8faff', 
-      fontFamily: 'Poppins, Montserrat, Arial, sans-serif',
+      fontFamily: 'var(--font-family)',
       display: 'flex',
       flexDirection: 'column',
       position: 'relative',
       overflowX: 'hidden'
-    }}>
+    }} className="app-ui-shell">
       <AdminHeader 
         activeSection={activeSection}
         onNavigate={handleNavigation}

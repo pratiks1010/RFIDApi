@@ -32,6 +32,8 @@ import {
   FaLayerGroup,
   FaTools,
   FaShoppingBag,
+  FaCog,
+  FaChevronDown,
 } from 'react-icons/fa';
 import {
   HiDocumentText,
@@ -43,6 +45,9 @@ import {
 import { useNotifications } from '../context/NotificationContext';
 import { useTranslation } from '../hooks/useTranslation';
 import axios from 'axios';
+
+const SPARKLE_LOGO = `${process.env.PUBLIC_URL || ''}/Logo/sparkle-logo.png`;
+
 const SidebarLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -65,9 +70,11 @@ const SidebarLayout = ({ children }) => {
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupError, setBackupError] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [rfidPlanInfo, setRfidPlanInfo] = useState(null);
 
   const notificationsRef = useRef(null);
+  const settingsRef = useRef(null);
 
   // Section 0: Quick Access
   const navigationProfile = [
@@ -181,6 +188,7 @@ const SidebarLayout = ({ children }) => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
       if (mobile) setSidebarOpen(false);
+      else setSidebarOpen(true);
     };
     window.addEventListener('resize', handleResize);
     handleResize();
@@ -192,6 +200,9 @@ const SidebarLayout = ({ children }) => {
       if (notificationsRef.current && !notificationsRef.current.contains(event.target)) {
         setNotificationsOpen(false);
       }
+      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+        setSettingsOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -199,6 +210,7 @@ const SidebarLayout = ({ children }) => {
 
   useEffect(() => {
     setNotificationsOpen(false);
+    setSettingsOpen(false);
     if (isMobile) setSidebarOpen(false);
   }, [location.pathname, isMobile]);
 
@@ -359,560 +371,163 @@ const SidebarLayout = ({ children }) => {
     });
   })();
 
-  const sidebarWidth = sidebarOpen
-    ? (isMobile ? '264px' : (sidebarCollapsed ? '64px' : '204px'))
-    : '0';
-  const mainContentMargin = !isMobile && sidebarOpen
-    ? (sidebarCollapsed ? '64px' : '204px')
-    : '0';
+  const compact = !isMobile && sidebarCollapsed;
+
+  const renderMenuItem = (item) => {
+    const { path, icon: Icon, label, comingSoon } = item;
+    const isActive = location.pathname === path;
+    if (comingSoon) {
+      return (
+        <div key={path} className="ssb-item is-soon" title={compact ? label : 'Coming Soon'}>
+          <Icon />
+          {!compact && <span className="ssb-item-label">{label}</span>}
+          {!compact && <span className="ssb-soon">Soon</span>}
+        </div>
+      );
+    }
+    return (
+      <Link
+        key={path}
+        to={path}
+        onClick={() => isMobile && setSidebarOpen(false)}
+        className={`ssb-item${isActive ? ' is-active' : ''}`}
+        title={compact ? label : ''}
+      >
+        <Icon />
+        {!compact && <span className="ssb-item-label">{label}</span>}
+      </Link>
+    );
+  };
+
+  const renderSection = (title, items) => {
+    const visible = items || [];
+    if (visible.length === 0) return null;
+    return (
+      <div key={title}>
+        {!compact && <div className="ssb-sec">{title}</div>}
+        {visible.map(renderMenuItem)}
+      </div>
+    );
+  };
+
+  const toggleSettings = () => {
+    if (compact) {
+      setSidebarCollapsed(false);
+      setSettingsOpen(true);
+      return;
+    }
+    setSettingsOpen((open) => !open);
+  };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#ffffff',
-      display: 'flex',
-      flexDirection: 'column',
-      fontFamily: 'var(--font-family, "Roboto", sans-serif)'
-    }}>
-      {/* Top app bar with hamburger when sidebar is closed - anchored, no floating */}
+    <div className={`ssb-app${compact ? ' is-compact' : ''}${isMobile ? ' is-mobile' : ''}${sidebarOpen ? ' is-open' : ''}`}>
       {!sidebarOpen && (
-        <header
-          className="sidebar-topbar"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 10000,
-            height: 56,
-            minHeight: 56,
-            display: 'flex',
-            alignItems: 'center',
-            paddingLeft: 12,
-            paddingRight: 12,
-            background: '#ffffff',
-            borderBottom: '1px solid #e5e7eb',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="sidebar-hamburger-btn"
-            aria-label="Open menu"
-            title="Open menu"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 44,
-              height: 44,
-              minWidth: 44,
-              minHeight: 44,
-              padding: 0,
-              background: '#f8fafc',
-              border: '1px solid #e5e7eb',
-              borderRadius: 10,
-              cursor: 'pointer',
-              color: '#2563eb',
-              flexShrink: 0,
-              transition: 'background 0.2s, box-shadow 0.2s',
-            }}
-          >
-            <FaBars size={20} aria-hidden="true" />
+        <header className="ssb-topbar">
+          <button type="button" className="ssb-icon-btn" onClick={() => setSidebarOpen(true)} aria-label="Open menu" title="Open menu">
+            <FaBars size={16} />
           </button>
+          <span className="ssb-topbar-brand">
+            <img src={SPARKLE_LOGO} alt="Sparkle RFID" />
+          </span>
         </header>
       )}
 
-      {/* Mobile overlay when sidebar open - tap to close */}
       {isMobile && sidebarOpen && (
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => setSidebarOpen(false)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSidebarOpen(false); }}
-          aria-label="Close menu"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.45)',
-            zIndex: 998,
-            animation: 'sidebar-overlay-in 0.2s ease',
-          }}
-        />
+        <div className="ssb-overlay" role="button" tabIndex={0} aria-label="Close menu" onClick={() => setSidebarOpen(false)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSidebarOpen(false); }} />
       )}
 
-      <div className="sidebar-layout-wrapper" style={{ display: 'flex', marginTop: 0, minHeight: '100vh', width: '100%', overflow: 'hidden' }}>
-        {/* Sidebar - glassmorphism background, logo, nav, bottom controls */}
-        <aside
-          className={`sidebar-glass ${isMobile ? 'sidebar-mobile' : ''} ${isMobile && sidebarOpen ? 'sidebar-mobile-open' : ''}`}
-          style={{
-            position: 'fixed',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: isMobile ? 'min(82vw, 300px)' : sidebarWidth,
-            background: 'linear-gradient(180deg, #042954 0%, #032547 45%, #021f3d 100%)',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
-            borderRight: '1px solid rgba(148, 163, 184, 0.14)',
-            transition: isMobile ? 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            overflow: 'hidden',
-            zIndex: 999,
-            display: isMobile ? 'flex' : (sidebarOpen ? 'flex' : 'none'),
-            flexDirection: 'column',
-            boxShadow: 'none',
-            transform: isMobile ? (sidebarOpen ? 'translateX(0)' : 'translateX(-100%)') : undefined,
-            visibility: isMobile && !sidebarOpen ? 'hidden' : 'visible',
-          }}
-        >
-          {/* Sidebar top: Logo + collapse/expand on desktop, close on mobile */}
-          <div style={{
-            flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            background: 'rgba(255, 255, 255, 0.04)',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
-            display: 'flex',
-            flexDirection: sidebarCollapsed ? 'column' : 'row',
-            alignItems: 'center',
-            gap: 8,
-            justifyContent: sidebarCollapsed ? 'center' : 'flex-start'
-          }}>
-            <Link
-              to="/analytics"
-              title="Loyal String Dashboard"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                flex: sidebarCollapsed ? 0 : 1,
-                minWidth: 0,
-                textDecoration: 'none',
-              }}
-              onClick={() => isMobile && setSidebarOpen(false)}
-            >
-              <span
-                style={{
-                  color: '#f8fafc',
-                  fontWeight: 700,
-                  fontSize: sidebarCollapsed ? 8 : 16,
-                  letterSpacing: sidebarCollapsed ? 0 : '0.02em',
-                  textAlign: sidebarCollapsed ? 'center' : 'left',
-                  lineHeight: sidebarCollapsed ? 1.15 : 1.25,
-                  overflow: 'hidden',
-                  maxWidth: sidebarCollapsed ? 54 : '100%',
-                }}
-              >
-                {sidebarCollapsed ? (
-                  <>
-                    Loyal
-                    <br />
-                    String
-                  </>
-                ) : (
-                  'Loyal String'
-                )}
-              </span>
+      <div className="ssb-shell">
+        <aside className="ssb" aria-label="Main navigation">
+          <div className="ssb-brand">
+            <Link to="/analytics" className="ssb-logo" title="Sparkle RFID" onClick={() => isMobile && setSidebarOpen(false)}>
+              <img src={SPARKLE_LOGO} alt="Sparkle RFID" />
             </Link>
-            {!isMobile && !sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(true)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 8, cursor: 'pointer', color: '#facc15' }} title="Collapse sidebar" aria-label="Collapse sidebar"><FaChevronLeft size={14} /></button>
-            )}
-            {!isMobile && sidebarCollapsed && (
-              <button onClick={() => setSidebarCollapsed(false)} style={{ flexShrink: 0, background: 'rgba(251, 191, 36, 0.12)', border: '1px solid rgba(251, 191, 36, 0.35)', borderRadius: 9, padding: 6, cursor: 'pointer', color: '#facc15' }} title="Expand sidebar" aria-label="Expand sidebar"><FaChevronRight size={12} /></button>
+            {!isMobile && (
+              <button type="button" className="ssb-icon-btn" onClick={() => setSidebarCollapsed((v) => !v)} title={compact ? 'Expand sidebar' : 'Collapse sidebar'} aria-label={compact ? 'Expand sidebar' : 'Collapse sidebar'}>
+                {compact ? <FaChevronRight size={12} /> : <FaChevronLeft size={12} />}
+              </button>
             )}
             {isMobile && (
-              <button type="button" onClick={() => setSidebarOpen(false)} className="sidebar-close-btn" style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10, cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Close menu" aria-label="Close menu"><FaTimes size={18} /></button>
+              <button type="button" className="ssb-icon-btn" onClick={() => setSidebarOpen(false)} title="Close menu" aria-label="Close menu">
+                <FaTimes size={14} />
+              </button>
             )}
           </div>
 
-          {/* User Profile - Moved to top */}
-          <div style={{
-            flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8
-          }}>
-            <button onClick={() => { navigate('/profile-menu'); if (isMobile) setSidebarOpen(false); }} title={`${username} • ${clientCode}`} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148, 163, 184, 0.18)', padding: sidebarCollapsed ? '7px' : '7px 10px', borderRadius: 12, cursor: 'pointer', transition: 'all 0.2s ease', boxShadow: 'none' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)', color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0, boxShadow: 'none' }}>{avatarLetter}</div>
-              {!sidebarCollapsed && (
-                <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, marginBottom: 2 }}>{username}</div>
-                  <div style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }}></span>
-                    {clientCode}
-                  </div>
-                  {(planName || formattedPlanExpiry) && (
-                    <div style={{ fontSize: 9, color: '#93c5fd', fontWeight: 700, marginTop: 2, lineHeight: 1.25 }}>
-                      {planName ? `Plan: ${planName}` : ''}
-                      {formattedPlanExpiry ? `${planName ? ' • ' : ''}Exp: ${formattedPlanExpiry}` : ''}
-                    </div>
-                  )}
-                </div>
-              )}
-            </button>
-          </div>
+          <nav className="ssb-nav">
+            {renderSection('Inventory Management', inventorySession)}
+            {renderSection('Transaction', navigationSection2)}
+            {renderSection('RFID Tags Management', navigationSection3)}
+            {showThirdPartyMenu && renderSection('Third Party', navigationSection5)}
+            {showFeroniaMenu && renderSection('Third Party', navigationSectionFeronia)}
+            {showKumar916Menu && renderSection('Third Party', navigationSectionKumar916)}
+            {showVarakrupaMenu && renderSection('Third Party', navigationSectionVarakrupa)}
+            {renderSection('Main Menu', navigationProfile)}
+          </nav>
 
-          {/* Sidebar nav - no scroll, all items visible in one screen */}
-          <div className="sidebar-content" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '2px 0', display: 'flex', flexDirection: 'column' }}>
-            {/* Nav sections - IIFE */}
-            {/* Helper function to render section header */}
-            {(() => {
-              const renderSectionHeader = (title, gradientColors) => {
-                if (sidebarCollapsed) return null;
-                return (
-                  <div style={{
-                    padding: '4px 10px 6px',
-                    margin: '8px 8px 4px',
-                    position: 'relative',
-                  }}>
-                    <span style={{ fontSize: '9px', fontWeight: '700', color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.45px', lineHeight: 1.2 }}>
-                      {title}
-                    </span>
-                    <div
-                      style={{
-                        marginTop: 4,
-                        height: 2,
-                        width: 46,
-                        borderRadius: 999,
-                        background: 'linear-gradient(90deg, #facc15 0%, #60a5fa 100%)',
-                        boxShadow: '0 0 10px rgba(250, 204, 21, 0.35)',
-                      }}
-                    />
-                  </div>
-                );
-              };
+          <div className="ssb-foot" ref={settingsRef}>
+            {settingsOpen && (
+              <div className="ssb-settings">
+                {!compact && <div className="ssb-sec">Settings</div>}
+                <Link
+                  to="/profile-menu"
+                  className={`ssb-item${location.pathname === '/profile-menu' ? ' is-active' : ''}`}
+                  title="Preferences"
+                  onClick={() => isMobile && setSidebarOpen(false)}
+                >
+                  <FaCog />
+                  {!compact && <span className="ssb-item-label">Preferences</span>}
+                </Link>
+                <button type="button" className="ssb-item" onClick={toggleFullscreen} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+                  {isFullscreen ? <FaCompress /> : <FaExpand />}
+                  {!compact && <span className="ssb-item-label">{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</span>}
+                </button>
+                <button type="button" className="ssb-item" onClick={() => { setShowBackupModal(true); setSettingsOpen(false); }} title="Download backup">
+                  <FaDatabase />
+                  {!compact && <span className="ssb-item-label">Backup</span>}
+                </button>
+                <button type="button" className="ssb-item ssb-item-danger" onClick={handleLogout} title="Logout">
+                  <FaSignOutAlt />
+                  {!compact && <span className="ssb-item-label">Logout</span>}
+                </button>
+              </div>
+            )}
 
-              const renderMenuItem = (item) => {
-                const { path, icon: Icon, label, color, comingSoon } = item;
-                const isActive = location.pathname === path;
+            {(planName || formattedPlanExpiry) && !compact && !settingsOpen && (
+              <div className="ssb-plan">
+                <strong>{planName || 'RFID plan'}</strong>
+                <p>{formattedPlanExpiry ? `Expires ${formattedPlanExpiry}` : 'Manage plan in Settings'}</p>
+              </div>
+            )}
 
-                if (comingSoon) {
-                  return (
-                    <div
-                      key={path}
-                      className="sidebar-nav-item"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: sidebarCollapsed ? '0' : '8px',
-                        padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
-                        margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
-                        borderRadius: '9px',
-                        color: '#64748b',
-                        background: 'transparent',
-                        fontWeight: 500,
-                        fontSize: '12px',
-                        lineHeight: '1.25',
-                        transition: 'all 0.2s ease',
-                        justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                        position: 'relative',
-                        border: '1px solid transparent',
-                        cursor: 'not-allowed',
-                        opacity: 0.6
-                      }}
-                      title={sidebarCollapsed ? label : 'Coming Soon'}
-                    >
-                      <span style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 8,
-                        background: 'rgba(148, 163, 184, 0.16)',
-                        color: '#94a3b8',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}>
-                        <Icon style={{ fontSize: 12 }} />
-                      </span>
-                      {!sidebarCollapsed && (
-                        <>
-                          <span style={{
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            maxWidth: '140px',
-                            display: 'inline-block',
-                            color: '#94a3b8',
-                            letterSpacing: '-0.2px',
-                            flex: 1
-                          }}>
-                            {label}
-                          </span>
-                          <span style={{
-                            fontSize: '9px',
-                            fontWeight: '700',
-                            color: '#ffffff',
-                            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                            padding: '2px 6px',
-                            borderRadius: '8px',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                            boxShadow: '0 2px 4px rgba(245, 158, 11, 0.3)',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            Coming Soon
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  );
-                }
-
-                return (
-                  <Link
-                    key={path}
-                    to={path}
-                    onClick={() => isMobile && setSidebarOpen(false)}
-                    className="sidebar-nav-item"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: sidebarCollapsed ? '0' : '8px',
-                      padding: sidebarCollapsed ? '5px 4px' : '4px 8px',
-                      margin: sidebarCollapsed ? '2px 5px' : '2px 8px',
-                      borderRadius: '9px',
-                      textDecoration: 'none',
-                      color: '#e2e8f0',
-                      background: isActive
-                        ? `linear-gradient(90deg, rgba(250, 204, 21, 0.22) 0%, rgba(59, 130, 246, 0.34) 55%, rgba(15, 23, 42, 0.86) 100%)`
-                        : 'transparent',
-                      fontWeight: isActive ? 600 : 500,
-                      fontSize: '12px',
-                      lineHeight: '1.25',
-                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                      justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                      position: 'relative',
-                      border: isActive ? '1px solid rgba(250, 204, 21, 0.55)' : `1px solid transparent`,
-                      boxShadow: 'none'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = `linear-gradient(90deg, rgba(250, 204, 21, 0.12) 0%, rgba(59, 130, 246, 0.22) 60%, rgba(30, 41, 59, 0.52) 100%)`;
-                        e.currentTarget.style.borderColor = 'rgba(250, 204, 21, 0.35)';
-                        e.currentTarget.style.transform = 'translateX(3px)';
-                        e.currentTarget.style.boxShadow = 'none';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.borderColor = 'transparent';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                      }
-                    }}
-                    title={sidebarCollapsed ? label : ''}
-                  >
-                    <span style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 8,
-                      background: isActive
-                        ? 'linear-gradient(135deg, #facc15 0%, #f59e0b 100%)'
-                        : `linear-gradient(135deg, ${color}2b 0%, ${color}14 100%)`,
-                      color: isActive ? '#0f172a' : color,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      transition: 'all 0.25s ease',
-                      border: isActive ? '1px solid rgba(250, 204, 21, 0.65)' : `1px solid ${color}34`,
-                    }}>
-                      <Icon style={{ fontSize: 12 }} />
-                    </span>
-                    {!sidebarCollapsed && (
-                      <span style={{
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        maxWidth: '150px',
-                        display: 'inline-block',
-                        letterSpacing: '-0.2px'
-                      }}>
-                        {label}
-                      </span>
-                    )}
-                    {isActive && (
-                      <div style={{
-                        position: 'absolute',
-                        left: 0,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        width: '4px',
-                        height: '60%',
-                        background: 'linear-gradient(180deg, #facc15 0%, #f59e0b 100%)',
-                        borderRadius: '0 3px 3px 0',
-                        boxShadow: 'none'
-                      }} />
-                    )}
-                  </Link>
-                );
-              };
-
-              return (
+            <button
+              type="button"
+              className={`ssb-user${settingsOpen ? ' is-open' : ''}`}
+              onClick={toggleSettings}
+              title={`${username} • Settings`}
+              aria-expanded={settingsOpen}
+              aria-haspopup="true"
+            >
+              <span className="ssb-avatar">{avatarLetter}</span>
+              {!compact && (
                 <>
-                  {/* Section 1: Inventory Management */}
-                  {renderSectionHeader('Inventory Management', ['#10b981', '#10b981'])}
-                  {inventorySession.map(renderMenuItem)}
-
-                  {/* Separator */}
-                  {!sidebarCollapsed && (
-                    <div style={{
-                      height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
-                    }} />
-                  )}
-
-                  {/* Section 2: Transaction */}
-                  {renderSectionHeader('Transaction', ['#f97316', '#f97316'])}
-                  {navigationSection2.map(renderMenuItem)}
-
-                  {/* Separator */}
-                  {!sidebarCollapsed && (
-                    <div style={{
-                      height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
-                    }} />
-                  )}
-
-                  {/* Section 3: RFID Tags Management */}
-                  {renderSectionHeader('RFID Tags Management', ['#ef4444', '#ef4444'])}
-                  {navigationSection3.map(renderMenuItem)}
-
-                  {/* Separator */}
-                  {!sidebarCollapsed && (
-                    <div style={{
-                      height: '1px',
-                      background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                      margin: '2px 10px',
-                      opacity: 0.4
-                    }} />
-                  )}
-
-                  {/* Section 5: Third Party (client LS000438 only) */}
-                  {showThirdPartyMenu && (
-                    <>
-                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
-                      {navigationSection5.map(renderMenuItem)}
-
-                      {!sidebarCollapsed && (
-                        <div style={{
-                          height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
-                        }} />
-                      )}
-                    </>
-                  )}
-
-                  {showFeroniaMenu && (
-                    <>
-                      {renderSectionHeader('Third Party', ['#0f766e', '#0f766e'])}
-                      {navigationSectionFeronia.map(renderMenuItem)}
-                      {!sidebarCollapsed && (
-                        <div style={{
-                          height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
-                        }} />
-                      )}
-                    </>
-                  )}
-
-                  {showKumar916Menu && (
-                    <>
-                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
-                      {navigationSectionKumar916.map(renderMenuItem)}
-                      {!sidebarCollapsed && (
-                        <div style={{
-                          height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
-                        }} />
-                      )}
-                    </>
-                  )}
-                  {showVarakrupaMenu && (
-                    <>
-                      {renderSectionHeader('Third Party', ['#0d9488', '#0d9488'])}
-                      {navigationSectionVarakrupa.map(renderMenuItem)}
-                      {!sidebarCollapsed && (
-                        <div style={{
-                          height: '1px',
-                          background: 'linear-gradient(90deg, transparent 0%, #e5e7eb 50%, transparent 100%)',
-                          margin: '2px 10px',
-                          opacity: 0.4
-                        }} />
-                      )}
-                    </>
-                  )}
-
-                  {/* Section 0: Quick Access - Moved to Bottom */}
-                  {renderSectionHeader('Main Menu', ['#6366f1', '#6366f1'])}
-                  {navigationProfile.map(renderMenuItem)}
-
+                  <span className="ssb-user-meta">
+                    <span className="ssb-user-name">{username}</span>
+                    <span className="ssb-user-sub">Settings · {clientCode}</span>
+                  </span>
+                  <FaChevronDown className="ssb-user-chevron" />
                 </>
-              );
-            })()}
-          </div>
-
-          {/* Sidebar bottom: Fullscreen, Logout */}
-          <div style={{
-            flexShrink: 0,
-            padding: sidebarCollapsed ? '8px 6px' : '8px 10px',
-            borderTop: '1px solid rgba(148, 163, 184, 0.14)',
-            display: 'flex',
-            flexDirection: sidebarCollapsed ? 'column' : 'row',
-            alignItems: 'center',
-            gap: 8,
-            justifyContent: 'center'
-          }}>
-            <button onClick={toggleFullscreen} style={{ flexShrink: 0, background: 'rgba(250, 204, 21, 0.12)', border: '1px solid rgba(250, 204, 21, 0.35)', padding: 8, borderRadius: 10, cursor: 'pointer', color: '#facc15', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
-              {isFullscreen ? <FaCompress size={16} /> : <FaExpand size={16} />}
-            </button>
-            <button onClick={handleLogout} style={{ flex: 1, background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', border: '1px solid #fecaca', padding: '8px', borderRadius: 10, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: sidebarCollapsed ? 'auto' : '100%', transition: 'all 0.2s ease', boxShadow: '0 3px 8px rgba(239, 68, 68, 0.12)' }} title="Logout">
-              <FaSignOutAlt size={16} />
-              {!sidebarCollapsed && <span style={{ fontSize: 13, fontWeight: 700 }}>Logout</span>}
+              )}
             </button>
           </div>
         </aside>
 
-        {/* Main Content - full width, padding under top bar when sidebar closed */}
         <main
-          className={`sidebar-main-content ${!sidebarOpen ? 'has-topbar' : ''}`}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            marginLeft: mainContentMargin,
-            transition: 'margin-left 0.3s ease, padding 0.2s ease',
-            paddingTop: sidebarOpen ? (isMobile ? 12 : 20) : undefined,
-            paddingBottom: isMobile ? 12 : 20,
-            paddingLeft: isMobile ? 12 : 20,
-            paddingRight: isMobile ? 12 : 20,
-            minHeight: '100vh',
-            background: '#ffffff',
-            width: '100%',
-            boxSizing: 'border-box',
-            overflowX: 'auto',
-          }}
+          className={`ssb-main${!sidebarOpen ? ' has-topbar' : ''}${location.pathname === '/analytics' ? ' analytics-fit-main' : ''}`}
         >
           {children}
         </main>
       </div>
-
       {/* Modals */}
       {showBackupModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0, 0, 0, 0.5)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -950,286 +565,6 @@ const SidebarLayout = ({ children }) => {
         </div>
       )}
 
-      <style>{`
-        /* Top app bar - anchored, not floating; safe-area for notched devices */
-        .sidebar-topbar {
-          padding-left: max(12px, env(safe-area-inset-left)) !important;
-          padding-top: env(safe-area-inset-top) !important;
-          padding-bottom: env(safe-area-inset-bottom) !important;
-          height: calc(56px + env(safe-area-inset-top)) !important;
-          min-height: calc(56px + env(safe-area-inset-top)) !important;
-        }
-        /* Hamburger inside top bar - touch-friendly, no float */
-        .sidebar-hamburger-btn {
-          -webkit-tap-highlight-color: transparent;
-        }
-        .sidebar-hamburger-btn:hover {
-          background: #eff6ff !important;
-          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15) !important;
-        }
-        .sidebar-hamburger-btn:active {
-          transform: scale(0.97);
-        }
-        @media (max-width: 768px) {
-          .sidebar-hamburger-btn {
-            width: 44px !important;
-            height: 44px !important;
-            min-width: 44px !important;
-            min-height: 44px !important;
-          }
-          .sidebar-close-btn {
-            -webkit-tap-highlight-color: transparent;
-          }
-        }
-        /* Mobile sidebar - max width so content remains visible */
-        .sidebar-glass.sidebar-mobile {
-          max-width: min(82vw, 300px);
-          width: min(82vw, 300px) !important;
-        }
-        @keyframes sidebar-overlay-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        /* Main content - full width, responsive */
-        .sidebar-layout-wrapper {
-          width: 100%;
-          max-width: 100vw;
-        }
-        .sidebar-main-content {
-          flex: 1 1 0%;
-          min-width: 0;
-        }
-        .sidebar-main-content.has-topbar {
-          padding-top: calc(56px + env(safe-area-inset-top) + 12px) !important;
-        }
-        @media (min-width: 769px) {
-          .sidebar-main-content.has-topbar {
-            padding-top: calc(56px + env(safe-area-inset-top) + 16px) !important;
-          }
-        }
-        @media (max-width: 768px) {
-          .sidebar-main-content {
-            margin-left: 0 !important;
-            width: 100% !important;
-            padding-left: 12px !important;
-            padding-right: 12px !important;
-            padding-bottom: 12px !important;
-          }
-        }
-        @media (min-width: 769px) and (max-width: 1024px) {
-          .sidebar-main-content { padding: 16px !important; }
-        }
-        @media (min-width: 1025px) {
-          .sidebar-main-content { padding: 20px 24px !important; }
-        }
-        /* Layout action buttons - use in pages for Edit / Save */
-        .layout-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          transition: background 0.2s, box-shadow 0.2s;
-        }
-        .layout-btn-primary {
-          background: #2563eb !important;
-          color: #fff !important;
-          border: none !important;
-        }
-        .layout-btn-primary:hover:not(:disabled) {
-          background: #1d4ed8 !important;
-          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
-        }
-        .layout-btn-secondary {
-          background: #fff !important;
-          color: #374151 !important;
-          border: 1px solid #e5e7eb !important;
-        }
-        .layout-btn-secondary:hover:not(:disabled) {
-          background: #f9fafb !important;
-          border-color: #d1d5db !important;
-        }
-        /* Sidebar glassmorphism */
-        .sidebar-glass {
-          -webkit-backdrop-filter: blur(14px);
-          backdrop-filter: blur(14px);
-        }
-        .sidebar-glass .sidebar-content {
-          background: transparent;
-          -webkit-overflow-scrolling: touch;
-        }
-        /* Trailing ellipsis for all labels and text */
-        .text-truncate {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        /* Syncfusion grid label support */
-        .e-grid .e-headertext,
-        .e-grid .e-rowcell,
-        .e-grid .e-columnheader {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        /* General label trailing support */
-        label,
-        .label,
-        [class*="label"] {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          max-width: 100%;
-        }
-        /* Table cell text truncation */
-        td, th {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        
-        /* Responsive adjustments - main content */
-        @media (max-width: 768px) {
-          main.sidebar-main-content {
-            margin-left: 0 !important;
-            width: 100% !important;
-            padding: 12px !important;
-          }
-        }
-        
-        /* Smooth transitions */
-        * {
-          transition: width 0.3s ease, margin-left 0.3s ease;
-        }
-        
-        /* Pulse animation for notification badge */
-        @keyframes dropdownSlideIn {
-          from {
-            opacity: 0;
-            transform: translateY(-10px) scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-        
-        @keyframes pulse {
-          0%, 100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-          50% {
-            opacity: 0.8;
-            transform: scale(1.1);
-          }
-        }
-        
-        /* Mobile responsive sidebar - single consistent width, touch targets */
-        @media (max-width: 768px) {
-          .sidebar-glass.sidebar-mobile {
-            width: min(82vw, 300px) !important;
-            max-width: min(82vw, 300px) !important;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            -webkit-overflow-scrolling: touch;
-          }
-          .sidebar-content {
-            padding: 6px 0 !important;
-            overflow-y: auto !important;
-            overflow-x: hidden !important;
-            min-height: 0 !important;
-            -webkit-overflow-scrolling: touch;
-          }
-          .sidebar-nav-item {
-            padding: 12px 14px !important;
-            margin: 0 8px 2px 8px !important;
-            font-size: 12px !important;
-            gap: 12px !important;
-            border-radius: 11px !important;
-            min-height: 44px !important;
-            align-items: center !important;
-            display: flex !important;
-          }
-          .sidebar-nav-item svg {
-            font-size: 18px !important;
-          }
-          .sidebar-main-content {
-            padding: 12px !important;
-            overflow-x: auto !important;
-          }
-          .sidebar-content > div > div:first-child { margin-top: 10px !important; }
-        }
-        
-        @media (max-width: 480px) {
-          .sidebar-glass.sidebar-mobile {
-            width: min(86vw, 280px) !important;
-            max-width: 85vw !important;
-          }
-          .sidebar-nav-item {
-            padding: 10px 12px !important;
-            margin: 0 6px 2px 6px !important;
-            font-size: 12px !important;
-            min-height: 44px !important;
-          }
-          .sidebar-nav-item svg {
-            font-size: 16px !important;
-          }
-          .sidebar-main-content {
-            padding: 10px !important;
-          }
-        }
-        
-        @media (max-width: 360px) {
-          .sidebar-glass.sidebar-mobile {
-            width: min(90vw, 250px) !important;
-            max-width: 90vw !important;
-          }
-          .sidebar-nav-item {
-            padding: 10px 10px !important;
-            font-size: 11px !important;
-            min-height: 42px !important;
-          }
-        }
-        
-        /* Tablet responsive */
-        @media (min-width: 769px) and (max-width: 1024px) {
-          .sidebar-nav-item {
-            padding: 4px 8px !important;
-            font-size: 11px !important;
-            gap: 6px !important;
-            margin: 0px 4px !important;
-            height: 26px !important;
-          }
-          .sidebar-nav-item svg {
-            font-size: 13px !important;
-          }
-          .sidebar-content > div > div:first-child { margin-top: 8px !important; }
-        }
-        
-        /* Large screens - keep compact to fit */
-        @media (min-width: 1025px) {
-          .sidebar-nav-item {
-            padding: 2px 6px !important;
-            margin: 0 4px !important;
-            font-size: 11px !important;
-            height: 28px !important;
-            gap: 6px !important;
-          }
-           .sidebar-nav-item svg {
-            font-size: 13px !important;
-          }
-          .sidebar-content > div > div:first-child { margin-top: 8px !important; }
-        }
-        
-        /* Prevent all scrollbars */
-        * {
-          scrollbar-width: none;
-          -ms-overflow-style: none;
-        }
-        *::-webkit-scrollbar {
-          display: none;
-        }
-      `}</style>
     </div>
   );
 };

@@ -4,6 +4,7 @@ import App from './App';
 import AppErrorBoundary from './components/common/AppErrorBoundary';
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import './index.css';
+import './styles/AppUi.css';
 
 const renderFatalScreen = (message) => {
   const root = document.getElementById('root');

@@ -31,18 +31,18 @@ import {
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useLoading } from '../../App';
+import PageHeader from '../common/PageHeader';
 import {
   fetchFullStockVerificationSession,
   getSessionListDisplayQty,
 } from '../../utils/stockVerificationSessionUtils';
 
-/** Teal theme — distinct from Sample Out (red) / Sample In palettes */
+/** Outline UI — matches Label Stock List / global page kit */
 const SV = {
-  stripe: 'linear-gradient(90deg, #0f7669 0%, #14b8a6 45%, #0d9488 100%)',
-  accent: '#0d9488',
-  accentDark: '#0f7669',
+  accent: '#0f766e',
+  accentDark: '#115e59',
   accentMuted: '#ccfbf1',
-  headerBg: '#f4f4f5',
+  headerBg: '#f8fafc',
   tableBg: '#fafafa',
 };
 
@@ -93,7 +93,7 @@ const StockVerification = () => {
   const [sessions, setSessions] = useState([]);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortConfig, setSortConfig] = useState({ key: 'BranchName', direction: 'asc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'StartedOn', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [totalSessions, setTotalSessions] = useState(0);
@@ -268,22 +268,25 @@ const StockVerification = () => {
       let totalCount = 0;
 
       if (response.data) {
+        const normalizeSession = (session) => ({
+          ...session,
+          SessionNumber: session.SessionNumber ?? session.sessionNumber,
+          SessionId: session.SessionId ?? session.sessionId,
+          ScanBatchId: session.ScanBatchId ?? session.scanBatchId,
+          BatchName: session.BatchName ?? session.batchName,
+          CounterId: session.CounterId ?? session.counterId,
+          CounterName: session.CounterName ?? session.counterName,
+          BranchId: session.BranchId ?? session.branchId,
+          BranchName: session.BranchName ?? session.branchName,
+          StartedOn: session.StartedOn ?? session.startedOn,
+          EndedOn: session.EndedOn ?? session.endedOn,
+          TotalQty: session.TotalQty ?? session.totalQty,
+          MatchQty: session.MatchQty ?? session.matchQty,
+          UnmatchQty: session.UnmatchQty ?? session.unmatchQty
+        });
         const responseSessions = response.data.Sessions || response.data.sessions;
         if (Array.isArray(responseSessions)) {
-          sessionsData = responseSessions.map((session) => ({
-            ...session,
-            SessionNumber: session.SessionNumber ?? session.sessionNumber,
-            SessionId: session.SessionId ?? session.sessionId,
-            ScanBatchId: session.ScanBatchId ?? session.scanBatchId,
-            BatchName: session.BatchName ?? session.batchName,
-            BranchId: session.BranchId ?? session.branchId,
-            BranchName: session.BranchName ?? session.branchName,
-            StartedOn: session.StartedOn ?? session.startedOn,
-            EndedOn: session.EndedOn ?? session.endedOn,
-            TotalQty: session.TotalQty ?? session.totalQty,
-            MatchQty: session.MatchQty ?? session.matchQty,
-            UnmatchQty: session.UnmatchQty ?? session.unmatchQty
-          }));
+          sessionsData = responseSessions.map(normalizeSession);
           totalCount =
             response.data.TotalSessions ||
             response.data.totalSessions ||
@@ -293,12 +296,12 @@ const StockVerification = () => {
         }
         // Check if response.data is directly an array
         else if (Array.isArray(response.data)) {
-          sessionsData = response.data;
+          sessionsData = response.data.map(normalizeSession);
           totalCount = response.data.length;
         }
         // Check for nested data structure
         else if (response.data.data && Array.isArray(response.data.data)) {
-          sessionsData = response.data.data;
+          sessionsData = response.data.data.map(normalizeSession);
           totalCount = response.data.totalRecords || response.data.data.length;
         }
       }
@@ -420,7 +423,9 @@ const StockVerification = () => {
       const matchesSearch = (
         session.ScanBatchId?.toLowerCase().includes(searchLower) ||
         session.SessionNumber?.toString().includes(searchLower) ||
+        session.BatchName?.toLowerCase().includes(searchLower) ||
         session.BranchName?.toLowerCase().includes(searchLower) ||
+        session.CounterName?.toLowerCase().includes(searchLower) ||
         new Date(session.StartedOn).toLocaleDateString().includes(searchLower) ||
         new Date(session.EndedOn).toLocaleDateString().includes(searchLower)
       );
@@ -472,10 +477,12 @@ const StockVerification = () => {
       bValue = String(bValue).toLowerCase();
     }
     
-    // Handle dates
+    // Handle dates — newest first when direction is desc
     if (sortConfig.key === 'StartedOn' || sortConfig.key === 'EndedOn') {
-      aValue = new Date(aValue);
-      bValue = new Date(bValue);
+      const aTime = new Date(aValue).getTime();
+      const bTime = new Date(bValue).getTime();
+      aValue = Number.isNaN(aTime) ? 0 : aTime;
+      bValue = Number.isNaN(bTime) ? 0 : bTime;
     }
     
     if (aValue < bValue) {
@@ -644,6 +651,7 @@ const StockVerification = () => {
   };
 
   const isSmallScreen = windowWidth <= 768;
+  const isPhone = windowWidth <= 640;
   const consolidationBranchCount = (consolidationData?.Branches || []).length;
   const consolidationBranchTotalPages = Math.max(
     1,
@@ -686,47 +694,42 @@ const StockVerification = () => {
     background: '#fff',
   };
   const svTh = {
-    padding: isSmallScreen ? '6px 6px' : '7px 8px',
+    padding: '5px 7px',
     textAlign: 'left',
     fontWeight: 700,
-    fontSize: isSmallScreen ? 10 : 11,
-    color: '#18181b',
+    fontSize: 9,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    color: '#64748b',
     borderRight: '1px solid #e4e4e7',
-    borderBottom: '2px solid #d4d4d8',
     whiteSpace: 'nowrap',
-    background: SV.headerBg,
+    background: 'var(--ui-surface, #f8fafc)',
   };
   const svTd = {
-    padding: isSmallScreen ? '5px 6px' : '6px 8px',
-    color: '#404040',
-    fontSize: isSmallScreen ? 10 : 11,
-    lineHeight: 1.35,
+    padding: '5px 7px',
+    color: '#1e293b',
+    fontSize: 10,
+    lineHeight: 1.3,
     borderRight: '1px solid #ececec',
-    borderBottom: '1px solid #e5e5e5',
+    borderBottom: '1px solid #e5e7eb',
+    fontWeight: 500,
   };
-  const svPageBtn = (disabled) => ({
-    padding: '5px 11px',
-    fontSize: 12,
-    fontWeight: 600,
-    borderRadius: 8,
-    border: '1px solid #d4d4d8',
-    background: disabled ? '#f4f4f5' : '#fff',
-    color: disabled ? '#a3a3a3' : '#262626',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-  });
-  const svActionBtn = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    padding: '4px 10px',
-    border: `1px solid ${SV.accentMuted}`,
-    borderRadius: 6,
-    background: '#fff',
-    color: SV.accentDark,
-    cursor: 'pointer',
-    fontSize: 11,
-    fontWeight: 700,
+
+  const appliedFilterCount = [dateFrom, dateTo, selectedBranch].filter((v) => v != null && String(v).trim() !== '').length;
+
+  const generatePagination = () => {
+    const maxPagesToShow = isPhone ? 3 : 7;
+    if (totalPages <= maxPagesToShow) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages = [1];
+    if (currentPage > 3) pages.push('...');
+    const start = Math.max(2, currentPage - 1);
+    const end = Math.min(totalPages - 1, currentPage + 1);
+    for (let i = start; i <= end; i += 1) pages.push(i);
+    if (currentPage < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+    return pages;
   };
 
   // Export session details to Excel
@@ -749,6 +752,8 @@ const StockVerification = () => {
         ['Batch ID:', sessionDetails.ScanBatchId || 'N/A'],
         ['Client Code:', sessionDetails.ClientCode || 'N/A'],
         ['Session Number:', sessionDetails.SessionNumber || 'N/A'],
+        ['Branch Name:', sessionDetails.BranchName || 'N/A'],
+        ['Counter Name:', sessionDetails.CounterName || 'N/A'],
         ['Total Sessions:', sessionDetails.TotalSessions || 'N/A'],
         [''],
         ['Summary Statistics'],
@@ -1192,10 +1197,9 @@ const StockVerification = () => {
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(3px)' }} onClick={onClose}>
         <div style={{ background: '#fff', borderRadius: 12, maxWidth: '95vw', width: '920px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 40px rgba(0,0,0,0.18)', border: '1px solid #e4e4e7', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-          <div style={{ height: 3, background: SV.stripe }} />
-          <div style={{ padding: '12px 16px', background: `linear-gradient(135deg, ${SV.accentDark} 0%, ${SV.accent} 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3 style={{ margin: 0, fontSize: isSmallScreen ? 13 : 14, fontWeight: 800, color: '#fff' }}>{title}</h3>
-            <button type="button" onClick={onClose} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center' }} aria-label="Close"><FaTimes size={14} /></button>
+          <div className="sv-drawer-head">
+            <h3>{title}</h3>
+            <button type="button" className="sv-icon-close" onClick={onClose} aria-label="Close"><FaTimes size={14} /></button>
           </div>
           <div style={{ padding: '12px 14px', overflow: 'auto', flex: 1, minHeight: 0, background: SV.tableBg }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap' }}>
@@ -1211,8 +1215,8 @@ const StockVerification = () => {
               </div>
               <button
                 type="button"
+                className="sv-chip sv-chip--accent"
                 onClick={exportModalItems}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${SV.accentMuted}`, background: '#ecfdf5', color: SV.accentDark, borderRadius: 8, padding: '7px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
               >
                 <FaFileExcel />
                 Export
@@ -1255,13 +1259,14 @@ const StockVerification = () => {
                 </tbody>
               </table>
             </div>
-            {totalPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 }}>
-                <button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={svPageBtn(page <= 1)}>Prev</button>
-                <span style={{ fontSize: 11, color: '#404040', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Page {page} / {totalPages}</span>
-                <button type="button" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={svPageBtn(page >= totalPages)}>Next</button>
+            <div className="sv-pagination" style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+              <span className="sv-pagination-meta">{filteredItems.length.toLocaleString()} item(s)</span>
+              <div className="sv-pagination-nav">
+                <button type="button" className="sv-page-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</button>
+                <span className="sv-page-indicator">{page} / {totalPages}</span>
+                <button type="button" className="sv-page-btn" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>
@@ -1301,13 +1306,13 @@ const StockVerification = () => {
           style={{
             padding: '4px 10px',
             borderRadius: '7px',
-            background: `linear-gradient(135deg, ${color}1f 0%, ${color}12 100%)`,
+            background: '#fff',
             color,
             fontWeight: 800,
             fontSize: '11px',
             minWidth: '34px',
             textAlign: 'center',
-            border: `1px solid ${color}45`,
+            border: `1px solid ${color}55`,
             cursor: onClick ? 'pointer' : 'default',
             transition: 'transform 0.15s ease, box-shadow 0.15s ease'
           }}
@@ -1550,7 +1555,7 @@ const StockVerification = () => {
                 <h5 className="text-danger mb-3">{t('stockVerification.errorLoadingSessions')}</h5>
                 <p className="text-muted mb-4">{error}</p>
                 <button 
-                  className="btn btn-primary"
+                  className="sv-chip sv-chip--accent"
                   onClick={() => {
                     setError(null);
                     fetchSessions();
@@ -1568,298 +1573,141 @@ const StockVerification = () => {
 
   return (
     <div
+      className="stock-verification-page"
       style={{
         fontFamily: 'var(--font-family)',
-        padding: 12,
+        padding: isSmallScreen ? 8 : 12,
         fontSize: 11,
         minHeight: '100%',
-        background: '#ffffff',
+        background: '#f8fafc',
       }}
-      className="stock-verification-page"
     >
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: 12,
-          overflow: 'hidden',
-          marginBottom: 12,
-          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
-          border: '1px solid #e2e8f0',
-        }}
-      >
-        <div style={{ height: 3, background: SV.stripe }} />
-        <div style={{ padding: '12px 14px 12px' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              flexWrap: 'wrap',
-              paddingBottom: 12,
-              borderBottom: '1px solid #f1f5f9',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <div
-                style={{
-                  width: isSmallScreen ? 34 : 38,
-                  height: isSmallScreen ? 34 : 38,
-                  borderRadius: 10,
-                  background: SV.stripe,
-                  boxShadow: '0 2px 8px rgba(13, 148, 136, 0.35)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  flexShrink: 0,
-                }}
-              >
-                <FaClipboardCheck style={{ fontSize: isSmallScreen ? 15 : 17 }} />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <h1
-                  style={{
-                    margin: 0,
-                    fontSize: isSmallScreen ? '1.05rem' : '1.15rem',
-                    fontWeight: 800,
-                    color: '#0f172a',
-                    lineHeight: 1.2,
-                  }}
-                >
-                  Stock verification
-                </h1>
-                <p style={{ margin: '4px 0 0', fontSize: 10, color: '#64748b', fontWeight: 600 }}>
-                  Batch sessions and consolidated tree report
-                </p>
-              </div>
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                flexShrink: 0,
-                flexWrap: 'wrap',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  padding: 4,
-                  background: '#f4f4f5',
-                  borderRadius: 10,
-                  gap: 4,
-                  border: '1px solid #e4e4e7',
-                }}
-              >
+      <div className="sv-top">
+        <div className="sv-top-inner">
+          <PageHeader
+            title="Stock Verification"
+            subtitle={`${activeTab === 'batches' ? `${totalRecords.toLocaleString()} batch rows` : 'Consolidated tree report'}${appliedFilterCount ? ` · ${appliedFilterCount} filter${appliedFilterCount === 1 ? '' : 's'}` : ''}`}
+            barStyle={{ padding: 0, margin: 0, gap: 10, borderBottom: 'none' }}
+            actions={(
+              <div className="sv-header-actions">
+                <div className="sv-tabs" role="tablist" aria-label="Stock verification modes">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'batches'}
+                    className={`sv-tab${activeTab === 'batches' ? ' is-active' : ''}`}
+                    onClick={() => setActiveTab('batches')}
+                  >
+                    <FaLayerGroup /> Batches
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'combineReport'}
+                    className={`sv-tab${activeTab === 'combineReport' ? ' is-active' : ''}`}
+                    onClick={() => setActiveTab('combineReport')}
+                  >
+                    <FaChartBar /> Consolidation
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('batches')}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: 8,
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    fontSize: 11,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: activeTab === 'batches' ? SV.stripe : 'transparent',
-                    color: activeTab === 'batches' ? '#fff' : '#525252',
-                    boxShadow: activeTab === 'batches' ? '0 2px 6px rgba(13,148,136,0.25)' : 'none',
-                  }}
+                  className="sv-chip sv-chip--accent"
+                  onClick={() => navigate('/stock-verification-rfid-tray')}
+                  title="Open Stock Verification with RFID Tray"
                 >
-                  <FaLayerGroup style={{ fontSize: 12 }} />
-                  Batches
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('combineReport')}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: 8,
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    fontSize: 11,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: activeTab === 'combineReport' ? 'linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%)' : 'transparent',
-                    color: activeTab === 'combineReport' ? '#fff' : '#525252',
-                    boxShadow: activeTab === 'combineReport' ? '0 2px 6px rgba(124,58,237,0.22)' : 'none',
-                  }}
-                >
-                  <FaChartBar style={{ fontSize: 12 }} />
-                  Consolidation
+                  <FaBox /> RFID Tray
                 </button>
               </div>
+            )}
+          />
 
-              <button
-                type="button"
-                onClick={() => navigate('/stock-verification-rfid-tray')}
-                title="Open Stock Verification with RFID Tray"
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: 10,
-                  border: '1px solid #7dd3fc',
-                  cursor: 'pointer',
-                  fontWeight: 800,
-                  fontSize: 11,
-                  letterSpacing: '0.01em',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 55%, #0369a1 100%)',
-                  color: '#fff',
-                  boxShadow: '0 4px 14px rgba(2, 132, 199, 0.28)',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 6px 18px rgba(2, 132, 199, 0.36)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 14px rgba(2, 132, 199, 0.28)';
-                }}
-              >
-                <span
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 7,
-                    background: 'rgba(255,255,255,0.2)',
-                    border: '1px solid rgba(255,255,255,0.35)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
+          {activeTab === 'batches' ? (
+            <div className="sv-toolbar">
+              <div className="sv-search-wrap">
+                <FaSearch />
+                <input
+                  type="text"
+                  placeholder="Search branch, counter, session, batch…"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
                   }}
+                />
+              </div>
+              <div className="sv-toolbar-actions">
+                <span className="sv-count-pill">{totalRecords.toLocaleString()} rows</span>
+                <button
+                  type="button"
+                  className={`sv-chip${showFilterPanel ? ' is-active' : ''}`}
+                  onClick={() => setShowFilterPanel(true)}
                 >
-                  <FaBox style={{ fontSize: 11 }} />
-                </span>
-                RFID Tray
-                <span
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 800,
-                    padding: '2px 6px',
-                    borderRadius: 999,
-                    background: 'rgba(255,255,255,0.22)',
-                    border: '1px solid rgba(255,255,255,0.3)',
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase',
-                  }}
+                  <FaFilter /> Filter
+                  {appliedFilterCount > 0 ? <span className="sv-badge">{appliedFilterCount}</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className="sv-chip"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
                 >
-                  Scan
-                </span>
-              </button>
+                  <FaSpinner className={refreshing ? 'fa-spin' : ''} /> Refresh
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="sv-toolbar">
+              <div className="sv-search-wrap">
+                <FaCalendarAlt />
+                <input
+                  type="date"
+                  value={selectedReportDate}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    setSelectedReportDate(newDate);
+                    setConsolidationTreePage(1);
+                    if (clientCode) {
+                      fetchConsolidationReport({
+                        ClientCode: clientCode,
+                        ReportDate: newDate,
+                      });
+                    }
+                  }}
+                  max={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+              <div className="sv-toolbar-actions">
+                <button
+                  type="button"
+                  className="sv-chip"
+                  onClick={() => {
+                    setConsolidationTreePage(1);
+                    fetchConsolidationReport();
+                  }}
+                  disabled={consolidationLoading}
+                >
+                  <FaSpinner className={consolidationLoading ? 'fa-spin' : ''} /> Refresh
+                </button>
+                <button
+                  type="button"
+                  className="sv-chip sv-chip--accent"
+                  onClick={() => {
+                    setSelectedExportBranchId('');
+                    setShowExportBranchModal(true);
+                  }}
+                >
+                  <FaFileExcel /> Export
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Batches Tab */}
       {activeTab === 'batches' && (
         <>
-      <div
-        style={{
-          marginTop: 12,
-          padding: '10px 12px',
-          borderRadius: 10,
-          background: '#ffffff',
-          border: '1px solid #e5e5e5',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'flex-end',
-            justifyContent: 'space-between',
-            gap: 10,
-            rowGap: 10,
-          }}
-        >
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, flex: '1 1 auto' }}>
-            <span style={{ fontSize: 10, color: '#525252', fontWeight: 700, padding: '4px 8px', borderRadius: 6, background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
-              <FaCheckCircle style={{ color: SV.accent, marginRight: 4, verticalAlign: 'middle' }} />
-              {totalRecords} rows · API batches {totalSessions}
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowFilterPanel(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                height: 30,
-                padding: '0 12px',
-                fontSize: 11,
-                fontWeight: 700,
-                borderRadius: 8,
-                border: `1px solid ${showFilterPanel ? SV.accent : '#d4d4d8'}`,
-                background: showFilterPanel ? SV.accentMuted : '#fafafa',
-                color: SV.accentDark,
-                cursor: 'pointer',
-              }}
-            >
-              <FaFilter style={{ fontSize: 11 }} /> Filters
-            </button>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                height: 30,
-                padding: '0 12px',
-                fontSize: 11,
-                fontWeight: 700,
-                borderRadius: 8,
-                border: '1px solid #d4d4d8',
-                background: '#fafafa',
-                color: '#262626',
-                cursor: refreshing ? 'not-allowed' : 'pointer',
-                opacity: refreshing ? 0.55 : 1,
-              }}
-            >
-              <FaSpinner className={refreshing ? 'fa-spin' : ''} style={{ fontSize: 11 }} /> Refresh
-            </button>
-          </div>
-          <div style={{ flex: isSmallScreen ? '1 1 100%' : '0 1 280px', minWidth: isSmallScreen ? '100%' : 200, maxWidth: 380 }}>
-            <label style={{ ...svLabelStyle, textAlign: isSmallScreen ? 'left' : 'right' }}>Search</label>
-            <div style={{ position: 'relative' }}>
-              <FaSearch
-                style={{
-                  position: 'absolute',
-                  left: 10,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#94a3b8',
-                  fontSize: 11,
-                  pointerEvents: 'none',
-                }}
-              />
-              <input
-                type="text"
-                placeholder="Branch, session, batch…"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
-                style={{ ...svInputBase, width: '100%', paddingLeft: 30 }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Filter Slider (Right-Side) */}
       {showFilterPanel && (
         <>
@@ -1894,42 +1742,14 @@ const StockVerification = () => {
             }}
           >
             {/* Filter Header */}
-            <div style={{
-              background: `linear-gradient(135deg, ${SV.accentDark} 0%, ${SV.accent} 100%)`,
-              padding: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <FaFilter style={{ color: '#ffffff', fontSize: '18px' }} />
-                <h3 style={{
-                  margin: 0,
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: '#ffffff'
-                }}>Filter Options</h3>
+            <div className="sv-drawer-head">
+              <div>
+                <h3>Filters</h3>
+                <p>Branch and date range</p>
               </div>
-            <button 
-              onClick={() => setShowFilterPanel(false)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
-                onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
-              >
-                <FaTimesCircle style={{ color: '#ffffff', fontSize: '16px' }} />
-              </button>
+            <button type="button" className="sv-icon-close" onClick={() => setShowFilterPanel(false)} aria-label="Close filters">
+                <FaTimesCircle />
+            </button>
           </div>
 
             {/* Filter Content */}
@@ -1991,7 +1811,7 @@ const StockVerification = () => {
                     transition: 'all 0.2s',
                     boxSizing: 'border-box'
                   }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onFocus={(e) => { e.target.style.borderColor = SV.accent; }}
                   onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
@@ -2018,7 +1838,7 @@ const StockVerification = () => {
                     transition: 'all 0.2s',
                     boxSizing: 'border-box'
                   }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                  onFocus={(e) => { e.target.style.borderColor = SV.accent; }}
                   onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                 />
               </div>
@@ -2044,54 +1864,20 @@ const StockVerification = () => {
               gap: '12px'
             }}>
                   <button 
+                    type="button"
+                    className="sv-chip"
                     onClick={handleResetDateFilters}
-                style={{
-                  flex: 1,
-                  padding: '10px 16px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#f8fafc';
-                  e.target.style.borderColor = '#cbd5e1';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.borderColor = '#e2e8f0';
-                }}
+                    style={{ flex: 1, height: 34, justifyContent: 'center' }}
                   >
                     Reset
                   </button>
                   <button 
+                    type="button"
+                    className="sv-chip sv-chip--accent"
                     onClick={handleApplyDateFilters}
-                style={{
-                  flex: 1,
-                  padding: '10px 16px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: `1px solid ${SV.accent}`,
-                  background: SV.accent,
-                  color: '#ffffff',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = SV.accentDark;
-                  e.target.style.borderColor = SV.accentDark;
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = SV.accent;
-                  e.target.style.borderColor = SV.accent;
-                }}
-              >
-                Apply Filters
+                    style={{ flex: 1, height: 34, justifyContent: 'center' }}
+                  >
+                    Apply
                   </button>
                 </div>
               </div>
@@ -2112,27 +1898,46 @@ const StockVerification = () => {
       >
         <div style={{ overflowX: 'auto', width: '100%', background: SV.tableBg }}>
           <table
+            className="app-data-table"
             style={{
               width: '100%',
               borderCollapse: 'separate',
               borderSpacing: 0,
-              fontSize: isSmallScreen ? 10 : 11,
-              minWidth: 1100,
+              minWidth: 1240,
               tableLayout: 'fixed',
             }}
           >
             <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
               <tr style={{ background: SV.headerBg, boxShadow: '0 1px 0 #e4e4e7' }}>
+                <th style={svTh}>Batch ID</th>
                 <th
                   onClick={() => handleSort('BranchName')}
                   style={{ ...svTh, cursor: 'pointer', userSelect: 'none' }}
                 >
-                  Branch
+                  Branch Name
                   {renderSortIcon('BranchName')}
                 </th>
-                <th style={svTh}>Batch ID</th>
-                <th style={svTh}>Started</th>
-                <th style={svTh}>Ended</th>
+                <th
+                  onClick={() => handleSort('CounterName')}
+                  style={{ ...svTh, cursor: 'pointer', userSelect: 'none' }}
+                >
+                  Counter Name
+                  {renderSortIcon('CounterName')}
+                </th>
+                <th
+                  onClick={() => handleSort('StartedOn')}
+                  style={{ ...svTh, cursor: 'pointer', userSelect: 'none' }}
+                >
+                  Started
+                  {renderSortIcon('StartedOn')}
+                </th>
+                <th
+                  onClick={() => handleSort('EndedOn')}
+                  style={{ ...svTh, cursor: 'pointer', userSelect: 'none' }}
+                >
+                  Ended
+                  {renderSortIcon('EndedOn')}
+                </th>
                 <th style={{ ...svTh, textAlign: 'center' }}>Total</th>
                 <th style={{ ...svTh, textAlign: 'center' }}>Matched</th>
                 <th style={{ ...svTh, textAlign: 'center' }}>Unmatched</th>
@@ -2155,7 +1960,7 @@ const StockVerification = () => {
               <tbody>
                     {currentSessions.length === 0 ? (
                       <tr>
-                  <td colSpan={8} style={{ ...svTd, padding: 36, textAlign: 'center', color: '#737373', borderRight: 'none' }}>
+                  <td colSpan={9} style={{ ...svTd, padding: 36, textAlign: 'center', color: '#737373', borderRight: 'none' }}>
                     No sessions found
                   </td>
                       </tr>
@@ -2176,10 +1981,11 @@ const StockVerification = () => {
                         e.currentTarget.style.background = globalIndex % 2 === 0 ? '#ffffff' : SV.tableBg;
                       }}
                     >
-                      <td style={{ ...svTd, fontWeight: 700, color: '#171717' }}>{session.BranchName || 'N/A'}</td>
                       <td style={{ ...svTd, fontFamily: 'ui-monospace, monospace', color: '#262626' }}>
                         {session.ScanBatchId ? `${session.ScanBatchId.substring(0, 12)}…` : 'N/A'}
                       </td>
+                      <td style={{ ...svTd, fontWeight: 700, color: '#171717' }}>{session.BranchName || 'N/A'}</td>
+                      <td style={{ ...svTd, fontWeight: 600, color: '#262626' }}>{session.CounterName || 'N/A'}</td>
                       <td style={svTd}>{session.StartedOn ? formatDate(session.StartedOn) : 'N/A'}</td>
                       <td style={svTd}>{session.EndedOn ? formatDate(session.EndedOn) : 'N/A'}</td>
                       <td style={{ ...svTd, textAlign: 'center' }}>
@@ -2190,7 +1996,7 @@ const StockVerification = () => {
                             fontWeight: 700,
                             borderRadius: 6,
                             border: `1px solid ${SV.accent}`,
-                            background: SV.accentMuted,
+                            background: '#fff',
                             color: SV.accentDark,
                             fontVariantNumeric: 'tabular-nums',
                           }}
@@ -2206,7 +2012,7 @@ const StockVerification = () => {
                             fontWeight: 700,
                             borderRadius: 6,
                             border: '1px solid #86efac',
-                            background: '#f0fdf4',
+                            background: '#fff',
                             color: '#166534',
                             fontVariantNumeric: 'tabular-nums',
                           }}
@@ -2222,7 +2028,7 @@ const StockVerification = () => {
                             fontWeight: 700,
                             borderRadius: 6,
                             border: '1px solid #fca5a5',
-                            background: '#fef2f2',
+                            background: '#fff',
                             color: '#b91c1c',
                             fontVariantNumeric: 'tabular-nums',
                           }}
@@ -2245,11 +2051,11 @@ const StockVerification = () => {
                       >
                         <button
                           type="button"
+                          className="ui-icon-btn"
                           onClick={() => handleViewSession(session)}
-                          style={svActionBtn}
                           title="View session"
                         >
-                          <FaEye style={{ fontSize: 11 }} /> View
+                          <FaEye />
                         </button>
                       </td>
                     </tr>
@@ -2261,227 +2067,88 @@ const StockVerification = () => {
               </div>
 
             {/* Pagination */}
-          {totalPages > 1 && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '16px 20px',
-            borderTop: '1px solid #e5e7eb',
-            background: '#ffffff',
-            borderRadius: '0 0 12px 12px',
-            flexWrap: 'wrap',
-            gap: '12px'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              flexWrap: 'wrap',
-              fontSize: '12px',
-              color: '#64748b'
-            }}>
+          <div className="sv-pagination">
+            <div className="sv-pagination-meta">
               <span>
-                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalRecords)} of {totalRecords} entries
+                {totalRecords.toLocaleString()} record{totalRecords === 1 ? '' : 's'}
+                {totalRecords > 0
+                  ? ` · ${((currentPage - 1) * itemsPerPage) + 1}–${Math.min(currentPage * itemsPerPage, totalRecords)}`
+                  : ''}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>Show:</span>
+              <label className="sv-pagination-size">
+                <span>Per page</span>
                 <select
                   value={itemsPerPage}
                   onChange={(e) => {
                     setItemsPerPage(Number(e.target.value));
                     setCurrentPage(1);
                   }}
-                  style={{
-                    padding: '6px 10px',
-                    fontSize: '12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    outline: 'none',
-                    cursor: 'pointer'
-                  }}
                 >
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
+                  {[15, 25, 50, 100, 200].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
                 </select>
-                <span>per page</span>
-              </div>
+              </label>
             </div>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              flexWrap: 'wrap'
-            }}>
-                    <button 
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                      disabled={currentPage === 1}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: currentPage === 1 ? '#f1f5f9' : '#ffffff',
-                  color: currentPage === 1 ? '#94a3b8' : '#475569',
-                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (currentPage !== 1) {
-                    e.target.style.background = '#f8fafc';
-                    e.target.style.borderColor = '#cbd5e1';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (currentPage !== 1) {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.borderColor = '#e2e8f0';
-                  }
-                }}
-                    >
-                      Previous
-                    </button>
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let page;
-                if (totalPages <= 5) {
-                  page = i + 1;
-                } else if (currentPage <= 3) {
-                  page = i + 1;
-                } else if (currentPage >= totalPages - 2) {
-                  page = totalPages - 4 + i;
-                } else {
-                  page = currentPage - 2 + i;
-                }
-                return (
-                    <button 
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: currentPage === page ? SV.accent : '#ffffff',
-                      color: currentPage === page ? '#ffffff' : '#475569',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (currentPage !== page) {
-                        e.target.style.background = '#f8fafc';
-                        e.target.style.borderColor = '#cbd5e1';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (currentPage !== page) {
-                        e.target.style.background = '#ffffff';
-                        e.target.style.borderColor = '#e2e8f0';
-                      }
-                    }}
-                  >
-                    {page}
-                  </button>
-                );
-              })}
+            <div className="sv-pagination-nav">
               <button
-                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                      disabled={currentPage === totalPages}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: currentPage === totalPages ? '#f1f5f9' : '#ffffff',
-                  color: currentPage === totalPages ? '#94a3b8' : '#475569',
-                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (currentPage !== totalPages) {
-                    e.target.style.background = '#f8fafc';
-                    e.target.style.borderColor = '#cbd5e1';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (currentPage !== totalPages) {
-                    e.target.style.background = '#ffffff';
-                    e.target.style.borderColor = '#e2e8f0';
-                  }
-                }}
+                type="button"
+                className="sv-page-btn"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                Prev
+              </button>
+              {isPhone ? (
+                <span className="sv-page-indicator">{currentPage} / {totalPages}</span>
+              ) : (
+                generatePagination().map((page, index) =>
+                  page === '...' ? (
+                    <span key={`ellipsis-${index}`} className="sv-page-ellipsis">…</span>
+                  ) : (
+                    <button
+                      type="button"
+                      key={page}
+                      className={`sv-page-num${currentPage === page ? ' is-current' : ''}`}
+                      onClick={() => setCurrentPage(page)}
                     >
-                      Next
+                      {page}
                     </button>
-              {/* Go to Page */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                marginLeft: '8px',
-                paddingLeft: '8px',
-                borderLeft: '1px solid #e2e8f0'
-              }}>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>Go to:</span>
-                <input
-                  type="text"
-                  value={pageInput}
-                  onChange={handlePageInputChange}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handlePageInputSubmit(e);
-                    }
-                  }}
-                  placeholder="Page"
-                  style={{
-                    width: '60px',
-                    padding: '6px 8px',
-                    fontSize: '12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    outline: 'none',
-                    textAlign: 'center',
-                    boxSizing: 'border-box'
-                  }}
-                  onFocus={(e) => { e.target.style.borderColor = SV.accent; }}
-                  onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; }}
-                />
-                <button
-                  onClick={handlePageInputSubmit}
-                  disabled={!pageInput || pageInput === ''}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    border: `1px solid ${SV.accent}`,
-                    background: (!pageInput || pageInput === '') ? '#f1f5f9' : '#ffffff',
-                    color: (!pageInput || pageInput === '') ? '#94a3b8' : SV.accent,
-                    cursor: (!pageInput || pageInput === '') ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (pageInput && pageInput !== '') {
-                      e.target.style.background = SV.accent;
-                      e.target.style.color = '#ffffff';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (pageInput && pageInput !== '') {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.color = SV.accent;
-                    }
-                  }}
-                >
-                  Go
-                </button>
+                  )
+                )
+              )}
+              <button
+                type="button"
+                className="sv-page-btn"
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </button>
+              {!isPhone ? (
+                <div className="sv-page-goto">
+                  <span>Go to</span>
+                  <input
+                    type="text"
+                    value={pageInput}
+                    onChange={handlePageInputChange}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handlePageInputSubmit(e);
+                    }}
+                    placeholder="#"
+                  />
+                  <button
+                    type="button"
+                    className="sv-page-btn"
+                    onClick={handlePageInputSubmit}
+                    disabled={!pageInput}
+                  >
+                    Go
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
-        </div>
-        )}
         </div>
 
       {/* Session Details Slider (Right-Side) */}
@@ -2521,49 +2188,21 @@ const StockVerification = () => {
             }}
           >
             {/* Slider Header */}
-            <div style={{
-              background: `linear-gradient(135deg, ${SV.accentDark} 0%, ${SV.accent} 100%)`,
-              padding: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              borderBottom: '1px solid #e5e7eb',
-              position: 'sticky',
-              top: 0,
-              zIndex: 10
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <FaClipboardCheck style={{ color: '#ffffff', fontSize: '18px' }} />
-                <h3 style={{
-                  margin: 0,
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: '#ffffff'
-                }}>
-                  {sessionDetails ? `Session Details - Session ${sessionDetails.SessionNumber}` : 'Session Details'}
-                </h3>
+            <div className="sv-drawer-head">
+              <div>
+                <h3>{sessionDetails ? `Session ${sessionDetails.SessionNumber}` : 'Session details'}</h3>
+                <p>Matched and unmatched items</p>
               </div>
-                <button 
+                <button
+                    type="button"
+                    className="sv-icon-close"
                     onClick={() => {
                   setShowDetailsSlider(false);
                       setSessionDetails(null);
                     }}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
-                onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
-              >
-                <FaTimesCircle style={{ color: '#ffffff', fontSize: '16px' }} />
+                    aria-label="Close session details"
+                >
+                <FaTimesCircle />
               </button>
               </div>
               
@@ -2637,6 +2276,32 @@ const StockVerification = () => {
                           {sessionDetails.SessionNumber || 'N/A'}
                         </div>
                       </div>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Branch Name</div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          background: '#ffffff',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #e5e7eb'
+                        }}>
+                          {sessionDetails.BranchName || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '4px', fontWeight: 600 }}>Counter Name</div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#1e293b',
+                          background: '#ffffff',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #e5e7eb'
+                        }}>
+                          {sessionDetails.CounterName || 'N/A'}
+                        </div>
+                      </div>
                     </div>
                     <div style={{
                       display: 'grid',
@@ -2652,7 +2317,7 @@ const StockVerification = () => {
                           fontWeight: 700,
                           borderRadius: '8px',
                           border: `1px solid ${SV.accent}`,
-                          background: SV.accentMuted,
+                          background: '#fff',
                           color: SV.accentDark,
                           display: 'inline-block'
                         }}>{sessionDetails.Totals?.TotalQty || 0}</span>
@@ -2664,9 +2329,9 @@ const StockVerification = () => {
                           fontSize: '12px',
                           fontWeight: 700,
                           borderRadius: '8px',
-                          border: '1px solid #10b981',
-                          background: '#f0fdf4',
-                          color: '#10b981',
+                          border: '1px solid #86efac',
+                          background: '#fff',
+                          color: '#166534',
                           display: 'inline-block'
                         }}>{sessionDetails.Totals?.TotalMatchQty || 0}</span>
                       </div>
@@ -2677,9 +2342,9 @@ const StockVerification = () => {
                           fontSize: '12px',
                           fontWeight: 700,
                           borderRadius: '8px',
-                          border: '1px solid #ef4444',
-                          background: '#fef2f2',
-                          color: '#ef4444',
+                          border: '1px solid #fca5a5',
+                          background: '#fff',
+                          color: '#b91c1c',
                           display: 'inline-block'
                         }}>{sessionDetails.Totals?.TotalUnmatchQty || 0}</span>
                       </div>
@@ -2728,8 +2393,8 @@ const StockVerification = () => {
                       flexDirection: 'column'
                     }}>
                       <div style={{
-                        padding: '12px 16px',
-                        background: '#f0fdf4',
+                        padding: '10px 12px',
+                        background: '#fff',
                         borderBottom: '1px solid #e5e7eb',
                         display: 'flex',
                         alignItems: 'center',
@@ -2738,16 +2403,9 @@ const StockVerification = () => {
                         gap: '8px'
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <FaCheckCircle style={{ color: '#10b981', fontSize: '14px' }} />
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Matched Items</span>
-                        <span style={{
-                          fontSize: '10px',
-                            color: '#065f46',
-                          background: '#d1fae5',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                            fontWeight: 600
-                          }}>{getSessionListDisplayQty(filteredMatchedList)} items</span>
+                        <FaCheckCircle style={{ color: '#0f766e', fontSize: '13px' }} />
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>Matched Items</span>
+                        <span className="sv-badge">{getSessionListDisplayQty(filteredMatchedList)}</span>
                           </div>
                         <div style={{ position: 'relative', width: '150px' }}>
                           <FaSearch style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
@@ -2877,8 +2535,8 @@ const StockVerification = () => {
                       flexDirection: 'column'
                     }}>
                       <div style={{
-                        padding: '12px 16px',
-                        background: '#fef2f2',
+                        padding: '10px 12px',
+                        background: '#fff',
                         borderBottom: '1px solid #e5e7eb',
                         display: 'flex',
                         alignItems: 'center',
@@ -2887,16 +2545,9 @@ const StockVerification = () => {
                         gap: '8px'
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <FaTimesCircle style={{ color: '#ef4444', fontSize: '14px' }} />
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Unmatched Items</span>
-                        <span style={{
-                          fontSize: '10px',
-                            color: '#7f1d1d',
-                          background: '#fee2e2',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                            fontWeight: 600
-                          }}>{getSessionListDisplayQty(filteredUnmatchedList)} items</span>
+                        <FaTimesCircle style={{ color: '#b91c1c', fontSize: '13px' }} />
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>Unmatched Items</span>
+                        <span className="sv-badge sv-badge--warn">{getSessionListDisplayQty(filteredUnmatchedList)}</span>
                           </div>
                         <div style={{ position: 'relative', width: '150px' }}>
                           <FaSearch style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '12px' }} />
@@ -3047,57 +2698,20 @@ const StockVerification = () => {
               zIndex: 10
             }}>
                     <button
+                    type="button"
+                    className="sv-chip"
                     onClick={() => {
                   setShowDetailsSlider(false);
                       setSessionDetails(null);
                     }}
-                style={{
-                  padding: '10px 20px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#f8fafc';
-                  e.target.style.borderColor = '#cbd5e1';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.borderColor = '#e2e8f0';
-                }}
               >
                 Close
                     </button>
                   {sessionDetails && (
                     <button 
+                      type="button"
+                      className="sv-chip sv-chip--accent"
                       onClick={exportSessionDetails}
-                  style={{
-                    padding: '10px 20px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: `1px solid ${SV.accent}`,
-                    background: SV.accent,
-                    color: '#ffffff',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = SV.accentDark;
-                    e.target.style.borderColor = SV.accentDark;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = SV.accent;
-                    e.target.style.borderColor = SV.accent;
-                  }}
                 >
                   <FaFileExcel /> Export
                     </button>
@@ -3112,160 +2726,6 @@ const StockVerification = () => {
       {/* Combine Report of Stock Verification Tab */}
       {activeTab === 'combineReport' && (
         <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
-          {/* Unified Header & Action Section */}
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            padding: '24px',
-            marginBottom: '24px',
-            boxShadow: 'none',
-            border: '1px solid #f1f5f9'
-          }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '16px'
-            }}>
-              <div style={{ flex: 1 }}>
-                <h2 style={{
-                  margin: 0,
-                  fontSize: isSmallScreen ? '1rem' : '1.1rem',
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  lineHeight: '1.2'
-                }}>Consolidated Stock Report</h2>
-                <div style={{
-                  fontSize: '11px',
-                  color: '#64748b',
-                  marginTop: '4px',
-                  fontWeight: 600
-                }}>
-                  Comprehensive view of stock verification across all branches
-                </div>
-              </div>
-
-              {/* Date Selector */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <FaCalendarAlt style={{ color: '#64748b', fontSize: '14px' }} />
-                <input
-                  type="date"
-                  value={selectedReportDate}
-                  onChange={(e) => {
-                    const newDate = e.target.value;
-                    setSelectedReportDate(newDate);
-                    setConsolidationTreePage(1);
-                    if (clientCode) {
-                      fetchConsolidationReport({
-                        ClientCode: clientCode,
-                        ReportDate: newDate,
-                      });
-                    }
-                  }}
-                  max={new Date().toISOString().split('T')[0]} // Can't select future dates
-                  style={{
-                    padding: '8px 12px',
-                    fontSize: '13px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    transition: 'all 0.2s',
-                    backgroundColor: '#ffffff',
-                    color: '#1e293b',
-                    fontWeight: 500,
-                    cursor: 'pointer'
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#3b82f6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = '#e2e8f0';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  onClick={() => {
-                    setConsolidationTreePage(1);
-                    fetchConsolidationReport();
-                  }}
-                  disabled={consolidationLoading}
-                  style={{
-                    height: 34,
-                    padding: '0 12px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: '1px solid #d4d4d8',
-                    background: '#fafafa',
-                    color: '#262626',
-                    cursor: consolidationLoading ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    transition: 'all 0.2s ease',
-                    opacity: consolidationLoading ? 0.7 : 1,
-                    boxSizing: 'border-box'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!consolidationLoading) {
-                      e.target.style.background = '#f8fafc';
-                      e.target.style.borderColor = '#cbd5e1';
-                      e.target.style.color = '#1e293b';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!consolidationLoading) {
-                      e.target.style.background = '#ffffff';
-                      e.target.style.borderColor = '#e2e8f0';
-                      e.target.style.color = '#475569';
-                    }
-                  }}
-                >
-                  <FaSpinner className={consolidationLoading ? 'fa-spin' : ''} /> 
-                  {consolidationLoading ? 'Refreshing...' : 'Refresh'}
-                </button>
-                <button 
-                  onClick={() => {
-                    setSelectedExportBranchId('');
-                    setShowExportBranchModal(true);
-                  }}
-                  style={{
-                    height: 34,
-                    padding: '0 14px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: 'none',
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    color: '#ffffff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    transition: 'all 0.2s ease',
-                    boxShadow: 'none'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.transform = 'translateY(-1px)';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.transform = 'translateY(0)';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                >
-                  <FaFileExcel /> Export
-                </button>
-              </div>
-            </div>
-          </div>
-
           {showExportBranchModal && (
             <div
               style={{
@@ -3292,7 +2752,7 @@ const StockVerification = () => {
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div style={{ height: 3, background: SV.stripe }} />
+                <div style={{ height: 1, background: '#e5e7eb' }} />
                 <div style={{ padding: 20 }}>
                 <h3 style={{ margin: '0 0 8px 0', fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Export branch report</h3>
                 <p style={{ margin: '0 0 14px 0', color: '#64748b', fontSize: 11 }}>
@@ -3348,8 +2808,9 @@ const StockVerification = () => {
                       padding: '9px 14px',
                       border: 'none',
                       borderRadius: 10,
-                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                      color: '#fff',
+                      background: '#fff',
+                      color: SV.accent,
+                      border: `1px solid ${SV.accent}`,
                       fontWeight: 700,
                       cursor: 'pointer',
                     }}
@@ -3398,22 +2859,12 @@ const StockVerification = () => {
                 <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '16px', fontWeight: 600 }}>Unable to Load Data</h3>
                 <p style={{ margin: '0 0 24px 0', color: '#64748b', fontSize: '13px' }}>{consolidationError}</p>
                 <button 
+                  type="button"
+                  className="sv-chip sv-chip--accent"
                   onClick={fetchConsolidationReport}
-                  style={{
-                    padding: '10px 24px',
-                    background: SV.accent,
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    fontSize: '13px',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => { e.target.style.background = SV.accentDark; }}
-                  onMouseLeave={(e) => { e.target.style.background = SV.accent; }}
+                  style={{ height: 34, padding: '0 16px' }}
                 >
-                  Retry Request
+                  Retry
                 </button>
               </div>
             ) : consolidationData && (consolidationData.Branches || consolidationData.Totals) ? (
@@ -3434,7 +2885,7 @@ const StockVerification = () => {
                           qty: consolidationData.Totals.TotalInventoryQty?.toLocaleString() ?? 0,
                           g: resolveConsolidationTotals(consolidationData.Totals).totalInventoryGrossWeight,
                           n: resolveConsolidationTotals(consolidationData.Totals).totalInventoryNetWeight,
-                          bg: '#ecfdf5',
+                          bg: '#fff',
                           bd: '#99f6e4',
                           fg: '#0f766e',
                           icon: <FaBoxes />,
@@ -3445,7 +2896,7 @@ const StockVerification = () => {
                           qty: consolidationData.Totals.MatchedQty?.toLocaleString() ?? 0,
                           g: resolveConsolidationTotals(consolidationData.Totals).totalMatchGrossWeight,
                           n: resolveConsolidationTotals(consolidationData.Totals).totalMatchNetWeight,
-                          bg: '#f0fdfa',
+                          bg: '#fff',
                           bd: '#99f6e4',
                           fg: '#0d9488',
                           icon: <FaCheckCircle />,
@@ -3456,9 +2907,9 @@ const StockVerification = () => {
                           qty: consolidationData.Totals.UnmatchQty?.toLocaleString() ?? 0,
                           g: resolveConsolidationTotals(consolidationData.Totals).totalUnmatchGrossWeight,
                           n: resolveConsolidationTotals(consolidationData.Totals).totalUnmatchNetWeight,
-                          bg: '#fff7ed',
-                          bd: '#fdba74',
-                          fg: '#c2410c',
+                          bg: '#fff',
+                          bd: '#fecaca',
+                          fg: '#b91c1c',
                           icon: <FaTimesCircle />,
                         },
                       ].map((s) => (
@@ -3498,29 +2949,19 @@ const StockVerification = () => {
                 {/* Consolidated Tree View (branch-level pagination) */}
                 <ConsolidatedTreeView branches={paginatedConsolidationBranches} />
                 {consolidationBranchCount > 0 && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '12px 16px',
-                      borderTop: '1px solid #e5e5e5',
-                      flexWrap: 'wrap',
-                      gap: 10,
-                      background: SV.tableBg,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
-                        {consolidationBranchCount} branch{consolidationBranchCount !== 1 ? 'es' : ''} · {consolidationItemsPerPage} rows/page
-                        {` · ${(consolidationTreePage - 1) * consolidationItemsPerPage + 1}–${Math.min(consolidationTreePage * consolidationItemsPerPage, consolidationBranchCount)} shown`}
+                  <div className="sv-pagination">
+                    <div className="sv-pagination-meta">
+                      <span>
+                        {consolidationBranchCount} branch{consolidationBranchCount !== 1 ? 'es' : ''}
+                        {consolidationBranchCount > 0
+                          ? ` · ${(consolidationTreePage - 1) * consolidationItemsPerPage + 1}–${Math.min(consolidationTreePage * consolidationItemsPerPage, consolidationBranchCount)}`
+                          : ''}
                       </span>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#404040' }}>
-                        Per page
+                      <label className="sv-pagination-size">
+                        <span>Per page</span>
                         <select
                           value={consolidationItemsPerPage}
                           onChange={(e) => setConsolidationItemsPerPage(Number(e.target.value))}
-                          style={{ ...svInputBase, width: 68, height: 28, padding: '0 6px' }}
                         >
                           {[10, 15, 25, 50].map((n) => (
                             <option key={n} value={n}>{n}</option>
@@ -3528,23 +2969,21 @@ const StockVerification = () => {
                         </select>
                       </label>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="sv-pagination-nav">
                       <button
                         type="button"
+                        className="sv-page-btn"
                         onClick={() => setConsolidationTreePage((p) => Math.max(1, p - 1))}
                         disabled={consolidationTreePage === 1}
-                        style={svPageBtn(consolidationTreePage === 1)}
                       >
                         Prev
                       </button>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#404040', fontVariantNumeric: 'tabular-nums' }}>
-                        Page {consolidationTreePage} / {consolidationBranchTotalPages}
-                      </span>
+                      <span className="sv-page-indicator">{consolidationTreePage} / {consolidationBranchTotalPages}</span>
                       <button
                         type="button"
+                        className="sv-page-btn"
                         onClick={() => setConsolidationTreePage((p) => Math.min(consolidationBranchTotalPages, p + 1))}
                         disabled={consolidationTreePage === consolidationBranchTotalPages}
-                        style={svPageBtn(consolidationTreePage === consolidationBranchTotalPages)}
                       >
                         Next
                       </button>
@@ -3572,44 +3011,277 @@ const StockVerification = () => {
         </div>
       )}
 
-        </div>
-      </div>
-
       <style>{`
-        * {
-          scrollbar-width: none;
-          -ms-overflow-style: none;
+        .stock-verification-page { box-sizing: border-box; }
+        .stock-verification-page * { box-sizing: border-box; }
+        .sv-top {
+          background: #fff;
+          border: var(--page-header-border, 1px solid #e2e8f0);
+          border-radius: var(--page-header-radius, 12px);
+          box-shadow: var(--page-header-shadow, 0 2px 8px rgba(15, 23, 42, 0.06));
+          margin-bottom: 12px;
+          overflow: visible;
+          position: sticky;
+          top: 0;
+          z-index: 100;
         }
-        *::-webkit-scrollbar {
-          display: none;
+        .sv-top-inner { padding: 12px 14px 10px; }
+        .sv-top .app-page-header { width: 100%; align-items: center; }
+        .sv-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
         }
-        body, html {
-          overflow-x: hidden;
-          box-sizing: border-box;
+        .sv-tabs {
+          display: inline-flex;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          overflow: hidden;
+          background: #fff;
         }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
+        .sv-tab {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 28px;
+          padding: 0 11px;
+          border: none;
+          border-right: 1px solid #e2e8f0;
+          background: #fff;
+          color: #334155;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
         }
-        @keyframes slideInRight {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
+        .sv-tab:last-child { border-right: none; }
+        .sv-tab.is-active { background: #f0fdfa; color: #0f766e; }
+        .sv-chip {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          height: 28px;
+          padding: 0 11px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          background: #fff;
+          color: #334155;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
         }
+        .sv-chip svg { width: 11px; height: 11px; font-size: 11px; }
+        .sv-chip:hover { background: #f8fafc; }
+        .sv-chip.is-active, .sv-chip--accent { border-color: #99f6e4; color: #0f766e; }
+        .sv-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+        .sv-badge {
+          min-width: 16px;
+          height: 16px;
+          padding: 0 5px;
+          border-radius: 999px;
+          background: #fff;
+          border: 1px solid #99f6e4;
+          color: #0f766e;
+          font-size: 10px;
+          font-weight: 700;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .sv-badge--warn { border-color: #fecaca; color: #b91c1c; }
+        .sv-toolbar {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid #e5e7eb;
+        }
+        .sv-search-wrap {
+          position: relative;
+          flex: 1 1 220px;
+          min-width: 0;
+        }
+        .sv-search-wrap svg {
+          position: absolute;
+          left: 9px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #94a3b8;
+          font-size: 10px;
+          pointer-events: none;
+        }
+        .sv-search-wrap input {
+          width: 100%;
+          height: 28px;
+          padding: 0 10px 0 28px;
+          font-size: 11px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          outline: none;
+          background: #fff;
+          color: #0f172a;
+        }
+        .sv-search-wrap input:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12); }
+        .sv-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+        .sv-count-pill {
+          font-size: 11px;
+          font-weight: 600;
+          color: #64748b;
+        }
+        .sv-pagination {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          padding: 10px 12px;
+          border-top: 1px solid #e5e7eb;
+          background: #fafafa;
+        }
+        .sv-pagination-meta {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #525252;
+          min-width: 0;
+        }
+        .sv-pagination-size {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: #64748b;
+        }
+        .sv-pagination-size select {
+          height: 32px;
+          padding: 0 8px;
+          font-size: 11px;
+          font-weight: 600;
+          border: 1px solid #e5e5e5;
+          border-radius: 8px;
+          background: #fff;
+          color: #404040;
+        }
+        .sv-pagination-nav {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 6px;
+          min-width: 0;
+        }
+        .sv-page-btn,
+        .sv-page-num {
+          height: 32px;
+          min-width: 36px;
+          padding: 0 10px;
+          font-size: 11px;
+          font-weight: 600;
+          border-radius: 8px;
+          border: 1px solid #e5e5e5;
+          background: #fff;
+          color: #525252;
+          cursor: pointer;
+        }
+        .sv-page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .sv-page-num.is-current {
+          background: #fff;
+          border-color: #0f766e;
+          color: #0f766e;
+        }
+        .sv-page-ellipsis { padding: 0 4px; color: #94a3b8; font-weight: 600; }
+        .sv-page-indicator {
+          font-size: 12px;
+          font-weight: 700;
+          color: #0f172a;
+          font-variant-numeric: tabular-nums;
+          min-width: 52px;
+          text-align: center;
+        }
+        .sv-page-goto {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: 4px;
+          color: #64748b;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        .sv-page-goto input {
+          width: 52px;
+          height: 32px;
+          padding: 0 6px;
+          font-size: 11px;
+          border: 1px solid #e5e5e5;
+          border-radius: 8px;
+          text-align: center;
+          background: #fff;
+        }
+        .sv-drawer-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 14px 16px;
+          border-bottom: 1px solid #e5e7eb;
+          background: #fff;
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        .sv-drawer-head h3 {
+          margin: 0;
+          font-size: 15px !important;
+          font-weight: 800 !important;
+          color: #0f172a !important;
+        }
+        .sv-drawer-head p {
+          margin: 4px 0 0;
+          font-size: 10px;
+          color: #64748b;
+          font-weight: 500;
+        }
+        .sv-icon-close {
+          width: 28px;
+          height: 28px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          background: #fff;
+          color: #64748b;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+        .sv-icon-close:hover { background: #f8fafc; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @media (max-width: 768px) {
-          .table-responsive {
-            font-size: 10px;
-          }
+          .sv-top { position: relative; margin-bottom: 8px; }
+          .sv-top-inner { padding: 10px; }
+          .sv-header-actions, .sv-toolbar-actions, .sv-search-wrap { width: 100%; }
+          .sv-toolbar-actions { margin-left: 0; }
         }
-        @media (max-width: 480px) {
-          .table-responsive {
-            font-size: 10px;
+        @media (max-width: 640px) {
+          .sv-pagination {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
           }
-          table {
-            font-size: 10px;
+          .sv-pagination-meta,
+          .sv-pagination-nav {
+            width: 100%;
+            justify-content: space-between;
           }
-          th, td {
-            padding: 8px;
-            font-size: 10px;
+          .sv-page-btn {
+            flex: 1 1 auto;
+            height: 40px;
+            min-width: 0;
           }
         }
       `}</style>

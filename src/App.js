@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -74,7 +74,8 @@ import 'react-toastify/dist/ReactToastify.css';
 import './styles/rtl.css';
 import { ToastContainer } from 'react-toastify';
 import Layout from './components/Layout';
-import ZohoLoader from './components/common/Loader';
+import AppLogoLoader from './components/common/Loader';
+import { bindGlobalLoader } from './services/globalLoader';
 import { NotificationProvider } from './context/NotificationContext';
 import { TranslationProvider } from './context/TranslationContext';
 import WelcomeModal from './components/common/WelcomeModal';
@@ -86,18 +87,61 @@ const Router = (typeof window !== 'undefined' && window.location.protocol === 'f
 
 setupApiRuntimeRouter();
 
-// Global loading context
-export const LoadingContext = createContext({ loading: false, setLoading: () => { } });
+// Global loading context — branded logo overlay used by every page
+export const LoadingContext = createContext({
+  loading: false,
+  setLoading: () => { },
+  notifyRouteChange: () => { },
+});
 export const useLoading = () => useContext(LoadingContext);
 
 const LoadingProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [apiLoading, setApiLoading] = useState(false);
+  const routeTimer = useRef(null);
+
+  const notifyRouteChange = useCallback(() => {
+    setRouteLoading(true);
+    if (routeTimer.current) window.clearTimeout(routeTimer.current);
+    routeTimer.current = window.setTimeout(() => setRouteLoading(false), 700);
+  }, []);
+
+  useEffect(() => {
+    bindGlobalLoader({
+      show: () => setApiLoading(true),
+      hide: () => setApiLoading(false),
+    });
+    return () => bindGlobalLoader({});
+  }, []);
+
+  useEffect(() => () => {
+    if (routeTimer.current) window.clearTimeout(routeTimer.current);
+  }, []);
+
   return (
-    <LoadingContext.Provider value={{ loading, setLoading }}>
-      {loading && <ZohoLoader />}
+    <LoadingContext.Provider value={{ loading, setLoading, notifyRouteChange }}>
+      <AppLogoLoader visible={Boolean(loading || routeLoading || apiLoading)} />
       {children}
     </LoadingContext.Provider>
   );
+};
+
+const RouteLoadingSync = () => {
+  const location = useLocation();
+  const { notifyRouteChange } = useLoading();
+  const first = useRef(true);
+
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return undefined;
+    }
+    notifyRouteChange?.();
+    return undefined;
+  }, [location.pathname, notifyRouteChange]);
+
+  return null;
 };
 
 // Enhanced authentication check with navigation protection
@@ -1168,6 +1212,7 @@ function App() {
       <NotificationProvider>
         <LoadingProvider>
           <Router>
+            <RouteLoadingSync />
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             <div style={{
               minHeight: '100vh',

@@ -11,7 +11,6 @@ import {
   FaSpinner,
   FaSync,
   FaTimesCircle,
-  FaWarehouse,
 } from 'react-icons/fa';
 import TrayScanModal from '../common/TrayScanModal';
 import { getAllLabeledStock, getDetailsByRfidCodes } from '../../services/boxRfidApi';
@@ -22,13 +21,12 @@ import {
 import { useNotifications } from '../../context/NotificationContext';
 import { useLoading } from '../../App';
 import { formatWeight3 } from '../../utils/weightFormat';
+import PageHeader from '../common/PageHeader';
 
 const SV = {
-  stripe: 'linear-gradient(90deg, #0f7669 0%, #14b8a6 45%, #0d9488 100%)',
-  accent: '#0d9488',
-  accentDark: '#0f7669',
+  accent: '#0f766e',
+  accentDark: '#115e59',
   accentMuted: '#ccfbf1',
-  sky: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 55%, #0369a1 100%)',
 };
 
 const INVENTORY_PAGE_SIZE = 20;
@@ -169,57 +167,30 @@ const mapProducts = (products) =>
     };
   });
 
-/** Stock Verification style: label + colored value pill */
-const StatText = ({ label, value, tone = 'teal' }) => {
-  const tones = {
-    teal: { border: SV.accent, background: SV.accentMuted, color: SV.accentDark },
-    ok: { border: '#10b981', background: '#f0fdf4', color: '#059669' },
-    warn: { border: '#ef4444', background: '#fef2f2', color: '#dc2626' },
-  };
-  const t = tones[tone] || tones.teal;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>{label}</span>
-      <span
-        style={{
-          padding: '3px 10px',
-          fontSize: 12,
-          fontWeight: 800,
-          borderRadius: 8,
-          border: `1px solid ${t.border}`,
-          background: t.background,
-          color: t.color,
-          fontVariantNumeric: 'tabular-nums',
-          display: 'inline-block',
-          minWidth: 28,
-          textAlign: 'center',
-        }}
-      >
-        {value}
-      </span>
-    </span>
-  );
-};
-
 const thStyle = {
-  padding: '9px 10px',
+  padding: '5px 7px',
   fontSize: 9,
-  fontWeight: 800,
+  fontWeight: 700,
   color: '#64748b',
   textTransform: 'uppercase',
-  letterSpacing: '0.04em',
-  borderBottom: '1px solid #e2e8f0',
+  letterSpacing: '0.05em',
+  borderBottom: '1px solid #e4e4e7',
+  borderRight: '1px solid #e4e4e7',
   whiteSpace: 'nowrap',
-  background: '#f8fafc',
+  background: 'var(--ui-surface, #f8fafc)',
   position: 'sticky',
   top: 0,
   zIndex: 1,
 };
 
 const tdStyle = {
-  padding: '9px 10px',
-  borderBottom: '1px solid #f1f5f9',
-  color: '#334155',
+  padding: '5px 7px',
+  borderBottom: '1px solid #e5e7eb',
+  borderRight: '1px solid #ececec',
+  color: '#1e293b',
+  fontSize: 10,
+  lineHeight: 1.3,
+  fontWeight: 500,
   verticalAlign: 'middle',
 };
 
@@ -613,187 +584,72 @@ const StockVerificationWithRFIDTray = () => {
 
   return (
     <div
+      className="stock-verification-page"
       style={{
         minHeight: '100%',
-        padding: isSmallScreen ? '12px' : '16px 18px 24px',
-        background: '#ffffff',
+        padding: isSmallScreen ? 8 : 12,
+        background: '#f8fafc',
+        fontFamily: 'var(--font-family)',
       }}
     >
-      {/* Header / title section */}
-      <div
-        style={{
-          marginBottom: 14,
-          padding: '12px 14px',
-          borderRadius: 14,
-          background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <button
-              type="button"
-              onClick={() => navigate('/stock-verification')}
-              title="Back to Stock Verification"
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 8,
-                border: '1px solid #d4d4d8',
-                background: '#fff',
-                color: '#0f172a',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <FaArrowLeft style={{ fontSize: 12 }} />
-            </button>
-            <div
-              style={{
-                width: isSmallScreen ? 34 : 38,
-                height: isSmallScreen ? 34 : 38,
-                borderRadius: 10,
-                background: SV.stripe,
-                boxShadow: '0 2px 8px rgba(13, 148, 136, 0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff',
-                flexShrink: 0,
-              }}
-            >
-              <FaBox style={{ fontSize: isSmallScreen ? 15 : 17 }} />
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: isSmallScreen ? '1.05rem' : '1.15rem',
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  lineHeight: 1.2,
-                }}
+      <div className="sv-top">
+        <div className="sv-top-inner">
+        <PageHeader
+          title="Stock Verification with RFID Tray"
+          subtitle="All inventory on the left · tray match on the right"
+          barStyle={{ padding: 0, margin: 0, gap: 10, borderBottom: 'none' }}
+          actions={(
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="sv-chip"
+                onClick={() => navigate('/stock-verification')}
+                title="Back to Stock Verification"
               >
-                Stock Verification with RFID Tray
-              </h1>
-              <p style={{ margin: '4px 0 0', fontSize: 10, color: '#64748b', fontWeight: 600 }}>
-                All inventory on the left · tray match results on the right
-              </p>
+                <FaArrowLeft /> Back
+              </button>
+              <button
+                type="button"
+                className="sv-chip"
+                onClick={() =>
+                  saveVerificationSession({
+                    matchedRows: matchedItems,
+                    unmatched: unmatchedCodes,
+                    tagMap: scanTagByRfid,
+                  })
+                }
+                disabled={savingSession || (!matchedItems.length && !unmatchedCodes.length)}
+                title="POST AddStockVerificationBySession"
+              >
+                {savingSession ? <FaSpinner className="fa-spin" /> : <FaCheck />}
+                Save
+              </button>
+              <button
+                type="button"
+                className="sv-chip sv-chip--accent"
+                onClick={() => setShowTrayModal(true)}
+                title="Open RFID tray scan"
+              >
+                <FaBox /> Scan tray
+              </button>
             </div>
-          </div>
+          )}
+        />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() =>
-                saveVerificationSession({
-                  matchedRows: matchedItems,
-                  unmatched: unmatchedCodes,
-                  tagMap: scanTagByRfid,
-                })
-              }
-              disabled={
-                savingSession || (!matchedItems.length && !unmatchedCodes.length)
-              }
-              title="POST AddStockVerificationBySession"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                height: 36,
-                padding: '0 14px',
-                fontSize: 12,
-                fontWeight: 800,
-                borderRadius: 10,
-                border: '1px solid #6ee7b7',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                color: '#fff',
-                cursor:
-                  savingSession || (!matchedItems.length && !unmatchedCodes.length)
-                    ? 'not-allowed'
-                    : 'pointer',
-                opacity:
-                  savingSession || (!matchedItems.length && !unmatchedCodes.length) ? 0.55 : 1,
-                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.28)',
-              }}
-            >
-              {savingSession ? <FaSpinner className="fa-spin" /> : <FaCheck />}
-              Save verification
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowTrayModal(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                height: 36,
-                padding: '0 14px',
-                fontSize: 12,
-                fontWeight: 800,
-                borderRadius: 10,
-                border: '1px solid #7dd3fc',
-                background: SV.sky,
-                color: '#fff',
-                cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(2, 132, 199, 0.28)',
-              }}
-              title="Open RFID tray scan"
-            >
-              <FaBox />
-              Scan tray
-            </button>
-          </div>
-        </div>
-
-        {/* Below title — Stock Verification style stats */}
-        <div
-          style={{
-            marginTop: 12,
-            paddingTop: 12,
-            borderTop: '1px solid #e5e7eb',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            flexWrap: 'wrap',
-          }}
-        >
-          <StatText label="Scanned:" value={lastScanCount} tone="teal" />
-          <span style={{ color: '#cbd5e1', fontWeight: 500 }}>|</span>
-          <StatText label="Matched:" value={matchedItems.length} tone="ok" />
-          <span style={{ color: '#cbd5e1', fontWeight: 500 }}>|</span>
-          <StatText label="Unmatched:" value={unmatchedCodes.length} tone="warn" />
+        {/* Below title — stats */}
+        <div className="sv-toolbar" style={{ marginTop: 10 }}>
+          <span className="sv-count-pill">Scanned {lastScanCount}</span>
+          <span className="sv-badge">{matchedItems.length} matched</span>
+          {unmatchedCodes.length > 0 ? (
+            <span className="sv-badge sv-badge--warn">{unmatchedCodes.length} unmatched</span>
+          ) : null}
           {scanBatchId ? (
-            <>
-              <span style={{ color: '#cbd5e1', fontWeight: 500 }}>|</span>
-              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
-                Batch:{' '}
-                <span
-                  style={{
-                    fontFamily: 'ui-monospace, monospace',
-                    color: '#0f7669',
-                    fontWeight: 800,
-                  }}
-                  title={scanBatchId}
-                >
-                  {String(scanBatchId).slice(0, 13)}…
-                </span>
-              </span>
-            </>
+            <span className="sv-count-pill" title={scanBatchId}>
+              Batch {String(scanBatchId).slice(0, 13)}…
+            </span>
           ) : null}
         </div>
+      </div>
       </div>
 
       {/* Two sections */}
@@ -807,69 +663,23 @@ const StockVerificationWithRFIDTray = () => {
       >
         {/* LEFT — All Inventory */}
         <section
+          className="sv-panel"
           style={{
             display: 'flex',
             flexDirection: 'column',
             minHeight: isSmallScreen ? 420 : 620,
-            borderRadius: 16,
-            border: '1px solid #d1fae5',
-            background: 'linear-gradient(180deg, #ffffff 0%, #f0fdfa 48%, #ffffff 100%)',
-            boxShadow: '0 8px 28px rgba(15, 118, 110, 0.08)',
-            overflow: 'hidden',
           }}
         >
-          <div
-            style={{
-              padding: '14px 16px',
-              borderBottom: '1px solid #ccfbf1',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 10,
-              flexWrap: 'wrap',
-              background: 'linear-gradient(90deg, rgba(13,148,136,0.08) 0%, transparent 70%)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  background: SV.stripe,
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 2px 8px rgba(13,148,136,0.3)',
-                  flexShrink: 0,
-                }}
-              >
-                <FaWarehouse style={{ fontSize: 15 }} />
-              </div>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
-                  All Inventory
-                </h2>
-                <p style={{ margin: '2px 0 0', fontSize: 10, color: '#64748b', fontWeight: 600 }}>
-                  Labelled stock · {displayInventoryTotal.toLocaleString()} remaining ·{' '}
-                  {INVENTORY_PAGE_SIZE}/page
-                </p>
-              </div>
+          <div className="sv-panel-head">
+            <div>
+              <h2>All Inventory</h2>
+              <p>
+                Labelled stock · {displayInventoryTotal.toLocaleString()} remaining · {INVENTORY_PAGE_SIZE}/page
+              </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', width: isSmallScreen ? '100%' : 200 }}>
-                <FaSearch
-                  style={{
-                    position: 'absolute',
-                    left: 10,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: '#94a3b8',
-                    fontSize: 11,
-                    pointerEvents: 'none',
-                  }}
-                />
+            <div className="sv-panel-tools">
+              <div className="sv-search-wrap" style={{ flex: '1 1 160px' }}>
+                <FaSearch />
                 <input
                   type="text"
                   placeholder="Search inventory…"
@@ -881,58 +691,26 @@ const StockVerificationWithRFIDTray = () => {
                       fetchInventory(1, inventorySearchDraft);
                     }
                   }}
-                  style={{
-                    width: '100%',
-                    height: 32,
-                    padding: '0 10px 0 30px',
-                    fontSize: 11,
-                    border: '1px solid #99f6e4',
-                    borderRadius: 8,
-                    outline: 'none',
-                    background: '#fff',
-                    boxSizing: 'border-box',
-                  }}
                 />
               </div>
               <button
                 type="button"
+                className="sv-chip sv-chip--accent"
                 onClick={() => {
                   setInventorySearch(inventorySearchDraft);
                   fetchInventory(1, inventorySearchDraft);
-                }}
-                style={{
-                  height: 32,
-                  padding: '0 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #5eead4',
-                  background: SV.accentMuted,
-                  color: SV.accentDark,
-                  cursor: 'pointer',
                 }}
               >
                 Search
               </button>
               <button
                 type="button"
+                className="sv-chip"
                 onClick={() => fetchInventory(inventoryPage, inventorySearch)}
                 disabled={inventoryLoading}
                 title="Refresh inventory"
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  border: '1px solid #d4d4d8',
-                  background: '#fff',
-                  color: '#0f172a',
-                  cursor: inventoryLoading ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
               >
-                {inventoryLoading ? <FaSpinner className="fa-spin" /> : <FaSync style={{ fontSize: 11 }} />}
+                {inventoryLoading ? <FaSpinner className="fa-spin" /> : <FaSync />}
               </button>
             </div>
           </div>
@@ -944,7 +722,7 @@ const StockVerificationWithRFIDTray = () => {
                 <div>{inventoryError}</div>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 11, minWidth: 720 }}>
+              <table className="app-data-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 720 }}>
                 <thead>
                   <tr>
                     <th style={{ ...thStyle, textAlign: 'center', width: 40 }}>#</th>
@@ -978,12 +756,12 @@ const StockVerificationWithRFIDTray = () => {
                     visibleInventory.map((row, index) => (
                       <tr
                         key={row.Id || `${row.ItemCode}-${index}`}
-                        style={{ background: index % 2 === 0 ? '#ffffff' : '#f8fffc' }}
+                        style={{ background: index % 2 === 0 ? '#ffffff' : '#fafafa' }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#ecfdf5';
+                          e.currentTarget.style.background = '#f8fafc';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#f8fffc';
+                          e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#fafafa';
                         }}
                       >
                         <td style={{ ...tdStyle, textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>
@@ -1048,75 +826,28 @@ const StockVerificationWithRFIDTray = () => {
             )}
           </div>
 
-          <div
-            style={{
-              padding: '10px 14px',
-              borderTop: '1px solid #e2e8f0',
-              background: '#f8fafc',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 10,
-              flexWrap: 'wrap',
-            }}
-          >
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+          <div className="sv-pagination">
+            <span className="sv-pagination-meta">
               Showing {inventoryFrom}–{inventoryTo} of {displayInventoryTotal.toLocaleString()}
               {matchedItems.length ? ` · ${matchedItems.length} moved` : ''}
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="sv-pagination-nav">
               <button
                 type="button"
+                className="sv-page-btn"
                 disabled={inventoryPage <= 1 || inventoryLoading}
                 onClick={() => fetchInventory(inventoryPage - 1, inventorySearch)}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: '#fff',
-                  color: '#0f172a',
-                  cursor: inventoryPage <= 1 || inventoryLoading ? 'not-allowed' : 'pointer',
-                  opacity: inventoryPage <= 1 || inventoryLoading ? 0.45 : 1,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
               >
-                <FaChevronLeft style={{ fontSize: 11 }} />
+                <FaChevronLeft />
               </button>
-              <span
-                style={{
-                  minWidth: 72,
-                  textAlign: 'center',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {inventoryPage} / {inventoryTotalPages}
-              </span>
+              <span className="sv-page-indicator">{inventoryPage} / {inventoryTotalPages}</span>
               <button
                 type="button"
+                className="sv-page-btn"
                 disabled={inventoryPage >= inventoryTotalPages || inventoryLoading}
                 onClick={() => fetchInventory(inventoryPage + 1, inventorySearch)}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: '#fff',
-                  color: '#0f172a',
-                  cursor:
-                    inventoryPage >= inventoryTotalPages || inventoryLoading ? 'not-allowed' : 'pointer',
-                  opacity: inventoryPage >= inventoryTotalPages || inventoryLoading ? 0.45 : 1,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
               >
-                <FaChevronRight style={{ fontSize: 11 }} />
+                <FaChevronRight />
               </button>
             </div>
           </div>
@@ -1124,102 +855,32 @@ const StockVerificationWithRFIDTray = () => {
 
         {/* RIGHT — Tray verification */}
         <section
+          className="sv-panel"
           style={{
             display: 'flex',
             flexDirection: 'column',
             minHeight: isSmallScreen ? 420 : 620,
-            borderRadius: 16,
-            border: '1px solid #bae6fd',
-            background: 'linear-gradient(180deg, #ffffff 0%, #f0f9ff 48%, #ffffff 100%)',
-            boxShadow: '0 8px 28px rgba(2, 132, 199, 0.08)',
-            overflow: 'hidden',
           }}
         >
-          <div
-            style={{
-              padding: '14px 16px',
-              borderBottom: '1px solid #e0f2fe',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 10,
-              flexWrap: 'wrap',
-              background: 'linear-gradient(90deg, rgba(14,165,233,0.08) 0%, transparent 70%)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  background: SV.sky,
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 2px 8px rgba(2,132,199,0.3)',
-                }}
-              >
-                <FaBox style={{ fontSize: 15 }} />
-              </div>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
-                  Tray Verification
-                </h2>
-                <p style={{ margin: '2px 0 0', fontSize: 10, color: '#64748b', fontWeight: 600 }}>
-                  Scan tray tags and match against stock
-                </p>
-              </div>
+          <div className="sv-panel-head">
+            <div>
+              <h2>Tray Verification</h2>
+              <p>Scan tray tags and match against stock</p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', width: isSmallScreen ? '100%' : 180 }}>
-                <FaSearch
-                  style={{
-                    position: 'absolute',
-                    left: 10,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: '#94a3b8',
-                    fontSize: 11,
-                    pointerEvents: 'none',
-                  }}
-                />
+            <div className="sv-panel-tools">
+              <div className="sv-search-wrap" style={{ flex: '1 1 140px' }}>
+                <FaSearch />
                 <input
                   type="text"
                   placeholder="Search matched…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    width: '100%',
-                    height: 32,
-                    padding: '0 10px 0 30px',
-                    fontSize: 11,
-                    border: '1px solid #bae6fd',
-                    borderRadius: 8,
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    background: '#fff',
-                  }}
                 />
               </div>
               <button
                 type="button"
+                className="sv-chip sv-chip--accent"
                 onClick={() => setShowTrayModal(true)}
-                style={{
-                  height: 32,
-                  padding: '0 12px',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  borderRadius: 8,
-                  border: '1px solid #7dd3fc',
-                  background: '#fff',
-                  color: '#0284c7',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
               >
                 <FaBox /> Scan
               </button>
@@ -1248,18 +909,18 @@ const StockVerificationWithRFIDTray = () => {
           ) : null}
 
           <div style={{ flex: 1, overflow: 'auto', background: '#fff', borderTop: '1px solid #e0f2fe' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 11, minWidth: 720 }}>
+            <table className="app-data-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th style={{ ...thStyle, textAlign: 'center', width: 40, background: '#f0f9ff' }}>#</th>
-                  <th style={{ ...thStyle, textAlign: 'left', background: '#f0f9ff' }}>Item Code</th>
-                  <th style={{ ...thStyle, textAlign: 'left', background: '#f0f9ff' }}>RFID</th>
-                  <th style={{ ...thStyle, textAlign: 'left', background: '#f0f9ff' }}>Category</th>
-                  <th style={{ ...thStyle, textAlign: 'left', background: '#f0f9ff' }}>Product Name</th>
-                  <th style={{ ...thStyle, textAlign: 'left', background: '#f0f9ff' }}>Design</th>
-                  <th style={{ ...thStyle, textAlign: 'left', background: '#f0f9ff' }}>Purity</th>
-                  <th style={{ ...thStyle, textAlign: 'right', background: '#f0f9ff' }}>Gross Wt</th>
-                  <th style={{ ...thStyle, textAlign: 'right', background: '#f0f9ff' }}>Net</th>
+                  <th style={{ ...thStyle, textAlign: 'center', width: 40 }}>#</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Item Code</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>RFID</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Category</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Product Name</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Design</th>
+                  <th style={{ ...thStyle, textAlign: 'left' }}>Purity</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Gross Wt</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Net</th>
                 </tr>
               </thead>
               <tbody>
@@ -1274,22 +935,9 @@ const StockVerificationWithRFIDTray = () => {
                         </div>
                         <button
                           type="button"
+                          className="sv-chip sv-chip--accent"
                           onClick={() => setShowTrayModal(true)}
-                          style={{
-                            marginTop: 4,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            height: 34,
-                            padding: '0 14px',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            borderRadius: 8,
-                            border: '1px solid #7dd3fc',
-                            background: SV.sky,
-                            color: '#fff',
-                            cursor: 'pointer',
-                          }}
+                          style={{ marginTop: 4 }}
                         >
                           <FaBox /> Open tray scan
                         </button>
@@ -1300,7 +948,7 @@ const StockVerificationWithRFIDTray = () => {
                   filteredMatched.map((row, index) => (
                     <tr
                       key={row.Id || row.RFIDCode || index}
-                      style={{ background: index % 2 === 0 ? '#fff' : '#f8fbff' }}
+                      style={{ background: index % 2 === 0 ? '#fff' : '#fafafa' }}
                     >
                       <td style={{ ...tdStyle, textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>
                         {index + 1}
@@ -1311,7 +959,7 @@ const StockVerificationWithRFIDTray = () => {
                           ...tdStyle,
                           fontFamily: 'ui-monospace, monospace',
                           fontSize: 10,
-                          color: '#0284c7',
+                          color: '#0f766e',
                           fontWeight: 700,
                         }}
                       >
@@ -1326,9 +974,9 @@ const StockVerificationWithRFIDTray = () => {
                             display: 'inline-block',
                             padding: '2px 7px',
                             borderRadius: 999,
-                            background: '#eff6ff',
-                            border: '1px solid #bae6fd',
-                            color: '#0369a1',
+                            background: '#fff',
+                            border: '1px solid #99f6e4',
+                            color: '#0f766e',
                             fontSize: 10,
                             fontWeight: 700,
                           }}
@@ -1411,6 +1059,159 @@ const StockVerificationWithRFIDTray = () => {
         subtitle="Place items on the RFID tray, connect the reader, start scan, then load matched stock."
         loadButtonLabel={trayFetchLoading ? 'Verifying…' : 'Verify stock'}
       />
+      <style>{`
+        .stock-verification-page { box-sizing: border-box; }
+        .stock-verification-page * { box-sizing: border-box; }
+        .sv-top {
+          background: #fff;
+          border: var(--page-header-border, 1px solid #e2e8f0);
+          border-radius: var(--page-header-radius, 12px);
+          box-shadow: var(--page-header-shadow, 0 2px 8px rgba(15, 23, 42, 0.06));
+          margin-bottom: 12px;
+        }
+        .sv-top-inner { padding: 12px 14px 10px; }
+        .sv-toolbar {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid #e5e7eb;
+        }
+        .sv-search-wrap {
+          position: relative;
+          flex: 1 1 160px;
+          min-width: 0;
+        }
+        .sv-search-wrap svg {
+          position: absolute;
+          left: 9px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #94a3b8;
+          font-size: 10px;
+          pointer-events: none;
+        }
+        .sv-search-wrap input {
+          width: 100%;
+          height: 28px;
+          padding: 0 10px 0 28px;
+          font-size: 11px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          outline: none;
+          background: #fff;
+          color: #0f172a;
+        }
+        .sv-search-wrap input:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12); }
+        .sv-chip {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          height: 28px;
+          padding: 0 11px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          background: #fff;
+          color: #334155;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .sv-chip:hover { background: #f8fafc; }
+        .sv-chip.is-active, .sv-chip--accent { border-color: #99f6e4; color: #0f766e; }
+        .sv-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+        .sv-badge {
+          min-width: 16px;
+          height: 20px;
+          padding: 0 8px;
+          border-radius: 999px;
+          background: #fff;
+          border: 1px solid #99f6e4;
+          color: #0f766e;
+          font-size: 10px;
+          font-weight: 700;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .sv-badge--warn { border-color: #fecaca; color: #b91c1c; }
+        .sv-count-pill { font-size: 11px; font-weight: 600; color: #64748b; }
+        .sv-panel {
+          background: #fff;
+          border: 1px solid #d4d4d8;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        .sv-panel-head {
+          padding: 10px 12px;
+          border-bottom: 1px solid #e5e7eb;
+          background: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .sv-panel-head h2 {
+          margin: 0;
+          font-size: 13px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        .sv-panel-head p {
+          margin: 2px 0 0;
+          font-size: 10px;
+          color: #64748b;
+          font-weight: 600;
+        }
+        .sv-panel-tools {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .sv-pagination {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          padding: 10px 12px;
+          border-top: 1px solid #e5e7eb;
+          background: #fafafa;
+        }
+        .sv-pagination-meta {
+          font-size: 11px;
+          font-weight: 600;
+          color: #525252;
+        }
+        .sv-pagination-nav { display: flex; align-items: center; gap: 6px; }
+        .sv-page-btn {
+          height: 32px;
+          min-width: 36px;
+          padding: 0 10px;
+          font-size: 11px;
+          font-weight: 600;
+          border-radius: 8px;
+          border: 1px solid #e5e5e5;
+          background: #fff;
+          color: #525252;
+          cursor: pointer;
+        }
+        .sv-page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .sv-page-indicator {
+          font-size: 12px;
+          font-weight: 700;
+          color: #0f172a;
+          font-variant-numeric: tabular-nums;
+          min-width: 52px;
+          text-align: center;
+        }
+      `}</style>
     </div>
   );
 };

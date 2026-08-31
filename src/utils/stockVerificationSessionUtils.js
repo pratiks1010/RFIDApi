@@ -45,6 +45,8 @@ export const normalizeSessionDetails = (data = {}) => ({
   BatchName: data.BatchName ?? data.batchName,
   BranchId: data.BranchId ?? data.branchId,
   BranchName: data.BranchName ?? data.branchName,
+  CounterId: data.CounterId ?? data.counterId,
+  CounterName: data.CounterName ?? data.counterName,
   ClientCode: data.ClientCode ?? data.clientCode,
   MatchedList: data.MatchedList ?? data.matchedList ?? [],
   UnmatchedList: data.UnmatchedList ?? data.unmatchedList ?? [],

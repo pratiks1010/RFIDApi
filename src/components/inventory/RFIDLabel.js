@@ -34,6 +34,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { useNotifications } from '../../context/NotificationContext';
 import { generateClientPrn } from '../../utils/prnTemplates';
 import SuccessNotification from '../common/SuccessNotification';
+import PageHeader from '../common/PageHeader';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { useLoading } from '../../App';
 
@@ -199,6 +200,7 @@ const RFIDLabel = () => {
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
+  const [pageInput, setPageInput] = useState('');
 
   // Filter states
   const [showFilterPanel, setShowFilterPanel] = useState(false);
@@ -1148,231 +1150,139 @@ const RFIDLabel = () => {
     }
   };
 
-  return (
-    <div style={{
-      padding: '12px',
-      fontFamily: 'Inter, system-ui, sans-serif',
-      fontSize: '11px',
-      maxWidth: '100%',
-      overflowX: 'hidden',
-      background: '#ffffff'
-    }}>
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: '12px',
-          overflow: 'hidden',
-          marginBottom: '12px',
-          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
-          border: '1px solid #e2e8f0',
-        }}
-      >
-        <div
-          style={{
-            height: '3px',
-            background: 'linear-gradient(90deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%)',
-          }}
-        />
-        <div style={{ padding: '12px 14px 10px' }}>
-          <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>
-            PRN Label Manager
-          </h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '11px', fontWeight: 600 }}>
-            Generate labels first, then manage PRN templates.
-          </p>
-        </div>
-      </div>
+  const isPhone = windowWidth <= 640;
+  const recordCount = showAllProducts && allFilteredData.length > 0 ? allFilteredData.length : totalRecords;
+  const generateProductPages = () => {
+    const pages = [];
+    const maxPagesToShow = isPhone ? 3 : 7;
+    const total = Math.max(totalPages || 1, 1);
+    if (total <= maxPagesToShow) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    pages.push(1);
+    if (currentProductPage > 3) pages.push('...');
+    const start = Math.max(2, currentProductPage - 1);
+    const end = Math.min(total - 1, currentProductPage + 1);
+    for (let i = start; i <= end; i += 1) pages.push(i);
+    if (currentProductPage < total - 2) pages.push('...');
+    pages.push(total);
+    return pages;
+  };
+  const goToProductPage = (page) => {
+    const n = Number(page);
+    if (n >= 1 && n <= Math.max(totalPages, 1)) {
+      setCurrentProductPage(n);
+      setLoading(true);
+      fetchLabelledStock(n, productsPerPage, searchProduct, filterValues);
+      setPageInput('');
+    }
+  };
 
-      {/* Tabs */}
-      <div style={{
-        display: 'flex',
-        gap: '8px',
-        marginBottom: '14px',
-        borderBottom: '1px solid #e2e8f0',
-        flexWrap: 'wrap'
-      }}>
-        <button
-          onClick={() => {
-            setActiveTab('generate');
-            if (labelledStock.length === 0) {
-              fetchLabelledStock();
-            }
-          }}
-          style={{
-            padding: '9px 14px',
-            background: activeTab === 'generate' ? '#eef2ff' : 'transparent',
-            color: activeTab === 'generate' ? '#3730a3' : '#64748b',
-            border: 'none',
-            borderRadius: '8px 8px 0 0',
-            cursor: 'pointer',
-            fontWeight: 700,
-            fontSize: '11px',
-            transition: 'all 0.2s'
-          }}
-        >
-          <FaPrint style={{ marginRight: '6px' }} />
-          {t('rfidLabel.generate', 'Generate Labels')}
-        </button>
-        <button
-          onClick={() => setActiveTab('templates')}
-          style={{
-            padding: '9px 14px',
-            background: activeTab === 'templates' ? '#eef2ff' : 'transparent',
-            color: activeTab === 'templates' ? '#3730a3' : '#64748b',
-            border: 'none',
-            borderRadius: '8px 8px 0 0',
-            cursor: 'pointer',
-            fontWeight: 700,
-            fontSize: '11px',
-            transition: 'all 0.2s'
-          }}
-        >
-          <FaFileAlt style={{ marginRight: '6px' }} />
-          {t('rfidLabel.templates', 'Templates')}
-        </button>
+  const svTh = {
+    padding: '5px 7px',
+    textAlign: 'left',
+    fontWeight: 700,
+    fontSize: 9,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    color: '#64748b',
+    borderRight: '1px solid #e4e4e7',
+    whiteSpace: 'nowrap',
+    background: '#f8fafc',
+  };
+  const svTd = {
+    padding: '5px 7px',
+    color: '#1e293b',
+    fontSize: 10,
+    lineHeight: 1.3,
+    borderRight: '1px solid #ececec',
+    borderBottom: '1px solid #e5e7eb',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+  };
+
+  return (
+    <div
+      className="prn-page"
+      style={{
+        fontFamily: 'var(--font-family)',
+        padding: isMobile ? 8 : 12,
+        fontSize: 11,
+        minHeight: '100%',
+        background: '#f8fafc',
+      }}
+    >
+      <div className="sv-top">
+        <div className="sv-top-inner">
+          <PageHeader
+            title="PRN Label Manager"
+            subtitle={`${recordCount.toLocaleString()} records${selectedItems.length ? ` · ${selectedItems.length} selected` : ''} · generate labels, then manage templates`}
+            barStyle={{ padding: 0, margin: 0, gap: 10, borderBottom: 'none' }}
+            actions={(
+              <div className="sv-header-actions">
+                <div className="sv-tabs" role="tablist" aria-label="PRN label modes">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'generate'}
+                    className={`sv-tab${activeTab === 'generate' ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setActiveTab('generate');
+                      if (labelledStock.length === 0) fetchLabelledStock();
+                    }}
+                  >
+                    <FaPrint /> Generate Labels
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'templates'}
+                    className={`sv-tab${activeTab === 'templates' ? ' is-active' : ''}`}
+                    onClick={() => setActiveTab('templates')}
+                  >
+                    <FaFileAlt /> Templates
+                  </button>
+                </div>
+              </div>
+            )}
+          />
+        </div>
       </div>
 
       {/* Templates Tab */}
       {activeTab === 'templates' && (
         <div>
-          {/* Unified Header & Action Section */}
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '12px',
-            padding: '16px 20px',
-            marginBottom: '16px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            border: '1px solid #e5e7eb'
-          }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '12px',
-              marginBottom: '16px'
-            }}>
-              <div>
-                <h2 style={{
-                  margin: 0,
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                  lineHeight: '1.2'
-                }}>Templates</h2>
+          <div className="sv-top prn-toolbar-card">
+            <div className="sv-top-inner">
+              <div className="sv-toolbar">
+                <div className="sv-search-wrap">
+                  <FaSearch />
+                  <input
+                    type="text"
+                    placeholder="Search templates…"
+                    value={searchTemplate}
+                    onChange={(e) => setSearchTemplate(e.target.value)}
+                  />
+                </div>
+                <div className="sv-toolbar-actions">
+                  <span className="sv-count-pill">{templates.length} templates</span>
+                  <button
+                    type="button"
+                    className="sv-chip sv-chip--accent"
+                    onClick={() => {
+                      resetTemplateForm();
+                      setShowTemplateModal(true);
+                    }}
+                  >
+                    <FaPlus /> New Template
+                  </button>
+                  <button type="button" className="sv-chip" onClick={fetchTemplates}>
+                    <FaSync /> Refresh
+                  </button>
+                </div>
               </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#64748b',
-                fontWeight: 600
-              }}>
-                Total: {templates.length} templates
-              </div>
-            </div>
-            <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '10px',
-              alignItems: 'center',
-              paddingTop: '16px',
-              borderTop: '1px solid #e5e7eb'
-            }}>
-              {/* Search Input */}
-              <div style={{
-                position: 'relative',
-                flex: '1',
-                minWidth: windowWidth <= 768 ? '100%' : '250px',
-                maxWidth: windowWidth <= 768 ? '100%' : '350px'
-              }}>
-                <FaSearch style={{
-                  position: 'absolute',
-                  left: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#94a3b8',
-                  fontSize: '14px',
-                  zIndex: 1
-                }} />
-                <input
-                  type="text"
-                  placeholder="Search templates..."
-                  value={searchTemplate}
-                  onChange={(e) => setSearchTemplate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px 8px 36px',
-                    fontSize: '12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    transition: 'all 0.2s',
-                    boxSizing: 'border-box'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                />
-              </div>
-              {/* Action Buttons */}
-              <button
-                onClick={() => {
-                  resetTemplateForm();
-                  setShowTemplateModal(true);
-                }}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #10b981',
-                  background: '#ffffff',
-                  color: '#10b981',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#10b981';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#10b981';
-                }}
-              >
-                <FaPlus /> New Template
-              </button>
-              <button
-                onClick={fetchTemplates}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #64748b',
-                  background: '#ffffff',
-                  color: '#64748b',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#64748b';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#64748b';
-                }}
-              >
-                <FaSync /> Refresh
-              </button>
             </div>
           </div>
-
           {/* Templates List */}
           {templateLoading ? (
             <div style={{ textAlign: 'center', padding: '40px' }}>
@@ -1392,14 +1302,7 @@ const RFIDLabel = () => {
               </p>
             </div>
           ) : (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: '16px',
-              '@media (max-width: 768px)': {
-                gridTemplateColumns: '1fr'
-              }
-            }}>
+            <div className="template-grid">
               {filteredTemplates.map((template) => (
                 <div
                   key={template.Id}
@@ -1541,450 +1444,132 @@ const RFIDLabel = () => {
             onClose={() => setShowSuccess(false)}
           />
 
-          {/* Unified Header & Action Section - Matching LabelStockList */}
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '12px',
-            padding: '16px 20px',
-            marginBottom: '16px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            border: '1px solid #e5e7eb',
-            position: 'sticky',
-            top: '0',
-            zIndex: 100,
-            transition: 'box-shadow 0.2s'
-          }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '12px'
-            }}>
-              {/* Left: Title */}
-              <div>
-                <h2 style={{
-                  margin: 0,
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                  lineHeight: '1.2'
-                }}>Generate Labels</h2>
-              </div>
-
-              {/* Right: Total Count */}
-              <div style={{
-                fontSize: '12px',
-                color: '#64748b',
-                fontWeight: 600
-              }}>
-                Total: {showAllProducts && allFilteredData.length > 0
-                  ? allFilteredData.length
-                  : totalRecords} records
-              </div>
-            </div>
-
-            {/* Action Buttons & Search Row - Single Line */}
-            <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '10px',
-              alignItems: 'center',
-              marginTop: '16px',
-              paddingTop: '16px',
-              borderTop: '1px solid #e5e7eb'
-            }}>
-              {/* Search Input */}
-              <div style={{
-                position: 'relative',
-                flex: '0 1 auto',
-                minWidth: windowWidth <= 768 ? '100%' : '250px',
-                maxWidth: windowWidth <= 768 ? '100%' : '350px'
-              }}>
-                <FaSearch style={{
-                  position: 'absolute',
-                  left: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#94a3b8',
-                  fontSize: '14px',
-                  zIndex: 1
-                }} />
-                <input
-                  type="text"
-                  placeholder="Search by Product Name, Category, Item Code..."
-                  value={searchProduct}
-                  onChange={e => {
-                    const value = e.target.value;
-                    setSearchProduct(value);
-                    if (searchTimeoutRef.current) {
-                      clearTimeout(searchTimeoutRef.current);
-                    }
-                    // Debounce search - fetch after user stops typing (300ms)
-                    searchTimeoutRef.current = setTimeout(() => {
-                      setCurrentProductPage(1);
-                      fetchLabelledStock(1, productsPerPage, value.trim(), filterValues);
-                    }, 300);
-                  }}
-                  onKeyDown={e => {
-                    // Trigger search immediately on Enter key
-                    if (e.key === 'Enter') {
-                      if (searchTimeoutRef.current) {
-                        clearTimeout(searchTimeoutRef.current);
+          <div className="sv-top prn-toolbar-card">
+            <div className="sv-top-inner">
+              <div className="sv-toolbar">
+                <div className="sv-search-wrap">
+                  <FaSearch />
+                  <input
+                    type="text"
+                    placeholder="Search product, category, item code…"
+                    value={searchProduct}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSearchProduct(value);
+                      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                      searchTimeoutRef.current = setTimeout(() => {
+                        setCurrentProductPage(1);
+                        fetchLabelledStock(1, productsPerPage, value.trim(), filterValues);
+                      }, 300);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+                        setCurrentProductPage(1);
+                        fetchLabelledStock(1, productsPerPage, searchProduct.trim(), filterValues);
                       }
-                      setCurrentProductPage(1);
-                      fetchLabelledStock(1, productsPerPage, searchProduct.trim(), filterValues);
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px 8px 36px',
-                    fontSize: '12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    outline: 'none',
-                    transition: 'all 0.2s',
-                    boxSizing: 'border-box'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#9ca3af'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                />
-              </div>
-
-              {/* Buttons Container - Aligned with Search */}
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '10px',
-                alignItems: 'center',
-                marginLeft: 'auto',
-                minWidth: 'fit-content'
-              }}>
-                {/** SampleOutList-like compact toolbar buttons */}
-                {/* Export All Report Button */}
-                <button
-                  onClick={() => {
-                    // Export functionality
-                    toast.info('Export functionality coming soon');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '7px 12px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                    color: '#0f172a',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  <FaFileExport />
-                  <span>Export All Report</span>
-                </button>
-
-                {/* Delete Button */}
-                <button
-                  onClick={() => {
-                    if (selectedRows.length === 0) {
-                      toast.error('Please select items to delete');
-                      return;
-                    }
-                    if (window.confirm(`Are you sure you want to delete ${selectedRows.length} selected item(s)?`)) {
-                      toast.info('Delete functionality coming soon');
-                    }
-                  }}
-                  disabled={selectedRows.length === 0}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '7px 12px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: '#ffffff',
-                    color: selectedRows.length === 0 ? '#94a3b8' : '#334155',
-                    cursor: selectedRows.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: selectedRows.length === 0 ? 0.65 : 1,
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  <FaTrash />
-                  <span>Delete</span>
-                </button>
-
-                {/* Export Button */}
-                <button
-                  onClick={() => {
-                    toast.info('Export functionality coming soon');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '7px 12px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: '#ffffff',
-                    color: '#334155',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  <FaFileExport />
-                  <span>Export</span>
-                </button>
-
-                {/* Report Button */}
-                <button
-                  onClick={() => {
-                    toast.info('Report functionality coming soon');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '7px 12px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: '#ffffff',
-                    color: '#334155',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  <FaFilePdf />
-                  <span>Report</span>
-                </button>
-
-                {/* Filter Button */}
-                <button
-                  onClick={() => setShowFilterPanel(!showFilterPanel)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '7px 12px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: showFilterPanel ? '#eef2ff' : '#ffffff',
-                    color: showFilterPanel ? '#3730a3' : '#334155',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  <FaFilter />
-                  <span>Filter</span>
-                </button>
-
-                {/* Print Multiple Labels Button - Disabled for LS000443 (use Download OPJ PRN instead) */}
-                {clientCode !== 'LS000443' && (
+                    }}
+                  />
+                </div>
+                <div className="sv-toolbar-actions">
+                  <span className="sv-count-pill">{recordCount.toLocaleString()} rows</span>
+                  <button type="button" className="sv-chip" onClick={() => toast.info('Export functionality coming soon')}>
+                    <FaFileExport /> Export All
+                  </button>
                   <button
+                    type="button"
+                    className="sv-chip"
                     onClick={() => {
-                      if (!selectedTemplateId) {
-                        toast.error('Please select a template first');
+                      if (selectedRows.length === 0) {
+                        toast.error('Please select items to delete');
                         return;
                       }
-                      if (selectedItems.length === 0) {
-                        toast.error('Please select items to print labels');
-                        return;
+                      if (window.confirm(`Are you sure you want to delete ${selectedRows.length} selected item(s)?`)) {
+                        toast.info('Delete functionality coming soon');
                       }
-                      handleGenerateLabels();
                     }}
-                    disabled={selectedItems.length === 0 || !selectedTemplateId || generating}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '7px 12px',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      borderRadius: '8px',
-                      border: '1px solid #cbd5e1',
-                      background: (selectedItems.length > 0 && selectedTemplateId && !generating)
-                        ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
-                        : '#f1f5f9',
-                      color: (selectedItems.length > 0 && selectedTemplateId && !generating) ? '#0f172a' : '#94a3b8',
-                      cursor: (selectedItems.length === 0 || !selectedTemplateId || generating) ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s'
-                    }}
+                    disabled={selectedRows.length === 0}
                   >
-                    {generating ? (
-                      <>
-                        <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
-                        <span>Printing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <FaPrint />
-                        <span>Print Multiple Labels ({selectedItems.length})</span>
-                      </>
-                    )}
+                    <FaTrash /> Delete
                   </button>
-                )}
-
-                {/* Download OPJ PRN Button - Show for clients with PRN template */}
-                {PRN_ENABLED_CLIENT_CODES.includes(clientCode) && (
+                  <button type="button" className="sv-chip" onClick={() => toast.info('Export functionality coming soon')}>
+                    <FaFileExport /> Export
+                  </button>
+                  <button type="button" className="sv-chip" onClick={() => toast.info('Report functionality coming soon')}>
+                    <FaFilePdf /> Report
+                  </button>
                   <button
-                    onClick={handleDownloadClientPrn}
-                    disabled={selectedItems.length === 0}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '7px 12px',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      borderRadius: '8px',
-                      border: '1px solid #cbd5e1',
-                      background: selectedItems.length > 0
-                        ? 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
-                        : '#f1f5f9',
-                      color: selectedItems.length > 0 ? '#0f172a' : '#94a3b8',
-                      cursor: selectedItems.length === 0 ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s'
-                    }}
+                    type="button"
+                    className={`sv-chip${showFilterPanel ? ' is-active' : ''}`}
+                    onClick={() => setShowFilterPanel(!showFilterPanel)}
                   >
-                    <FaDownload />
-                    <span>Download OPJ PRN ({selectedItems.length})</span>
+                    <FaFilter /> Filter
                   </button>
-                )}
+                  {clientCode !== 'LS000443' && (
+                    <button
+                      type="button"
+                      className="sv-chip sv-chip--accent"
+                      onClick={() => {
+                        if (!selectedTemplateId) {
+                          toast.error('Please select a template first');
+                          return;
+                        }
+                        if (selectedItems.length === 0) {
+                          toast.error('Please select items to print labels');
+                          return;
+                        }
+                        handleGenerateLabels();
+                      }}
+                      disabled={selectedItems.length === 0 || !selectedTemplateId || generating}
+                    >
+                      {generating ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> : <FaPrint />}
+                      {generating ? 'Printing…' : `Print (${selectedItems.length})`}
+                    </button>
+                  )}
+                  {PRN_ENABLED_CLIENT_CODES.includes(clientCode) && (
+                    <button
+                      type="button"
+                      className="sv-chip sv-chip--accent"
+                      onClick={handleDownloadClientPrn}
+                      disabled={selectedItems.length === 0}
+                    >
+                      <FaDownload /> PRN ({selectedItems.length})
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
           {/* Product Selection Table - Matching LabelStockList */}
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '12px',
-            marginTop: '16px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            border: '1px solid #e5e7eb',
-            overflow: 'visible',
-            display: 'flex',
-            flexDirection: 'column',
-            height: 'calc(100vh - 280px)',
-            minHeight: '400px'
-          }}>
-            <div style={{
-              padding: '16px 20px',
-              borderBottom: '1px solid #e5e7eb',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '12px'
-            }}>
-              <div style={{
-                fontSize: '12px',
-                color: '#64748b',
-                fontWeight: 600
-              }}>
-                {selectedItems.length} selected of {showAllProducts && allFilteredData.length > 0 ? allFilteredData.length : totalRecords} products
-              </div>
-              <button
-                onClick={handleSelectAll}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '8px',
-                  border: '1px solid #3b82f6',
-                  background: '#ffffff',
-                  color: '#3b82f6',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#3b82f6';
-                  e.target.style.color = '#ffffff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.color = '#3b82f6';
-                }}
-              >
+          <div className="prn-table-card">
+            <div className="prn-table-head">
+              <span className="sv-count-pill">
+                {selectedItems.length} selected of {recordCount.toLocaleString()} products
+              </span>
+              <button type="button" className="sv-chip" onClick={handleSelectAll}>
                 {currentItems.length > 0 && currentItems.every(item => selectedRows.includes(item.Id || item.ItemCode)) ? 'Deselect All' : 'Select All'}
               </button>
             </div>
 
-            <div style={{
-              overflowX: 'auto',
-              overflowY: 'scroll',
-              width: '100%',
-              maxWidth: '100%',
-              position: 'relative',
-              height: '100%',
-              flex: 1,
-              scrollbarWidth: 'thin',
-              scrollbarColor: '#888 #f1f1f1'
-            }}>
+            <div className="prn-table-wrap">
               {currentItems.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', fontSize: '11px', fontWeight: 600 }}>
-                  No labeled stock records found for current filters.
-                </div>
+                <div className="prn-empty">No labeled stock records found for current filters.</div>
               ) : (
-                <table style={{
-                  width: '100%',
-                  minWidth: '1400px',
-                  borderCollapse: 'collapse',
-                  fontSize: '11px',
-                  tableLayout: 'auto'
-                }}>
+                <table className="app-data-table" style={{ width: '100%', minWidth: 1100, borderCollapse: 'separate', borderSpacing: 0 }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-                    <tr style={{
-                      background: '#f4f4f5',
-                      borderBottom: '2px solid #d4d4d8'
-                    }}>
-                      <th style={{
-                        padding: '7px 8px',
-                        textAlign: 'center',
-                        width: '40px',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        color: '#18181b',
-                        borderRight: '1px solid #e4e4e7'
-                      }}>
+                    <tr style={{ background: '#f8fafc', boxShadow: '0 1px 0 #e4e4e7' }}>
+                      <th style={{ ...svTh, textAlign: 'center', width: 36 }}>
                         <input
                           type="checkbox"
-                          onChange={(e) => {
-                            handleSelectAll();
-                          }}
+                          onChange={() => handleSelectAll()}
                           checked={currentItems.length > 0 && currentItems.every(item => selectedRows.includes(item.Id || item.ItemCode))}
-                          style={{
-                            cursor: 'pointer',
-                            width: '16px',
-                            height: '16px'
-                          }}
                         />
                       </th>
-                      {columns.map((column) => {
-                        return (
+                      {columns.map((column) => (
                           <th
                             key={column.key}
-                            style={{
-                              padding: '7px 8px',
-                              textAlign: 'left',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              color: '#18181b',
-                              whiteSpace: 'nowrap',
-                              cursor: 'pointer',
-                              width: column.width,
-                              transition: 'background 0.2s',
-                              borderRight: '1px solid #e4e4e7'
-                            }}
+                            style={{ ...svTh, cursor: 'pointer', userSelect: 'none' }}
                             onClick={() => {
                               const direction = sortConfig.key === column.key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
                               const newSortConfig = { key: column.key, direction };
@@ -1992,34 +1577,12 @@ const RFIDLabel = () => {
                               setCurrentProductPage(1);
                               fetchLabelledStock(1, productsPerPage, searchProduct, filterValues, newSortConfig);
                             }}
-                            onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                            onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              {column.label}
-                              {sortConfig.key === column.key && (
-                                <span>
-                                  {sortConfig.direction === 'asc' ? <FaSortAmountUp size={12} /> : <FaSortAmountDown size={12} />}
-                                </span>
-                              )}
-                            </div>
+                            {column.label}
+                            {sortConfig.key === column.key ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : ''}
                           </th>
-                        );
-                      })}
-                      <th style={{
-                        padding: '7px 8px',
-                        textAlign: 'center',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        color: '#18181b',
-                        whiteSpace: 'nowrap',
-                        position: 'sticky',
-                        right: 0,
-                        background: '#f4f4f5',
-                        zIndex: 10,
-                        width: '120px',
-                        borderLeft: '1px solid #e4e4e7'
-                      }}>Print Label</th>
+                      ))}
+                      <th style={{ ...svTh, textAlign: 'center', position: 'sticky', right: 0, zIndex: 11, borderRight: 'none' }}>Print</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2032,76 +1595,38 @@ const RFIDLabel = () => {
                           onClick={() => handleRowSelection(itemId)}
                           style={{
                             cursor: 'pointer',
-                            borderBottom: '1px solid #e5e7eb',
-                            background: isSelected
-                              ? '#f3f4f6'
-                              : index % 2 === 0
-                                ? '#ffffff'
-                                : '#f8fafc',
-                            transition: 'background 0.2s'
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isSelected) {
-                              e.currentTarget.style.background = '#f1f5f9';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isSelected) {
-                              const bgColor = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-                              e.currentTarget.style.background = bgColor;
-                            }
+                            background: isSelected ? '#f0fdfa' : (index % 2 === 0 ? '#ffffff' : '#fafafa'),
                           }}
                         >
-                          <td style={{
-                            padding: '6px 8px',
-                            textAlign: 'center',
-                            fontSize: '11px',
-                            borderRight: '1px solid #ececec'
-                          }}>
+                          <td style={{ ...svTd, textAlign: 'center' }}>
                             <input
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => handleRowSelection(itemId)}
                               onClick={(e) => e.stopPropagation()}
-                              style={{
-                                cursor: 'pointer',
-                                width: '16px',
-                                height: '16px'
-                              }}
                             />
                           </td>
-                          {columns.map(column => {
-                            return (
-                              <td key={column.key} style={{
-                                padding: '6px 8px',
-                                fontSize: '11px',
-                                color: '#404040',
-                                whiteSpace: 'nowrap',
-                                borderRight: '1px solid #ececec'
-                              }}>
+                          {columns.map((column) => (
+                              <td key={column.key} style={svTd}>
                                 {column.key === 'srNo' ? ((currentProductPage - 1) * productsPerPage) + index + 1 : (() => {
                                   const value = column.key === 'Description'
                                     ? (item.Description ?? item.description ?? '')
                                     : item[column.key];
                                   if (value === undefined || value === null || value === '') return '-';
-                                  // Format numeric fields (weights)
                                   if (['GrossWt', 'NetWt', 'StoneWt', 'DiamondWt', 'PackingWeight', 'TotalWeight'].includes(column.key)) {
                                     const numValue = parseFloat(value);
                                     return isNaN(numValue) ? value : numValue.toFixed(3);
                                   }
-                                  // Format amount fields
                                   if (['StoneAmt', 'FixedAmt'].includes(column.key)) {
                                     const numValue = parseFloat(value);
                                     return isNaN(numValue) ? value : numValue.toString();
                                   }
                                   if (column.key === 'HallmarkAmount') {
                                     const raw = String(value ?? '').trim();
-                                    // Keep units like PT from API (e.g. "1.5PT")
                                     if (/[a-zA-Z]/.test(raw)) return raw;
                                     const numValue = parseFloat(raw);
                                     return Number.isNaN(numValue) ? raw : numValue.toFixed(2);
                                   }
-                                  // Format date fields
                                   if (column.key === 'CreatedDate' && value) {
                                     try {
                                       const date = new Date(value);
@@ -2109,68 +1634,25 @@ const RFIDLabel = () => {
                                         return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
                                       }
                                     } catch (e) {
-                                      // If date parsing fails, return original value
+                                      /* keep original */
                                     }
                                   }
                                   return value;
                                 })()}
                               </td>
-                            );
-                          })}
-                          <td style={{
-                            padding: '6px 8px',
-                            textAlign: 'center',
-                            position: 'sticky',
-                            right: 0,
-                            background: isSelected
-                              ? '#f3f4f6'
-                              : index % 2 === 0
-                                ? '#ffffff'
-                                : '#f8fafc',
-                            zIndex: 5,
-                            borderLeft: '1px solid #ececec'
-                          }}>
+                          ))}
+                          <td style={{ ...svTd, textAlign: 'center', position: 'sticky', right: 0, background: isSelected ? '#f0fdfa' : (index % 2 === 0 ? '#ffffff' : '#fafafa'), borderRight: 'none' }}>
                             <button
+                              type="button"
+                              className="sv-chip"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleSinglePrint(e, item);
                               }}
                               disabled={previewLoading}
-                              style={{
-                                padding: '8px 12px',
-                                fontSize: '14px',
-                                borderRadius: '6px',
-                                border: '1px solid #3b82f6',
-                                background: '#ffffff',
-                                color: '#3b82f6',
-                                cursor: previewLoading ? 'not-allowed' : 'pointer',
-                                opacity: previewLoading ? 0.5 : 1,
-                                transition: 'all 0.2s',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px',
-                                margin: '0 auto'
-                              }}
-                              onMouseEnter={(e) => {
-                                if (!previewLoading) {
-                                  e.target.style.background = '#3b82f6';
-                                  e.target.style.color = '#ffffff';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!previewLoading) {
-                                  e.target.style.background = '#ffffff';
-                                  e.target.style.color = '#3b82f6';
-                                }
-                              }}
                               title="Print Label"
                             >
-                              {previewLoading ? (
-                                <FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={14} />
-                              ) : (
-                                <FaPrint size={14} />
-                              )}
+                              {previewLoading ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} /> : <FaPrint />}
                             </button>
                           </td>
                         </tr>
@@ -2181,179 +1663,92 @@ const RFIDLabel = () => {
                 )}
               </div>
 
-            {/* Pagination */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '16px 20px',
-              borderTop: '1px solid #e5e7eb',
-              flexWrap: 'wrap',
-              gap: '12px'
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                flexWrap: 'wrap',
-                fontSize: '12px',
-                color: '#64748b'
-              }}>
+            <div className="sv-pagination">
+              <div className="sv-pagination-meta">
                 {showAllProducts && allFilteredData.length > 0 ? (
-                  <span>
-                    Showing all {allFilteredData.length} filtered records
-                  </span>
+                  <span>Showing all {allFilteredData.length} filtered records</span>
                 ) : (
                   <>
                     <span>
                       {totalRecords > 0
-                        ? `Showing ${((currentProductPage - 1) * productsPerPage) + 1} to ${Math.min(currentProductPage * productsPerPage, totalRecords)} of ${totalRecords} records`
-                        : 'No records to show'}
+                        ? `${totalRecords.toLocaleString()} records · ${((currentProductPage - 1) * productsPerPage) + 1}–${Math.min(currentProductPage * productsPerPage, totalRecords)}`
+                        : 'No records'}
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>Show:</span>
+                    <label className="sv-pagination-size">
+                      <span>Per page</span>
                       <select
                         value={productsPerPage}
                         onChange={(e) => {
-                          const newPageSize = parseInt(e.target.value);
+                          const newPageSize = parseInt(e.target.value, 10);
                           setProductsPerPage(newPageSize);
                           setCurrentProductPage(1);
                           setLoading(true);
                           fetchLabelledStock(1, newPageSize, searchProduct, filterValues);
                         }}
-                        style={{
-                          padding: '6px 10px',
-                          fontSize: '12px',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '6px',
-                          outline: 'none',
-                          cursor: 'pointer'
-                        }}
                       >
-                        {PAGE_SIZE_OPTIONS.map(size => (
+                        {PAGE_SIZE_OPTIONS.map((size) => (
                           <option key={size} value={size}>{size}</option>
                         ))}
                       </select>
-                      <span>per page</span>
-                    </div>
+                    </label>
                   </>
                 )}
               </div>
-
-              {!showAllProducts && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  flexWrap: 'wrap'
-                }}>
+              {!showAllProducts ? (
+                <div className="sv-pagination-nav">
                   <button
-                    onClick={() => {
-                      const newPage = Math.max(currentProductPage - 1, 1);
-                      setCurrentProductPage(newPage);
-                      setLoading(true);
-                      fetchLabelledStock(newPage, productsPerPage, searchProduct, filterValues);
-                    }}
+                    type="button"
+                    className="sv-page-btn"
+                    onClick={() => goToProductPage(Math.max(currentProductPage - 1, 1))}
                     disabled={currentProductPage === 1}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: currentProductPage === 1 ? '#f1f5f9' : '#ffffff',
-                      color: currentProductPage === 1 ? '#94a3b8' : '#475569',
-                      cursor: currentProductPage === 1 ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s'
-                    }}
                   >
-                    Previous
+                    Prev
                   </button>
-                  {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => {
-                    const page = i + 1;
-                    if (totalPages > 10) {
-                      if (page === 1 || page === totalPages || (page >= currentProductPage - 1 && page <= currentProductPage + 1)) {
-                        return (
-                          <button
-                            key={page}
-                            onClick={() => {
-                              setCurrentProductPage(page);
-                              setLoading(true);
-                              fetchLabelledStock(page, productsPerPage, searchProduct, filterValues);
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              borderRadius: '6px',
-                              border: '1px solid',
-                              background: currentProductPage === page ? '#eef2ff' : '#ffffff',
-                              color: currentProductPage === page ? '#3730a3' : '#475569',
-                              borderColor: currentProductPage === page ? '#a5b4fc' : '#e2e8f0',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                              minWidth: '36px'
-                            }}
-                          >
-                            {page}
-                          </button>
-                        );
-                      } else if (page === currentProductPage - 2 || page === currentProductPage + 2) {
-                        return <span key={`ellipsis-${page}`} style={{ padding: '6px 8px', fontSize: '12px', color: '#94a3b8' }}>...</span>;
-                      }
-                      return null;
-                    } else {
-                      return (
+                  {isPhone ? (
+                    <span className="sv-page-indicator">{currentProductPage} / {Math.max(totalPages || 1, 1)}</span>
+                  ) : (
+                    generateProductPages().map((page, index) =>
+                      page === '...' ? (
+                        <span key={`ellipsis-${index}`} className="sv-page-ellipsis">…</span>
+                      ) : (
                         <button
+                          type="button"
                           key={page}
-                          onClick={() => {
-                            setCurrentProductPage(page);
-                            setLoading(true);
-                            fetchLabelledStock(page, productsPerPage, searchProduct, filterValues);
-                          }}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            borderRadius: '6px',
-                            border: '1px solid',
-                            background: currentProductPage === page ? '#eef2ff' : '#ffffff',
-                            color: currentProductPage === page ? '#3730a3' : '#475569',
-                            borderColor: currentProductPage === page ? '#a5b4fc' : '#e2e8f0',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            minWidth: '36px'
-                          }}
+                          className={`sv-page-num${currentProductPage === page ? ' is-current' : ''}`}
+                          onClick={() => goToProductPage(page)}
                         >
                           {page}
                         </button>
-                      );
-                    }
-                  })}
+                      )
+                    )
+                  )}
                   <button
-                    onClick={() => {
-                      const newPage = Math.min(currentProductPage + 1, totalPages);
-                      setCurrentProductPage(newPage);
-                      setLoading(true);
-                      fetchLabelledStock(newPage, productsPerPage, searchProduct, filterValues);
-                    }}
-                    disabled={currentProductPage === totalPages}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: currentProductPage === totalPages ? '#f1f5f9' : '#ffffff',
-                      color: currentProductPage === totalPages ? '#94a3b8' : '#475569',
-                      cursor: currentProductPage === totalPages ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.2s'
-                    }}
+                    type="button"
+                    className="sv-page-btn"
+                    onClick={() => goToProductPage(Math.min(currentProductPage + 1, Math.max(totalPages, 1)))}
+                    disabled={currentProductPage === totalPages || totalPages === 0}
                   >
                     Next
                   </button>
+                  {!isPhone ? (
+                    <div className="sv-page-goto">
+                      <span>Go to</span>
+                      <input
+                        type="text"
+                        value={pageInput}
+                        onChange={(e) => {
+                          if (e.target.value === '' || /^\d+$/.test(e.target.value)) setPageInput(e.target.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') goToProductPage(pageInput);
+                        }}
+                        placeholder="#"
+                      />
+                      <button type="button" className="sv-page-btn" onClick={() => goToProductPage(pageInput)}>Go</button>
+                    </div>
+                  ) : null}
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -3463,34 +2858,218 @@ const RFIDLabel = () => {
         </div>
       )}
       <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
+        .prn-page { color: #0f172a; }
+        .sv-top {
+          background: #fff;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          margin-bottom: 12px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
-        @keyframes slideInRight {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
+        .sv-top-inner { padding: 12px 14px; }
+        .sv-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .sv-tabs {
+          display: inline-flex;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          overflow: hidden;
+          background: #fff;
         }
-        * {
-          scrollbar-width: none;
-          -ms-overflow-style: none;
+        .sv-tab {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          height: 28px;
+          padding: 0 11px;
+          border: none;
+          border-right: 1px solid #e2e8f0;
+          background: #fff;
+          color: #334155;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
         }
-        *::-webkit-scrollbar {
-          display: none;
+        .sv-tab:last-child { border-right: none; }
+        .sv-tab.is-active { background: #f0fdfa; color: #0f766e; }
+        .sv-chip {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          height: 28px;
+          padding: 0 11px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          background: #fff;
+          color: #334155;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          white-space: nowrap;
         }
-        body, html {
-          overflow-x: hidden;
-          box-sizing: border-box;
+        .sv-chip svg { width: 11px; height: 11px; font-size: 11px; }
+        .sv-chip:hover { background: #f8fafc; }
+        .sv-chip.is-active, .sv-chip--accent { border-color: #99f6e4; color: #0f766e; }
+        .sv-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+        .sv-toolbar {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
         }
+        .sv-search-wrap {
+          position: relative;
+          flex: 1 1 220px;
+          min-width: 0;
+        }
+        .sv-search-wrap svg {
+          position: absolute;
+          left: 9px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #94a3b8;
+          font-size: 10px;
+          pointer-events: none;
+        }
+        .sv-search-wrap input {
+          width: 100%;
+          height: 28px;
+          padding: 0 10px 0 28px;
+          font-size: 11px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          outline: none;
+          background: #fff;
+          color: #0f172a;
+        }
+        .sv-search-wrap input:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12); }
+        .sv-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+        .sv-count-pill { font-size: 11px; font-weight: 600; color: #64748b; }
+        .prn-table-card {
+          background: #fff;
+          border: 1px solid #d4d4d8;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+          display: flex;
+          flex-direction: column;
+          min-height: 280px;
+        }
+        .prn-table-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          flex-wrap: wrap;
+          padding: 10px 12px;
+          border-bottom: 1px solid #e5e7eb;
+          background: #fff;
+        }
+        .prn-table-wrap {
+          overflow: auto;
+          width: 100%;
+          max-height: min(62vh, 640px);
+          -webkit-overflow-scrolling: touch;
+          background: #fafafa;
+        }
+        .prn-empty {
+          padding: 36px 16px;
+          text-align: center;
+          color: #737373;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        .sv-pagination {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 8px 12px;
+          border-top: 1px solid #e5e7eb;
+          background: #fafafa;
+        }
+        .sv-pagination-meta {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          font-size: 10px;
+          font-weight: 600;
+          color: #525252;
+        }
+        .sv-pagination-size { display: inline-flex; align-items: center; gap: 6px; color: #64748b; }
+        .sv-pagination-size select {
+          height: 28px;
+          padding: 0 6px;
+          font-size: 10px;
+          font-weight: 600;
+          border: 1px solid #e5e5e5;
+          border-radius: 6px;
+          background: #fff;
+          color: #404040;
+        }
+        .sv-pagination-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+        .sv-page-btn, .sv-page-num {
+          height: 28px;
+          min-width: 30px;
+          padding: 0 8px;
+          font-size: 10px;
+          font-weight: 600;
+          border-radius: 6px;
+          border: 1px solid #e5e5e5;
+          background: #fff;
+          color: #525252;
+          cursor: pointer;
+        }
+        .sv-page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .sv-page-num.is-current { border-color: #0f766e; color: #0f766e; }
+        .sv-page-ellipsis { padding: 0 3px; color: #94a3b8; font-size: 10px; font-weight: 600; }
+        .sv-page-indicator {
+          font-size: 10px;
+          font-weight: 700;
+          color: #0f172a;
+          font-variant-numeric: tabular-nums;
+          min-width: 44px;
+          text-align: center;
+        }
+        .sv-page-goto {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          color: #64748b;
+          font-size: 10px;
+          font-weight: 600;
+        }
+        .sv-page-goto input {
+          width: 40px;
+          height: 28px;
+          padding: 0 4px;
+          font-size: 10px;
+          border: 1px solid #e5e5e5;
+          border-radius: 6px;
+          text-align: center;
+          background: #fff;
+        }
+        .template-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+          gap: 12px;
+        }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @media (max-width: 768px) {
-          .template-grid {
-            grid-template-columns: 1fr !important;
-          }
+          .sv-top-inner { padding: 10px; }
+          .sv-header-actions, .sv-toolbar-actions, .sv-search-wrap { width: 100%; }
+          .sv-toolbar-actions { margin-left: 0; }
+          .sv-tabs { width: 100%; }
+          .sv-tab { flex: 1; justify-content: center; }
         }
-        @media (max-width: 480px) {
-          .template-grid {
-            grid-template-columns: 1fr !important;
-          }
+        @media (max-width: 640px) {
+          .sv-pagination { flex-direction: column; align-items: stretch; }
+          .sv-pagination-meta, .sv-pagination-nav { width: 100%; justify-content: space-between; }
+          .sv-page-btn { flex: 1 1 auto; }
         }
       `}</style>
     </div>

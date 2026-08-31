@@ -40,7 +40,10 @@ import {
   PLAYGROUND_AUTH_FORGOT_PASSWORD_BODY,
   PLAYGROUND_AUTH_LOGIN_BODY,
   PLAYGROUND_AUTH_REGISTER_BODY,
+  PLAYGROUND_ADD_MULTIPLE_BRANCH_AND_COUNTER_BODY,
   PLAYGROUND_CLIENT_CODE_ONLY,
+  PLAYGROUND_DELETE_BRANCH_BODY,
+  PLAYGROUND_DELETE_COUNTER_BODY,
   PLAYGROUND_DELETE_LABELLED_STOCK_BODY,
   PLAYGROUND_GET_RFID_TRANSACTION_BODY,
   PLAYGROUND_GET_SAVED_RFID_PRODUCT_BODY,
@@ -207,8 +210,36 @@ const API_GROUPS = [
     baseUrl: 'https://rrgold.loyalstring.co.in/api/ClientOnboarding',
     icon: FaUser,
     apis: [
-      { id: 'get-all-counters', name: 'Get All Counters', endpoint: 'GetAllCounters', method: 'POST', description: 'Get all counters for a client.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
-      { id: 'get-all-branch-master', name: 'Get All Branch Master', endpoint: 'GetAllBranchMaster', method: 'POST', description: 'Get branch master data.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-branch-master', name: 'Get Branch', endpoint: 'GetAllBranchMaster', method: 'POST', description: 'Get all branches for a client (Create Masters). Same as GetAllBranchMaster.', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      { id: 'get-all-counters', name: 'Get All Counters', endpoint: 'GetAllCounters', method: 'POST', description: 'Get all counters for a client (Create Masters).', sampleBody: { ...PLAYGROUND_CLIENT_CODE_ONLY } },
+      {
+        id: 'delete-branch',
+        name: 'Delete Branch',
+        endpoint: 'DeleteBranch',
+        method: 'POST',
+        baseUrl: 'https://soni.loyalstring.co.in/api/ClientOnboarding',
+        description: 'Delete a branch by Id (Create Masters). Body: ClientCode + Id.',
+        sampleBody: { ...PLAYGROUND_DELETE_BRANCH_BODY },
+        responseFormat: { status: 'success | failed', message: 'Deleted successfully.' },
+      },
+      {
+        id: 'delete-counter',
+        name: 'Delete Counter',
+        endpoint: 'DeleteCounter',
+        method: 'POST',
+        baseUrl: 'https://soni.loyalstring.co.in/api/ClientOnboarding',
+        description: 'Delete a counter by Id (Create Masters). Body: ClientCode + Id.',
+        sampleBody: { ...PLAYGROUND_DELETE_COUNTER_BODY },
+        responseFormat: { status: 'success | failed', message: 'Deleted successfully.' },
+      },
+      {
+        id: 'add-multiple-branch-and-counter',
+        name: 'Add Multiple Branch And Counter',
+        endpoint: 'AddMultipleBranchAndCounter',
+        method: 'POST',
+        description: 'Save multiple branches into tblBranchMaster and multiple counters into tblCounter in one call. RRGold Client Onboarding base URL.',
+        sampleBody: { ...PLAYGROUND_ADD_MULTIPLE_BRANCH_AND_COUNTER_BODY },
+      },
     ],
   },
   {
@@ -294,8 +325,9 @@ const createPostmanCollection = () => {
   const item = API_GROUPS.map((group) => ({
     name: group.name,
     item: group.apis.map((api) => {
-      const endpointPath = `/api/${(group.baseUrl.split('/api/')[1] || '').replace(/^\/+/, '')}/${api.endpoint}`;
-      const url = new URL(`${group.baseUrl}/${api.endpoint}${api.urlParams || ''}`);
+      const baseUrl = api.baseUrl || group.baseUrl;
+      const endpointPath = `/api/${(baseUrl.split('/api/')[1] || '').replace(/^\/+/, '')}/${api.endpoint}`;
+      const url = new URL(`${baseUrl}/${api.endpoint}${api.urlParams || ''}`);
       const rawBody = api.sampleBody === null || api.sampleBody === undefined ? {} : api.sampleBody;
       return {
         name: api.name,
@@ -360,7 +392,7 @@ const Dashboard = () => {
   }, []);
 
   const handleApiClick = (api, fromGroup) => {
-    const fullApi = fromGroup ? { ...api, baseUrl: fromGroup.baseUrl } : api;
+    const fullApi = fromGroup ? { ...api, baseUrl: api.baseUrl || fromGroup.baseUrl } : api;
     setSelectedApi(fullApi);
     setResponse(null);
     setResponseMeta(null);
@@ -620,7 +652,7 @@ const Dashboard = () => {
         y += 5;
 
         writeRow('Use case', getApiUseCase(api));
-        writeRow('URL', `${group.baseUrl}/${api.endpoint}${api.urlParams || ''}`);
+        writeRow('URL', `${api.baseUrl || group.baseUrl}/${api.endpoint}${api.urlParams || ''}`);
         writeRow('Payload', safeJsonString(api.sampleBody ?? {}), { isCode: true });
         writeRow('Response', safeJsonString(getApiResponseTemplate(api)), { isCode: true });
         doc.setDrawColor(226, 232, 240);
@@ -700,12 +732,13 @@ const Dashboard = () => {
                 {group.name}
               </div>
               {group.apis.map((api) => {
-                const isSelected = selectedApi?.id === api.id && selectedApi?.baseUrl === group.baseUrl;
+                const apiBase = api.baseUrl || group.baseUrl;
+                const isSelected = selectedApi?.id === api.id && selectedApi?.baseUrl === apiBase;
                 const methodColor = METHOD_COLORS[api.method] || METHOD_COLORS.POST;
                 const ApiIcon = getApiIcon(api);
                 return (
                   <button
-                    key={`${group.baseUrl}-${api.id}`}
+                    key={`${apiBase}-${api.id}`}
                     type="button"
                     onClick={() => handleApiClick(api, group)}
                     style={{
@@ -854,10 +887,11 @@ const Dashboard = () => {
                         {group.apis.map((api) => {
                           const ApiIcon = getApiIcon(api);
                           const methodColor = METHOD_COLORS[api.method] || METHOD_COLORS.POST;
-                          const isSelected = selectedApi?.id === api.id && selectedApi?.baseUrl === group.baseUrl;
+                          const apiBase = api.baseUrl || group.baseUrl;
+                          const isSelected = selectedApi?.id === api.id && selectedApi?.baseUrl === apiBase;
                           return (
                             <button
-                              key={`${group.baseUrl}-${api.id}`}
+                              key={`${apiBase}-${api.id}`}
                               type="button"
                               onClick={() => handleApiClick(api, group)}
                               style={{

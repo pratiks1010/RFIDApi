@@ -37,6 +37,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import SuccessNotification from '../common/SuccessNotification';
+import PageHeader from '../common/PageHeader';
 import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
 import { buildTrayStockLookupPayload } from '../../utils/epcLookup';
@@ -279,6 +280,9 @@ const LabelStockList = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState({ title: '', message: '' });
   const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [rowActionMenu, setRowActionMenu] = useState(null);
   const [columnConfig, setColumnConfig] = useState(loadColumnConfig);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [filterValues, setFilterValues] = useState({
@@ -372,6 +376,8 @@ const LabelStockList = () => {
   // Window width state for responsive design
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [windowHeight, setWindowHeight] = useState(window.innerHeight);
+  const isPhone = windowWidth <= 640;
+  const isTablet = windowWidth > 640 && windowWidth <= 1024;
   const isSmallScreen = windowWidth <= 768;
   const filterDropdownOpenRef = useRef(false);
   const handleInnerScrollWheel = (e) => {
@@ -383,9 +389,11 @@ const LabelStockList = () => {
       e.stopPropagation();
     }
   };
-  const tableViewportHeight = windowWidth <= 768
-    ? Math.max(360, windowHeight - 220)
-    : Math.max(520, windowHeight - 180);
+  const tableViewportHeight = isPhone
+    ? Math.max(260, windowHeight - 300)
+    : isTablet
+      ? Math.max(360, windowHeight - 250)
+      : Math.max(480, windowHeight - 200);
 
   useEffect(() => {
     filterDropdownOpenRef.current = Object.values(dropdownStates).some(s => s?.isOpen);
@@ -400,6 +408,38 @@ const LabelStockList = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!showMoreMenu) return undefined;
+    const close = (e) => {
+      if (!e.target.closest('[data-lsl-more]')) {
+        setShowMoreMenu(false);
+        setShowTemplatePicker(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [showMoreMenu]);
+
+  useEffect(() => {
+    if (!showMoreMenu) setShowTemplatePicker(false);
+  }, [showMoreMenu]);
+
+  useEffect(() => {
+    if (!rowActionMenu) return undefined;
+    const close = (e) => {
+      if (!e.target.closest('[data-lsl-row-more]')) setRowActionMenu(null);
+    };
+    const closeOnMove = () => setRowActionMenu(null);
+    document.addEventListener('mousedown', close);
+    window.addEventListener('resize', closeOnMove);
+    window.addEventListener('scroll', closeOnMove, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('resize', closeOnMove);
+      window.removeEventListener('scroll', closeOnMove, true);
+    };
+  }, [rowActionMenu]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -2819,7 +2859,7 @@ const LabelStockList = () => {
   // Smart Pagination Logic - similar to reference code
   const generatePagination = () => {
     let pages = [];
-    const maxPagesToShow = 7;
+    const maxPagesToShow = isPhone ? 3 : isTablet ? 5 : 7;
 
     if (totalPages <= maxPagesToShow) {
       pages = Array.from({ length: totalPages }, (_, i) => i + 1);
@@ -3678,13 +3718,11 @@ const LabelStockList = () => {
     [columnConfig]
   );
 
-  // Minimum table width derived from visible columns so that, when few columns are
-  // shown, the table fits within the container (View/Print stay visible without
-  // horizontal scrolling). Extra 140px accounts for the checkbox + View + Print cells.
+  // Checkbox + sticky actions column (icons on desktop, More on phone).
   const tableMinWidth = useMemo(() => {
     const sum = columns.reduce((acc, col) => acc + (parseInt(col.width, 10) || 90), 0);
-    return sum + 140;
-  }, [columns]);
+    return sum + 40 + 40 + 40 + (userInfo?.ClientCode === 'LS000438' ? 0 : 40);
+  }, [columns, userInfo?.ClientCode]);
 
   // Column settings helpers (used by the Columns modal)
   const moveColumn = (index, direction) => {
@@ -3857,15 +3895,15 @@ const LabelStockList = () => {
   }
 
   const exportModal = showExportModal && (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={() => setShowExportModal(false)}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">Export Label Stock List</h2>
+          <h2 className="modal-title">Export all</h2>
           <button className="close-button" onClick={() => setShowExportModal(false)}>
             <span>&times;</span>
           </button>
         </div>
-        <p className="modal-subtitle">Choose your preferred export format</p>
+        <p className="modal-subtitle">Choose a format. Full report and email are also here.</p>
 
         <div className="export-options">
           <button
@@ -3984,23 +4022,26 @@ const LabelStockList = () => {
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: rgba(0, 0, 0, 0.4);
+            background-color: rgba(15, 23, 42, 0.45);
             display: flex;
             justify-content: center;
             align-items: center;
             z-index: 1000;
-            backdrop-filter: blur(2px);
+            backdrop-filter: blur(6px);
           }
 
           .modal-content {
             background: white;
-            border-radius: 8px;
-            padding: 20px;
-            width: 460px;
+            border-radius: 16px;
+            padding: 22px;
+            width: 480px;
             max-width: 95vw;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 24px 48px rgba(15, 23, 42, 0.22);
             position: relative;
             animation: modalSlideIn 0.2s ease-out;
+            border: 1px solid #e2e8f0;
           }
 
           @keyframes modalSlideIn {
@@ -4023,10 +4064,11 @@ const LabelStockList = () => {
 
           .modal-title {
             font-size: 18px;
-            font-weight: 600;
-            color: #2D3E50;
+            font-weight: 800;
+            color: #0f172a;
             margin: 0;
             line-height: 1.2;
+            letter-spacing: -0.02em;
           }
 
           .close-button {
@@ -4062,9 +4104,9 @@ const LabelStockList = () => {
           .export-option {
             display: flex;
             align-items: center;
-            padding: 12px;
-            border: 1px solid #E5E9F2;
-            border-radius: 6px;
+            padding: 12px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
             background: white;
             cursor: pointer;
             transition: all 0.2s;
@@ -4075,10 +4117,10 @@ const LabelStockList = () => {
           }
 
           .export-option:hover {
-            border-color: #2D9CDB;
-            background: #F8FAFC;
+            border-color: #0d9488;
+            background: #f0fdfa;
             transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(45, 156, 219, 0.1);
+            box-shadow: 0 4px 12px rgba(13, 148, 136, 0.12);
           }
 
           .export-option:disabled {
@@ -4244,6 +4286,59 @@ const LabelStockList = () => {
   );
 
   /* product details moved to ProductDetailsPage - navigate to /product-details with state: { product, apiFilterData } */
+  const recordCount = showAllData && allFilteredData.length > 0 ? allFilteredData.length : totalRecords;
+  const printReady = selectedRows.length > 0 && Boolean(selectedTemplate) && !previewLoading;
+  const canDeleteStock = userInfo?.ClientCode !== 'LS000438';
+  const goToProductDetails = (item, e) => {
+    e?.stopPropagation();
+    setRowActionMenu(null);
+    navigate('/product-details', {
+      state: {
+        product: item,
+        apiFilterData,
+        labelStockList: (showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems),
+      },
+    });
+  };
+  const requestDeleteItem = (item, e) => {
+    e?.stopPropagation();
+    setRowActionMenu(null);
+    setSelectedRows([item.Id]);
+    setShowDeleteConfirm(true);
+  };
+  const syncDisabled =
+    folderAutoPushSyncing ||
+    !resolveClientCodeForTray(userInfo) ||
+    (typeof window !== 'undefined' && !window.electronAPI?.getConfig);
+  const appliedFilterCount = Object.values(filterValues || {}).filter(
+    (v) => v != null && v !== 'All' && String(v).trim() !== ''
+  ).length;
+  const compactBtn = ({ active = false, danger = false, disabled = false } = {}) => ({
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: 28,
+    padding: '0 9px',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.01em',
+    borderRadius: 7,
+    whiteSpace: 'nowrap',
+    boxSizing: 'border-box',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+    border: danger ? '1px solid #fecaca' : active ? '1px solid #991b1b' : '1px solid #e2e8f0',
+    background: disabled
+      ? '#f8fafc'
+      : danger
+        ? '#fff'
+        : active
+          ? 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)'
+          : '#fff',
+    color: disabled ? '#94a3b8' : danger ? '#b91c1c' : active ? '#fff' : '#334155',
+  });
+
   return (
     <div
       className="label-stock-list-page"
@@ -4255,9 +4350,12 @@ const LabelStockList = () => {
         overflowX: 'hidden',
         overflowY: 'auto',
         fontFamily: 'var(--font-family)',
-        padding: '12px',
+        padding: isPhone ? '8px' : isTablet ? '10px' : '12px',
         fontSize: 11,
-        background: '#ffffff',
+        background: '#f8fafc',
+        width: '100%',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
       }}
     >
       <SuccessNotification
@@ -4271,684 +4369,288 @@ const LabelStockList = () => {
         <div
           role="banner"
           aria-label="Label Stock List Header with Actions"
-          style={{
-            background: '#ffffff',
-            borderRadius: 12,
-            overflow: 'hidden',
-            marginBottom: 12,
-            boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
-            border: '1px solid #e2e8f0',
-            position: 'sticky',
-            top: 0,
-            zIndex: 100,
-          }}
+          className="lsl-top"
         >
-          <div
-            style={{
-              height: 3,
-              background: 'linear-gradient(90deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%)',
-            }}
-          />
-          <div style={{ padding: '12px 14px 12px' }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                flexWrap: 'wrap',
-                paddingBottom: 12,
-                borderBottom: '1px solid #f1f5f9',
+          <div className="lsl-top-inner">
+            <PageHeader
+              className="lsl-page-header"
+              title="Label Stock List"
+              subtitle={`${recordCount.toLocaleString()} records${selectedRows.length > 0 ? ` · ${selectedRows.length} selected` : ''}`}
+              barStyle={{
+                padding: 0,
+                margin: 0,
+                gap: 10,
+                borderBottom: 'none',
               }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  flex: '1 1 auto',
-                  minWidth: 0,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => navigate(-1)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 12px',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    borderRadius: 8,
-                    border: '1px solid #e2e8f0',
-                    background: '#fff',
-                    color: '#475569',
-                    cursor: 'pointer',
-                    height: 34,
-                    boxSizing: 'border-box',
-                    flexShrink: 0,
-                  }}
-                >
-                  <FaArrowLeft style={{ fontSize: 12 }} /> Back
-                </button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                  <div
-                    style={{
-                      width: isSmallScreen ? 34 : 38,
-                      height: isSmallScreen ? 34 : 38,
-                      borderRadius: 10,
-                      background: 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)',
-                      boxShadow: '0 2px 8px rgba(185, 28, 28, 0.35)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#fff',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <FaList style={{ fontSize: isSmallScreen ? 14 : 16 }} />
-                  </div>
-                  <h1
-                    style={{
-                      margin: 0,
-                      fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
-                      fontWeight: 800,
-                      color: '#0f172a',
-                      fontFamily: 'var(--font-family)',
-                      lineHeight: 1.2,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    Label stock list
-                  </h1>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
-                <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                  {showAllData && allFilteredData.length > 0 ? allFilteredData.length : totalRecords} record
-                  {(showAllData && allFilteredData.length > 0 ? allFilteredData.length : totalRecords) !== 1 ? 's' : ''}
-                </span>
-                <div style={{ minWidth: 160, flexShrink: 0 }}>
-                  <select
-                    id="template-selector-header"
-                    value={selectedTemplate?.value || ''}
-                    onChange={(e) => {
-                      const selectedValue = e.target.value;
-                      if (selectedValue === '') {
-                        setSelectedTemplate(null);
-                      } else {
-                        const option = templateOptions.find((opt) => String(opt.value) === String(selectedValue));
-                        if (option) setSelectedTemplate(option);
-                      }
-                    }}
-                    disabled={templatesLoading}
-                    aria-label="Select label template"
-                    style={{
-                      width: '100%',
-                      padding: '0 8px',
-                      fontSize: 11,
-                      fontWeight: 500,
-                      border: '1px solid #e5e5e5',
-                      borderRadius: 8,
-                      outline: 'none',
-                      height: 30,
-                      boxSizing: 'border-box',
-                      background: templatesLoading ? '#f1f5f9' : '#ffffff',
-                      cursor: templatesLoading ? 'not-allowed' : 'pointer',
-                      color: selectedTemplate ? '#404040' : '#737373',
-                    }}
-                  >
-                    {templateOptions.length === 0 ? (
-                      <option value="">{templatesLoading ? 'Loading...' : 'No templates'}</option>
-                    ) : (
-                      <>
-                        <option value="">Select template</option>
-                        {templateOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </>
-                    )}
-                  </select>
-                </div>
-                <button
-                  onClick={handlePrintLabel}
-                  disabled={selectedRows.length === 0 || !selectedTemplate || previewLoading}
-                  aria-label={
-                    selectedRows.length === 0
-                      ? 'Please select items to print labels'
-                      : !selectedTemplate
-                        ? 'Please select a template to print labels'
-                        : `Print labels for ${selectedRows.length} selected item(s)`
-                  }
-                  title={
-                    selectedRows.length === 0
-                      ? 'Please select items to print labels'
-                      : !selectedTemplate
-                        ? 'Please select a template to print labels'
-                        : `Print labels for ${selectedRows.length} selected item(s)`
-                  }
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 14px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    borderRadius: 8,
-                    border:
-                      selectedRows.length > 0 && selectedTemplate && !previewLoading
-                        ? '1px solid #991b1b'
-                        : '1px solid #e2e8f0',
-                    background:
-                      selectedRows.length > 0 && selectedTemplate && !previewLoading
-                        ? 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)'
-                        : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                    color:
-                      selectedRows.length > 0 && selectedTemplate && !previewLoading ? '#ffffff' : '#94a3b8',
-                    cursor:
-                      selectedRows.length === 0 || !selectedTemplate || previewLoading ? 'not-allowed' : 'pointer',
-                    opacity: selectedRows.length === 0 || !selectedTemplate || previewLoading ? 0.55 : 1,
-                    boxSizing: 'border-box',
-                    height: 34,
-                    justifyContent: 'center',
-                  }}
-                >
-                  {previewLoading ? (
-                    <>
-                      <FaSpinner style={{ animation: 'spin 1s linear infinite', fontSize: 10 }} />
-                      Printing…
-                    </>
-                  ) : (
-                    <>
-                      <FaFilePdf style={{ fontSize: 12 }} />
-                      Print label
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
+            />
 
-          {/* Action Buttons & Search Row */}
-          <div style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '10px',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: '12px',
-            paddingTop: '12px',
-            borderTop: '1px solid #f1f5f9'
-          }}
-            className="label-toolbar"
+          <div
+            className="lsl-toolbar"
             role="toolbar"
             aria-label="Action buttons toolbar"
           >
-            {/* Left group: keeps Search + Active Only together at the same place regardless of button wrapping */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              flexWrap: 'wrap',
-              flex: windowWidth <= 768 ? '1 1 100%' : '0 1 auto'
-            }}>
-            {/* Search Input */}
-            <div style={{
-              position: 'relative',
-              flex: '0 1 auto',
-              minWidth: windowWidth <= 768 ? '100%' : '190px',
-              maxWidth: windowWidth <= 768 ? '100%' : '260px'
-            }}>
+            <div className="lsl-search-row">
+            <div className="lsl-search-wrap">
               <FaSearch style={{
                 position: 'absolute',
-                left: '10px',
+                left: '9px',
                 top: '50%',
                 transform: 'translateY(-50%)',
                 color: '#94a3b8',
-                fontSize: 11,
+                fontSize: 10,
                 zIndex: 1,
                 pointerEvents: 'none',
               }} />
               <input
                 type="text"
-                placeholder="Search by Product Name, Category, SKU..."
+                placeholder="Search product, category, RFID…"
                 value={searchQuery}
                 onChange={e => handleSearchChange(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0 8px 0 30px',
-                  fontSize: 11,
-                  border: '1px solid #e5e5e5',
-                  borderRadius: 8,
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  height: 30,
-                  color: '#404040',
-                  background: '#fff',
-                }}
-                onFocus={(e) => { e.target.style.borderColor = '#cbd5e1'; }}
-                onBlur={(e) => { e.target.style.borderColor = '#e5e5e5'; }}
+                className="lsl-search-input"
               />
             </div>
 
-            {/* Toggle Button for Active Status */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 12px',
-              background: showActiveOnly ? '#059669' : '#f8fafc',
-              borderRadius: '8px',
-              border: '1px solid',
-              borderColor: showActiveOnly ? '#059669' : '#e2e8f0',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              userSelect: 'none'
-            }}
+            <button
+              type="button"
+              className={`lsl-chip ${showActiveOnly ? 'is-on' : ''}`}
               onClick={() => setShowActiveOnly(!showActiveOnly)}
               title={showActiveOnly ? 'Show all items' : 'Show only items with RFID Code'}
             >
-              <div style={{
-                width: '36px',
-                height: '20px',
-                background: showActiveOnly ? '#ffffff' : '#e2e8f0',
-                borderRadius: '10px',
-                position: 'relative',
-                transition: 'all 0.2s'
-              }}>
-                <div style={{
-                  width: '16px',
-                  height: '16px',
-                  background: '#ffffff',
-                  borderRadius: '50%',
-                  position: 'absolute',
-                  top: '2px',
-                  left: showActiveOnly ? '18px' : '2px',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                }} />
-              </div>
-              <span style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: showActiveOnly ? '#ffffff' : '#64748b'
-              }}>
-                Active Only
-              </span>
-            </div>
+              <span className={`lsl-switch ${showActiveOnly ? 'is-on' : ''}`} />
+              <span>Active</span>
+            </button>
             </div>
 
-            {/* Buttons Container - Right Aligned */}
-            <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '8px',
-              alignItems: 'center',
-              marginLeft: 'auto',
-              minWidth: 'fit-content'
-            }}
-              className="label-toolbar-actions"
-              role="group"
-              aria-label="Action buttons group"
-            >
-              {/* View Toggle Button */}
-              <button
-                onClick={() => setIsGridView(!isGridView)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: `1px solid ${isGridView ? '#991b1b' : '#cbd5e1'}`,
-                  background: isGridView ? 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)' : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: isGridView ? '#ffffff' : '#0f172a',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-                title={isGridView ? "Switch to List View" : "Switch to Grid View"}
-              >
-                {isGridView ? <FaThList style={{ fontSize: 12 }} /> : <FaThLarge style={{ fontSize: 12 }} />}
-                <span>{isGridView ? "List" : "Grid"}</span>
-              </button>
+            {/* Primary + overflow actions */}
+            <div className="label-toolbar-actions" role="group" aria-label="Action buttons group">
+              <div className="lsl-chip-group">
+                <button
+                  type="button"
+                  className={`lsl-chip ${isGridView ? 'is-active' : ''}`}
+                  onClick={() => setIsGridView(!isGridView)}
+                  title={isGridView ? 'Switch to List View' : 'Switch to Grid View'}
+                >
+                  {isGridView ? <FaThList /> : <FaThLarge />}
+                  <span className="lsl-btn-label">{isGridView ? 'List' : 'Grid'}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`lsl-chip ${showFilterPanel ? 'is-active' : ''}`}
+                  onClick={() => setShowFilterPanel(!showFilterPanel)}
+                  title="Filters"
+                >
+                  <FaFilter />
+                  <span className="lsl-btn-label">Filter</span>
+                  {appliedFilterCount > 0 ? <span className="lsl-count-badge">{appliedFilterCount}</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className="lsl-chip"
+                  onClick={() => setShowColumnSettings(true)}
+                  title="Show/hide, reorder and rename table columns"
+                >
+                  <FaList />
+                  <span className="lsl-btn-label">Columns</span>
+                </button>
+              </div>
 
               <button
                 type="button"
-                onClick={handleFolderAutoPushSync}
-                disabled={
-                  folderAutoPushSyncing ||
-                  !resolveClientCodeForTray(userInfo) ||
-                  (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
-                }
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #86efac',
-                  background:
-                    folderAutoPushSyncing ||
-                    !resolveClientCodeForTray(userInfo) ||
-                    (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
-                      ? '#f1f5f9'
-                      : 'linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%)',
-                  color:
-                    folderAutoPushSyncing ||
-                    !resolveClientCodeForTray(userInfo) ||
-                    (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
-                      ? '#94a3b8'
-                      : '#065f46',
-                  cursor:
-                    folderAutoPushSyncing ||
-                    !resolveClientCodeForTray(userInfo) ||
-                    (typeof window !== 'undefined' && !window.electronAPI?.getConfig)
-                      ? 'not-allowed'
-                      : 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-                title="Process Excel files from Auto Push source folder using your saved default template (Auto Push Stock Utility), then refresh this list."
+                className="lsl-chip lsl-chip--accent"
+                onClick={() => setShowExportModal(true)}
+                title="Export all"
               >
-                {folderAutoPushSyncing ? (
-                  <FaSpinner style={{ fontSize: 12 }} />
-                ) : (
-                  <FaSync style={{ fontSize: 12 }} />
-                )}
-                <span>Sync</span>
+                <FaFileExport />
+                <span className="lsl-btn-label">Export</span>
               </button>
-              {(folderAutoPushSyncing || folderAutoPushOutcome || folderAutoPushProgress.message) ? (
-                <div
-                  style={{
-                    minWidth: 240,
-                    maxWidth: 420,
-                    marginLeft: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    border: '1px solid #e2e8f0',
-                    background: '#f8fafc',
-                    borderRadius: 10,
-                    padding: '8px 10px',
-                  }}
+
+              <div className="lsl-more" data-lsl-more>
+                <button
+                  type="button"
+                  className={`lsl-chip ${showMoreMenu ? 'is-active' : ''}`}
+                  onClick={() => setShowMoreMenu((open) => !open)}
+                  title="More actions"
+                  aria-haspopup="menu"
+                  aria-expanded={showMoreMenu}
                 >
-                  {(() => {
-                    const total = Number(folderAutoPushProgress.totalFiles || 0);
-                    const processed = Number(folderAutoPushProgress.processedFiles || 0);
-                    const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((processed / total) * 100))) : 0;
-                    return (
-                      <>
-                        {(folderAutoPushSyncing || total > 0) ? (
-                          <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                              <div style={{ fontSize: 10, color: '#0f172a', fontWeight: 700 }}>
-                                {folderAutoPushProgress.phase || 'Syncing'}
-                              </div>
-                              <div style={{ fontSize: 10, color: '#065f46', fontWeight: 800, background: '#dcfce7', borderRadius: 999, padding: '2px 8px' }}>
-                                {percent}%
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                width: '100%',
-                                height: 8,
-                                borderRadius: 999,
-                                background: '#e2e8f0',
-                                overflow: 'hidden',
-                                boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.08)',
+                  <FaEllipsisV />
+                  <span className="lsl-btn-label">More</span>
+                </button>
+                {showMoreMenu ? (
+                  <div className="lsl-more-menu" role="menu">
+                    <div className="lsl-more-print">
+                      <div className="lsl-more-kicker">Print labels</div>
+                      <div className="lsl-more-select-wrap">
+                        <button
+                          type="button"
+                          className={`lsl-more-select${showTemplatePicker ? ' is-open' : ''}${selectedTemplate ? ' has-value' : ''}`}
+                          disabled={templatesLoading}
+                          onClick={() => setShowTemplatePicker((open) => !open)}
+                          aria-haspopup="listbox"
+                          aria-expanded={showTemplatePicker}
+                          aria-label="Select label template"
+                        >
+                          <span className="lsl-more-select-text">
+                            {templatesLoading
+                              ? 'Loading templates…'
+                              : (selectedTemplate?.label || 'Select template')}
+                          </span>
+                          <KeyboardArrowDownIcon sx={{ fontSize: 16, color: '#8A734C' }} />
+                        </button>
+                        {showTemplatePicker ? (
+                          <div className="lsl-more-select-list" role="listbox">
+                            <button
+                              type="button"
+                              role="option"
+                              className={!selectedTemplate ? 'is-selected' : ''}
+                              aria-selected={!selectedTemplate}
+                              onClick={() => {
+                                setSelectedTemplate(null);
+                                setShowTemplatePicker(false);
                               }}
                             >
-                              <div
-                                style={{
-                                  width: `${percent}%`,
-                                  height: '100%',
-                                  background: 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)',
-                                  transition: 'width 220ms ease',
+                              Select template
+                            </button>
+                            {templateOptions.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                role="option"
+                                className={String(selectedTemplate?.value) === String(option.value) ? 'is-selected' : ''}
+                                aria-selected={String(selectedTemplate?.value) === String(option.value)}
+                                onClick={() => {
+                                  setSelectedTemplate(option);
+                                  setShowTemplatePicker(false);
                                 }}
-                              />
-                            </div>
-                            <div style={{ fontSize: 11, color: '#334155', fontWeight: 600 }}>
-                              {folderAutoPushProgress.message || 'Sync in progress…'}
-                              {total > 0 ? ` (${processed}/${total})` : ''}
-                            </div>
-                            {(folderAutoPushProgress.okCount > 0 || folderAutoPushProgress.failCount > 0) ? (
-                              <div style={{ fontSize: 10, color: '#64748b' }}>
-                                Success: {folderAutoPushProgress.okCount} | Failed: {folderAutoPushProgress.failCount}
-                              </div>
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                            {templateOptions.length === 0 && !templatesLoading ? (
+                              <div className="lsl-more-select-empty">No templates available</div>
                             ) : null}
-                          </>
-                        ) : null}
-                        {folderAutoPushOutcome ? (
-                          <div
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color:
-                                folderAutoPushOutcome.type === 'success'
-                                  ? '#065f46'
-                                  : folderAutoPushOutcome.type === 'warning'
-                                    ? '#92400e'
-                                    : folderAutoPushOutcome.type === 'error'
-                                      ? '#b91c1c'
-                                      : '#334155',
-                            }}
-                            title={folderAutoPushOutcome.message}
-                          >
-                            {folderAutoPushOutcome.message}
                           </div>
                         ) : null}
-                      </>
-                    );
-                  })()}
-                </div>
-              ) : null}
-
-              {/* Delete Button */}
-              <button
-                onClick={handleDelete}
-                disabled={selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438'}
-                title={userInfo?.ClientCode === 'LS000438' ? 'Delete not available for this client' : ''}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #fecaca',
-                  background: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? '#f8fafc' : 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
-                  color: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? '#94a3b8' : '#b91c1c',
-                  cursor: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? 'not-allowed' : 'pointer',
-                  opacity: (selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438') ? 0.55 : 1,
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-              >
-                <FaTrash style={{ fontSize: 11 }} />
-                <span>Delete</span>
-              </button>
-
-              {/* Export Button */}
-              <button
-                onClick={() => setShowTrayScanModal(true)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: '#0f172a',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-              >
-                <FaSearch style={{ fontSize: 11, color: '#475569' }} />
-                <span>Scan Tray</span>
-              </button>
-
-              <button
-                onClick={handleRefreshInventoryView}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: '#0f172a',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-                title="Refresh and show default inventory view"
-              >
-                <FaSync style={{ fontSize: 11, color: '#475569' }} />
-                <span>Refresh</span>
-              </button>
-
-              {/* Export Button */}
-              <button
-                onClick={() => setShowExportModal(true)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: '#0f172a',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-              >
-                <FaFileExport style={{ fontSize: 11, color: '#475569' }} />
-                <span>Export</span>
-              </button>
-
-              {/* Report Button */}
-              <button
-                onClick={generateAndShowReport}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: '#0f172a',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-              >
-                <FaFilePdf style={{ fontSize: 11, color: '#475569' }} />
-                <span>Report</span>
-              </button>
-
-              {/* Columns Button - opens column settings modal */}
-              <button
-                onClick={() => setShowColumnSettings(true)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: '#0f172a',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-                title="Show/hide, reorder and rename table columns"
-              >
-                <FaList style={{ fontSize: 11, color: '#475569' }} />
-                <span>Columns</span>
-              </button>
-
-              {/* Filter Button - toggles inline filter section below */}
-              <button
-                onClick={() => setShowFilterPanel(!showFilterPanel)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: `1px solid ${showFilterPanel ? '#991b1b' : '#cbd5e1'}`,
-                  background: showFilterPanel ? 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)' : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: showFilterPanel ? '#ffffff' : '#0f172a',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-              >
-                <FaFilter style={{ fontSize: 11 }} />
-                <span>Filter</span>
-              </button>
-
-              {/* Delete All Button */}
-              <button
-                onClick={handleDeleteAllStock}
-                disabled={userInfo?.ClientCode === 'LS000438'}
-                title={userInfo?.ClientCode === 'LS000438' ? 'Delete all not available for this client' : ''}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #fecaca',
-                  background: userInfo?.ClientCode === 'LS000438' ? '#f8fafc' : 'linear-gradient(180deg, #ffffff 0%, #fef2f2 100%)',
-                  color: userInfo?.ClientCode === 'LS000438' ? '#94a3b8' : '#b91c1c',
-                  cursor: userInfo?.ClientCode === 'LS000438' ? 'not-allowed' : 'pointer',
-                  opacity: userInfo?.ClientCode === 'LS000438' ? 0.55 : 1,
-                  boxSizing: 'border-box',
-                  height: 30,
-                }}
-              >
-                <FaTrash style={{ fontSize: 11 }} />
-                <span>Delete All</span>
-              </button>
+                      </div>
+                      <button
+                        type="button"
+                        className={`lsl-more-print-btn${printReady ? ' is-ready' : ''}`}
+                        disabled={selectedRows.length === 0 || !selectedTemplate || previewLoading}
+                        onClick={() => {
+                          setShowMoreMenu(false);
+                          handlePrintLabel();
+                        }}
+                      >
+                        {previewLoading ? (
+                          <FaSpinner style={{ animation: 'spin 1s linear infinite', fontSize: 11 }} />
+                        ) : (
+                          <FaPrint />
+                        )}
+                        {previewLoading ? 'Printing…' : 'Print label'}
+                      </button>
+                      <div className="lsl-more-print-hint">
+                        {selectedRows.length === 0
+                          ? 'Select items in the list first'
+                          : !selectedTemplate
+                            ? `${selectedRows.length} selected · pick a template`
+                            : `Ready to print ${selectedRows.length} label${selectedRows.length === 1 ? '' : 's'}`}
+                      </div>
+                    </div>
+                    <div className="lsl-more-sep" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={syncDisabled}
+                      onClick={() => { setShowMoreMenu(false); handleFolderAutoPushSync(); }}
+                    >
+                      <FaSync /> Sync
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setShowMoreMenu(false); handleRefreshInventoryView(); }}
+                    >
+                      <FaSync /> Refresh
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setShowMoreMenu(false); setShowTrayScanModal(true); }}
+                    >
+                      <FaSearch /> Scan tray
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setShowMoreMenu(false); generateAndShowReport(); }}
+                    >
+                      <FaFilePdf /> Report
+                    </button>
+                    <div className="lsl-more-sep" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="is-danger"
+                      disabled={selectedRows.length === 0 || userInfo?.ClientCode === 'LS000438'}
+                      onClick={() => { setShowMoreMenu(false); handleDelete(); }}
+                    >
+                      <FaTrash /> Delete selected
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="is-danger"
+                      disabled={userInfo?.ClientCode === 'LS000438'}
+                      onClick={() => { setShowMoreMenu(false); handleDeleteAllStock(); }}
+                    >
+                      <FaTrash /> Delete all
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
+          {(folderAutoPushSyncing || folderAutoPushOutcome || folderAutoPushProgress.message) ? (
+            <div className="lsl-sync-panel">
+              {(() => {
+                const total = Number(folderAutoPushProgress.totalFiles || 0);
+                const processed = Number(folderAutoPushProgress.processedFiles || 0);
+                const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((processed / total) * 100))) : 0;
+                return (
+                  <>
+                    {(folderAutoPushSyncing || total > 0) ? (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 700 }}>
+                            {folderAutoPushProgress.phase || 'Syncing'}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--ui-primary)', fontWeight: 700, background: '#fff', border: '1px solid #99f6e4', borderRadius: 999, padding: '2px 8px' }}>
+                            {percent}%
+                          </div>
+                        </div>
+                        <div className="lsl-sync-bar">
+                          <div style={{ width: `${percent}%` }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: '#334155', fontWeight: 600 }}>
+                          {folderAutoPushProgress.message || 'Sync in progress…'}
+                          {total > 0 ? ` (${processed}/${total})` : ''}
+                        </div>
+                      </>
+                    ) : null}
+                    {folderAutoPushOutcome ? (
+                      <div style={{ fontSize: 11, fontWeight: 600, color: folderAutoPushOutcome.type === 'success' ? '#065f46' : folderAutoPushOutcome.type === 'error' ? '#b91c1c' : '#92400e' }}>
+                        {folderAutoPushOutcome.message}
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+            </div>
+          ) : null}
           </div>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', width: '100%' }}>
         {showReportView && (
           <div
             style={{
@@ -5071,12 +4773,12 @@ const LabelStockList = () => {
         {/* Inline filter section - opens below toolbar when Filter clicked (no sidebar) */}
         {showFilterPanel && (
           <div className="filter-inline-section" style={{
-            marginTop: '10px',
-            padding: '10px 12px',
+            marginTop: '8px',
+            padding: '8px 10px',
             background: '#ffffff',
-            border: '1px solid #e5e5e5',
+            border: '1px solid #e2e8f0',
             borderRadius: '10px',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+            boxShadow: '0 1px 2px rgba(15,23,42,0.04)'
           }}>
             <div style={{
               display: 'flex',
@@ -5262,15 +4964,18 @@ const LabelStockList = () => {
           background: isGridView ? 'transparent' : '#ffffff',
           borderRadius: 12,
           marginTop: 10,
-          boxShadow: isGridView ? 'none' : '0 1px 3px rgba(0,0,0,0.04)',
-          border: isGridView ? 'none' : '1px solid #d4d4d8',
+          boxShadow: isGridView ? 'none' : '0 1px 2px rgba(15, 23, 42, 0.04)',
+          border: isGridView ? 'none' : '1px solid #e2e8f0',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
           flex: 1,
           minHeight: 0,
           height: `${tableViewportHeight + 78}px`,
-          maxHeight: 'none'
+          maxHeight: 'none',
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
         }}>
           {isGridView ? (
             <div
@@ -5340,7 +5045,7 @@ const LabelStockList = () => {
                         <button
                           type="button"
                           className="product-card__action product-card__action--view"
-                          onClick={(e) => { e.stopPropagation(); navigate('/product-details', { state: { product: item, apiFilterData, labelStockList: (showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems) } }); }}
+                          onClick={(e) => { e.stopPropagation(); goToProductDetails(item, e); }}
                           title="View Details"
                         >
                           <FaEye size={14} />
@@ -5356,6 +5061,17 @@ const LabelStockList = () => {
                           {previewLoading ? <FaSpinner className="spin" size={14} /> : <FaPrint size={14} />}
                           <span>Print</span>
                         </button>
+                        {canDeleteStock ? (
+                          <button
+                            type="button"
+                            className="product-card__action product-card__action--delete"
+                            onClick={(e) => requestDeleteItem(item, e)}
+                            title="Delete"
+                          >
+                            <FaTrash size={13} />
+                            <span>Delete</span>
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                     <div className="product-card__body">
@@ -5404,12 +5120,11 @@ const LabelStockList = () => {
               }}
               onWheel={handleInnerScrollWheel}
             >
-              <table style={{
+              <table className="app-data-table" style={{
                 width: '100%',
                 minWidth: `${tableMinWidth}px`,
                 borderCollapse: 'separate',
                 borderSpacing: 0,
-                fontSize: isSmallScreen ? 10 : 11,
                 tableLayout: 'auto'
               }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
@@ -5417,16 +5132,13 @@ const LabelStockList = () => {
                     background: '#f4f4f5',
                     boxShadow: '0 1px 0 #e4e4e7',
                   }}>
-                    <th style={{
-                      padding: isSmallScreen ? '6px 6px' : '7px 8px',
+                    <th className="lsl-check-col" style={{
                       textAlign: 'center',
                       width: '40px',
-                      fontSize: isSmallScreen ? 10 : 11,
-                      fontWeight: 700,
-                      color: '#18181b',
                       borderRight: '1px solid #e4e4e7',
-                      borderBottom: '2px solid #d4d4d8',
-                      background: '#f4f4f5',
+                      position: 'sticky',
+                      left: 0,
+                      zIndex: 12,
                     }}>
                       <input
                         type="checkbox"
@@ -5449,17 +5161,10 @@ const LabelStockList = () => {
                         <th
                           key={column.key}
                           style={{
-                            padding: isSmallScreen ? '6px 6px' : '7px 8px',
                             textAlign: 'left',
-                            fontSize: isSmallScreen ? 10 : 11,
-                            fontWeight: 700,
-                            color: '#18181b',
-                            whiteSpace: 'nowrap',
                             cursor: 'pointer',
                             width: column.width,
                             borderRight: '1px solid #e4e4e7',
-                            borderBottom: '2px solid #d4d4d8',
-                            background: '#f4f4f5',
                           }}
                           onClick={() => {
                             if (column.key !== 'checkbox') {
@@ -5485,38 +5190,34 @@ const LabelStockList = () => {
                         </th>
                       ))}
                     <th style={{
-                      padding: isSmallScreen ? '6px 6px' : '7px 8px',
                       textAlign: 'center',
-                      fontSize: isSmallScreen ? 10 : 11,
-                      fontWeight: 700,
-                      color: '#18181b',
-                      whiteSpace: 'nowrap',
+                      width: 40,
+                      minWidth: 40,
                       position: 'sticky',
-                      right: '50px',
-                      background: '#f4f4f5',
-                      zIndex: 10,
-                      width: '50px',
-                      minWidth: '50px',
+                      right: canDeleteStock ? 80 : 40,
+                      zIndex: 12,
                       borderLeft: '1px solid #e4e4e7',
-                      borderRight: '1px solid #e4e4e7',
-                      borderBottom: '2px solid #d4d4d8',
                     }}>View</th>
                     <th style={{
-                      padding: isSmallScreen ? '6px 6px' : '7px 8px',
                       textAlign: 'center',
-                      fontSize: isSmallScreen ? 10 : 11,
-                      fontWeight: 700,
-                      color: '#18181b',
-                      whiteSpace: 'nowrap',
+                      width: 40,
+                      minWidth: 40,
                       position: 'sticky',
-                      right: 0,
-                      background: '#f4f4f5',
-                      zIndex: 10,
-                      width: '50px',
-                      minWidth: '50px',
+                      right: canDeleteStock ? 40 : 0,
+                      zIndex: 12,
                       borderLeft: '1px solid #e4e4e7',
-                      borderBottom: '2px solid #d4d4d8',
                     }}>Print</th>
+                    {canDeleteStock ? (
+                      <th style={{
+                        textAlign: 'center',
+                        width: 40,
+                        minWidth: 40,
+                        position: 'sticky',
+                        right: 0,
+                        zIndex: 12,
+                        borderLeft: '1px solid #e4e4e7',
+                      }}>Delete</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -5551,13 +5252,13 @@ const LabelStockList = () => {
                         }
                       }}
                     >
-                      <td style={{
-                        padding: isSmallScreen ? '5px 6px' : '6px 8px',
+                      <td className="lsl-check-col" style={{
                         textAlign: 'center',
-                        fontSize: isSmallScreen ? 10 : 11,
+                        position: 'sticky',
+                        left: 0,
+                        background: rowBg,
+                        zIndex: 6,
                         borderRight: '1px solid #ececec',
-                        borderBottom: '1px solid #e5e5e5',
-                        color: '#404040',
                       }}>
                         <input
                           type="checkbox"
@@ -5566,21 +5267,16 @@ const LabelStockList = () => {
                           onClick={(e) => e.stopPropagation()}
                           style={{
                             cursor: 'pointer',
-                            width: '14px',
-                            height: '14px',
-                            accentColor: '#b91c1c'
+                            width: 14,
+                            height: 14,
+                            accentColor: 'var(--ui-primary)'
                           }}
                         />
                       </td>
                       {columns.map(column => (
                         <td key={column.key} style={{
-                          padding: isSmallScreen ? '5px 6px' : '6px 8px',
-                          fontSize: isSmallScreen ? 10 : 11,
-                          lineHeight: 1.35,
-                          color: '#404040',
                           whiteSpace: 'nowrap',
                           borderRight: '1px solid #ececec',
-                          borderBottom: '1px solid #e5e5e5',
                         }}>
                           {column.key === 'srNo' ? ((currentPage - 1) * itemsPerPage) + index + 1 : (() => {
                             const value = column.key === 'Description'
@@ -5605,62 +5301,75 @@ const LabelStockList = () => {
                           })()}
                         </td>
                       ))}
-                      {/* View Details Button */}
-                      <td style={{
-                        padding: '4px',
-                        textAlign: 'center',
-                        position: 'sticky',
-                        right: '50px',
-                        background: rowBg,
-                        zIndex: 5,
-                        borderLeft: '1px solid #ececec',
-                        borderBottom: '1px solid #e5e5e5',
-                        width: '50px',
-                        minWidth: '50px'
-                      }}>
+                      <td
+                        style={{
+                          textAlign: 'center',
+                          position: 'sticky',
+                          right: canDeleteStock ? 80 : 40,
+                          background: rowBg,
+                          zIndex: 6,
+                          width: 40,
+                          minWidth: 40,
+                          borderLeft: '1px solid #ececec',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate('/product-details', { state: { product: item, apiFilterData, labelStockList: (showAllData && allFilteredData.length > 0 ? allFilteredData : currentItems) } });
-                          }}
-                          style={{ ...labelListIconActionStyle(false), margin: '0 auto' }}
-                          title="View Product Details"
+                          className="ui-icon-btn ui-icon-btn--neutral"
+                          title="View details"
+                          onClick={(e) => goToProductDetails(item, e)}
                         >
-                          <FaEye size={12} />
+                          <FaEye />
                         </button>
                       </td>
-                      {/* Print Label Button */}
-                      <td style={{
-                        padding: '4px',
-                        textAlign: 'center',
-                        position: 'sticky',
-                        right: 0,
-                        background: rowBg,
-                        zIndex: 5,
-                        borderLeft: '1px solid #ececec',
-                        borderBottom: '1px solid #e5e5e5',
-                        borderRight: 'none',
-                        width: '50px',
-                        minWidth: '50px'
-                      }}>
+                      <td
+                        style={{
+                          textAlign: 'center',
+                          position: 'sticky',
+                          right: canDeleteStock ? 40 : 0,
+                          background: rowBg,
+                          zIndex: 6,
+                          width: 40,
+                          minWidth: 40,
+                          borderLeft: '1px solid #ececec',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePrintSingleLabel(item, e);
-                          }}
+                          className="ui-icon-btn ui-icon-btn--neutral"
+                          title={!selectedTemplate ? 'Select template first' : 'Print label'}
                           disabled={!selectedTemplate || previewLoading}
-                          style={{ ...labelListIconActionStyle(!selectedTemplate || previewLoading), margin: '0 auto' }}
-                          title={!selectedTemplate ? "Please select a template first" : "Print Label"}
+                          onClick={(e) => handlePrintSingleLabel(item, e)}
                         >
-                          {previewLoading ? (
-                            <FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={12} />
-                          ) : (
-                            <FaPrint size={12} />
-                          )}
+                          {previewLoading ? <FaSpinner className="spin" /> : <FaPrint />}
                         </button>
                       </td>
+                      {canDeleteStock ? (
+                        <td
+                          style={{
+                            textAlign: 'center',
+                            position: 'sticky',
+                            right: 0,
+                            background: rowBg,
+                            zIndex: 6,
+                            width: 40,
+                            minWidth: 40,
+                            borderLeft: '1px solid #ececec',
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            className="ui-icon-btn ui-icon-btn--delete"
+                            title="Delete"
+                            onClick={(e) => requestDeleteItem(item, e)}
+                          >
+                            <FaTrash />
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}
@@ -5669,79 +5378,38 @@ const LabelStockList = () => {
             </div>
           )}
 
-          {/* Pagination - always visible below table */}
-          <div className="label-stock-pagination" style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: isSmallScreen ? 'flex-start' : 'center',
-            padding: isSmallScreen ? '10px 12px' : '12px 16px',
-            borderTop: '1px solid #f5f5f5',
-            flexWrap: 'wrap',
-            gap: 10,
-            flexShrink: 0,
-            background: '#fafafa',
-            borderRadius: '0 0 12px 12px'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              flexWrap: 'wrap',
-              width: isSmallScreen ? '100%' : 'auto'
-            }}>
+          <div className="lsl-pagination">
+            <div className="lsl-pagination-meta">
               {showAllData && allFilteredData.length > 0 ? (
-                <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
-                  Showing all {allFilteredData.length} filtered records
-                </span>
+                <span>Showing all {allFilteredData.length} filtered records</span>
               ) : (
                 <>
-                  <span style={{ fontSize: 11, color: '#525252', fontWeight: 600 }}>
-                    {totalRecords} record{totalRecords === 1 ? '' : 's'} · {itemsPerPage} rows/page
+                  <span>
+                    {totalRecords} record{totalRecords === 1 ? '' : 's'}
                     {totalRecords > 0
-                      ? ` · ${((currentPage - 1) * itemsPerPage) + 1}–${Math.min(currentPage * itemsPerPage, totalRecords)} shown`
+                      ? ` · ${((currentPage - 1) * itemsPerPage) + 1}–${Math.min(currentPage * itemsPerPage, totalRecords)}`
                       : ''}
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', rowGap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Per page</span>
+                  <label className="lsl-pagination-size">
+                    <span>Per page</span>
                     <select
                       value={itemsPerPage}
                       onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value, 10))}
-                      style={{
-                        padding: '0 8px',
-                        height: 30,
-                        fontSize: 11,
-                        border: '1px solid #e5e5e5',
-                        borderRadius: 8,
-                        outline: 'none',
-                        cursor: 'pointer',
-                        background: '#ffffff',
-                        color: '#404040',
-                        fontWeight: 600,
-                        boxSizing: 'border-box',
-                      }}
                     >
-                      {PAGE_SIZE_OPTIONS.map(size => (
+                      {PAGE_SIZE_OPTIONS.map((size) => (
                         <option key={size} value={size}>{size}</option>
                       ))}
                     </select>
-                  </div>
+                  </label>
                 </>
               )}
             </div>
 
-            {!showAllData && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                flexWrap: isSmallScreen ? 'nowrap' : 'wrap',
-                width: isSmallScreen ? '100%' : 'auto',
-                overflowX: isSmallScreen ? 'auto' : 'visible',
-                paddingBottom: isSmallScreen ? 2 : 0,
-                WebkitOverflowScrolling: 'touch'
-              }}>
+            {!showAllData ? (
+              <div className="lsl-pagination-nav">
                 <button
                   type="button"
+                  className="lsl-page-btn"
                   onClick={() => {
                     const newPage = Math.max(currentPage - 1, 1);
                     setCurrentPage(newPage);
@@ -5749,47 +5417,34 @@ const LabelStockList = () => {
                     fetchLabeledStock(newPage, itemsPerPage, searchQuery, filterValues);
                   }}
                   disabled={currentPage === 1}
-                  style={labelListPageBtnStyle(currentPage === 1)}
                 >
                   Prev
                 </button>
-                {generatePagination().map((page, index) =>
-                  page === "..." ? (
-                    <span key={`ellipsis-${index}`} style={{
-                      padding: '6px 8px',
-                      fontSize: 11,
-                      color: '#94a3b8',
-                      fontWeight: 600,
-                    }}>…</span>
-                  ) : (
-                    <button
-                      type="button"
-                      key={page}
-                      onClick={() => {
-                        setCurrentPage(page);
-                        setLoading(true);
-                        fetchLabeledStock(page, itemsPerPage, searchQuery, filterValues);
-                      }}
-                      style={{
-                        padding: '5px 10px',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        borderRadius: 8,
-                        border: '1px solid',
-                        background: currentPage === page ? '#b91c1c' : '#ffffff',
-                        color: currentPage === page ? '#ffffff' : '#525252',
-                        borderColor: currentPage === page ? '#b91c1c' : '#e5e5e5',
-                        cursor: 'pointer',
-                        minWidth: '36px',
-                        boxSizing: 'border-box',
-                      }}
-                    >
-                      {page}
-                    </button>
+                {isPhone ? (
+                  <span className="lsl-page-indicator">{currentPage} / {Math.max(1, totalPages || 1)}</span>
+                ) : (
+                  generatePagination().map((page, index) =>
+                    page === '...' ? (
+                      <span key={`ellipsis-${index}`} className="lsl-page-ellipsis">…</span>
+                    ) : (
+                      <button
+                        type="button"
+                        key={page}
+                        className={`lsl-page-num${currentPage === page ? ' is-current' : ''}`}
+                        onClick={() => {
+                          setCurrentPage(page);
+                          setLoading(true);
+                          fetchLabeledStock(page, itemsPerPage, searchQuery, filterValues);
+                        }}
+                      >
+                        {page}
+                      </button>
+                    )
                   )
                 )}
                 <button
                   type="button"
+                  className="lsl-page-btn"
                   onClick={() => {
                     const newPage = Math.min(currentPage + 1, totalPages);
                     setCurrentPage(newPage);
@@ -5797,71 +5452,86 @@ const LabelStockList = () => {
                     fetchLabeledStock(newPage, itemsPerPage, searchQuery, filterValues);
                   }}
                   disabled={currentPage === totalPages}
-                  style={labelListPageBtnStyle(currentPage === totalPages)}
                 >
                   Next
                 </button>
-                <span style={{ fontSize: 11, color: '#404040', fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginLeft: 4 }}>
-                  Page {currentPage} / {Math.max(1, totalPages || 1)}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 4 }}>
-                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Go to</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={totalPages || 1}
-                    value={currentPage}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value, 10);
-                      if (e.target.value === '') return;
-                      if (!isNaN(v) && v >= 1) setCurrentPage(Math.min(v, totalPages || 1));
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                {!isPhone ? (
+                  <div className="lsl-page-goto">
+                    <span>Go to</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={totalPages || 1}
+                      value={currentPage}
+                      onChange={(e) => {
                         const v = parseInt(e.target.value, 10);
-                        if (!isNaN(v) && v >= 1 && v <= (totalPages || 1)) {
-                          setCurrentPage(v);
-                          setLoading(true);
-                          fetchLabeledStock(v, itemsPerPage, searchQuery, filterValues);
+                        if (e.target.value === '') return;
+                        if (!isNaN(v) && v >= 1) setCurrentPage(Math.min(v, totalPages || 1));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const v = parseInt(e.target.value, 10);
+                          if (!isNaN(v) && v >= 1 && v <= (totalPages || 1)) {
+                            setCurrentPage(v);
+                            setLoading(true);
+                            fetchLabeledStock(v, itemsPerPage, searchQuery, filterValues);
+                          }
                         }
-                      }
-                    }}
-                    style={{
-                      width: 52,
-                      padding: '4px 6px',
-                      fontSize: 11,
-                      border: '1px solid #e5e5e5',
-                      borderRadius: 8,
-                      outline: 'none',
-                      textAlign: 'center',
-                      background: '#ffffff',
-                      color: '#404040',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLoading(true);
-                      fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues);
-                    }}
-                    style={{
-                      padding: '5px 11px',
-                      fontSize: 11,
-                      fontWeight: 700,
-                      borderRadius: 8,
-                      border: '1px solid #cbd5e1',
-                      background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                      color: '#0f172a',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Go
-                  </button>
-                </div>
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="lsl-page-btn"
+                      onClick={() => {
+                        setLoading(true);
+                        fetchLabeledStock(currentPage, itemsPerPage, searchQuery, filterValues);
+                      }}
+                    >
+                      Go
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            )}
+            ) : null}
           </div>
+          {rowActionMenu?.item ? (
+            <div
+              className="lsl-row-more-menu"
+              data-lsl-row-more
+              role="menu"
+              style={{ top: rowActionMenu.top, left: rowActionMenu.left }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={(e) => goToProductDetails(rowActionMenu.item, e)}
+              >
+                <FaEye /> View
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!selectedTemplate || previewLoading}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRowActionMenu(null);
+                  handlePrintSingleLabel(rowActionMenu.item, e);
+                }}
+              >
+                <FaPrint /> Print
+              </button>
+              {canDeleteStock ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="is-danger"
+                  onClick={(e) => requestDeleteItem(rowActionMenu.item, e)}
+                >
+                  <FaTrash /> Delete
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         </div>
         </div>
@@ -6038,6 +5708,14 @@ const LabelStockList = () => {
             opacity: 0.6;
             cursor: not-allowed;
           }
+          .product-card__action--delete {
+            background: rgba(255,255,255,0.95);
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+          }
+          .product-card__action--delete:hover {
+            background: #fef2f2;
+          }
 
           .product-card__body {
             padding: 10px;
@@ -6112,9 +5790,615 @@ const LabelStockList = () => {
             font-weight: 600;
             color: #b45309;
           }
+
+          .label-toolbar-actions .lsl-chip {
+            height: 28px;
+          }
+
+          .label-stock-list-page,
+          .label-stock-list-page * {
+            box-sizing: border-box;
+          }
+          .lsl-top {
+            --lsl-gold: #C59D5F;
+            --lsl-gold-soft: #E8D5B0;
+            --lsl-ink: #2D2D2D;
+            background: #fff;
+            border: var(--page-header-border);
+            border-radius: var(--page-header-radius);
+            box-shadow: var(--page-header-shadow);
+            margin-bottom: 12px;
+            overflow: visible;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+          }
+          .lsl-top-inner {
+            padding: 12px 14px 10px;
+          }
+          .lsl-top .app-page-header {
+            width: 100%;
+            align-items: center;
+          }
+          .lsl-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #ece7de;
+          }
+          .lsl-search-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1 1 240px;
+            min-width: 0;
+          }
+          .lsl-search-wrap {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+          .label-toolbar-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-left: auto;
+            min-width: 0;
+          }
+          .lsl-search-input {
+            width: 100%;
+            height: 28px;
+            padding: 0 10px 0 28px;
+            font-size: var(--ui-input);
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            outline: none;
+            background: #fff;
+            color: var(--lsl-ink);
+            transition: border-color 0.12s, box-shadow 0.12s;
+          }
+          .lsl-search-input:focus {
+            border-color: var(--lsl-gold);
+            box-shadow: 0 0 0 3px rgba(197, 157, 95, 0.18);
+          }
+          .lsl-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            height: 28px;
+            padding: 0 11px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #fff;
+            color: #334155;
+            font-size: var(--ui-btn);
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.12s, border-color 0.12s, color 0.12s;
+          }
+          .lsl-chip svg { width: var(--ui-icon); height: var(--ui-icon); font-size: var(--ui-icon); }
+          .lsl-chip:hover { background: #faf8f4; border-color: var(--lsl-gold-soft); }
+          .lsl-chip.is-active {
+            background: #fff;
+            border-color: var(--lsl-gold);
+            color: #8A734C;
+          }
+          .lsl-chip.is-on {
+            background: #fff;
+            border-color: var(--lsl-gold);
+            color: #8A734C;
+          }
+          .lsl-chip--accent {
+            background: #fff;
+            border-color: var(--lsl-gold-soft);
+            color: #8A734C;
+          }
+          .lsl-chip--accent:hover {
+            background: #faf8f4;
+            border-color: var(--lsl-gold);
+            color: var(--lsl-ink);
+          }
+          .lsl-chip-group {
+            display: inline-flex;
+            align-items: stretch;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fff;
+          }
+          .lsl-chip-group .lsl-chip {
+            border: none;
+            border-radius: 0;
+            border-right: 1px solid #e2e8f0;
+            height: 28px;
+          }
+          .lsl-chip-group .lsl-chip:last-child { border-right: none; }
+          .lsl-chip-group .lsl-chip.is-active {
+            background: #faf8f4;
+          }
+          .lsl-count-badge {
+            min-width: 16px;
+            height: 16px;
+            padding: 0 5px;
+            border-radius: 999px;
+            background: #faf8f4;
+            color: #8A734C;
+            border: 1px solid var(--lsl-gold-soft);
+            font-size: 10px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .lsl-chip.is-active .lsl-count-badge {
+            background: #fff;
+            border-color: var(--lsl-gold);
+            color: #8A734C;
+          }
+          .lsl-switch {
+            width: 28px;
+            height: 16px;
+            border-radius: 99px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            position: relative;
+            flex-shrink: 0;
+            box-sizing: border-box;
+          }
+          .lsl-switch::after {
+            content: '';
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #94a3b8;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            transition: left 0.15s, background 0.15s;
+          }
+          .lsl-switch.is-on {
+            background: #fff;
+            border-color: var(--lsl-gold);
+          }
+          .lsl-switch.is-on::after {
+            left: 14px;
+            background: var(--lsl-gold);
+          }
+          .lsl-more { position: relative; }
+          .lsl-more-menu {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            width: 268px;
+            background: #fff;
+            border: 1px solid #ece7de;
+            border-radius: 12px;
+            box-shadow: 0 16px 40px rgba(45, 45, 45, 0.14);
+            padding: 8px;
+            z-index: 40;
+          }
+          .lsl-more-print {
+            padding: 6px 6px 8px;
+          }
+          .lsl-more-kicker {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #8A734C;
+            margin-bottom: 8px;
+          }
+          .lsl-more-select-wrap {
+            position: relative;
+            margin-bottom: 8px;
+          }
+          .lsl-more-select {
+            width: 100%;
+            display: flex !important;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            height: 34px !important;
+            padding: 0 10px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+            background: #fff !important;
+            color: #64748b !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            cursor: pointer;
+            text-align: left;
+          }
+          .lsl-more-select.has-value { color: var(--lsl-ink) !important; }
+          .lsl-more-select.is-open,
+          .lsl-more-select:hover:not(:disabled) {
+            border-color: var(--lsl-gold) !important;
+            background: #fff !important;
+            box-shadow: 0 0 0 3px rgba(197, 157, 95, 0.16);
+          }
+          .lsl-more-select-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+            flex: 1;
+          }
+          .lsl-more-select.is-open svg { transform: rotate(180deg); }
+          .lsl-more-select-list {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            max-height: 180px;
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #ece7de;
+            border-radius: 8px;
+            box-shadow: 0 10px 24px rgba(45, 45, 45, 0.12);
+            padding: 4px;
+            z-index: 5;
+          }
+          .lsl-more-select-list button {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            height: 32px;
+            padding: 0 8px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: #334155;
+            font-size: 12px;
+            font-weight: 600;
+            text-align: left;
+            cursor: pointer;
+          }
+          .lsl-more-select-list button:hover { background: #faf8f4; }
+          .lsl-more-select-list button.is-selected {
+            background: #faf8f4;
+            color: var(--lsl-ink);
+            box-shadow: inset 2px 0 0 var(--lsl-gold);
+          }
+          .lsl-more-select-empty {
+            padding: 10px 8px;
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 600;
+          }
+          .lsl-more-print-btn {
+            width: 100%;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            height: 34px !important;
+            padding: 0 10px !important;
+            border: 1px solid var(--lsl-gold-soft) !important;
+            border-radius: 8px !important;
+            background: #fff !important;
+            color: #8A734C !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            cursor: pointer;
+          }
+          .lsl-more-print-btn.is-ready {
+            border-color: var(--lsl-gold) !important;
+            color: var(--lsl-ink) !important;
+          }
+          .lsl-more-print-btn.is-ready:hover {
+            background: #faf8f4 !important;
+          }
+          .lsl-more-print-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+          }
+          .lsl-more-print-hint {
+            margin-top: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #8A734C;
+            line-height: 1.35;
+          }
+          .lsl-more-menu > button {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            height: 36px;
+            padding: 0 10px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 650;
+            color: #334155;
+            cursor: pointer;
+            text-align: left;
+          }
+          .lsl-more-menu > button:hover:not(:disabled) { background: #faf8f4; }
+          .lsl-more-menu > button:disabled { opacity: 0.45; cursor: not-allowed; }
+          .lsl-more-menu > button.is-danger { color: #b91c1c; }
+          .lsl-more-menu > button.is-danger:hover:not(:disabled) { background: #fef2f2; }
+          .lsl-more-sep { height: 1px; background: #ece7de; margin: 4px 6px; }
+          .lsl-icon-row {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+          }
+          .lsl-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #fff;
+            color: #475569;
+            cursor: pointer;
+            flex-shrink: 0;
+            touch-action: manipulation;
+          }
+          .lsl-icon-btn svg { width: 12px; height: 12px; }
+          .lsl-icon-btn:hover:not(:disabled) {
+            border-color: #C59D5F;
+            color: #2D2D2D;
+            background: #faf8f4;
+          }
+          .lsl-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+          .lsl-icon-btn--danger { color: #b91c1c; border-color: #fecaca; }
+          .lsl-icon-btn--danger:hover:not(:disabled) { background: #fef2f2; border-color: #fca5a5; }
+          .lsl-row-more-menu {
+            position: fixed;
+            z-index: 400;
+            width: 188px;
+            background: #fff;
+            border: 1px solid #ece7de;
+            border-radius: 10px;
+            box-shadow: 0 16px 40px rgba(45, 45, 45, 0.16);
+            padding: 6px;
+          }
+          .lsl-row-more-menu button {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            height: 36px;
+            padding: 0 10px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 650;
+            color: #334155;
+            cursor: pointer;
+            text-align: left;
+          }
+          .lsl-row-more-menu button:hover:not(:disabled) { background: #faf8f4; }
+          .lsl-row-more-menu button:disabled { opacity: 0.45; cursor: not-allowed; }
+          .lsl-row-more-menu button.is-danger { color: #b91c1c; }
+          .lsl-row-more-menu button.is-danger:hover:not(:disabled) { background: #fef2f2; }
+          .data-display-container,
+          .table-scroll-container,
+          .grid-scroll-container {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+          }
+          .label-stock-list-page table.app-data-table {
+            font-size: var(--ui-table) !important;
+          }
+          .label-stock-list-page table.app-data-table th {
+            font-size: var(--ui-table-th) !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: #64748b !important;
+            padding: 5px 7px !important;
+            background: var(--ui-surface) !important;
+            white-space: nowrap;
+          }
+          .label-stock-list-page table.app-data-table td {
+            font-size: var(--ui-table) !important;
+            font-weight: 500;
+            color: var(--ui-text) !important;
+            padding: 5px 7px !important;
+            line-height: 1.3;
+            vertical-align: middle;
+          }
+          .lsl-pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            flex-shrink: 0;
+            padding: 10px 12px;
+            border-top: 1px solid #ece7de;
+            background: #fafafa;
+          }
+          .lsl-pagination-meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #525252;
+            min-width: 0;
+          }
+          .lsl-pagination-size {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #64748b;
+          }
+          .lsl-pagination-size select {
+            height: 32px;
+            padding: 0 8px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            background: #fff;
+            color: #404040;
+          }
+          .lsl-pagination-nav {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            min-width: 0;
+          }
+          .lsl-page-btn,
+          .lsl-page-num {
+            height: 32px;
+            min-width: 36px;
+            padding: 0 10px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 8px;
+            border: 1px solid #e5e5e5;
+            background: #fff;
+            color: #525252;
+            cursor: pointer;
+            touch-action: manipulation;
+          }
+          .lsl-page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+          .lsl-page-num.is-current {
+            background: #fff;
+            border-color: #C59D5F;
+            color: #2D2D2D;
+          }
+          .lsl-page-ellipsis { padding: 0 4px; color: #94a3b8; font-weight: 600; }
+          .lsl-page-indicator {
+            font-size: 12px;
+            font-weight: 700;
+            color: #2D2D2D;
+            font-variant-numeric: tabular-nums;
+            min-width: 52px;
+            text-align: center;
+          }
+          .lsl-page-goto {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: 4px;
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 600;
+          }
+          .lsl-page-goto input {
+            width: 52px;
+            height: 32px;
+            padding: 0 6px;
+            font-size: 11px;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            text-align: center;
+            background: #fff;
+          }
+          .lsl-sync-panel {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+          }
+          .lsl-sync-bar {
+            width: 100%;
+            height: 6px;
+            border-radius: 99px;
+            background: #e2e8f0;
+            overflow: hidden;
+          }
+          .lsl-sync-bar > div {
+            height: 100%;
+            background: var(--lsl-gold, #C59D5F);
+            transition: width 220ms ease;
+          }
+
+          @media (max-width: 1024px) {
+            .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+          }
+
+          @media (max-width: 768px) {
+            .lsl-top { position: relative; margin-bottom: 8px; }
+            .lsl-top-inner { padding: 10px; }
+            .lsl-search-wrap input { height: 32px !important; }
+            .label-toolbar-actions {
+              width: 100%;
+              margin-left: 0;
+              flex-wrap: wrap;
+              overflow: visible;
+            }
+            .label-toolbar-actions button {
+              flex-shrink: 0;
+            }
+            .filter-inline-section > div {
+              flex-direction: column !important;
+              align-items: stretch !important;
+            }
+            .filter-inline-section > div > div {
+              max-width: 100% !important;
+              min-width: 0 !important;
+              width: 100% !important;
+            }
+            .table-scroll-container,
+            .grid-scroll-container {
+              width: 100% !important;
+              max-width: 100% !important;
+            }
+            .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
+          }
+
+          @media (max-width: 640px) {
+            .lsl-btn-label { display: none !important; }
+            .lsl-icon-btn { width: 36px; height: 36px; }
+            .lsl-more-menu {
+              right: 0;
+              width: min(280px, calc(100vw - 20px));
+            }
+            .lsl-pagination {
+              flex-direction: column;
+              align-items: stretch;
+              gap: 8px;
+            }
+            .lsl-pagination-meta,
+            .lsl-pagination-nav {
+              width: 100%;
+              justify-content: space-between;
+            }
+            .lsl-page-btn {
+              flex: 1 1 auto;
+              height: 40px;
+              min-width: 0;
+            }
+            .label-toolbar-actions button {
+              min-width: 36px;
+              padding: 0 9px !important;
+            }
+            .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+            .product-card__action span { display: none; }
+          }
+
+          @media (max-width: 420px) {
+            .product-grid { grid-template-columns: minmax(0, 1fr) !important; }
+          }
           
           @media (max-width: 768px) {
-            .product-card__actions { opacity: 1; background: rgba(0,0,0,0.5); }
+            .product-card__actions { opacity: 1; background: linear-gradient(transparent, rgba(0,0,0,0.55)); }
             /* Header responsive */
             .label-stock-header {
               flex-direction: column !important;
@@ -6132,23 +6416,6 @@ const LabelStockList = () => {
               justify-content: center !important;
             }
             
-            /* Table responsive */
-            table {
-              font-size: 10px !important;
-            }
-            
-            th, td {
-              padding: 8px 6px !important;
-              font-size: 10px !important;
-            }
-            
-            /* Pagination responsive */
-            .pagination-container {
-              flex-direction: column !important;
-              align-items: flex-start !important;
-              gap: 12px !important;
-            }
-            
             /* Inline filter section responsive */
             .filter-inline-section {
               padding: 14px !important;
@@ -6156,42 +6423,6 @@ const LabelStockList = () => {
             .filter-grid {
               grid-template-columns: 1fr !important;
               gap: 12px !important;
-            }
-          }
-          
-          @media (max-width: 480px) {
-            /* Smaller fonts for mobile */
-            h2 {
-              font-size: 14px !important;
-            }
-            
-            p {
-              font-size: 10px !important;
-            }
-            
-            button {
-              font-size: 10px !important;
-              padding: 6px 10px !important;
-            }
-            
-            input, select {
-              font-size: 10px !important;
-              padding: 6px 10px !important;
-            }
-            
-            table {
-              font-size: 10px !important;
-            }
-            
-            th, td {
-              padding: 6px 4px !important;
-              font-size: 10px !important;
-            }
-            
-            /* Hide some columns on very small screens */
-            th:nth-child(n+8),
-            td:nth-child(n+8) {
-              display: none;
             }
           }
         `}</style>

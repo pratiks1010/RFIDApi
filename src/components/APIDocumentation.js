@@ -660,7 +660,7 @@ const APIDocumentation = () => {
       endpoint: 'GetAllCounters',
       method: 'POST',
       baseUrl: 'https://rrgold.loyalstring.co.in/api/ClientOnboarding',
-      description: 'Retrieve all counter information for a client.',
+      description: 'Retrieve all counter information for a client (Create Masters).',
       sampleBody: {
         ClientCode: "LS000123"
       },
@@ -670,17 +670,80 @@ const APIDocumentation = () => {
     },
     {
       id: 'get-all-branch-master',
-      name: 'Get All Branch Master',
+      name: 'Get Branch',
       endpoint: 'GetAllBranchMaster',
       method: 'POST',
       baseUrl: 'https://rrgold.loyalstring.co.in/api/ClientOnboarding',
-      description: 'Retrieve all branch master data.',
+      description: 'Retrieve all branch master data for a client (Create Masters). Same as GetAllBranchMaster.',
       sampleBody: {
         ClientCode: "LS000123"
       },
       responseFormat: {
         data: []
       }
+    },
+    {
+      id: 'delete-branch',
+      name: 'Delete Branch',
+      endpoint: 'DeleteBranch',
+      method: 'POST',
+      baseUrl: 'https://soni.loyalstring.co.in/api/ClientOnboarding',
+      description: 'Delete a branch by Id. Used on Create Masters. Body: ClientCode and Id.',
+      sampleBody: {
+        ClientCode: "LS000123",
+        Id: 1
+      },
+      responseFormat: {
+        status: "success",
+        message: "Deleted successfully."
+      }
+    },
+    {
+      id: 'delete-counter',
+      name: 'Delete Counter',
+      endpoint: 'DeleteCounter',
+      method: 'POST',
+      baseUrl: 'https://soni.loyalstring.co.in/api/ClientOnboarding',
+      description: 'Delete a counter by Id. Used on Create Masters. Body: ClientCode and Id.',
+      sampleBody: {
+        ClientCode: "LS000123",
+        Id: 1
+      },
+      responseFormat: {
+        status: "success",
+        message: "Deleted successfully."
+      }
+    },
+    {
+      id: 'add-multiple-branch-and-counter',
+      name: 'Add Multiple Branch And Counter',
+      endpoint: 'AddMultipleBranchAndCounter',
+      method: 'POST',
+      baseUrl: 'https://rrgold.loyalstring.co.in/api/ClientOnboarding',
+      description: 'Save multiple branches into tblBranchMaster and multiple counters into tblCounter in one call.',
+      sampleBody: {
+        ClientCode: 'LS000123',
+        Branches: [
+          {
+            BranchName: 'Main Branch',
+            BranchAddress: 'MG Road, Bengaluru',
+            Counters: [
+              { CounterName: 'Gold Counter', CounterNumber: 'C001' },
+              { CounterName: 'Silver Counter', CounterNumber: 'C002' },
+            ],
+          },
+          {
+            BranchName: 'Warehouse',
+            BranchAddress: 'Peenya Industrial Area',
+            Counters: [
+              { CounterName: 'Warehouse Counter', CounterNumber: 'W001' },
+            ],
+          },
+        ],
+      },
+      responseFormat: {
+        message: 'Branches and counters saved successfully',
+      },
     },
     // Export APIs
     {
@@ -738,6 +801,7 @@ const APIDocumentation = () => {
     { name: 'RFID Device API', url: 'https://rrgold.loyalstring.co.in/api/RFIDDevice' },
     { name: 'RFID Label Template API', url: 'https://rrgold.loyalstring.co.in/api/RFIDLabelTemplate' },
     { name: 'Client Onboarding API', url: 'https://rrgold.loyalstring.co.in/api/ClientOnboarding' },
+    { name: 'Soni Client Onboarding API', url: 'https://soni.loyalstring.co.in/api/ClientOnboarding' },
     { name: 'Export API', url: 'https://rrgold.loyalstring.co.in/api/Export' }
   ];
 

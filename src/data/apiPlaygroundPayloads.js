@@ -123,3 +123,37 @@ export const PLAYGROUND_DELETE_LABELLED_STOCK_BODY = {
 export const PLAYGROUND_CLIENT_CODE_ONLY = {
   ClientCode: 'LS000123',
 };
+
+/** Create Masters → POST …/api/ClientOnboarding/DeleteBranch */
+export const PLAYGROUND_DELETE_BRANCH_BODY = {
+  ClientCode: 'LS000123',
+  Id: 1,
+};
+
+/** Create Masters → POST …/api/ClientOnboarding/DeleteCounter */
+export const PLAYGROUND_DELETE_COUNTER_BODY = {
+  ClientCode: 'LS000123',
+  Id: 1,
+};
+
+/** POST …/api/ClientOnboarding/AddMultipleBranchAndCounter (RRGold) */
+export const PLAYGROUND_ADD_MULTIPLE_BRANCH_AND_COUNTER_BODY = {
+  ClientCode: 'LS000123',
+  Branches: [
+    {
+      BranchName: 'Main Branch',
+      BranchAddress: 'MG Road, Bengaluru',
+      Counters: [
+        { CounterName: 'Gold Counter', CounterNumber: 'C001' },
+        { CounterName: 'Silver Counter', CounterNumber: 'C002' },
+      ],
+    },
+    {
+      BranchName: 'Warehouse',
+      BranchAddress: 'Peenya Industrial Area',
+      Counters: [
+        { CounterName: 'Warehouse Counter', CounterNumber: 'W001' },
+      ],
+    },
+  ],
+};

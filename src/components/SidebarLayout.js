@@ -45,8 +45,7 @@ import {
 import { useNotifications } from '../context/NotificationContext';
 import { useTranslation } from '../hooks/useTranslation';
 import axios from 'axios';
-
-const SPARKLE_LOGO = `${process.env.PUBLIC_URL || ''}/Logo/sparkle-logo.png`;
+import BrandLogo from './common/BrandLogo';
 
 const SidebarLayout = ({ children }) => {
   const navigate = useNavigate();
@@ -427,7 +426,7 @@ const SidebarLayout = ({ children }) => {
             <FaBars size={16} />
           </button>
           <span className="ssb-topbar-brand">
-            <img src={SPARKLE_LOGO} alt="Sparkle RFID" />
+            <BrandLogo variant="mark" height={28} />
           </span>
         </header>
       )}
@@ -440,7 +439,7 @@ const SidebarLayout = ({ children }) => {
         <aside className="ssb" aria-label="Main navigation">
           <div className="ssb-brand">
             <Link to="/analytics" className="ssb-logo" title="Sparkle RFID" onClick={() => isMobile && setSidebarOpen(false)}>
-              <img src={SPARKLE_LOGO} alt="Sparkle RFID" />
+              <BrandLogo variant="mark" height={44} />
             </Link>
             {!isMobile && (
               <button type="button" className="ssb-icon-btn" onClick={() => setSidebarCollapsed((v) => !v)} title={compact ? 'Expand sidebar' : 'Collapse sidebar'} aria-label={compact ? 'Expand sidebar' : 'Collapse sidebar'}>
@@ -493,31 +492,32 @@ const SidebarLayout = ({ children }) => {
               </div>
             )}
 
-            {(planName || formattedPlanExpiry) && !compact && !settingsOpen && (
-              <div className="ssb-plan">
-                <strong>{planName || 'RFID plan'}</strong>
-                <p>{formattedPlanExpiry ? `Expires ${formattedPlanExpiry}` : 'Manage plan in Settings'}</p>
-              </div>
-            )}
-
             <button
               type="button"
-              className={`ssb-user${settingsOpen ? ' is-open' : ''}`}
+              className={`ssb-profile${settingsOpen ? ' is-open' : ''}${compact ? ' is-compact' : ''}`}
               onClick={toggleSettings}
               title={`${username} • Settings`}
               aria-expanded={settingsOpen}
               aria-haspopup="true"
             >
-              <span className="ssb-avatar">{avatarLetter}</span>
-              {!compact && (
-                <>
-                  <span className="ssb-user-meta">
-                    <span className="ssb-user-name">{username}</span>
-                    <span className="ssb-user-sub">Settings · {clientCode}</span>
-                  </span>
-                  <FaChevronDown className="ssb-user-chevron" />
-                </>
-              )}
+              <span className="ssb-profile-row">
+                <span className="ssb-avatar">{avatarLetter}</span>
+                {!compact && (
+                  <>
+                    <span className="ssb-user-meta">
+                      <span className="ssb-user-name">{username}</span>
+                      <span className="ssb-user-sub">Settings · {clientCode}</span>
+                    </span>
+                    <FaChevronDown className="ssb-user-chevron" />
+                  </>
+                )}
+              </span>
+              {!compact && (planName || formattedPlanExpiry) ? (
+                <span className="ssb-profile-plan">
+                  <strong>{planName || 'RFID plan'}</strong>
+                  <span>{formattedPlanExpiry ? `Expires ${formattedPlanExpiry}` : 'Manage plan in Settings'}</span>
+                </span>
+              ) : null}
             </button>
           </div>
         </aside>

@@ -32,6 +32,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import axios from 'axios';
 import RFIDAppDownload from './RFIDAppDownload';
 import apkService from '../services/apkService';
+import BrandLogo from './common/BrandLogo';
 
 const Header = () => {
   const navigate = useNavigate();
@@ -357,12 +358,7 @@ const Header = () => {
           minWidth: 0
         }}>
           <Link to="/analytics" style={{ display: 'flex', alignItems: 'center', flexShrink: 0, cursor: 'pointer', textDecoration: 'none' }}>
-            <img
-              src={`${process.env.PUBLIC_URL || ''}/Logo/Sparkle%20RFID%20svg.svg`}
-              alt="Sparkle RFID"
-              onError={(e) => { e.target.onerror = null; e.target.src = `${process.env.PUBLIC_URL || ''}/Logo/LSlogo.png`; }}
-              style={{ height: '36px', width: 'auto' }}
-            />
+            <BrandLogo height={36} />
           </Link>
           {/* Zoho-style app title */}
           <div style={{

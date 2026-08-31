@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getRrgoldApiBaseUrl, getSoniApiBaseUrl } from './apiBaseConfig';
+import { attachGlobalLoader, beginGlobalLoader, endGlobalLoader } from './globalLoader';
 
 const SONI_HOSTS = ['https://soni.loyalstring.co.in'];
 const RRGOLD_HOSTS = ['https://rrgold.loyalstring.co.in'];
@@ -58,16 +59,20 @@ export const setupApiRuntimeRouter = () => {
     return config;
   });
 
+  attachGlobalLoader(axios);
+
   if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
     const nativeFetch = window.fetch.bind(window);
-    window.fetch = (input, init) => {
-      if (typeof input === 'string') {
-        return nativeFetch(remapApiUrl(input), init);
-      }
-      if (input instanceof Request) {
-        return nativeFetch(new Request(remapApiUrl(input.url), input), init);
-      }
-      return nativeFetch(input, init);
+    window.fetch = (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input?.url;
+      const { skipGlobalLoader, ...fetchInit } = init || {};
+      const started = beginGlobalLoader(url, { ...fetchInit, skipGlobalLoader });
+      const request = typeof input === 'string'
+        ? nativeFetch(remapApiUrl(input), fetchInit)
+        : input instanceof Request
+          ? nativeFetch(new Request(remapApiUrl(input.url), input), fetchInit)
+          : nativeFetch(input, fetchInit);
+      return Promise.resolve(request).finally(() => endGlobalLoader(started));
     };
   }
 };

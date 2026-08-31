@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { 
-  FaSpinner, 
+import {
+  FaSpinner,
   FaExclamationTriangle,
   FaSync,
   FaFilter,
@@ -10,14 +10,37 @@ import {
   FaFileExport,
   FaFileExcel,
   FaFilePdf,
-  FaChartBar
+  FaChartBar,
+  FaChartPie,
+  FaTable,
+  FaSearch,
 } from 'react-icons/fa';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Tooltip,
+  Legend,
+  ArcElement,
+} from 'chart.js';
+import { Bar, Doughnut } from 'react-chartjs-2';
 import { useLoading } from '../App';
 import { useNotifications } from '../context/NotificationContext';
+import PageHeader from './common/PageHeader';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend, ArcElement);
+
+const SR = {
+  opening: { ink: '#0f766e', fill: '#14b8a6', soft: '#f0fdfa', border: '#99f6e4' },
+  stockIn: { ink: '#0369a1', fill: '#38bdf8', soft: '#f0f9ff', border: '#bae6fd' },
+  sale: { ink: '#b45309', fill: '#f59e0b', soft: '#fffbeb', border: '#fde68a' },
+  closing: { ink: '#334155', fill: '#64748b', soft: '#f8fafc', border: '#cbd5e1' },
+};
 
 /** Fixed page size: table body always reserves 15 row slots (padded when fewer). */
 const STOCK_REPORT_PAGE_SIZE = 15;
@@ -69,6 +92,8 @@ const Reports = () => {
   });
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [viewMode, setViewMode] = useState('dashboard');
+  const [tableSearch, setTableSearch] = useState('');
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -832,23 +857,35 @@ const Reports = () => {
     );
   };
 
-  const totalRecords = reportData.length;
+  const searchedData = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return reportData;
+    return reportData.filter((item) => {
+      const hay = [item.Category, item.Product, item.Design, item.Name, item.EmpName, item.Employee, item.CreatedBy]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [reportData, tableSearch]);
+
+  const totalRecords = searchedData.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / STOCK_REPORT_PAGE_SIZE));
 
   const currentItems = useMemo(() => {
     const start = (currentPage - 1) * STOCK_REPORT_PAGE_SIZE;
-    return reportData.slice(start, start + STOCK_REPORT_PAGE_SIZE);
-  }, [reportData, currentPage]);
+    return searchedData.slice(start, start + STOCK_REPORT_PAGE_SIZE);
+  }, [searchedData, currentPage]);
 
   const paddedStockSlots = useMemo(() => {
     const slots = [];
     currentItems.forEach((item) => slots.push({ kind: 'row', item }));
-    const pad = Math.max(0, STOCK_REPORT_PAGE_SIZE - slots.length);
+    const pad = windowWidth <= 768 ? 0 : Math.max(0, STOCK_REPORT_PAGE_SIZE - slots.length);
     for (let i = 0; i < pad; i += 1) {
       slots.push({ kind: 'pad', key: `sr-pad-${currentPage}-${i}` });
     }
     return slots;
-  }, [currentItems, currentPage]);
+  }, [currentItems, currentPage, windowWidth]);
 
   // Smart Pagination Logic
   const generatePagination = () => {
@@ -1195,6 +1232,39 @@ const Reports = () => {
 
   const totals = calculateTotals();
 
+  const appliedFilterCount = ['branch', 'counterName', 'categoryId', 'productId', 'designId', 'purityId']
+    .filter((k) => filterValues[k] && filterValues[k] !== 'All').length;
+
+  const chartItems = useMemo(() => {
+    return [...reportData]
+      .sort((a, b) => parseFloat(b.ClosingQty || 0) - parseFloat(a.ClosingQty || 0))
+      .slice(0, 8);
+  }, [reportData]);
+
+  const barChartData = useMemo(() => ({
+    labels: chartItems.map((item) => {
+      const parts = [item.Category, item.Product, item.Design].filter(Boolean);
+      const label = parts.length ? parts.join(' · ') : (item.Name || item.Category || 'Item');
+      return label.length > 18 ? `${label.slice(0, 16)}…` : label;
+    }),
+    datasets: [
+      { label: 'Opening', data: chartItems.map((i) => parseFloat(i.OpeningQuantity || i.OpeningQty || 0)), backgroundColor: SR.opening.fill, borderRadius: 5 },
+      { label: 'Stock in', data: chartItems.map((i) => parseFloat(i.StockEntryQuantity || i.StockInQty || 0)), backgroundColor: SR.stockIn.fill, borderRadius: 5 },
+      { label: 'Sale', data: chartItems.map((i) => parseFloat(i.SaleQty || 0)), backgroundColor: SR.sale.fill, borderRadius: 5 },
+      { label: 'Closing', data: chartItems.map((i) => parseFloat(i.ClosingQty || 0)), backgroundColor: SR.closing.fill, borderRadius: 5 },
+    ],
+  }), [chartItems]);
+
+  const doughnutData = useMemo(() => ({
+    labels: ['Opening', 'Stock in', 'Sale', 'Closing'],
+    datasets: [{
+      data: [totals.OpeningQty, totals.StockInQty, totals.SaleQty, totals.ClosingQty],
+      backgroundColor: [SR.opening.fill, SR.stockIn.fill, SR.sale.fill, SR.closing.fill],
+      borderWidth: 2,
+      borderColor: '#fff',
+    }],
+  }), [totals.OpeningQty, totals.StockInQty, totals.SaleQty, totals.ClosingQty]);
+
   const columns = [
     { key: 'Employee', label: 'Employee', width: '120px' },
     { key: 'Name', label: 'Item detail', width: '200px' },
@@ -1258,204 +1328,93 @@ const Reports = () => {
       className="stock-report-page"
       style={{
         fontFamily: 'var(--font-family)',
-        padding: '12px',
+        padding: isSmallScreen ? 8 : 12,
         fontSize: 11,
         minHeight: '100%',
-        background: '#ffffff',
+        background: '#f8fafc',
       }}
     >
-      <style>{`
-        @keyframes stockReportSpin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-      <div
-        style={{
-          background: '#ffffff',
-          borderRadius: 12,
-          overflow: 'hidden',
-          marginBottom: 12,
-          boxShadow: '0 4px 24px rgba(15, 23, 42, 0.06)',
-          border: '1px solid #e2e8f0',
-        }}
-      >
-        <div
-          style={{
-            height: 3,
-            background: 'linear-gradient(90deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%)',
-          }}
-        />
-        <div style={{ padding: '14px 16px' }}>
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: 14,
-            }}
-          >
-            <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: isSmallScreen ? '1.05rem' : '1.2rem',
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  lineHeight: 1.2,
-                }}
-              >
-                Stock report
-              </h1>
-              <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b', fontWeight: 600, lineHeight: 1.45 }}>
-                Opening, stock-in, sale, and closing by item — <strong style={{ color: '#0f766e' }}>{STOCK_REPORT_PAGE_SIZE} rows</strong> per page
-              </p>
+      <style>{stockReportStyles}</style>
+      <div className="sv-top">
+        <div className="sv-top-inner">
+          <PageHeader
+            title="Stock Report"
+            subtitle={`${totalRecords.toLocaleString()} items${appliedFilterCount ? ` · ${appliedFilterCount} filter${appliedFilterCount === 1 ? '' : 's'}` : ''} · ${filterValues.dateFrom} to ${filterValues.dateTo}`}
+            barStyle={{ padding: 0, margin: 0, gap: 10, borderBottom: 'none' }}
+            actions={(
+              <div className="sv-header-actions">
+                <div className="sv-tabs" role="tablist" aria-label="Stock report views">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={viewMode === 'dashboard'}
+                    className={`sv-tab${viewMode === 'dashboard' ? ' is-active' : ''}`}
+                    onClick={() => setViewMode('dashboard')}
+                  >
+                    <FaChartBar /> Dashboard
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={viewMode === 'table'}
+                    className={`sv-tab${viewMode === 'table' ? ' is-active' : ''}`}
+                    onClick={() => setViewMode('table')}
+                  >
+                    <FaTable /> Table
+                  </button>
+                </div>
+              </div>
+            )}
+          />
+          <div className="sv-toolbar">
+            {viewMode === 'table' ? (
+              <div className="sv-search-wrap">
+                <FaSearch />
+                <input
+                  type="text"
+                  placeholder="Search item or employee…"
+                  value={tableSearch}
+                  onChange={(e) => {
+                    setTableSearch(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+            ) : (
+              <span className="sv-count-pill">Opening, stock-in, sale, and closing</span>
+            )}
+            <div className="sv-toolbar-actions">
+              <span className="sv-count-pill">{totalRecords.toLocaleString()} rows</span>
               <button
                 type="button"
+                className={`sv-chip${showFilterPanel ? ' is-active' : ''}`}
+                onClick={() => setShowFilterPanel(!showFilterPanel)}
+              >
+                <FaFilter /> Filter
+                {appliedFilterCount > 0 ? <span className="sv-badge">{appliedFilterCount}</span> : null}
+              </button>
+              <button type="button" className="sv-chip" onClick={handleRefresh} disabled={loading}>
+                {loading ? <FaSpinner style={{ animation: 'stockReportSpin 1s linear infinite' }} /> : <FaSync />}
+                Refresh
+              </button>
+              <button
+                type="button"
+                className="sv-chip"
+                onClick={() => setShowExportModal(true)}
+                disabled={reportData.length === 0}
+              >
+                <FaFileExport /> Export
+              </button>
+              <button
+                type="button"
+                className="sv-chip sv-chip--accent"
                 onClick={() => {
                   const dateFrom = filterValues.dateFrom || getCurrentDate();
                   const dateTo = filterValues.dateTo || getCurrentDate();
                   navigate(`/stock-report-summary?dateFrom=${dateFrom}&dateTo=${dateTo}`);
                 }}
-                style={{
-                  marginTop: 10,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #99f6e4',
-                  background: 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 100%)',
-                  color: '#0f766e',
-                  cursor: 'pointer',
-                }}
               >
-                Open stock report summary →
-              </button>
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-                gap: 8,
-                marginLeft: 'auto',
-              }}
-            >
-              <div
-                style={{
-                  display: 'inline-flex',
-                  borderRadius: 10,
-                  border: '1px solid #cbd5e1',
-                  padding: 3,
-                  background: '#f8fafc',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setShowFilterPanel(!showFilterPanel)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 14px',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    borderRadius: 8,
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: showFilterPanel ? 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)' : 'transparent',
-                    color: showFilterPanel ? '#fff' : '#475569',
-                    boxShadow: showFilterPanel ? '0 2px 8px rgba(13, 148, 136, 0.35)' : 'none',
-                  }}
-                >
-                  <FaFilter style={{ fontSize: 12 }} />
-                  Filters
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={loading}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  height: 32,
-                  padding: '0 14px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 10,
-                  border: '1px solid #d4d4d8',
-                  background: '#fafafa',
-                  color: '#262626',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.55 : 1,
-                }}
-              >
-                {loading ? (
-                  <FaSpinner style={{ animation: 'stockReportSpin 1s linear infinite' }} />
-                ) : (
-                  <FaSync />
-                )}
-                Refresh
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const query = createDashboardQueryString();
-                  navigate(`/stock-report-dashboard?${query}`);
-                }}
-                disabled={reportData.length === 0}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #d1d5db',
-                  background: reportData.length === 0 ? '#f8fafc' : 'linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 100%)',
-                  color: '#0f172a',
-                  cursor: reportData.length === 0 ? 'not-allowed' : 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                  opacity: reportData.length === 0 ? 0.45 : 1,
-                }}
-              >
-                <FaChartBar style={{ fontSize: 11, color: '#475569' }} />
-                <span>Dashboard View</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowExportModal(true)}
-                disabled={reportData.length === 0}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 8,
-                  border: '1px solid #cbd5e1',
-                  background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-                  color: '#0f172a',
-                  cursor: reportData.length === 0 ? 'not-allowed' : 'pointer',
-                  boxSizing: 'border-box',
-                  height: 30,
-                  opacity: reportData.length === 0 ? 0.45 : 1,
-                }}
-              >
-                <FaFileExport style={{ fontSize: 11, color: '#475569' }} />
-                <span>Export</span>
+                Summary
               </button>
             </div>
           </div>
@@ -1604,14 +1563,15 @@ const Reports = () => {
             data-filter-panel
             style={{
               position: 'fixed',
-              top: '50%',
-              right: '20px',
-              transform: 'translateY(-50%)',
-              width: windowWidth <= 768 ? '90%' : '380px',
-              maxWidth: '90vw',
-              maxHeight: '90vh',
+              top: windowWidth <= 768 ? 0 : '50%',
+              right: windowWidth <= 768 ? 0 : 20,
+              transform: windowWidth <= 768 ? 'none' : 'translateY(-50%)',
+              width: windowWidth <= 768 ? '100%' : 380,
+              maxWidth: windowWidth <= 768 ? '100vw' : '90vw',
+              height: windowWidth <= 768 ? '100vh' : 'auto',
+              maxHeight: windowWidth <= 768 ? '100vh' : '90vh',
               background: '#ffffff',
-              borderRadius: '16px',
+              borderRadius: windowWidth <= 768 ? 0 : 16,
               boxShadow: '0 20px 25px rgba(0, 0, 0, 0.25)',
               zIndex: 9999,
               display: 'flex',
@@ -1845,9 +1805,154 @@ const Reports = () => {
         </div>
       )}
 
-      {/* Table Container — fixed 15 row body height (padded slots) */}
+      {/* Dashboard (default) */}
+      {viewMode === 'dashboard' && (
+        <div className="sr-dashboard">
+          <div className="sr-metrics">
+            {[
+              { label: 'Opening Qty', value: formatQty(totals.OpeningQty), sub: `${formatNumber(totals.OpeningGrWt)} g gross`, ...SR.opening },
+              { label: 'Stock In Qty', value: formatQty(totals.StockInQty), sub: `${formatNumber(totals.StockInGrWt)} g gross`, ...SR.stockIn },
+              { label: 'Sale Qty', value: formatQty(totals.SaleQty), sub: `${formatNumber(totals.SaleGrossWt)} g gross`, ...SR.sale },
+              { label: 'Closing Qty', value: formatQty(totals.ClosingQty), sub: `${formatNumber(totals.ClosingGrWt)} g gross`, ...SR.closing },
+            ].map((card) => (
+              <div key={card.label} className="sr-metric" style={{ '--accent': card.ink, '--soft': card.soft, '--edge': card.border }}>
+                <div className="sr-metric-label">{card.label}</div>
+                <div className="sr-metric-value">{card.value}</div>
+                <div className="sr-metric-sub">{card.sub}</div>
+              </div>
+            ))}
+          </div>
+          <div className="sr-charts">
+            <div className="sr-chart-card">
+              <div className="sr-chart-head">
+                <div>
+                  <h3>Top items stock movement</h3>
+                  <p>Opening, stock-in, sale, and closing qty</p>
+                </div>
+                <FaChartBar />
+              </div>
+              <div className="sr-chart-body">
+                {loading && totalRecords === 0 ? (
+                  <div className="sr-empty">Loading…</div>
+                ) : reportData.length === 0 ? (
+                  <div className="sr-empty">No report data for the selected filters.</div>
+                ) : (
+                  <Bar
+                    data={barChartData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 10, font: { size: 10 } } },
+                      },
+                      scales: {
+                        x: { ticks: { maxRotation: 0, autoSkip: true, font: { size: 9 } } },
+                        y: { beginAtZero: true },
+                      },
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+            <div className="sr-chart-card">
+              <div className="sr-chart-head">
+                <div>
+                  <h3>Quantity totals</h3>
+                  <p>Overall quantity mix</p>
+                </div>
+                <FaChartPie />
+              </div>
+              <div className="sr-chart-body sr-chart-body--donut">
+                {loading && totalRecords === 0 ? (
+                  <div className="sr-empty">Loading…</div>
+                ) : reportData.length === 0 ? (
+                  <div className="sr-empty">No report data for the selected filters.</div>
+                ) : (
+                  <Doughnut
+                    data={doughnutData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 10, font: { size: 10 } } },
+                      },
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="sr-preview">
+            <div className="sr-preview-head">
+              <div>
+                <h3>Stock movement detail</h3>
+                <p>Same figures as the dashboard, item by item</p>
+              </div>
+              <button type="button" className="sv-chip sv-chip--accent" onClick={() => setViewMode('table')}>
+                <FaTable /> Full table
+              </button>
+            </div>
+            {loading && reportData.length === 0 ? (
+              <div className="sr-empty sr-empty--table">Loading…</div>
+            ) : reportData.length === 0 ? (
+              <div className="sr-empty sr-empty--table">No report data for the selected filters.</div>
+            ) : (
+              <div className="sr-preview-scroll">
+                <table className="sr-preview-table">
+                  <thead>
+                    <tr>
+                      <th>S.No</th>
+                      <th>Item detail</th>
+                      <th>Opening Qty</th>
+                      <th>Opening Gr Wt</th>
+                      <th>Stock In Qty</th>
+                      <th>Stock In Gr Wt</th>
+                      <th>Sale Qty</th>
+                      <th>Sale Gr Wt</th>
+                      <th>Closing Qty</th>
+                      <th>Closing Gr Wt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportData.map((item, index) => (
+                      <tr key={`dash-row-${index}`}>
+                        <td>{index + 1}</td>
+                        <td className="sr-item">{getValue(item, 'Name') || '—'}</td>
+                        <td>{formatQty(getValue(item, 'OpeningQty'))}</td>
+                        <td>{formatNumber(getValue(item, 'OpeningGrWt'))}</td>
+                        <td>{formatQty(getValue(item, 'StockInQty'))}</td>
+                        <td>{formatNumber(getValue(item, 'StockInGrWt'))}</td>
+                        <td>{formatQty(getValue(item, 'SaleQty'))}</td>
+                        <td>{formatNumber(getValue(item, 'SaleGrossWt'))}</td>
+                        <td>{formatQty(getValue(item, 'ClosingQty'))}</td>
+                        <td>{formatNumber(getValue(item, 'ClosingGrWt'))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={2}>Total</td>
+                      <td>{formatQty(totals.OpeningQty)}</td>
+                      <td>{formatNumber(totals.OpeningGrWt)}</td>
+                      <td>{formatQty(totals.StockInQty)}</td>
+                      <td>{formatNumber(totals.StockInGrWt)}</td>
+                      <td>{formatQty(totals.SaleQty)}</td>
+                      <td>{formatNumber(totals.SaleGrossWt)}</td>
+                      <td>{formatQty(totals.ClosingQty)}</td>
+                      <td>{formatNumber(totals.ClosingGrWt)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'table' && (
       <div
-        className="table-container"
+        className="table-container sr-table-card"
         style={{
           background: '#ffffff',
           borderRadius: 12,
@@ -2199,8 +2304,211 @@ const Reports = () => {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };
+
+const stockReportStyles = `
+  @keyframes stockReportSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .sv-top { margin-bottom: 12px; }
+  .sv-top-inner {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .sv-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .sv-tabs {
+    display: inline-flex;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .sv-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 11px;
+    border: none;
+    border-right: 1px solid #e2e8f0;
+    background: #fff;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .sv-tab:last-child { border-right: none; }
+  .sv-tab.is-active { background: #f0fdfa; color: #0f766e; }
+  .sv-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #fff;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .sv-chip svg { width: 11px; height: 11px; font-size: 11px; }
+  .sv-chip:hover { background: #f8fafc; }
+  .sv-chip.is-active, .sv-chip--accent { border-color: #99f6e4; color: #0f766e; }
+  .sv-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+  .sv-badge {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: #0f766e;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sv-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .sv-search-wrap { position: relative; flex: 1 1 220px; min-width: 0; }
+  .sv-search-wrap svg {
+    position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+    color: #94a3b8; font-size: 10px; pointer-events: none;
+  }
+  .sv-search-wrap input {
+    width: 100%; height: 28px; padding: 0 10px 0 28px; font-size: 11px;
+    border: 1px solid #e2e8f0; border-radius: 6px; outline: none; background: #fff; color: #0f172a;
+  }
+  .sv-search-wrap input:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12); }
+  .sv-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .sv-count-pill { font-size: 11px; font-weight: 600; color: #64748b; }
+  .sr-dashboard { display: flex; flex-direction: column; gap: 12px; }
+  .sr-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .sr-metric {
+    background: #fff;
+    border: 1px solid var(--edge, #e2e8f0);
+    border-radius: 12px;
+    padding: 14px 14px 12px 16px;
+    min-height: 92px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    position: relative;
+    overflow: hidden;
+  }
+  .sr-metric::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: var(--accent);
+  }
+  .sr-metric-label { font-size: 11px; font-weight: 700; color: #64748b; }
+  .sr-metric-value { margin-top: 8px; font-size: clamp(20px, 2.4vw, 28px); font-weight: 800; color: var(--accent); line-height: 1.1; }
+  .sr-metric-sub { margin-top: 4px; font-size: 11px; font-weight: 600; color: #64748b; }
+  .sr-charts {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr);
+    gap: 12px;
+  }
+  .sr-chart-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 14px;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+  }
+  .sr-chart-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .sr-chart-head h3 { margin: 0; font-size: 13px; font-weight: 800; color: #0f172a; }
+  .sr-chart-head p { margin: 3px 0 0; font-size: 11px; color: #64748b; font-weight: 600; }
+  .sr-chart-head svg { color: #0f766e; font-size: 16px; flex-shrink: 0; }
+  .sr-chart-body { flex: 1; min-height: 240px; position: relative; }
+  .sr-empty { height: 100%; display: flex; align-items: center; justify-content: center; color: #64748b; font-weight: 700; }
+  .sr-empty--table { min-height: 80px; }
+  .sr-preview {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .sr-preview-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .sr-preview-head h3 { margin: 0; font-size: 13px; font-weight: 800; color: #0f172a; }
+  .sr-preview-head p { margin: 3px 0 0; font-size: 11px; color: #64748b; font-weight: 600; }
+  .sr-preview-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .sr-preview-table {
+    width: 100%;
+    min-width: 860px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .sr-preview-table th {
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    color: #334155;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    white-space: nowrap;
+  }
+  .sr-preview-table td {
+    padding: 8px 10px;
+    font-size: 11px;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+    white-space: nowrap;
+  }
+  .sr-preview-table tbody tr:nth-child(even) { background: #fafafa; }
+  .sr-preview-table tbody tr:hover { background: #f0fdfa; }
+  .sr-preview-table th:nth-child(n+3),
+  .sr-preview-table td:nth-child(n+3) { text-align: right; font-variant-numeric: tabular-nums; }
+  .sr-preview-table .sr-item { font-weight: 700; color: #0f172a; }
+  .sr-preview-table tfoot td {
+    background: #f0fdfa;
+    color: #0f766e;
+    font-weight: 800;
+    border-top: 1px solid #99f6e4;
+    border-bottom: none;
+  }
+  .sr-table-card { overflow: hidden; }
+  @media (max-width: 1100px) {
+    .sr-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sr-charts { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 768px) {
+    .sv-top-inner { padding: 10px; }
+    .sv-header-actions, .sv-toolbar-actions, .sv-search-wrap { width: 100%; }
+    .sv-toolbar-actions { margin-left: 0; }
+    .sv-tabs { width: 100%; }
+    .sv-tab { flex: 1; justify-content: center; }
+    .sr-chart-card { min-height: 280px; }
+  }
+  @media (max-width: 560px) {
+    .sr-metrics { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .sr-metric { padding: 12px 10px 10px; min-height: 84px; }
+    .sr-metric-value { font-size: 20px; }
+  }
+`;
 
 export default Reports;

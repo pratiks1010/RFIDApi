@@ -223,6 +223,15 @@ const API_GROUPS = [
         responseFormat: { status: 'success | failed', message: 'Deleted successfully.' },
       },
       {
+        id: 'delete-branch-master',
+        name: 'Delete Branch Master',
+        endpoint: 'DeleteBranchMaster',
+        method: 'POST',
+        description: 'Delete a branch master by Id (RRGold Client Onboarding). Body: ClientCode + Id.',
+        sampleBody: { ...PLAYGROUND_DELETE_BRANCH_BODY },
+        responseFormat: { status: 'success | failed', message: 'Deleted successfully.' },
+      },
+      {
         id: 'delete-counter',
         name: 'Delete Counter',
         endpoint: 'DeleteCounter',

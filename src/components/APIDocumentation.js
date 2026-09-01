@@ -699,6 +699,22 @@ const APIDocumentation = () => {
       }
     },
     {
+      id: 'delete-branch-master',
+      name: 'Delete Branch Master',
+      endpoint: 'DeleteBranchMaster',
+      method: 'POST',
+      baseUrl: 'https://rrgold.loyalstring.co.in/api/ClientOnboarding',
+      description: 'Delete a branch master by Id (RRGold Client Onboarding). Body: ClientCode and Id.',
+      sampleBody: {
+        ClientCode: "LS000123",
+        Id: 1
+      },
+      responseFormat: {
+        status: "success",
+        message: "Deleted successfully."
+      }
+    },
+    {
       id: 'delete-counter',
       name: 'Delete Counter',
       endpoint: 'DeleteCounter',

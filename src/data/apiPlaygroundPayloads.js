@@ -124,7 +124,10 @@ export const PLAYGROUND_CLIENT_CODE_ONLY = {
   ClientCode: 'LS000123',
 };
 
-/** Create Masters → POST …/api/ClientOnboarding/DeleteBranch */
+/** Create Masters → POST …/api/ClientOnboarding/DeleteBranch
+ *  RRGold → POST …/api/ClientOnboarding/DeleteBranchMaster
+ *  Same body: { ClientCode, Id }
+ */
 export const PLAYGROUND_DELETE_BRANCH_BODY = {
   ClientCode: 'LS000123',
   Id: 1,

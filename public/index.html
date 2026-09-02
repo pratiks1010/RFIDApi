@@ -2,6 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <script>
+      (function () {
+        if (typeof location === 'undefined' || location.protocol === 'file:') return;
+        var base = document.createElement('base');
+        base.href = '/';
+        document.head.insertBefore(base, document.head.firstChild);
+      })();
+    </script>
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />

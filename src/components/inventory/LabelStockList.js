@@ -4580,7 +4580,7 @@ const LabelStockList = () => {
                       role="menuitem"
                       onClick={() => {
                         setShowMoreMenu(false);
-                        navigate('/label-stock/bulk-upload-images');
+                        navigate('/bulk-upload-images');
                       }}
                     >
                       <FaImage /> Upload image

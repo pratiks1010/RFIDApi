@@ -305,6 +305,7 @@ const LabelStockList = () => {
   const [allFilteredData, setAllFilteredData] = useState([]);
   const [loadingAllData, setLoadingAllData] = useState(false);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
+  const [tableRefreshing, setTableRefreshing] = useState(false);
   const [showTrayScanModal, setShowTrayScanModal] = useState(false);
   const [trayFetchLoading, setTrayFetchLoading] = useState(false);
   const [folderAutoPushSyncing, setFolderAutoPushSyncing] = useState(false);
@@ -372,6 +373,10 @@ const LabelStockList = () => {
   const [statusChangeLoading, setStatusChangeLoading] = useState(false);
   const [availableStatuses] = useState(['ApiActive', 'Sold']);
   const isFetchingRef = useRef(false);
+  const showActiveOnlyRef = useRef(false);
+  const stockFetchGenRef = useRef(0);
+  const stockAbortRef = useRef(null);
+  showActiveOnlyRef.current = showActiveOnly;
 
   // Window width state for responsive design
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -472,13 +477,8 @@ const LabelStockList = () => {
 
   useEffect(() => {
     if (userInfo && userInfo.ClientCode && !isFetchingRef.current) {
-      // Only fetch if not already loading to prevent double loading
       const fetchData = async () => {
-        isFetchingRef.current = true;
-        // Show loader immediately when page loads
-        setLoading(true);
         try {
-          // Reset filters to default on page load/refresh
           const defaultFilters = {
             counterName: 'All',
             productId: 'All',
@@ -494,8 +494,6 @@ const LabelStockList = () => {
           setFilterValues(defaultFilters);
           setCurrentPage(1);
 
-          // Fetch stock data first (most important) - await this to show data quickly
-          // Filters and templates can load in background without blocking
           try {
             await fetchLabeledStock(1, itemsPerPage, '', defaultFilters);
           } catch (err) {
@@ -503,13 +501,10 @@ const LabelStockList = () => {
             setError('Failed to load stock data. Please try again.');
           }
 
-          // Fetch filter data and templates in parallel (non-blocking, don't await)
-          // These can load in background - page will work even if they fail
           Promise.allSettled([
             fetchFilterData(),
             fetchSavedTemplates()
           ]).then(([filterDataResult, templatesResult]) => {
-            // Log results but don't block - each function handles its own errors
             if (filterDataResult.status === 'rejected') {
               console.warn('Filter data fetch failed, but continuing with stock data:', filterDataResult.reason);
             }
@@ -520,9 +515,6 @@ const LabelStockList = () => {
         } catch (error) {
           console.error('Error in initial data fetch:', error);
           setError('Failed to load data. Please refresh the page.');
-        } finally {
-          setLoading(false);
-          isFetchingRef.current = false;
         }
       };
       fetchData();
@@ -580,7 +572,7 @@ const LabelStockList = () => {
         PageNumber: 1,
         PageSize: 999999,
         BranchId: allBranchId,
-        Status: showActiveOnly ? 'Active' : 'ApiActive',
+        Status: showActiveOnlyRef.current ? 'Active' : 'ApiActive',
         SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : "",
         ListType: "ascending",
         SortColumn: sortConfig.key || null
@@ -616,7 +608,8 @@ const LabelStockList = () => {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'application/json'
-          }
+          },
+          skipGlobalLoader: true,
         }
       );
 
@@ -824,14 +817,13 @@ const LabelStockList = () => {
     }
   };
 
-  const fetchLabeledStock = async (page = currentPage, pageSize = itemsPerPage, search = searchQuery, filters = filterValues, sort = sortConfig) => {
-    // Prevent duplicate loading if already fetching
-    if (isFetchingRef.current) {
+  const fetchLabeledStock = async (page = currentPage, pageSize = itemsPerPage, search = searchQuery, filters = filterValues, sort = sortConfig, options = {}) => {
+    const { force = false, quiet = false, activeOnly } = options || {};
+    if (isFetchingRef.current && !force) {
       console.log('Already fetching, skipping duplicate fetch');
       return;
     }
 
-    // Ensure we have valid filters
     const safeFilters = filters || {
       counterName: 'All',
       productId: 'All',
@@ -844,9 +836,21 @@ const LabelStockList = () => {
       status: 'All'
     };
 
+    if (stockAbortRef.current) {
+      stockAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    stockAbortRef.current = controller;
+    const fetchGen = stockFetchGenRef.current + 1;
+    stockFetchGenRef.current = fetchGen;
+
     isFetchingRef.current = true;
     try {
-      setLoading(true);
+      if (quiet) {
+        setTableRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
       // Try to get ClientCode from userInfo or fallback to localStorage
       let clientCode = null;
@@ -905,7 +909,7 @@ const LabelStockList = () => {
         PageNumber: page,
         PageSize: pageSize,
         BranchId: resolvedBranchId,
-        Status: showActiveOnly ? 'Active' : 'ApiActive',
+        Status: (activeOnly !== undefined ? activeOnly : showActiveOnlyRef.current) ? 'Active' : 'ApiActive',
         SearchQuery: search && search.trim() !== '' ? search.trim() : "",
         ListType: sort && sort.direction === 'desc' ? "descending" : "ascending",
         SortColumn: sort && sort.key ? sort.key : null // Include SortColumn based on current sort configuration
@@ -953,9 +957,15 @@ const LabelStockList = () => {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'application/json'
           },
-          timeout: 20000 // 20 seconds timeout to prevent hanging
+          timeout: 20000,
+          signal: controller.signal,
+          skipGlobalLoader: quiet,
         }
       );
+
+      if (fetchGen !== stockFetchGenRef.current) {
+        return;
+      }
 
       // Handle different response structures
       let dataArray = [];
@@ -1062,14 +1072,15 @@ const LabelStockList = () => {
         console.log(`Page ${page}: Empty response received`);
       }
     } catch (err) {
+      const canceled = err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || err?.name === 'AbortError';
+      if (canceled || fetchGen !== stockFetchGenRef.current) {
+        return;
+      }
       console.error('Error fetching data:', err);
 
-      // Handle different error types
       if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
-        // Timeout error
         setError('Request timed out. The server is taking too long to respond. Please try again.');
       } else if (err.response) {
-        // Server responded with error status
         const status = err.response.status;
         const message = err.response.data?.message || err.response.data?.error || 'Server error occurred';
 
@@ -1085,35 +1096,30 @@ const LabelStockList = () => {
           setError(message || 'Failed to fetch labeled stock data');
         }
       } else if (err.request) {
-        // Request was made but no response received
         setError('Network error. Please check your connection and try again.');
       } else {
-        // Something else happened
         setError(err.message || 'Failed to fetch labeled stock data');
       }
 
-      // Clear data on error
-      setLabeledStock([]);
-      setTotalRecords(0);
-      setTotalPages(0);
+      if (!quiet) {
+        setLabeledStock([]);
+        setTotalRecords(0);
+        setTotalPages(0);
+      }
     } finally {
-      setLoading(false);
-      isFetchingRef.current = false;
+      if (fetchGen === stockFetchGenRef.current) {
+        setLoading(false);
+        setTableRefreshing(false);
+        isFetchingRef.current = false;
+      }
     }
   };
 
   // Search functionality - now using server-side data
   const filteredStock = useMemo(() => {
-    // Since we're using server-side pagination, we only filter the current page data
-    // For full search/filter functionality, we would need to implement server-side filtering
     let filtered = labeledStock;
 
-    // Filter by RFIDCode when showActiveOnly is true - only show items where RFIDCode is not null
-    if (showActiveOnly) {
-      filtered = filtered.filter(item => item.RFIDCode && item.RFIDCode.trim() !== '');
-    }
-
-    // Apply search query to current page data only
+    // Search is already sent to the API. Keep a light client filter for the current page only.
     if (searchQuery.trim() !== '') {
       const q = searchQuery.trim().toLowerCase();
       filtered = filtered.filter(item =>
@@ -1124,7 +1130,7 @@ const LabelStockList = () => {
     }
 
     return filtered;
-  }, [labeledStock, searchQuery, showActiveOnly]);
+  }, [labeledStock, searchQuery]);
 
   // Pagination - now using server-side pagination
   const currentItems = filteredStock; // filteredStock now contains only the current page data
@@ -2695,29 +2701,38 @@ const LabelStockList = () => {
     setSearchQuery(value);
   };
 
-  // Debounced search effect - similar to reference code
+  const searchReadyRef = useRef(false);
   useEffect(() => {
+    if (!searchReadyRef.current) {
+      searchReadyRef.current = true;
+      return undefined;
+    }
     const timeoutId = setTimeout(() => {
-      // Show loader immediately when search executes
-      setLoading(true);
-      if (currentPage !== 1) {
-        setCurrentPage(1);
-      } else {
-        fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues);
-      }
-    }, 2000); // 2 second debounce like reference
+      setCurrentPage(1);
+      fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, sortConfig, {
+        force: true,
+        quiet: true,
+      });
+    }, 2000);
 
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
 
-  // Effect for toggle change - refetch data when showActiveOnly changes
-  useEffect(() => {
-    if (userInfo?.ClientCode) {
-      setLoading(true);
-      setCurrentPage(1);
-      fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues);
+  const handleActiveToggle = () => {
+    const next = !showActiveOnly;
+    setShowActiveOnly(next);
+    showActiveOnlyRef.current = next;
+    setCurrentPage(1);
+    setError(null);
+    fetchLabeledStock(1, itemsPerPage, searchQuery, filterValues, sortConfig, {
+      force: true,
+      quiet: true,
+      activeOnly: next,
+    });
+    if (showAllData) {
+      fetchAllFilteredData();
     }
-  }, [showActiveOnly]);
+  };
 
   // Filtered fetch is controlled by Apply/Reset actions to keep UX predictable.
 
@@ -2766,11 +2781,12 @@ const LabelStockList = () => {
     setSelectedRows([]);
     setSearchQuery('');
     setShowActiveOnly(false);
+    showActiveOnlyRef.current = false;
     setFilterValues(defaultFilters);
     closeAllDropdowns();
     setCurrentPage(1);
     setLoading(true);
-    fetchLabeledStock(1, itemsPerPage, '', defaultFilters);
+    fetchLabeledStock(1, itemsPerPage, '', defaultFilters, sortConfig, { force: true, activeOnly: false });
   };
 
   const handleApplyFilters = () => {
@@ -4413,11 +4429,13 @@ const LabelStockList = () => {
             <button
               type="button"
               className={`lsl-chip ${showActiveOnly ? 'is-on' : ''}`}
-              onClick={() => setShowActiveOnly(!showActiveOnly)}
-              title={showActiveOnly ? 'Show all items' : 'Show only items with RFID Code'}
+              onClick={handleActiveToggle}
+              disabled={tableRefreshing}
+              title={showActiveOnly ? 'Show all items' : 'Show only Active API items'}
             >
               <span className={`lsl-switch ${showActiveOnly ? 'is-on' : ''}`} />
               <span>Active</span>
+              {tableRefreshing ? <FaSpinner className="spin" style={{ fontSize: 10 }} /> : null}
             </button>
             </div>
 
@@ -4557,6 +4575,16 @@ const LabelStockList = () => {
                       </div>
                     </div>
                     <div className="lsl-more-sep" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        navigate('/label-stock/bulk-upload-images');
+                      }}
+                    >
+                      <FaImage /> Upload image
+                    </button>
                     <button
                       type="button"
                       role="menuitem"
@@ -4976,7 +5004,14 @@ const LabelStockList = () => {
           width: '100%',
           maxWidth: '100%',
           minWidth: 0,
+          position: 'relative',
         }}>
+          {tableRefreshing ? (
+            <div className="lsl-table-refresh-overlay" aria-live="polite">
+              <FaSpinner className="spin" />
+              <span>Refreshing table…</span>
+            </div>
+          ) : null}
           {isGridView ? (
             <div
               className="grid-scroll-container"
@@ -5884,6 +5919,22 @@ const LabelStockList = () => {
           }
           .lsl-chip svg { width: var(--ui-icon); height: var(--ui-icon); font-size: var(--ui-icon); }
           .lsl-chip:hover { background: #faf8f4; border-color: var(--lsl-gold-soft); }
+          .lsl-chip:disabled { cursor: wait; opacity: 0.75; }
+          .lsl-table-refresh-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: rgba(248, 250, 252, 0.62);
+            color: #0f4c81;
+            font-size: 12px;
+            font-weight: 700;
+            pointer-events: all;
+            backdrop-filter: blur(1px);
+          }
           .lsl-chip.is-active {
             background: #fff;
             border-color: var(--lsl-gold);

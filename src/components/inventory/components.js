@@ -1,4 +1,5 @@
 export { default as LabelStockList } from './LabelStockList';
+export { default as BulkProductImageUpload } from './BulkProductImageUpload';
 export { default as Labeling } from './Labeling';
 export { default as RFIDDeviceDetails } from './RFIDDeviceDetails';
 export { default as StockTracking } from './StockTracking';

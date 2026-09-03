@@ -270,6 +270,30 @@ export const normalizeAddStockVerificationBySessionResponse = (data = {}) => {
   };
 };
 
+/** POST /api/ProductMaster/DeleteStockVerificationByDate — one client, one date, full batches. */
+export const DELETE_STOCK_VERIFICATION_BY_DATE_URL = toRrgoldApiUrl(
+  '/api/ProductMaster/DeleteStockVerificationByDate'
+);
+
+export const deleteStockVerificationByDate = async ({ clientCode, date }, headers = {}) => {
+  const { data } = await axios.post(
+    DELETE_STOCK_VERIFICATION_BY_DATE_URL,
+    {
+      ClientCode: String(clientCode || '').trim(),
+      Date: String(date || '').trim(),
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+      timeout: 90000,
+    }
+  );
+  return data || {};
+};
+
 /** POST /api/ProductMaster/AddStockVerificationBySession */
 export const addStockVerificationBySession = async (payload, headers = {}) => {
   const { data } = await axios.post(ADD_STOCK_VERIFICATION_BY_SESSION_URL, payload, {

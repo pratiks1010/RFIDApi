@@ -124,6 +124,12 @@ export const PLAYGROUND_CLIENT_CODE_ONLY = {
   ClientCode: 'LS000123',
 };
 
+/** Stock Verification → POST …/api/ProductMaster/DeleteStockVerificationByDate (RRGold) */
+export const PLAYGROUND_DELETE_STOCK_VERIFICATION_BY_DATE_BODY = {
+  ClientCode: 'LS000123',
+  Date: '2026-09-03',
+};
+
 /** Create Masters → POST …/api/ClientOnboarding/DeleteBranch
  *  RRGold → POST …/api/ClientOnboarding/DeleteBranchMaster
  *  Same body: { ClientCode, Id }

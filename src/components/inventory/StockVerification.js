@@ -26,7 +26,8 @@ import {
   FaChevronUp,
   FaBoxes,
   FaBox,
-  FaTimes
+  FaTimes,
+  FaTrashAlt
 } from 'react-icons/fa';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from '../../hooks/useTranslation';
@@ -35,6 +36,7 @@ import PageHeader from '../common/PageHeader';
 import {
   fetchFullStockVerificationSession,
   getSessionListDisplayQty,
+  deleteStockVerificationByDate,
 } from '../../utils/stockVerificationSessionUtils';
 
 /** Outline UI — matches Label Stock List / global page kit */
@@ -131,6 +133,7 @@ const StockVerification = () => {
   const [selectedExportBranchId, setSelectedExportBranchId] = useState('');
   const [consolidationTreePage, setConsolidationTreePage] = useState(1);
   const [consolidationItemsPerPage, setConsolidationItemsPerPage] = useState(15);
+  const [deletingByDate, setDeletingByDate] = useState(false);
 
   const { addNotification } = useNotifications();
   const { t } = useTranslation();
@@ -580,6 +583,42 @@ const StockVerification = () => {
       toast.error('Failed to load consolidation report');
     } finally {
       setConsolidationLoading(false);
+    }
+  };
+
+  const handleDeleteByDate = async () => {
+    if (!clientCode || !selectedReportDate) {
+      toast.warn('Select a date first.');
+      return;
+    }
+    const ok = window.confirm(
+      `Delete all stock verification batches for ${selectedReportDate}?\nThis client only. Matched and unmatched rows for that date will be removed. Other dates are not touched.`
+    );
+    if (!ok) return;
+    setDeletingByDate(true);
+    try {
+      const data = await deleteStockVerificationByDate({ clientCode, date: selectedReportDate });
+      const deletedBatches = Number(data?.DeletedBatches ?? data?.deletedBatches ?? 0);
+      const deletedRecords = Number(data?.DeletedRecords ?? data?.deletedRecords ?? 0);
+      const msg =
+        data?.Message ||
+        data?.message ||
+        (deletedBatches
+          ? `Deleted ${deletedBatches} batch(es), ${deletedRecords} record(s).`
+          : 'No stock verification batch found for this date.');
+      if (deletedBatches > 0) toast.success(msg);
+      else toast.info(msg);
+      await fetchSessions();
+      if (activeTab === 'combineReport') {
+        await fetchConsolidationReport({
+          ClientCode: clientCode,
+          ReportDate: selectedReportDate,
+        });
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.Message || err?.response?.data?.message || err?.message || 'Delete failed');
+    } finally {
+      setDeletingByDate(false);
     }
   };
 
@@ -1688,6 +1727,16 @@ const StockVerification = () => {
                   disabled={consolidationLoading}
                 >
                   <FaSpinner className={consolidationLoading ? 'fa-spin' : ''} /> Refresh
+                </button>
+                <button
+                  type="button"
+                  className="sv-chip"
+                  onClick={handleDeleteByDate}
+                  disabled={deletingByDate || !selectedReportDate}
+                  title="Delete this client's batches for the selected date"
+                  style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+                >
+                  {deletingByDate ? <FaSpinner className="fa-spin" /> : <FaTrashAlt />} Delete date
                 </button>
                 <button
                   type="button"

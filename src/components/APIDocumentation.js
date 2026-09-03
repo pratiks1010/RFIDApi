@@ -506,6 +506,25 @@ const APIDocumentation = () => {
       ]
     },
     {
+      id: 'delete-stock-verification-by-date',
+      name: 'Delete Stock Verification By Date',
+      endpoint: 'DeleteStockVerificationByDate',
+      method: 'POST',
+      baseUrl: 'https://rrgold.loyalstring.co.in/api/ProductMaster',
+      description: 'Deletes stock verification batches for one client and one date only (CreatedOn / LastUpdated). Removes the full batch: all matched and unmatched rows. Other dates are not touched.',
+      sampleBody: {
+        ClientCode: 'LS000123',
+        Date: '2026-09-03'
+      },
+      responseFormat: {
+        Message: 'Stock verification batches deleted successfully.',
+        ClientCode: 'LS000123',
+        Date: '2026-09-03',
+        DeletedBatches: 3,
+        DeletedRecords: 120
+      }
+    },
+    {
       id: 'tag-usage',
       name: 'Get Used/Unused RFID Tags',
       endpoint: 'GetAllUsedAndUnusedTag',

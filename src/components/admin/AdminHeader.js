@@ -293,7 +293,7 @@ const AdminHeader = ({
     localStorage.removeItem('currentUsername');
     localStorage.removeItem('loginUsername');
     sessionStorage.clear();
-    window.location.replace('/admin-login');
+    window.location.replace(`${window.location.pathname}${window.location.search}#/admin-login`);
   };
 
   const menuItems = [

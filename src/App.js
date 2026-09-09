@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
@@ -82,9 +82,7 @@ import { TranslationProvider } from './context/TranslationContext';
 import WelcomeModal from './components/common/WelcomeModal';
 import './i18n';
 
-const Router = (typeof window !== 'undefined' && window.location.protocol === 'file:')
-  ? HashRouter
-  : BrowserRouter;
+const Router = HashRouter;
 
 setupApiRuntimeRouter();
 

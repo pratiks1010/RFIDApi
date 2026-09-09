@@ -3,6 +3,29 @@ export const isElectronFileProtocol = () =>
   typeof window !== 'undefined' && window.location.protocol === 'file:';
 
 /**
+ * Always hash-route. BrowserRouter + homepage "." makes production request
+ * ./static/js from /create-invoice, IIS/Apache then return index.html, and the
+ * browser throws Unexpected token '<'.
+ */
+export const shouldUseHashRouter = () => true;
+
+export const goToAppPath = (path, { replace = false } = {}) => {
+  if (typeof window === 'undefined') return;
+  const next = String(path || '/').startsWith('/') ? String(path) : `/${path}`;
+  if (shouldUseHashRouter()) {
+    const url = `${window.location.pathname}${window.location.search}#${next}`;
+    if (replace) {
+      window.location.replace(url);
+    } else {
+      window.location.hash = `#${next}`;
+    }
+    return;
+  }
+  if (replace) window.location.replace(next);
+  else window.location.href = next;
+};
+
+/**
  * Do not hard-redirect on 401 for login/register/forgot-password calls —
  * those should show inline errors on the form.
  */
@@ -43,13 +66,7 @@ export const redirectToLogin = ({ sessionExpired = false, admin = false } = {}) 
   const query = sessionExpired && !admin ? '?session_expired=true' : '';
   const target = `${path}${query}`;
 
-  if (isElectronFileProtocol()) {
-    window.location.hash = `#${target}`;
-    return;
-  }
-
-  const origin = window.location.origin || '';
-  window.location.href = `${origin}${target}`;
+  goToAppPath(target, { replace: true });
 };
 
 /** Shared axios 401 handler — use in global interceptors. */

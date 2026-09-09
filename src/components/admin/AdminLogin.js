@@ -28,7 +28,7 @@ const AdminLogin = () => {
         setSuccess(true);
         setTimeout(() => {
           // Redirect to admin dashboard after successful login
-          window.location.href = '/admin-dashboard';
+          window.location.hash = '#/admin-dashboard';
         }, 1000);
       } else {
         setError(loginResult.error || 'Invalid username or password');

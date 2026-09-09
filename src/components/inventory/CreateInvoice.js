@@ -1493,46 +1493,76 @@ const CreateInvoice = () => {
     setShowSuccess(true);
   };
 
+  const formatExcelWeight = (value) => (
+    value !== undefined && value !== null && value !== '' && !Number.isNaN(Number(value))
+      ? Number(value).toFixed(3)
+      : ''
+  );
+
+  const mapLabeledStockForExcel = (items) => (
+    (Array.isArray(items) ? items : []).map((item, index) => ({
+      'Sr No': index + 1,
+      'Counter Name': item.CounterName || '',
+      'Item Code': item.ItemCode || '',
+      'RFID Code': item.RFIDCode || '',
+      'Product Name': item.ProductName || '',
+      'Category': item.CategoryName || item.Category || '',
+      'Design': item.DesignName || item.Design || '',
+      'Purity': item.PurityName || item.Purity || '',
+      'Gross Wt': formatExcelWeight(item.GrossWt),
+      'Stone Wt': formatExcelWeight(item.StoneWt),
+      'Diamond Wt': formatExcelWeight(item.DiamondWt),
+      'Net Wt': formatExcelWeight(item.NetWt),
+      'Description': item.Description || '',
+      'Stone Amt': item.StoneAmt || '',
+      'Fixed Amt': item.FixedAmt || '',
+      'Vendor': item.Vendor || item.VendorName || '',
+      'Branch': item.Branch || item.BranchName || '',
+      'Box Name': item.BoxName || '',
+      'Created Date': item.CreatedDate || item.CreatedOn || '',
+      'Packing Weight': item.PackingWeight || '',
+      'Total Weight': item.TotalWeight || '',
+      'Status': item.Status || ''
+    }))
+  );
+
+  const writeLabeledStockExcelFile = (rows, sheetName, filePrefix) => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 8 }, { wch: 15 }, { wch: 14 }, { wch: 16 }, { wch: 22 },
+      { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 12 },
+      { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 14 },
+      { wch: 14 }, { wch: 12 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const date = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `${filePrefix}_${date}.xlsx`);
+  };
+
+  const parseLabeledStockResponse = (responseData) => {
+    if (!responseData) return [];
+    if (Array.isArray(responseData)) return responseData;
+    if (Array.isArray(responseData.data)) return responseData.data;
+    if (responseData.success && Array.isArray(responseData.data)) return responseData.data;
+    if (responseData.data && Array.isArray(responseData.data.data)) return responseData.data.data;
+    return [];
+  };
+
   const handleExportToExcel = async () => {
     try {
       setExportLoading(true);
       setExportErrors({ ...exportErrors, excel: '' });
 
-      const wb = XLSX.utils.book_new();
-      
-      // Use all filtered data if available, otherwise use current page data
+      const isSoldExport = invoiceListStockMode === 'sold';
       const dataToExport = showAllData && allFilteredData.length > 0 ? allFilteredData : filteredStock;
-      
-      const exportData = dataToExport.map((item, index) => ({
-        'Sr No': index + 1,
-        'Counter Name': item.CounterName || '',
-        'Item Code': item.ItemCode || '',
-        'RFID Code': item.RFIDCode || '',
-        'Product Name': item.ProductName || '',
-        'Category': item.Category || '',
-        'Gross Wt': item.GrossWt ? Number(item.GrossWt).toFixed(3) : '',
-        'Net Wt': item.NetWt ? Number(item.NetWt).toFixed(3) : '',
-        'Status': item.Status || ''
-      }));
-
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      
-      ws['!cols'] = [
-        { wch: 8 },  // Sr No
-        { wch: 15 }, // Counter Name
-        { wch: 12 }, // Item Code
-        { wch: 15 }, // RFID Code
-        { wch: 25 }, // Product Name
-        { wch: 15 }, // Category
-        { wch: 12 }, // Gross Wt
-        { wch: 12 }, // Net Wt
-        { wch: 12 }  // Status
-      ];
-
-      XLSX.utils.book_append_sheet(wb, ws, "Label Stock");
-
-      const date = new Date().toISOString().split('T')[0];
-      XLSX.writeFile(wb, `label_stock_${date}.xlsx`);
+      const exportData = mapLabeledStockForExcel(dataToExport);
+      writeLabeledStockExcelFile(
+        exportData,
+        isSoldExport ? 'Sold Items' : 'Label Stock',
+        isSoldExport ? 'sold_items' : 'label_stock'
+      );
 
       // Show success notification before closing modal
       showSuccessNotification(
@@ -1549,12 +1579,138 @@ const CreateInvoice = () => {
       // After export:
       addNotification({
         title: 'Export successful',
-        description: `Label stock exported to Excel by ${userInfo?.Username || userInfo?.UserName || 'User'}`,
+        description: `${isSoldExport ? 'Sold items' : 'Label stock'} exported to Excel by ${userInfo?.Username || userInfo?.UserName || 'User'}`,
         type: 'info'
       });
     } catch (error) {
       console.error('Excel export error:', error);
       setExportErrors({ ...exportErrors, excel: 'Failed to export Excel. Please try again.' });
+      setExportLoading(false);
+    }
+  };
+
+  const handleExportSoldItemsToExcel = async () => {
+    try {
+      setExportLoading(true);
+      setExportErrors({ ...exportErrors, excel: '' });
+
+      let clientCode = getClientCodeForRequests();
+      if (!clientCode) {
+        try {
+          const storedUserInfo = localStorage.getItem('userInfo');
+          if (storedUserInfo) {
+            const parsedUserInfo = JSON.parse(storedUserInfo);
+            clientCode = (parsedUserInfo?.ClientCode || parsedUserInfo?.clientCode || '').trim();
+          }
+        } catch (err) {
+          console.error('Error reading client code for sold export:', err);
+        }
+      }
+
+      if (!clientCode) {
+        addNotification({
+          title: 'Export failed',
+          description: 'Client code not found. Please login again.',
+          type: 'error'
+        });
+        setExportLoading(false);
+        return;
+      }
+
+      const selectedSoldItems = selectedRows.length > 0
+        ? filteredStock.filter((item) => selectedRows.includes(item.Id))
+        : [];
+
+      let rowsToExport = selectedSoldItems;
+
+      if (rowsToExport.length === 0) {
+        const payload = {
+          ClientCode: clientCode,
+          CategoryId: getFilterValueForAPI('categoryId', filterValues.categoryId),
+          ProductId: getFilterValueForAPI('productId', filterValues.productId),
+          DesignId: getFilterValueForAPI('designId', filterValues.designId),
+          PageNumber: 1,
+          PageSize: 999999,
+          BranchId: filterValues.branch !== 'All' ? (() => {
+            const selectedBranch = apiFilterData.branches?.find((branch) =>
+              branch.BranchName === filterValues.branch ||
+              branch.Name === filterValues.branch ||
+              branch.branchName === filterValues.branch ||
+              branch.name === filterValues.branch
+            );
+            return selectedBranch ? (selectedBranch.Id || selectedBranch.id || 0) : 0;
+          })() : 0,
+          Status: filterValues.status !== 'All' ? filterValues.status : 'Sold',
+          SearchQuery: searchQuery && searchQuery.trim() !== '' ? searchQuery.trim() : '',
+          ListType: 'ascending'
+        };
+
+        if (filterValues.dateFrom && filterValues.dateFrom.trim() !== '') {
+          payload.FromDate = filterValues.dateFrom.trim();
+        }
+        if (filterValues.dateTo && filterValues.dateTo.trim() !== '') {
+          payload.ToDate = filterValues.dateTo.trim();
+        }
+        if (filterValues.counterName !== 'All' && filterValues.counterName) {
+          const selectedCounter = apiFilterData.counters?.find((counter) =>
+            counter.CounterName === filterValues.counterName ||
+            counter.Name === filterValues.counterName ||
+            counter.counterName === filterValues.counterName
+          );
+          if (selectedCounter) {
+            payload.CounterId = selectedCounter.Id || selectedCounter.id;
+          }
+        }
+        if (filterValues.boxName !== 'All' && filterValues.boxName) {
+          payload.BoxName = filterValues.boxName;
+        }
+        if (filterValues.vendor !== 'All' && filterValues.vendor) {
+          payload.Vendor = filterValues.vendor;
+        }
+
+        const response = await axios.post(
+          toRrgoldApiUrl('/api/ProductMaster/GetAllLabeledStock'),
+          payload,
+          {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        rowsToExport = mapStockRowsForInvoice(parseLabeledStockResponse(response.data), 1, 999999);
+      }
+
+      if (!rowsToExport.length) {
+        addNotification({
+          title: 'No sold items',
+          description: 'There are no sold items to export.',
+          type: 'info'
+        });
+        setExportLoading(false);
+        return;
+      }
+
+      writeLabeledStockExcelFile(mapLabeledStockForExcel(rowsToExport), 'Sold Items', 'sold_items');
+
+      showSuccessNotification(
+        'Export Successful',
+        `${rowsToExport.length} sold item${rowsToExport.length === 1 ? '' : 's'} exported to Excel`
+      );
+      addNotification({
+        title: 'Sold items exported',
+        description: `${rowsToExport.length} sold item${rowsToExport.length === 1 ? '' : 's'} exported to Excel by ${userInfo?.Username || userInfo?.UserName || 'User'}`,
+        type: 'info'
+      });
+    } catch (error) {
+      console.error('Sold items Excel export error:', error);
+      addNotification({
+        title: 'Export failed',
+        description: 'Failed to export sold items. Please try again.',
+        type: 'error'
+      });
+    } finally {
       setExportLoading(false);
     }
   };
@@ -3371,6 +3527,35 @@ const CreateInvoice = () => {
                 Sold
               </button>
             </div>
+            {invoiceListStockMode === 'sold' && (
+              <button
+                type="button"
+                onClick={handleExportSoldItemsToExcel}
+                disabled={exportLoading}
+                title={selectedRows.length > 0 ? 'Export selected sold items to Excel' : 'Export all sold items to Excel'}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  height: 34,
+                  padding: '0 12px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  border: '1px solid #86efac',
+                  background: exportLoading ? '#f8fafc' : '#ecfdf5',
+                  color: exportLoading ? '#9ca3af' : '#15803d',
+                  cursor: exportLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {exportLoading ? (
+                  <FaSpinner style={{ animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <FaFileExcel />
+                )}
+                <span>{selectedRows.length > 0 ? `Export Selected (${selectedRows.length})` : 'Export Sold Excel'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleDelete}

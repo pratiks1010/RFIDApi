@@ -5,6 +5,7 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import { getAuthForgotPasswordUrl, getAuthLoginUrl } from '../services/authApiConfig';
+import { shouldUseHashRouter } from '../utils/authRedirect';
 import { getApiMode } from '../services/apiBaseConfig';
 import OfflineApiBaseSettingsForm from './OfflineApiBaseSettingsForm';
 import { useAuthSplitSwap } from '../hooks/useAuthSplitSwap';
@@ -296,7 +297,7 @@ const Login = () => {
       theme: 'colored',
     });
 
-    if (window.location.protocol === 'file:') {
+    if (shouldUseHashRouter()) {
       window.location.hash = '#/login';
     } else {
       window.history.replaceState({}, '', '/login');

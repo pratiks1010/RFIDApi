@@ -24,6 +24,7 @@ import {
   FaSave,
   FaPrint,
   FaEye,
+  FaQrcode,
   FaImage,
   FaWeightHanging,
   FaRupeeSign,
@@ -40,6 +41,7 @@ import SuccessNotification from '../common/SuccessNotification';
 import PageHeader from '../common/PageHeader';
 import GridItemImage from '../common/GridItemImage';
 import TrayScanModal from '../common/TrayScanModal';
+import ProductQrModal from './ProductQrModal';
 import { buildTrayStockLookupPayload } from '../../utils/epcLookup';
 import { saveBlobWithPreferredFolder } from '../../services/exportDownloadHelper';
 import { toRrgoldApiUrl } from '../../services/apiBaseConfig';
@@ -283,6 +285,7 @@ const LabelStockList = () => {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [rowActionMenu, setRowActionMenu] = useState(null);
+  const [qrModalItem, setQrModalItem] = useState(null);
   const [columnConfig, setColumnConfig] = useState(loadColumnConfig);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [filterValues, setFilterValues] = useState({
@@ -5088,6 +5091,15 @@ const LabelStockList = () => {
                         </button>
                         <button
                           type="button"
+                          className="product-card__action product-card__action--qr"
+                          onClick={(e) => { e.stopPropagation(); setQrModalItem(item); }}
+                          title="Generate & View Public QR Code"
+                        >
+                          <FaQrcode size={13} />
+                          <span>QR</span>
+                        </button>
+                        <button
+                          type="button"
                           className="product-card__action product-card__action--print"
                           onClick={(e) => { e.stopPropagation(); handlePrintSingleLabel(item, e); }}
                           disabled={!selectedTemplate || previewLoading}
@@ -5229,6 +5241,15 @@ const LabelStockList = () => {
                       width: 40,
                       minWidth: 40,
                       position: 'sticky',
+                      right: canDeleteStock ? 120 : 80,
+                      zIndex: 12,
+                      borderLeft: '1px solid #e4e4e7',
+                    }}>QR</th>
+                    <th style={{
+                      textAlign: 'center',
+                      width: 40,
+                      minWidth: 40,
+                      position: 'sticky',
                       right: canDeleteStock ? 80 : 40,
                       zIndex: 12,
                       borderLeft: '1px solid #e4e4e7',
@@ -5336,6 +5357,31 @@ const LabelStockList = () => {
                           })()}
                         </td>
                       ))}
+                      <td
+                        style={{
+                          textAlign: 'center',
+                          position: 'sticky',
+                          right: canDeleteStock ? 120 : 80,
+                          background: rowBg,
+                          zIndex: 6,
+                          width: 40,
+                          minWidth: 40,
+                          borderLeft: '1px solid #ececec',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          className="ui-icon-btn ui-icon-btn--neutral"
+                          title="Generate & View Public QR Code"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setQrModalItem(item);
+                          }}
+                        >
+                          <FaQrcode style={{ color: '#c99c42' }} />
+                        </button>
+                      </td>
                       <td
                         style={{
                           textAlign: 'center',
@@ -5728,6 +5774,16 @@ const LabelStockList = () => {
             background: #fff;
             color: #0f172a;
             border-color: #cbd5e1;
+          }
+          .product-card__action--qr {
+            background: rgba(255,255,255,0.95);
+            color: #b45309;
+            border: 1px solid #fef3c7;
+          }
+          .product-card__action--qr:hover {
+            background: #fffbeb;
+            color: #92400e;
+            border-color: #fde68a;
           }
           .product-card__action--print {
             background: rgba(255,255,255,0.95);
@@ -8238,6 +8294,18 @@ const LabelStockList = () => {
           subtitle="Scan EPC tags and load matched label stock rows in the table."
           loadButtonLabel={trayFetchLoading ? 'Fetching...' : 'Load Data'}
           compactLayout
+        />
+
+        <ProductQrModal
+          isOpen={Boolean(qrModalItem)}
+          onClose={() => setQrModalItem(null)}
+          item={qrModalItem}
+          clientCode={(() => {
+            try {
+              const u = localStorage.getItem('userInfo');
+              return u ? JSON.parse(u).ClientCode : '';
+            } catch (_) { return ''; }
+          })()}
         />
 
         {showColumnSettings && (

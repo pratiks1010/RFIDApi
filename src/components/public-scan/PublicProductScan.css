@@ -1,0 +1,1421 @@
+/* Luxury Jewelry QR Code Scanner & Product Details Styling (Clean White Luxury Theme) */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Montserrat:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --lux-gold: #b48324;
+  --lux-gold-light: #fef7e7;
+  --lux-gold-gradient: linear-gradient(135deg, #d4af37 0%, #b48324 50%, #8e6216 100%);
+  --lux-gold-text: #926315;
+  --lux-bg-page: #f8fafc;
+  --lux-card-bg: #ffffff;
+  --lux-card-border: rgba(180, 131, 36, 0.24);
+  --lux-text-primary: #0f172a;
+  --lux-text-secondary: #64748b;
+  --lux-font-serif: 'Cormorant Garamond', Georgia, serif;
+  --lux-font-sans: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.lux-scan-app {
+  font-family: var(--lux-font-sans);
+  background-color: var(--lux-bg-page);
+  color: var(--lux-text-primary);
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Subtle luxury background radial warmth */
+.lux-scan-app::before {
+  content: '';
+  position: fixed;
+  top: -100px;
+  right: -100px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(201, 156, 66, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.lux-scan-app::after {
+  content: '';
+  position: fixed;
+  bottom: -150px;
+  left: -150px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(201, 156, 66, 0.05) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ============================================================
+   APP HEADER (CLEAN WHITE LUXURY)
+   ============================================================ */
+.lux-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(180, 131, 36, 0.18);
+  padding: 12px 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+}
+
+.lux-header-inner {
+  max-width: 1140px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.lux-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  flex: 1;
+}
+
+.lux-brand-logo-img {
+  height: 32px;
+  width: auto;
+  max-width: 44px;
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 4px rgba(180, 131, 36, 0.2));
+}
+
+.lux-brand-divider {
+  height: 24px;
+  width: 1px;
+  background: #e2e8f0;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.lux-brand-text {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.lux-brand-title {
+  font-family: var(--lux-font-serif);
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lux-brand-tagline {
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lux-gold-text);
+  font-weight: 600;
+  margin: 2px 0 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lux-live-tag {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lux-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lux-btn-ghost {
+  background: #ffffff;
+  border: 1px solid rgba(180, 131, 36, 0.35);
+  color: #0f172a;
+  border-radius: 24px;
+  padding: 7px 16px;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.lux-btn-ghost:hover {
+  background: #fef7e7;
+  border-color: var(--lux-gold);
+  color: var(--lux-gold-text);
+}
+
+/* ============================================================
+   SCANNER VIEW
+   ============================================================ */
+.lux-scanner-container {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 30px 16px 50px;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.lux-scanner-intro {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.lux-scanner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fef7e7;
+  border: 1px solid rgba(180, 131, 36, 0.35);
+  color: var(--lux-gold-text);
+  padding: 5px 14px;
+  border-radius: 50px;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.lux-scanner-title {
+  font-family: var(--lux-font-serif);
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #0f172a;
+  letter-spacing: 0.02em;
+}
+
+.lux-scanner-subtitle {
+  font-size: 0.88rem;
+  color: var(--lux-text-secondary);
+  line-height: 1.5;
+  margin: 0 auto;
+  max-width: 380px;
+}
+
+.lux-viewfinder-card {
+  background: #ffffff;
+  border: 1px solid var(--lux-card-border);
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.06), 0 0 25px rgba(201, 156, 66, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+.lux-camera-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 330px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#lux-qr-reader {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+}
+
+#lux-qr-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 16px !important;
+}
+
+.lux-laser-line {
+  position: absolute;
+  top: 0;
+  left: 10%;
+  width: 80%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 0%, #d4af37 50%, transparent 100%);
+  box-shadow: 0 0 16px 4px rgba(212, 175, 55, 0.8);
+  animation: scanLaser 2.2s ease-in-out infinite alternate;
+  z-index: 10;
+  pointer-events: none;
+}
+
+@keyframes scanLaser {
+  0% { top: 12%; }
+  100% { top: 88%; }
+}
+
+.lux-corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: var(--lux-gold);
+  border-style: solid;
+  pointer-events: none;
+  z-index: 11;
+}
+
+.lux-corner-tl { top: 16px; left: 16px; border-width: 3px 0 0 3px; border-top-left-radius: 8px; }
+.lux-corner-tr { top: 16px; right: 16px; border-width: 3px 3px 0 0; border-top-right-radius: 8px; }
+.lux-corner-bl { bottom: 16px; left: 16px; border-width: 0 0 3px 3px; border-bottom-left-radius: 8px; }
+.lux-corner-br { bottom: 16px; right: 16px; border-width: 0 3px 3px 0; border-bottom-right-radius: 8px; }
+
+.lux-camera-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.lux-ctrl-btn {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  border-radius: 50px;
+  padding: 8px 18px;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 600;
+}
+
+.lux-ctrl-btn:hover {
+  background: #fef7e7;
+  border-color: var(--lux-gold);
+}
+
+.lux-ctrl-btn.active {
+  background: var(--lux-gold-gradient);
+  color: #0f172a;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.lux-divider {
+  display: flex;
+  align-items: center;
+  margin: 24px 0 18px;
+  color: var(--lux-text-secondary);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.lux-divider::before,
+.lux-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.lux-divider span {
+  padding: 0 14px;
+}
+
+.lux-manual-form {
+  display: flex;
+  gap: 8px;
+}
+
+.lux-input {
+  flex: 1;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: #0f172a;
+  font-size: 0.92rem;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.lux-input:focus {
+  border-color: var(--lux-gold);
+  box-shadow: 0 0 12px rgba(180, 131, 36, 0.25);
+  background: #ffffff;
+}
+
+.lux-btn-gold {
+  background: var(--lux-gold-gradient);
+  color: #0f172a;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 22px;
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 14px rgba(180, 131, 36, 0.35);
+  flex-shrink: 0;
+}
+
+.lux-btn-gold:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(180, 131, 36, 0.45);
+}
+
+.lux-demo-pills {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.lux-pill-btn {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: var(--lux-text-secondary);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 600;
+}
+
+.lux-pill-btn:hover {
+  border-color: var(--lux-gold);
+  color: var(--lux-gold-text);
+  background: #fef7e7;
+}
+
+/* ============================================================
+   PRODUCT DETAILS VIEW - CLEAN WHITE & BIG IMAGE SHOWCASE
+   ============================================================ */
+.lux-product-container {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 20px 24px 80px;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* Navigation bar */
+.lux-detail-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.lux-back-btn {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  border-radius: 50px;
+  padding: 7px 16px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.lux-back-btn:hover {
+  background: #fef7e7;
+  border-color: var(--lux-gold);
+  color: var(--lux-gold-text);
+}
+
+.lux-stock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #059669;
+  border-radius: 50px;
+  padding: 5px 14px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lux-stock-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+/* ============================================================
+   HERO BIG IMAGE DISPLAY (UPAR IMAGE IN BIG SIZE - WHITE SHOWCASE)
+   ============================================================ */
+.lux-gallery-card {
+  background: #ffffff;
+  border: 1px solid var(--lux-card-border);
+  border-radius: 24px;
+  overflow: hidden;
+  margin-bottom: 24px;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.05), 0 0 25px rgba(180, 131, 36, 0.06);
+  position: relative;
+}
+
+.lux-hero-image-box {
+  position: relative;
+  width: 100%;
+  height: 600px;
+  background: radial-gradient(circle at center, #ffffff 0%, #faf8f5 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: zoom-in;
+  user-select: none;
+}
+
+.lux-hero-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 24px;
+  transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.lux-hero-image-box:hover .lux-hero-image {
+  transform: scale(1.035);
+}
+
+.lux-zoom-hint {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(180, 131, 36, 0.35);
+  color: #0f172a;
+  padding: 7px 16px;
+  border-radius: 50px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+}
+
+.lux-hero-image-box:hover .lux-zoom-hint {
+  background: #fef7e7;
+  color: var(--lux-gold-text);
+  border-color: var(--lux-gold);
+}
+
+/* Placeholder when no product image is uploaded */
+.lux-no-image-box {
+  width: 100%;
+  min-height: 440px;
+  background: linear-gradient(145deg, #ffffff 0%, #faf8f5 50%, #f7f3ec 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  text-align: center;
+  position: relative;
+}
+
+.lux-no-image-badge {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #fef7e7;
+  border: 1.5px dashed rgba(180, 131, 36, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(180, 131, 36, 0.12);
+  margin-bottom: 18px;
+  animation: floatSubtle 3s ease-in-out infinite alternate;
+}
+
+@keyframes floatSubtle {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-5px); }
+}
+
+.lux-no-image-icon {
+  font-size: 1.9rem;
+  color: var(--lux-gold);
+}
+
+.lux-no-image-title {
+  font-family: var(--lux-font-serif);
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 8px 0;
+  letter-spacing: 0.01em;
+}
+
+.lux-no-image-desc {
+  font-size: 0.88rem;
+  color: #64748b;
+  margin: 0 auto 20px auto;
+  max-width: 380px;
+  line-height: 1.5;
+}
+
+.lux-no-image-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(180, 131, 36, 0.28);
+  padding: 8px 18px;
+  border-radius: 50px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f172a;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+.lux-no-image-tag-pill strong {
+  color: var(--lux-gold-text);
+  font-weight: 700;
+}
+
+.lux-dot-sep {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
+/* Gallery thumbnails */
+.lux-thumb-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #faf8f5;
+  border-top: 1px solid #f1f5f9;
+  overflow-x: auto;
+}
+
+.lux-thumb-btn {
+  width: 68px;
+  height: 68px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  background: #ffffff;
+  flex-shrink: 0;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.lux-thumb-btn.active {
+  border-color: var(--lux-gold);
+  box-shadow: 0 0 10px rgba(180, 131, 36, 0.35);
+}
+
+.lux-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ============================================================
+   DETAILS SECTION (BELOW IMAGE - CLEAN WHITE CARDS)
+   ============================================================ */
+.lux-product-header {
+  margin-bottom: 20px;
+}
+
+.lux-pill-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lux-tag {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 5px 11px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.04em;
+}
+
+.lux-tag-gold {
+  background: #fef9ee;
+  border-color: #fcd34d;
+  color: #92400e;
+  font-weight: 800;
+}
+
+.lux-tag-hallmark {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.lux-product-title {
+  font-family: var(--lux-font-serif);
+  font-size: clamp(1.8rem, 3.2vw, 2.5rem);
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+.lux-product-desc {
+  font-size: 0.9rem;
+  color: var(--lux-text-secondary);
+  line-height: 1.6;
+  margin-bottom: 0;
+}
+
+/* ============================================================
+   CERTIFIED WEIGHTS CARD (WHITE & GOLD)
+   ============================================================ */
+.lux-weights-card {
+  background: #ffffff;
+  border: 1px solid var(--lux-card-border);
+  border-radius: 18px;
+  padding: 18px 22px;
+  margin-bottom: 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+}
+
+.lux-card-heading {
+  font-family: var(--lux-font-serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lux-weights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 600px) {
+  .lux-weights-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.lux-weight-item {
+  background: #fafaf9;
+  border: 1px solid #e7e5e4;
+  border-radius: 14px;
+  padding: 12px 10px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.lux-weight-item:hover {
+  background: #fef9ee;
+  border-color: rgba(180, 131, 36, 0.4);
+}
+
+.lux-weight-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--lux-text-secondary);
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.lux-weight-val {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.lux-weight-unit {
+  font-size: 0.76rem;
+  color: var(--lux-text-secondary);
+  margin-left: 2px;
+  font-weight: 600;
+}
+
+/* ============================================================
+   LIVE PRICE BREAKDOWN CARD (WHITE LUXURY WITH LIVE PULSE)
+   ============================================================ */
+.lux-price-card {
+  background: #ffffff;
+  border: 1.5px solid rgba(180, 131, 36, 0.35);
+  border-radius: 18px;
+  padding: 22px;
+  margin-bottom: 22px;
+  box-shadow: 0 8px 30px rgba(180, 131, 36, 0.08);
+}
+
+.lux-live-rate-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fef9ee;
+  border: 1px dashed rgba(180, 131, 36, 0.45);
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-bottom: 18px;
+  font-size: 0.84rem;
+}
+
+.lux-live-rate-label {
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.lux-live-rate-val {
+  font-weight: 800;
+  color: #b45309;
+  font-size: 0.98rem;
+}
+
+.lux-breakdown-table {
+  width: 100%;
+  font-size: 0.88rem;
+  border-collapse: collapse;
+}
+
+.lux-breakdown-table td {
+  padding: 9px 0;
+}
+
+.lux-breakdown-table tr {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.lux-breakdown-table td:first-child {
+  color: #475569;
+  font-weight: 500;
+}
+
+.lux-breakdown-table td:last-child {
+  text-align: right;
+  font-weight: 700;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Total Price Highlight */
+.lux-total-price-box {
+  margin-top: 18px;
+  padding: 16px;
+  background: #faf8f5;
+  border: 1px solid #e8dcc6;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lux-total-label {
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #0f172a;
+  margin-bottom: 2px;
+  font-weight: 800;
+}
+
+.lux-total-sub {
+  font-size: 0.72rem;
+  color: var(--lux-text-secondary);
+}
+
+.lux-total-amount {
+  font-family: var(--lux-font-serif);
+  font-size: clamp(1.8rem, 3.2vw, 2.4rem);
+  font-weight: 800;
+  color: #b45309;
+  line-height: 1;
+}
+
+/* ============================================================
+   SPECS & CERTIFICATION CARD (CLEAN WHITE TABS)
+   ============================================================ */
+.lux-specs-card {
+  background: #ffffff;
+  border: 1px solid var(--lux-card-border);
+  border-radius: 18px;
+  padding: 18px 22px;
+  margin-bottom: 22px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+}
+
+.lux-spec-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.86rem;
+}
+
+.lux-spec-label {
+  color: var(--lux-text-secondary);
+  font-weight: 500;
+}
+
+.lux-spec-val {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.lux-table-clean {
+  width: 100%;
+  font-size: 0.82rem;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.lux-table-clean th {
+  text-align: left;
+  color: #0f172a;
+  padding: 9px 8px;
+  font-weight: 700;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: #f8fafc;
+}
+
+.lux-table-clean td {
+  padding: 9px 8px;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+/* ============================================================
+   SHOWROOM & ACTIONS
+   ============================================================ */
+.lux-showroom-card {
+  background: #ffffff;
+  border: 1px solid var(--lux-card-border);
+  border-radius: 18px;
+  padding: 20px 22px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+}
+
+.lux-showroom-title {
+  font-family: var(--lux-font-serif);
+  font-size: 1.35rem;
+  color: #0f172a;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.lux-showroom-address {
+  font-size: 0.85rem;
+  color: var(--lux-text-secondary);
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.lux-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.lux-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.lux-action-btn-whatsapp {
+  background: #25d366;
+  color: #082110;
+  box-shadow: 0 3px 12px rgba(37, 211, 102, 0.25);
+}
+
+.lux-action-btn-whatsapp:hover {
+  background: #22c55e;
+  transform: translateY(-1px);
+}
+
+.lux-action-btn-call {
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  color: #ffffff;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.15);
+}
+
+.lux-action-btn-call:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   SIMILAR PRODUCTS CAROUSEL
+   ============================================================ */
+.lux-similar-section {
+  margin-top: 26px;
+}
+
+.lux-similar-header {
+  font-family: var(--lux-font-serif);
+  font-size: 1.45rem;
+  color: #0f172a;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lux-similar-carousel {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(180, 131, 36, 0.3) transparent;
+}
+
+.lux-similar-card {
+  flex: 0 0 180px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+.lux-similar-card:hover {
+  border-color: var(--lux-gold);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.lux-similar-img-box {
+  width: 100%;
+  height: 130px;
+  background: #faf8f5;
+  overflow: hidden;
+}
+
+.lux-similar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s;
+}
+
+.lux-similar-card:hover .lux-similar-img {
+  transform: scale(1.06);
+}
+
+.lux-similar-body {
+  padding: 12px;
+}
+
+.lux-similar-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.lux-similar-wt {
+  font-size: 0.72rem;
+  color: var(--lux-text-secondary);
+  margin-bottom: 4px;
+}
+
+.lux-similar-price {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #b45309;
+}
+
+/* ============================================================
+   LIGHTBOX / ZOOM MODAL
+   ============================================================ */
+.lux-lightbox-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(10px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+
+.lux-lightbox-img {
+  max-width: 92vw;
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 12px;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+}
+
+.lux-lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: background 0.2s;
+}
+
+.lux-lightbox-close:hover {
+  background: var(--lux-gold);
+  color: #0f172a;
+}
+
+/* ============================================================
+   RESPONSIVE DESIGN BREAKPOINTS (ALL SCREEN SIZES)
+   ============================================================ */
+
+/* Ultra-wide / 2K / 4K Monitors (>= 1440px) */
+@media (min-width: 1440px) {
+  .lux-product-container,
+  .lux-header-inner {
+    max-width: 1200px;
+  }
+  .lux-hero-image-box {
+    height: 620px;
+  }
+}
+
+/* Standard Desktop (1200px - 1439px) */
+@media (min-width: 1200px) and (max-width: 1439px) {
+  .lux-product-container,
+  .lux-header-inner {
+    max-width: 1120px;
+    padding: 24px 24px 80px;
+  }
+  .lux-hero-image-box {
+    height: 580px;
+  }
+}
+
+/* Small Desktop / Laptop (992px - 1199px) */
+@media (min-width: 992px) and (max-width: 1199px) {
+  .lux-product-container,
+  .lux-header-inner {
+    max-width: 920px;
+    padding: 20px 20px 80px;
+  }
+  .lux-hero-image-box {
+    height: 500px;
+  }
+}
+
+/* Tablet (768px - 991px) */
+@media (min-width: 768px) and (max-width: 991px) {
+  .lux-product-container,
+  .lux-header-inner {
+    max-width: 720px;
+    padding: 16px 16px 85px;
+  }
+  .lux-hero-image-box {
+    height: 440px;
+  }
+}
+
+/* Mobile & Phablet (481px - 767px) */
+@media (min-width: 481px) and (max-width: 767px) {
+  .lux-product-container {
+    padding: 14px 14px 95px;
+  }
+  .lux-hero-image-box {
+    height: 380px;
+  }
+  .lux-no-image-box {
+    min-height: 360px;
+    padding: 32px 18px;
+  }
+  .lux-gallery-card {
+    border-radius: 18px;
+    margin-bottom: 20px;
+  }
+  .lux-hero-image {
+    padding: 14px;
+  }
+  .lux-actions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Small Mobile (<= 480px) */
+@media (max-width: 480px) {
+  .lux-header {
+    padding: 8px 12px;
+  }
+  .lux-header-inner {
+    gap: 8px;
+  }
+  .lux-brand {
+    gap: 8px;
+  }
+  .lux-brand-logo-img {
+    height: 28px;
+    max-width: 36px;
+  }
+  .lux-brand-divider {
+    height: 20px;
+    margin: 0 2px;
+  }
+  .lux-brand-title {
+    font-size: 1.15rem;
+    line-height: 1.1;
+  }
+  .lux-brand-tagline {
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
+  }
+  .lux-btn-ghost {
+    padding: 6px 12px;
+    font-size: 0.74rem;
+    gap: 5px;
+    border-radius: 20px;
+  }
+  .lux-product-container {
+    padding: 10px 12px 100px;
+  }
+  .lux-gallery-card {
+    border-radius: 16px;
+    margin-bottom: 16px;
+  }
+  .lux-hero-image-box {
+    height: 310px;
+  }
+  .lux-hero-image {
+    padding: 10px;
+  }
+  .lux-no-image-box {
+    min-height: 290px;
+    padding: 26px 14px;
+  }
+  .lux-no-image-badge {
+    width: 60px;
+    height: 60px;
+    margin-bottom: 12px;
+  }
+  .lux-no-image-icon {
+    font-size: 1.45rem;
+  }
+  .lux-no-image-title {
+    font-size: 1.25rem;
+    margin-bottom: 6px;
+  }
+  .lux-no-image-desc {
+    font-size: 0.8rem;
+    margin-bottom: 14px;
+  }
+  .lux-no-image-tag-pill {
+    font-size: 0.74rem;
+    padding: 6px 12px;
+    gap: 6px;
+  }
+  .lux-product-title {
+    font-size: 1.35rem;
+  }
+  .lux-weights-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .lux-weight-item {
+    padding: 10px 6px;
+  }
+  .lux-weight-val {
+    font-size: 1.05rem;
+  }
+  .lux-total-price-box {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .lux-actions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Very Small Mobile (<= 360px) */
+@media (max-width: 360px) {
+  .lux-header {
+    padding: 6px 8px;
+  }
+  .lux-brand {
+    gap: 6px;
+  }
+  .lux-brand-logo-img {
+    height: 24px;
+    max-width: 30px;
+  }
+  .lux-brand-divider {
+    display: none;
+  }
+  .lux-brand-title {
+    font-size: 0.98rem;
+  }
+  .lux-brand-tagline {
+    display: none;
+  }
+  .lux-btn-ghost {
+    padding: 5px 8px;
+    font-size: 0.7rem;
+    gap: 4px;
+  }
+}
+
+/* Mobile Sticky Bottom Action Bar (Clean White) */
+.lux-mobile-bottom-bar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .lux-mobile-bottom-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 45;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(180, 131, 36, 0.22);
+    padding: 10px 14px;
+    gap: 10px;
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.08);
+  }
+  .lux-mobile-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 0.86rem;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    letter-spacing: 0.02em;
+    transition: transform 0.15s ease, filter 0.2s ease;
+  }
+  .lux-mobile-btn:active {
+    transform: scale(0.98);
+  }
+  .lux-mobile-btn--whatsapp {
+    background: #25d366;
+    color: #082110;
+    box-shadow: 0 2px 8px rgba(37, 211, 102, 0.25);
+  }
+  .lux-mobile-btn--call {
+    background: #0f172a;
+    color: #fff;
+    border: 1px solid #0f172a;
+  }
+}

@@ -69,6 +69,7 @@ import AboutSparkleApplication from './components/AboutSparkleApplication';
 import ItemImageFolderUtility from './components/ItemImageFolderUtility';
 import OfflineApiBaseSettingsPage from './components/OfflineApiBaseSettingsPage';
 import DownloadFoldersSettingsPage from './components/DownloadFoldersSettingsPage';
+import PublicProductScanView from './components/public-scan/PublicProductScanView';
 import { setupApiRuntimeRouter } from './services/apiRuntimeRouter';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-toastify/dist/ReactToastify.css';
@@ -541,7 +542,7 @@ const AuthGuard = ({ children }) => {
       const currentPath = location.pathname;
 
       // Public routes that don't require authentication
-      const publicRoutes = ['/login', '/register', '/admin-login'];
+      const publicRoutes = ['/login', '/register', '/admin-login', '/product-view'];
 
       // If on a public route, allow access
       if (publicRoutes.includes(currentPath)) {
@@ -600,6 +601,7 @@ const RoutesWrapper = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/admin-login" element={<AdminLogin />} />
+        <Route path="/product-view" element={<PublicProductScanView />} />
 
         {/* Admin dashboard (protected) */}
         <Route
